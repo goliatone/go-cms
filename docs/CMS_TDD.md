@@ -1,269 +1,359 @@
-# Go CMS Architecture Design Document
+# Go CMS Module - Architecture Design Document
 
 ## Table of Contents
 1. [Overview](#overview)
-2. [Core Architecture Components](#core-architecture-components)
-3. [Data Model](#data-model)
-4. [Go Module Structure](#go-module-structure)
-5. [Integration Examples](#integration-examples)
-6. [Key Design Principles](#key-design-principles)
+2. [Design Philosophy](#design-philosophy)
+3. [Entity Descriptions](#entity-descriptions)
+4. [Core Architecture Components](#core-architecture-components)
+5. [Data Model](#data-model)
+6. [Go Module Structure](#go-module-structure)
+7. [Implementation Roadmap](#implementation-roadmap)
 
 ## Overview
 
-This document outlines a modular CMS architecture in Go with built-in internationalization (i18n) and localization (l10n) support. The system is designed with a block-based content model similar to WordPress, supporting pages, menus, widgets, and templates.
+This document outlines a self-contained CMS module for Go applications. The module focuses exclusively on content management, providing interfaces for external dependencies while maintaining minimal coupling.
 
-### Technology Stack
-- **Language**: Go
-- **Database**: PostgreSQL / SQLite (transparent support)
-- **SQL Libraries**: sqlx, golang-migrate, squirrel
-- **Architecture Pattern**: Domain-Driven Design with Repository Pattern
+### Module Goals
+- Self-contained content management functionality
+- Minimal external dependencies
+- Interface-based design for pluggable implementations
+- Progressive enhancement through vertical slices
+- Integration-ready with existing Go ecosystem
 
-## CMS Entity Descriptions
+### What This Module Provides
+- Content type management (pages, blocks, menus, widgets)
+- Template and theme concepts
+- Internationalization support
+- Content versioning and scheduling
+- Hierarchical content organization
 
-### Blocks
-**Role**: Atomic content units that compose pages and posts. The fundamental building block of content.
+### What This Module Does NOT Provide
+- Authentication/Authorization (use external auth module)
+- File upload/storage (use external storage module)
+- Database implementation (use external persistence layer)
+- HTTP API/CRUD (use external API layer)
+- Caching implementation (use external cache module)
+- Template rendering engine (use external template module)
 
-**Usage**: Create reusable content components (paragraphs, images, galleries, quotes, embeds). Nest blocks to build complex layouts. Save frequently-used blocks as reusable patterns.
+## Design Philosophy
+
+### Vertical Slices Approach
+Start with minimal viable functionality and progressively enhance:
+1. **Sprint 1**: Pages with basic content
+2. **Sprint 2**: Block system for composable content
+3. **Sprint 3**: Menu management
+4. **Sprint 4**: Widget system
+5. **Sprint 5**: Advanced features (versioning, scheduling)
+
+### Module Independence
+Each content type is isolated with no direct dependencies on others. Service layers orchestrate interactions between modules.
+
+### Interface-Driven Design
+All external dependencies are defined as interfaces, allowing the host application to provide implementations.
+
+## Entity Descriptions
+
+### Pages
+**Role**: Hierarchical content containers representing website sections. The primary structural element of the site.
+
+**Usage**: Create site structure (homepage, about, contact). Build parent-child relationships for logical content organization. Assign templates for rendering.
 
 **Relations**:
-- Contained within pages, posts, and widgets
+- Extends base content type with hierarchy
+- Contains blocks in defined areas (when blocks module is enabled)
+- References templates for rendering
+- Supports parent-child relationships with other pages
+
+**Big Picture**: Forms the site's information architecture. Provides URL structure and logical content organization.
+
+---
+
+### Blocks
+**Role**: Atomic content units that compose pages. The fundamental building block of content.
+
+**Usage**: Create reusable content components (paragraphs, images, galleries). Nest blocks to build complex layouts. Save frequently-used blocks as patterns.
+
+**Relations**:
+- Contained within pages and widgets
 - Can contain other blocks (nested structure)
 - Reference media assets for rich content
 - Translated independently per locale
 
-**Big Picture**: Provides content flexibility without requiring developer intervention. Authors combine blocks to create unique layouts while maintaining consistent styling.
+**Big Picture**: Provides content flexibility without code changes. Authors combine blocks to create unique layouts.
+
+---
 
 ### Menus
 **Role**: Navigation structure that links content and external resources. Organizes site hierarchy for user navigation.
 
-**Usage**: Define navigation bars, footers, sidebars. Create hierarchical menu items linking to pages, posts, categories, or custom URLs. Assign menus to theme-defined locations.
+**Usage**: Define navigation bars, footers, sidebars. Create hierarchical menu items linking to pages or custom URLs. Assign menus to locations.
 
 **Relations**:
-- Links to pages, posts, and taxonomy terms
-- Assigned to menu locations defined by templates
+- Links to pages and external URLs
+- Assigned to menu locations
 - Menu items support parent-child relationships
 - Each item has translations per locale
 
-**Big Picture**: Decouples navigation from content structure. Allows arbitrary organization of site navigation independent of page hierarchy.
+**Big Picture**: Decouples navigation from content structure. Allows arbitrary organization of site navigation.
 
-### Pages
-**Role**: Hierarchical content containers representing static website sections. The primary structural element of the site.
-
-**Usage**: Create site structure (homepage, about, contact). Build parent-child relationships for logical content organization. Assign custom templates for unique layouts.
-
-**Relations**:
-- Extends base content type with hierarchy
-- Contains blocks in defined areas
-- References specific templates for rendering
-- Can be menu items and widget visibility conditions
-- Supports parent-child relationships with other pages
-
-**Big Picture**: Forms the site's information architecture. Provides URL structure and logical content organization that users and search engines understand.
+---
 
 ### Widgets
-**Role**: Dynamic content modules displayed in template-defined areas. Provides contextual functionality across multiple pages.
+**Role**: Dynamic content modules displayed in defined areas. Provides contextual functionality across pages.
 
-**Usage**: Add functionality to sidebars, footers, headers (recent posts, search, categories). Configure per-instance settings. Apply visibility rules for conditional display.
+**Usage**: Add functionality to sidebars, footers (recent posts, search). Configure per-instance settings. Apply visibility rules.
 
 **Relations**:
-- Placed in widget areas defined by templates
+- Placed in widget areas
 - Can contain blocks for rich content
-- Visibility controlled by page context, user state, device type
+- Visibility controlled by rules
 - Settings and content translated per locale
 
-**Big Picture**: Extends pages with reusable functionality. Allows non-technical users to add dynamic features without modifying templates.
+**Big Picture**: Extends pages with reusable functionality. Allows dynamic features without template modifications.
+
+---
 
 ### Templates
-**Role**: Presentation layer defining how content renders. Controls visual structure and layout patterns.
+**Role**: Presentation layer concept defining how content renders. Controls visual structure and layout patterns.
 
-**Usage**: Define page layouts, post formats, archive pages. Create template hierarchy (generic → specific). Override parent theme templates in child themes.
+**Usage**: Define page layouts, post formats. Create template hierarchy. Link to theme for organization.
 
 **Relations**:
 - Belongs to themes
-- Assigned to content types and individual pages
+- Assigned to content types and pages
 - Defines widget areas and menu locations
-- Specifies which block areas are available
-- Renders blocks, widgets, and menus in designated zones
+- Specifies block areas
 
-**Big Picture**: Separates presentation from content. Enables design changes without content migration and supports multiple designs for different content types.
+**Big Picture**: Separates presentation from content. Enables design flexibility without content migration.
+
+---
+
+### Themes
+**Role**: Collection of templates and assets forming a complete site design. Organizes presentation resources.
+
+**Usage**: Package related templates, styles, and configurations. Switch between designs. Define widget areas and menu locations.
+
+**Relations**:
+- Contains templates
+- Defines widget areas
+- Specifies menu locations
+- Provides default configurations
+
+**Big Picture**: Enables complete design changes through theme switching. Encapsulates all presentation logic.
 
 ## Core Architecture Components
 
 ### Content Module (`content/`)
-Core CMS content management:
-- **Content types manager** - Define and manage different content structures
-- **Version control** - Track content changes and revisions
-- **Draft/publish workflow** - Content state management
-- **Content validation** - Ensure data integrity
-- **Slug generation and management**
-
-### i18n Module (`i18n/`)
-Internationalization and localization:
-- **Locale management** - Handle language codes, regions
-- **Translation service** - Store and retrieve translations
-- **Fallback chain** - Handle missing translations gracefully
-- **Content negotiation** - Detect user language preferences
-- **Pluralization rules** - Language-specific plural forms
-
-### Templates Module (`templates/`)
-Template and theme management:
-- **Template engine integration** - Support for Go templates, custom engines
-- **Theme management** - Handle multiple themes
-- **Layout system** - Master layouts and partials
-- **Template inheritance** - Override and extend base templates
-- **Asset pipeline** - CSS/JS bundling per template
+Core content management functionality:
+- Content type definitions
+- Version control interfaces
+- Draft/publish workflow
+- Content validation
+- Slug generation
 
 ### Blocks Module (`blocks/`)
 Block-based content system:
-- **Block registry** - Register and manage block types
-- **Block renderer** - Render blocks with their specific logic
-- **Block validation** - Ensure block data integrity
-- **Custom block API** - Allow plugins to register new blocks
-- **Block transformations** - Convert between block types
+- Block type registry
+- Block rendering interfaces
+- Block validation
+- Nested block support
+- Reusable block patterns
+
+### Pages Module (`pages/`)
+Hierarchical page management:
+- Page hierarchy
+- Path management
+- Template assignment
+- Menu order
 
 ### Menus Module (`menus/`)
 Navigation management:
-- **Menu builder** - Drag-and-drop menu creation
-- **Menu locations** - Define where menus appear
-- **Menu item types** - Pages, custom links, categories
-- **Nested menu support** - Multi-level navigation
+- Menu structure
+- Menu locations
+- Menu item types
+- Hierarchical items
 
 ### Widgets Module (`widgets/`)
-Widget system for dynamic content areas:
-- **Widget areas/zones** - Define widget placement areas
-- **Widget registry** - Available widget types
-- **Widget instances** - Configured widget implementations
-- **Widget visibility rules** - Conditional display logic
+Widget functionality:
+- Widget types
+- Widget areas
+- Visibility rules
+- Widget settings
+
+### i18n Module (`i18n/`)
+Internationalization support:
+- Locale management
+- Translation interfaces
+- Fallback chains
+- Content negotiation
+
+### Themes Module (`themes/`)
+Theme management:
+- Theme registration
+- Template organization
+- Widget area definitions
+- Menu location definitions
 
 ## Data Model
 
-### Core Tables
+### Locales Table
+Stores available languages and their configuration for multilingual support.
 
-#### Locales
 ```sql
 CREATE TABLE locales (
     id UUID PRIMARY KEY,
-    code VARCHAR(10) UNIQUE NOT NULL, -- e.g., 'en-US', 'fr-FR'
+    code VARCHAR(10) UNIQUE NOT NULL,
     name VARCHAR(100) NOT NULL,
     native_name VARCHAR(100),
     is_active BOOLEAN DEFAULT true,
     is_default BOOLEAN DEFAULT false,
     fallback_locale_id UUID REFERENCES locales(id),
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Content Types
+**Example Data:**
+```json
+{
+  "id": "123e4567-e89b-12d3-a456-426614174000",
+  "code": "en-US",
+  "name": "English (United States)",
+  "native_name": "English",
+  "is_active": true,
+  "is_default": true,
+  "fallback_locale_id": null,
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Content Types Table
+Defines different types of content (pages, posts, custom types) and their capabilities.
+
 ```sql
 CREATE TABLE content_types (
     id UUID PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL, -- 'page', 'post', 'block', 'widget', 'custom'
-    icon VARCHAR(100), -- UI icon identifier
-    schema JSONB NOT NULL, -- JSON schema for validation
-    default_template_id UUID REFERENCES templates(id),
-    supports JSONB, -- features like 'blocks', 'comments', 'revisions'
+    type VARCHAR(50) NOT NULL,
+    icon VARCHAR(100),
+    schema JSONB NOT NULL,
+    supports JSONB,
     is_hierarchical BOOLEAN DEFAULT false,
     is_translatable BOOLEAN DEFAULT true,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Contents
+**Example Data:**
+```json
+{
+  "id": "223e4567-e89b-12d3-a456-426614174000",
+  "name": "Page",
+  "slug": "page",
+  "type": "page",
+  "icon": "file-text",
+  "schema": {
+    "properties": {
+      "title": {"type": "string", "maxLength": 200},
+      "content": {"type": "string"},
+      "excerpt": {"type": "string", "maxLength": 500}
+    }
+  },
+  "supports": ["blocks", "revisions", "custom-fields", "page-attributes"],
+  "is_hierarchical": true,
+  "is_translatable": true,
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Contents Table
+Base content storage for all content types.
+
 ```sql
 CREATE TABLE contents (
     id UUID PRIMARY KEY,
     content_type_id UUID NOT NULL REFERENCES content_types(id),
     slug VARCHAR(255) NOT NULL,
     status VARCHAR(50) NOT NULL DEFAULT 'draft',
-    author_id UUID NOT NULL REFERENCES users(id),
-    published_at TIMESTAMP,
+    author_id UUID NOT NULL,
+    publish_on TIMESTAMP,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(content_type_id, slug)
+    UNIQUE(content_type_id, slug, deleted_at)
 );
 ```
 
-#### Content Translations
+**Example Data:**
+```json
+{
+  "id": "323e4567-e89b-12d3-a456-426614174000",
+  "content_type_id": "223e4567-e89b-12d3-a456-426614174000",
+  "slug": "about-us",
+  "status": "published",
+  "author_id": "423e4567-e89b-12d3-a456-426614174000",
+  "publish_on": "2024-01-15T09:00:00Z",
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-10T00:00:00Z"
+}
+```
+
+### Content Translations Table
+Stores localized content for each content item.
+
 ```sql
 CREATE TABLE content_translations (
     id UUID PRIMARY KEY,
     content_id UUID NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
     locale_id UUID NOT NULL REFERENCES locales(id),
     title VARCHAR(500) NOT NULL,
-    data JSONB NOT NULL, -- Flexible field storage
+    data JSONB NOT NULL,
     meta_title VARCHAR(160),
     meta_description TEXT,
-    meta_keywords TEXT,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(content_id, locale_id)
+    UNIQUE(content_id, locale_id, deleted_at)
 );
 ```
 
-#### Content Versions
-```sql
-CREATE TABLE content_versions (
-    id UUID PRIMARY KEY,
-    content_translation_id UUID NOT NULL REFERENCES content_translations(id),
-    version_number INTEGER NOT NULL,
-    title VARCHAR(500) NOT NULL,
-    data JSONB NOT NULL,
-    change_summary TEXT,
-    author_id UUID NOT NULL REFERENCES users(id),
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(content_translation_id, version_number)
-);
+**Example Data:**
+```json
+{
+  "id": "523e4567-e89b-12d3-a456-426614174000",
+  "content_id": "323e4567-e89b-12d3-a456-426614174000",
+  "locale_id": "123e4567-e89b-12d3-a456-426614174000",
+  "title": "About Our Company",
+  "data": {
+    "content": "We are a technology company focused on innovation...",
+    "excerpt": "Learn more about our mission and values."
+  },
+  "meta_title": "About Us | ACME Corp",
+  "meta_description": "Learn about ACME Corp's mission, values, and team.",
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-10T00:00:00Z"
+}
 ```
 
-### Template System Tables
+### Block Types Table
+Defines available block types and their configuration.
 
-#### Themes
-```sql
-CREATE TABLE themes (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    version VARCHAR(20),
-    author VARCHAR(200),
-    description TEXT,
-    screenshot_url TEXT,
-    config JSONB,
-    is_active BOOLEAN DEFAULT false,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-#### Templates
-```sql
-CREATE TABLE templates (
-    id UUID PRIMARY KEY,
-    theme_id UUID REFERENCES themes(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    slug VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL, -- 'page', 'post', 'archive', 'single', 'partial'
-    description TEXT,
-    template_path TEXT,
-    schema JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(theme_id, slug)
-);
-```
-
-### Block System Tables
-
-#### Block Types
 ```sql
 CREATE TABLE block_types (
     id UUID PRIMARY KEY,
     name VARCHAR(100) UNIQUE NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
-    category VARCHAR(50), -- 'text', 'media', 'layout', 'widgets', 'embeds'
+    category VARCHAR(50),
     icon VARCHAR(100),
     description TEXT,
     schema JSONB NOT NULL,
@@ -274,150 +364,301 @@ CREATE TABLE block_types (
     frontend_style_url TEXT,
     supports JSONB,
     example JSONB,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Block Instances
+**Field Descriptions:**
+- `render_callback`: Function name or template path used to render the block on the frontend. Example: "blocks.RenderParagraph" or "templates/blocks/paragraph.html"
+- `editor_script_url`: URL to JavaScript file that implements the block editor interface. Loaded in admin panel for block editing.
+- `editor_style_url`: URL to CSS file for block editor styling. Defines how the block looks in the editor.
+- `frontend_script_url`: URL to JavaScript file for frontend block functionality. Loaded on public site if block requires interactive features.
+- `frontend_style_url`: URL to CSS file for frontend block styling. Defines how the block looks on the public site.
+- `supports`: JSON object defining block capabilities like alignment, custom CSS classes, anchors.
+- `example`: Sample block data used for preview in block picker.
+
+**Example Data:**
+```json
+{
+  "id": "623e4567-e89b-12d3-a456-426614174000",
+  "name": "Paragraph",
+  "slug": "paragraph",
+  "category": "text",
+  "icon": "paragraph",
+  "description": "A basic text paragraph block",
+  "schema": {
+    "properties": {
+      "content": {"type": "string"},
+      "align": {"type": "string", "enum": ["left", "center", "right"]},
+      "dropCap": {"type": "boolean", "default": false}
+    }
+  },
+  "render_callback": "blocks.RenderParagraph",
+  "editor_script_url": "/assets/blocks/paragraph/editor.js",
+  "editor_style_url": "/assets/blocks/paragraph/editor.css",
+  "frontend_script_url": null,
+  "frontend_style_url": "/assets/blocks/paragraph/style.css",
+  "supports": {
+    "align": true,
+    "anchor": true,
+    "customClassName": true,
+    "color": {"background": true, "text": true}
+  },
+  "example": {
+    "attributes": {
+      "content": "This is a sample paragraph.",
+      "align": "left"
+    }
+  },
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Block Instances Table
+Stores actual block usage instances within content.
+
 ```sql
 CREATE TABLE block_instances (
     id UUID PRIMARY KEY,
     block_type_id UUID NOT NULL REFERENCES block_types(id),
-    parent_id UUID, -- for nested blocks
-    parent_type VARCHAR(50), -- 'content', 'widget', 'block'
+    parent_id UUID,
+    parent_type VARCHAR(50),
     order_index INTEGER NOT NULL DEFAULT 0,
     attributes JSONB,
     is_reusable BOOLEAN DEFAULT false,
-    name VARCHAR(200), -- for reusable blocks
+    name VARCHAR(200),
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Block Translations
-```sql
-CREATE TABLE block_translations (
-    id UUID PRIMARY KEY,
-    block_instance_id UUID NOT NULL REFERENCES block_instances(id) ON DELETE CASCADE,
-    locale_id UUID NOT NULL REFERENCES locales(id),
-    content JSONB NOT NULL,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(block_instance_id, locale_id)
-);
+**Example Data:**
+```json
+{
+  "id": "723e4567-e89b-12d3-a456-426614174000",
+  "block_type_id": "623e4567-e89b-12d3-a456-426614174000",
+  "parent_id": "323e4567-e89b-12d3-a456-426614174000",
+  "parent_type": "content",
+  "order_index": 0,
+  "attributes": {
+    "content": "Welcome to our about page. Here you'll learn about our company history.",
+    "align": "left",
+    "dropCap": false
+  },
+  "is_reusable": false,
+  "name": null,
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
 ```
 
-#### Content Blocks Relationship
-```sql
-CREATE TABLE content_blocks (
-    content_id UUID NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
-    block_instance_id UUID NOT NULL REFERENCES block_instances(id) ON DELETE CASCADE,
-    area VARCHAR(100) DEFAULT 'main',
-    order_index INTEGER NOT NULL,
-    PRIMARY KEY (content_id, block_instance_id)
-);
-```
+### Pages Table
+Extends content for hierarchical page structure.
 
-### Page System Tables
-
-#### Pages
 ```sql
 CREATE TABLE pages (
     id UUID PRIMARY KEY,
     content_id UUID UNIQUE NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
     parent_id UUID REFERENCES pages(id),
-    template_id UUID REFERENCES templates(id),
+    template_slug VARCHAR(100),
     path TEXT NOT NULL,
     menu_order INTEGER DEFAULT 0,
     is_front_page BOOLEAN DEFAULT false,
-    is_posts_page BOOLEAN DEFAULT false,
     page_attributes JSONB,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(path)
+    UNIQUE(path, deleted_at)
 );
 ```
 
-### Menu System Tables
+**Example Data:**
+```json
+{
+  "id": "823e4567-e89b-12d3-a456-426614174000",
+  "content_id": "323e4567-e89b-12d3-a456-426614174000",
+  "parent_id": null,
+  "template_slug": "default",
+  "path": "/about-us",
+  "menu_order": 2,
+  "is_front_page": false,
+  "page_attributes": {
+    "show_sidebar": true,
+    "layout": "full-width"
+  },
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
 
-#### Menu Locations
+### Themes Table
+Defines available themes and their configuration.
+
 ```sql
-CREATE TABLE menu_locations (
+CREATE TABLE themes (
     id UUID PRIMARY KEY,
-    theme_id UUID NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    version VARCHAR(20),
+    author VARCHAR(200),
+    description TEXT,
+    config JSONB,
+    is_active BOOLEAN DEFAULT false,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+**Example Data:**
+```json
+{
+  "id": "923e4567-e89b-12d3-a456-426614174000",
+  "name": "Corporate Theme",
+  "slug": "corporate-theme",
+  "version": "1.0.0",
+  "author": "ACME Design Team",
+  "description": "A clean, professional theme for corporate websites",
+  "config": {
+    "colors": {
+      "primary": "#007bff",
+      "secondary": "#6c757d"
+    },
+    "fonts": {
+      "body": "Arial, sans-serif",
+      "heading": "Georgia, serif"
+    },
+    "widget_areas": ["sidebar", "footer-1", "footer-2", "footer-3"],
+    "menu_locations": ["primary", "footer"]
+  },
+  "is_active": true,
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Templates Table
+Defines templates available within themes.
+
+```sql
+CREATE TABLE templates (
+    id UUID PRIMARY KEY,
+    theme_id UUID REFERENCES themes(id) ON DELETE CASCADE,
     name VARCHAR(100) NOT NULL,
     slug VARCHAR(100) NOT NULL,
+    type VARCHAR(50) NOT NULL,
     description TEXT,
+    schema JSONB,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(theme_id, slug)
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(theme_id, slug, deleted_at)
 );
 ```
 
-#### Menus
+**Example Data:**
+```json
+{
+  "id": "a23e4567-e89b-12d3-a456-426614174000",
+  "theme_id": "923e4567-e89b-12d3-a456-426614174000",
+  "name": "Default Page Template",
+  "slug": "default",
+  "type": "page",
+  "description": "Standard page layout with sidebar",
+  "schema": {
+    "areas": ["main", "sidebar"],
+    "variables": ["title", "content", "featured_image"],
+    "widgets": {
+      "sidebar": ["search", "recent-posts", "categories"]
+    }
+  },
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Menus Table
+Defines navigation menus.
+
 ```sql
 CREATE TABLE menus (
     id UUID PRIMARY KEY,
     name VARCHAR(100) NOT NULL,
     slug VARCHAR(100) UNIQUE NOT NULL,
     description TEXT,
+    location VARCHAR(100),
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Menu Items
+**Example Data:**
+```json
+{
+  "id": "b23e4567-e89b-12d3-a456-426614174000",
+  "name": "Main Navigation",
+  "slug": "main-nav",
+  "description": "Primary site navigation",
+  "location": "primary",
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Menu Items Table
+Defines individual items within menus.
+
 ```sql
 CREATE TABLE menu_items (
     id UUID PRIMARY KEY,
     menu_id UUID NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
     parent_id UUID REFERENCES menu_items(id),
-    type VARCHAR(50) NOT NULL, -- 'page', 'post', 'custom', 'category', 'tag'
+    type VARCHAR(50) NOT NULL,
     object_id UUID,
     url TEXT,
     target VARCHAR(50),
     css_classes TEXT,
     order_index INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Menu Item Translations
-```sql
-CREATE TABLE menu_item_translations (
-    id UUID PRIMARY KEY,
-    menu_item_id UUID NOT NULL REFERENCES menu_items(id) ON DELETE CASCADE,
-    locale_id UUID NOT NULL REFERENCES locales(id),
-    title VARCHAR(200) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(menu_item_id, locale_id)
-);
+**Example Data:**
+```json
+{
+  "id": "c23e4567-e89b-12d3-a456-426614174000",
+  "menu_id": "b23e4567-e89b-12d3-a456-426614174000",
+  "parent_id": null,
+  "type": "page",
+  "object_id": "823e4567-e89b-12d3-a456-426614174000",
+  "url": null,
+  "target": "_self",
+  "css_classes": "nav-item",
+  "order_index": 1,
+  "is_active": true,
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
 ```
 
-### Widget System Tables
+### Widget Types Table
+Defines available widget types.
 
-#### Widget Areas
-```sql
-CREATE TABLE widget_areas (
-    id UUID PRIMARY KEY,
-    theme_id UUID NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    slug VARCHAR(100) NOT NULL,
-    description TEXT,
-    before_widget TEXT,
-    after_widget TEXT,
-    before_title TEXT,
-    after_title TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(theme_id, slug)
-);
-```
-
-#### Widget Types
 ```sql
 CREATE TABLE widget_types (
     id UUID PRIMARY KEY,
@@ -426,1010 +667,548 @@ CREATE TABLE widget_types (
     description TEXT,
     category VARCHAR(50),
     schema JSONB NOT NULL,
-    render_callback VARCHAR(200),
-    form_callback VARCHAR(200),
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Widget Instances
+**Example Data:**
+```json
+{
+  "id": "d23e4567-e89b-12d3-a456-426614174000",
+  "name": "Recent Posts",
+  "slug": "recent-posts",
+  "description": "Display a list of recent posts",
+  "category": "posts",
+  "schema": {
+    "properties": {
+      "title": {"type": "string", "default": "Recent Posts"},
+      "count": {"type": "integer", "default": 5, "min": 1, "max": 20},
+      "show_date": {"type": "boolean", "default": true},
+      "show_excerpt": {"type": "boolean", "default": false}
+    }
+  },
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
+```
+
+### Widget Instances Table
+Stores configured widget instances.
+
 ```sql
 CREATE TABLE widget_instances (
     id UUID PRIMARY KEY,
     widget_type_id UUID NOT NULL REFERENCES widget_types(id),
-    widget_area_id UUID REFERENCES widget_areas(id),
+    area VARCHAR(100),
     title VARCHAR(200),
     settings JSONB,
     visibility_rules JSONB,
-    css_classes TEXT,
     order_index INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
+    publish_on TIMESTAMP,
+    deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
-#### Widget Translations
-```sql
-CREATE TABLE widget_translations (
-    id UUID PRIMARY KEY,
-    widget_instance_id UUID NOT NULL REFERENCES widget_instances(id) ON DELETE CASCADE,
-    locale_id UUID NOT NULL REFERENCES locales(id),
-    title VARCHAR(200),
-    content JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(widget_instance_id, locale_id)
-);
-```
-
-### User and Permission Tables
-
-#### Users
-```sql
-CREATE TABLE users (
-    id UUID PRIMARY KEY,
-    email VARCHAR(255) UNIQUE NOT NULL,
-    username VARCHAR(100) UNIQUE NOT NULL,
-    password_hash VARCHAR(255),
-    preferred_locale_id UUID REFERENCES locales(id),
-    is_active BOOLEAN DEFAULT true,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-#### Roles
-```sql
-CREATE TABLE roles (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-#### Permissions
-```sql
-CREATE TABLE permissions (
-    id UUID PRIMARY KEY,
-    resource VARCHAR(100) NOT NULL,
-    action VARCHAR(50) NOT NULL,
-    scope VARCHAR(50),
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(resource, action, scope)
-);
-```
-
-#### User Roles
-```sql
-CREATE TABLE user_roles (
-    user_id UUID REFERENCES users(id) ON DELETE CASCADE,
-    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
-    PRIMARY KEY (user_id, role_id)
-);
-```
-
-#### Role Permissions
-```sql
-CREATE TABLE role_permissions (
-    role_id UUID REFERENCES roles(id) ON DELETE CASCADE,
-    permission_id UUID REFERENCES permissions(id) ON DELETE CASCADE,
-    PRIMARY KEY (role_id, permission_id)
-);
-```
-
-### Media Tables
-
-#### Media
-```sql
-CREATE TABLE media (
-    id UUID PRIMARY KEY,
-    filename VARCHAR(500) NOT NULL,
-    original_name VARCHAR(500) NOT NULL,
-    mime_type VARCHAR(100) NOT NULL,
-    size_bytes BIGINT NOT NULL,
-    storage_path TEXT NOT NULL,
-    metadata JSONB,
-    uploader_id UUID REFERENCES users(id),
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-#### Media Translations
-```sql
-CREATE TABLE media_translations (
-    id UUID PRIMARY KEY,
-    media_id UUID NOT NULL REFERENCES media(id) ON DELETE CASCADE,
-    locale_id UUID NOT NULL REFERENCES locales(id),
-    alt_text TEXT,
-    caption TEXT,
-    description TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(media_id, locale_id)
-);
-```
-
-#### Content Media
-```sql
-CREATE TABLE content_media (
-    content_id UUID REFERENCES contents(id) ON DELETE CASCADE,
-    media_id UUID REFERENCES media(id) ON DELETE CASCADE,
-    field_name VARCHAR(100),
-    sort_order INTEGER,
-    PRIMARY KEY (content_id, media_id, field_name)
-);
-```
-
-### Taxonomy Tables
-
-#### Taxonomies
-```sql
-CREATE TABLE taxonomies (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    is_hierarchical BOOLEAN DEFAULT false,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-#### Taxonomy Terms
-```sql
-CREATE TABLE taxonomy_terms (
-    id UUID PRIMARY KEY,
-    taxonomy_id UUID NOT NULL REFERENCES taxonomies(id),
-    parent_id UUID REFERENCES taxonomy_terms(id),
-    slug VARCHAR(100) NOT NULL,
-    sort_order INTEGER DEFAULT 0,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(taxonomy_id, slug)
-);
-```
-
-#### Taxonomy Term Translations
-```sql
-CREATE TABLE taxonomy_term_translations (
-    id UUID PRIMARY KEY,
-    term_id UUID NOT NULL REFERENCES taxonomy_terms(id) ON DELETE CASCADE,
-    locale_id UUID NOT NULL REFERENCES locales(id),
-    name VARCHAR(200) NOT NULL,
-    description TEXT,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(term_id, locale_id)
-);
-```
-
-#### Content Taxonomy Terms
-```sql
-CREATE TABLE content_taxonomy_terms (
-    content_id UUID REFERENCES contents(id) ON DELETE CASCADE,
-    term_id UUID REFERENCES taxonomy_terms(id) ON DELETE CASCADE,
-    PRIMARY KEY (content_id, term_id)
-);
-```
-
-### Performance Indexes
-
-```sql
-CREATE INDEX idx_block_instances_parent ON block_instances(parent_id, parent_type);
-CREATE INDEX idx_content_blocks_order ON content_blocks(content_id, area, order_index);
-CREATE INDEX idx_menu_items_menu_order ON menu_items(menu_id, order_index);
-CREATE INDEX idx_pages_path ON pages(path);
-CREATE INDEX idx_pages_hierarchy ON pages(parent_id, menu_order);
-CREATE INDEX idx_widget_instances_area ON widget_instances(widget_area_id, order_index);
+**Example Data:**
+```json
+{
+  "id": "e23e4567-e89b-12d3-a456-426614174000",
+  "widget_type_id": "d23e4567-e89b-12d3-a456-426614174000",
+  "area": "sidebar",
+  "title": "Latest News",
+  "settings": {
+    "count": 5,
+    "show_date": true,
+    "show_excerpt": true,
+    "category": "news"
+  },
+  "visibility_rules": {
+    "show_on_pages": ["home", "blog"],
+    "hide_on_pages": ["checkout"],
+    "show_if_logged_in": false
+  },
+  "order_index": 0,
+  "is_active": true,
+  "publish_on": null,
+  "deleted_at": null,
+  "created_at": "2024-01-01T00:00:00Z",
+  "updated_at": "2024-01-01T00:00:00Z"
+}
 ```
 
 ## Go Module Structure
 
-### Project Layout
+### Module Layout
 
 ```
 cms/
-├── cmd/
-│   ├── api/
-│   │   └── main.go
-│   └── migrate/
-│       └── main.go
-├── internal/
-│   ├── core/
-│   │   ├── config/
-│   │   ├── database/
-│   │   ├── events/
-│   │   └── errors/
-│   ├── storage/
-│   │   ├── postgres/
-│   │   ├── sqlite/
-│   │   └── repository.go
-│   ├── content/
-│   │   ├── service.go
-│   │   ├── repository.go
-│   │   └── types.go
-│   ├── blocks/
-│   │   ├── registry.go
-│   │   ├── renderer.go
-│   │   └── types.go
-│   ├── pages/
-│   │   ├── service.go
-│   │   ├── builder.go
-│   │   └── types.go
-│   ├── menus/
-│   │   ├── service.go
-│   │   ├── renderer.go
-│   │   └── types.go
-│   ├── widgets/
-│   │   ├── service.go
-│   │   ├── registry.go
-│   │   └── types.go
-│   ├── templates/
-│   │   ├── engine.go
-│   │   ├── service.go
-│   │   └── types.go
-│   ├── i18n/
-│   │   ├── translator.go
-│   │   ├── locale.go
-│   │   └── types.go
-│   ├── media/
-│   │   ├── service.go
-│   │   ├── storage.go
-│   │   └── processor.go
-│   ├── auth/
-│   │   ├── service.go
-│   │   ├── jwt.go
-│   │   └── rbac.go
-│   ├── api/
-│   │   ├── rest/
-│   │   ├── graphql/
-│   │   └── middleware/
-│   └── cache/
-│       ├── memory.go
-│       ├── redis.go
-│       └── interface.go
-├── pkg/
-│   ├── validator/
-│   ├── slugify/
-│   └── utils/
-├── migrations/
-├── templates/
-├── static/
 ├── go.mod
-└── go.sum
+├── go.sum
+├── cms.go           # Main module interface
+├── interfaces.go    # External dependency interfaces
+├── content/
+│   ├── types.go
+│   ├── service.go
+│   └── interfaces.go
+├── blocks/
+│   ├── types.go
+│   ├── registry.go
+│   ├── service.go
+│   └── interfaces.go
+├── pages/
+│   ├── types.go
+│   ├── service.go
+│   └── interfaces.go
+├── menus/
+│   ├── types.go
+│   ├── service.go
+│   └── interfaces.go
+├── widgets/
+│   ├── types.go
+│   ├── service.go
+│   └── interfaces.go
+├── themes/
+│   ├── types.go
+│   ├── service.go
+│   └── interfaces.go
+├── i18n/
+│   ├── types.go
+│   ├── service.go
+│   └── interfaces.go
+└── examples/
+    └── basic/
+        └── main.go
 ```
 
-### Core Interfaces
-
-#### Content Module
+### External Dependency Interfaces
 
 ```go
-// content/types.go
-package content
+// interfaces.go
+package cms
 
 import (
     "context"
     "time"
 )
 
-// Content represents a piece of content
+// StorageProvider defines the interface for data persistence
+type StorageProvider interface {
+    Query(ctx context.Context, query string, args ...interface{}) (Rows, error)
+    Exec(ctx context.Context, query string, args ...interface{}) (Result, error)
+    Transaction(ctx context.Context, fn func(tx Transaction) error) error
+}
+
+// CacheProvider defines the interface for caching
+type CacheProvider interface {
+    Get(ctx context.Context, key string) (interface{}, error)
+    Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    Delete(ctx context.Context, key string) error
+}
+
+// TemplateRenderer defines the interface for template rendering
+type TemplateRenderer interface {
+    Render(ctx context.Context, template string, data interface{}) (string, error)
+    RegisterFunction(name string, fn interface{}) error
+}
+
+// MediaProvider defines the interface for media/asset handling
+type MediaProvider interface {
+    GetURL(ctx context.Context, path string) (string, error)
+    GetMetadata(ctx context.Context, id string) (MediaMetadata, error)
+}
+
+// AuthProvider defines the interface for authentication
+type AuthProvider interface {
+    GetCurrentUser(ctx context.Context) (User, error)
+    HasPermission(ctx context.Context, user User, permission string) bool
+}
+```
+
+### Core Module Implementation
+
+```go
+// cms.go
+package cms
+
+import (
+    "context"
+    "github.com/yourdomain/cms/content"
+    "github.com/yourdomain/cms/pages"
+    "github.com/yourdomain/cms/blocks"
+    "github.com/yourdomain/cms/menus"
+    "github.com/yourdomain/cms/widgets"
+    "github.com/yourdomain/cms/themes"
+    "github.com/yourdomain/cms/i18n"
+)
+
+// CMS is the main entry point for the CMS module
+type CMS struct {
+    storage  StorageProvider
+    cache    CacheProvider
+    template TemplateRenderer
+    media    MediaProvider
+    auth     AuthProvider
+
+    // Services
+    Content  content.Service
+    Pages    pages.Service
+    Blocks   blocks.Service
+    Menus    menus.Service
+    Widgets  widgets.Service
+    Themes   themes.Service
+    I18n     i18n.Service
+}
+
+// Config holds CMS configuration
+type Config struct {
+    Storage  StorageProvider
+    Cache    CacheProvider
+    Template TemplateRenderer
+    Media    MediaProvider
+    Auth     AuthProvider
+}
+
+// New creates a new CMS instance
+func New(config Config) *CMS {
+    cms := &CMS{
+        storage:  config.Storage,
+        cache:    config.Cache,
+        template: config.Template,
+        media:    config.Media,
+        auth:     config.Auth,
+    }
+
+    // Initialize services
+    cms.I18n = i18n.NewService(config.Storage)
+    cms.Content = content.NewService(config.Storage, cms.I18n)
+    cms.Themes = themes.NewService(config.Storage)
+    cms.Pages = pages.NewService(cms.Content, config.Storage)
+    cms.Blocks = blocks.NewService(config.Storage, cms.I18n)
+    cms.Menus = menus.NewService(config.Storage, cms.I18n)
+    cms.Widgets = widgets.NewService(config.Storage, cms.I18n)
+
+    return cms
+}
+```
+
+### Content Module Example
+
+```go
+// content/types.go
+package content
+
+import (
+    "time"
+)
+
 type Content struct {
     ID           string
-    ContentType  *ContentType
+    ContentType  string
     Slug         string
     Status       ContentStatus
     AuthorID     string
-    PublishedAt  *time.Time
-    Translations map[string]*ContentTranslation
+    PublishOn    *time.Time
+    DeletedAt    *time.Time
     CreatedAt    time.Time
     UpdatedAt    time.Time
+    Translations map[string]*ContentTranslation
 }
 
-// ContentTranslation represents localized content
 type ContentTranslation struct {
-    ID               string
-    ContentID        string
-    LocaleCode       string
-    Title            string
-    Data             map[string]interface{}
-    MetaTitle        string
-    MetaDescription  string
-    MetaKeywords     []string
+    ID              string
+    ContentID       string
+    LocaleCode      string
+    Title           string
+    Data            map[string]interface{}
+    MetaTitle       string
+    MetaDescription string
 }
 
-// Repository interface for data access
+type ContentStatus string
+
+const (
+    StatusDraft     ContentStatus = "draft"
+    StatusPublished ContentStatus = "published"
+    StatusScheduled ContentStatus = "scheduled"
+    StatusArchived  ContentStatus = "archived"
+)
+```
+
+```go
+// content/interfaces.go
+package content
+
+import (
+    "context"
+)
+
+// Repository defines data access for content
 type Repository interface {
     Create(ctx context.Context, content *Content) error
     Update(ctx context.Context, content *Content) error
     Delete(ctx context.Context, id string) error
-    FindByID(ctx context.Context, id string, locale string) (*Content, error)
-    FindBySlug(ctx context.Context, slug string, locale string) (*Content, error)
-    List(ctx context.Context, filters ListFilters) ([]*Content, error)
+    GetByID(ctx context.Context, id string) (*Content, error)
+    GetBySlug(ctx context.Context, slug string) (*Content, error)
+    List(ctx context.Context, opts ListOptions) ([]*Content, error)
 }
 
-// Service provides business logic
+// Service defines business logic for content
 type Service interface {
-    CreateContent(ctx context.Context, req CreateContentRequest) (*Content, error)
-    UpdateContent(ctx context.Context, id string, req UpdateContentRequest) (*Content, error)
-    PublishContent(ctx context.Context, id string) error
-    GetContent(ctx context.Context, id string, locale string) (*Content, error)
-    TranslateContent(ctx context.Context, id string, locale string, translation ContentTranslation) error
+    Create(ctx context.Context, req CreateRequest) (*Content, error)
+    Update(ctx context.Context, id string, req UpdateRequest) (*Content, error)
+    Publish(ctx context.Context, id string) error
+    Schedule(ctx context.Context, id string, publishOn time.Time) error
+    Delete(ctx context.Context, id string) error
+    Get(ctx context.Context, id string, locale string) (*Content, error)
+    Translate(ctx context.Context, id string, locale string, translation ContentTranslation) error
 }
 ```
 
-#### Block Module
-
-```go
-// blocks/types.go
-package blocks
-
-import (
-    "context"
-    "encoding/json"
-)
-
-// BlockType defines a reusable block structure
-type BlockType struct {
-    ID          string
-    Name        string
-    Slug        string
-    Category    BlockCategory
-    Icon        string
-    Description string
-    Schema      json.RawMessage
-    Supports    BlockSupports
-    Example     json.RawMessage
-}
-
-// BlockInstance represents an instance of a block
-type BlockInstance struct {
-    ID         string
-    BlockType  *BlockType
-    ParentID   *string
-    ParentType string
-    OrderIndex int
-    Attributes map[string]interface{}
-    IsReusable bool
-    Name       string
-    Children   []*BlockInstance
-}
-
-// BlockRenderer handles block rendering
-type BlockRenderer interface {
-    Render(ctx context.Context, block *BlockInstance, locale string) (string, error)
-    RenderEditor(ctx context.Context, block *BlockInstance) (string, error)
-}
-
-// BlockRegistry manages block types
-type BlockRegistry interface {
-    Register(blockType *BlockType, renderer BlockRenderer) error
-    Get(slug string) (*BlockType, BlockRenderer, error)
-    List(category BlockCategory) ([]*BlockType, error)
-}
-```
-
-#### Page Module
+### Pages Module Example
 
 ```go
 // pages/types.go
 package pages
 
 import (
-    "context"
+    "time"
     "github.com/yourdomain/cms/content"
-    "github.com/yourdomain/cms/templates"
-    "github.com/yourdomain/cms/blocks"
 )
 
-// Page represents a hierarchical content page
 type Page struct {
-    ID           string
-    Content      *content.Content
-    ParentID     *string
-    Template     *templates.Template
-    Path         string
-    MenuOrder    int
-    IsFrontPage  bool
-    IsPostsPage  bool
-    Attributes   map[string]interface{}
-    Children     []*Page
-    Blocks       []*blocks.BlockInstance
-}
-
-// PageService handles page operations
-type PageService interface {
-    Create(ctx context.Context, req CreatePageRequest) (*Page, error)
-    Update(ctx context.Context, id string, req UpdatePageRequest) (*Page, error)
-    Delete(ctx context.Context, id string) error
-    GetByPath(ctx context.Context, path string, locale string) (*Page, error)
-    GetHierarchy(ctx context.Context, parentID *string) ([]*Page, error)
-    AssignTemplate(ctx context.Context, pageID string, templateID string) error
-    AddBlock(ctx context.Context, pageID string, block *blocks.BlockInstance, area string) error
-}
-
-// PageBuilder constructs page output
-type PageBuilder interface {
-    Build(ctx context.Context, page *Page, locale string) (*PageOutput, error)
-}
-
-type PageOutput struct {
-    HTML       string
-    Head       HeadElements
-    Assets     []Asset
-    Blocks     map[string]string
-    Widgets    map[string]string
+    ID            string
+    Content       *content.Content
+    ParentID      *string
+    TemplateSlug  string
+    Path          string
+    MenuOrder     int
+    IsFrontPage   bool
+    Attributes    map[string]interface{}
+    Children      []*Page
+    DeletedAt     *time.Time
 }
 ```
 
-#### Menu Module
-
 ```go
-// menus/types.go
-package menus
+// pages/service.go
+package pages
 
 import (
     "context"
-)
-
-// Menu represents a navigation menu
-type Menu struct {
-    ID          string
-    Name        string
-    Slug        string
-    Description string
-    Items       []*MenuItem
-    Locations   []string
-}
-
-// MenuItem represents an item in a menu
-type MenuItem struct {
-    ID         string
-    MenuID     string
-    ParentID   *string
-    Type       MenuItemType
-    ObjectID   *string
-    URL        string
-    Target     string
-    CSSClasses string
-    OrderIndex int
-    IsActive   bool
-    Children   []*MenuItem
-    Title      map[string]string
-}
-
-type MenuItemType string
-
-const (
-    MenuItemPage     MenuItemType = "page"
-    MenuItemPost     MenuItemType = "post"
-    MenuItemCustom   MenuItemType = "custom"
-    MenuItemCategory MenuItemType = "category"
-    MenuItemTag      MenuItemType = "tag"
-)
-
-// MenuService handles menu operations
-type MenuService interface {
-    CreateMenu(ctx context.Context, menu *Menu) error
-    GetMenu(ctx context.Context, slug string, locale string) (*Menu, error)
-    GetMenuByLocation(ctx context.Context, location string, locale string) (*Menu, error)
-    AddMenuItem(ctx context.Context, menuID string, item *MenuItem) error
-    UpdateMenuItem(ctx context.Context, itemID string, item *MenuItem) error
-    ReorderItems(ctx context.Context, menuID string, itemOrders []ItemOrder) error
-    AssignToLocation(ctx context.Context, menuID string, location string) error
-}
-
-// MenuRenderer renders menus for display
-type MenuRenderer interface {
-    Render(ctx context.Context, menu *Menu, opts RenderOptions) (string, error)
-}
-```
-
-#### Widget Module
-
-```go
-// widgets/types.go
-package widgets
-
-import (
-    "context"
-    "encoding/json"
-)
-
-// WidgetType defines a reusable widget
-type WidgetType struct {
-    ID          string
-    Name        string
-    Slug        string
-    Description string
-    Category    string
-    Schema      json.RawMessage
-}
-
-// WidgetInstance represents a configured widget
-type WidgetInstance struct {
-    ID               string
-    WidgetType       *WidgetType
-    WidgetAreaID     *string
-    Title            string
-    Settings         map[string]interface{}
-    VisibilityRules  *VisibilityRules
-    CSSClasses       string
-    OrderIndex       int
-    IsActive         bool
-}
-
-// VisibilityRules defines when a widget should be displayed
-type VisibilityRules struct {
-    ShowOn          []string
-    HideOn          []string
-    ShowIfLoggedIn  bool
-    ShowIfLoggedOut bool
-    ShowOnDevices   []string
-    CustomRules     json.RawMessage
-}
-
-// WidgetArea represents a widget placement zone
-type WidgetArea struct {
-    ID           string
-    ThemeID      string
-    Name         string
-    Slug         string
-    Description  string
-    BeforeWidget string
-    AfterWidget  string
-    BeforeTitle  string
-    AfterTitle   string
-}
-
-// WidgetService handles widget operations
-type WidgetService interface {
-    RegisterWidget(widgetType *WidgetType, handler WidgetHandler) error
-    CreateInstance(ctx context.Context, req CreateWidgetRequest) (*WidgetInstance, error)
-    AssignToArea(ctx context.Context, widgetID string, areaID string) error
-    GetAreaWidgets(ctx context.Context, areaSlug string, locale string) ([]*WidgetInstance, error)
-    EvaluateVisibility(ctx context.Context, widget *WidgetInstance, context PageContext) bool
-}
-
-// WidgetHandler processes widget rendering and form handling
-type WidgetHandler interface {
-    Render(ctx context.Context, instance *WidgetInstance, locale string) (string, error)
-    RenderForm(ctx context.Context, instance *WidgetInstance) (string, error)
-    Validate(settings map[string]interface{}) error
-}
-```
-
-#### Template Module
-
-```go
-// templates/types.go
-package templates
-
-import (
-    "context"
-    "html/template"
-    "encoding/json"
-)
-
-// Theme represents a collection of templates
-type Theme struct {
-    ID          string
-    Name        string
-    Slug        string
-    Version     string
-    Author      string
-    Description string
-    Config      map[string]interface{}
-    IsActive    bool
-}
-
-// Template represents a page template
-type Template struct {
-    ID           string
-    ThemeID      string
-    Name         string
-    Slug         string
-    Type         TemplateType
-    Description  string
-    TemplatePath string
-    Schema       json.RawMessage
-}
-
-type TemplateType string
-
-const (
-    TemplateTypePage    TemplateType = "page"
-    TemplateTypePost    TemplateType = "post"
-    TemplateTypeArchive TemplateType = "archive"
-    TemplateTypeSingle  TemplateType = "single"
-    TemplateTypePartial TemplateType = "partial"
-)
-
-// TemplateEngine handles template rendering
-type TemplateEngine interface {
-    LoadTheme(ctx context.Context, theme *Theme) error
-    Render(ctx context.Context, template *Template, data TemplateData) (string, error)
-    RenderString(ctx context.Context, tmpl string, data TemplateData) (string, error)
-}
-
-// TemplateData holds data passed to templates
-type TemplateData struct {
-    Page        interface{}
-    Content     interface{}
-    Site        SiteData
-    User        interface{}
-    Locale      string
-    Blocks      map[string]template.HTML
-    Widgets     map[string]template.HTML
-    Menus       map[string]interface{}
-    Assets      []Asset
-    Custom      map[string]interface{}
-}
-
-// TemplateService manages templates and themes
-type TemplateService interface {
-    InstallTheme(ctx context.Context, themePath string) (*Theme, error)
-    ActivateTheme(ctx context.Context, themeID string) error
-    GetActiveTheme(ctx context.Context) (*Theme, error)
-    GetTemplate(ctx context.Context, slug string) (*Template, error)
-    GetTemplatesForType(ctx context.Context, templateType TemplateType) ([]*Template, error)
-    CreateCustomTemplate(ctx context.Context, req CreateTemplateRequest) (*Template, error)
-}
-```
-
-### Database Connection
-
-```go
-// storage/db.go
-package storage
-
-import (
-    "database/sql"
     "fmt"
-
-    "github.com/jmoiron/sqlx"
-    _ "github.com/lib/pq"
-    _ "github.com/mattn/go-sqlite3"
+    "github.com/yourdomain/cms/content"
 )
 
-type DBConfig struct {
-    Driver string // "postgres" or "sqlite3"
-    DSN    string
+type service struct {
+    contentService content.Service
+    storage        StorageProvider
 }
 
-func NewDB(config DBConfig) (*sqlx.DB, error) {
-    db, err := sqlx.Connect(config.Driver, config.DSN)
+func NewService(contentService content.Service, storage StorageProvider) Service {
+    return &service{
+        contentService: contentService,
+        storage:        storage,
+    }
+}
+
+func (s *service) Create(ctx context.Context, req CreateRequest) (*Page, error) {
+    // First create the content
+    contentReq := content.CreateRequest{
+        ContentType: "page",
+        Slug:        req.Slug,
+        Status:      req.Status,
+        AuthorID:    req.AuthorID,
+    }
+
+    c, err := s.contentService.Create(ctx, contentReq)
     if err != nil {
-        return nil, fmt.Errorf("failed to connect to database: %w", err)
+        return nil, fmt.Errorf("failed to create content: %w", err)
     }
 
-    // Configure connection pool based on driver
-    if config.Driver == "postgres" {
-        db.SetMaxOpenConns(25)
-        db.SetMaxIdleConns(5)
-    } else if config.Driver == "sqlite3" {
-        db.SetMaxOpenConns(1) // SQLite doesn't handle concurrency well
+    // Then create the page-specific data
+    page := &Page{
+        Content:      c,
+        ParentID:     req.ParentID,
+        TemplateSlug: req.TemplateSlug,
+        Path:         s.generatePath(req.ParentID, req.Slug),
+        MenuOrder:    req.MenuOrder,
     }
 
-    return db, nil
+    // Save page data
+    err = s.storage.Exec(ctx, `
+        INSERT INTO pages (id, content_id, parent_id, template_slug, path, menu_order)
+        VALUES (?, ?, ?, ?, ?, ?)
+    `, page.ID, c.ID, page.ParentID, page.TemplateSlug, page.Path, page.MenuOrder)
+
+    if err != nil {
+        return nil, fmt.Errorf("failed to save page: %w", err)
+    }
+
+    return page, nil
+}
+
+func (s *service) generatePath(parentID *string, slug string) string {
+    if parentID == nil {
+        return "/" + slug
+    }
+    // Get parent path and append slug
+    // Implementation details...
+    return ""
 }
 ```
 
-## Integration Examples
+## Implementation Roadmap
 
-### Page Rendering Example
+### Sprint 1: Core Foundation
+**Goal**: Basic page management with content
+
+**Deliverables**:
+- Content module with basic CRUD
+- Pages module with hierarchy
+- Simple template assignment
+- i18n structure (locale management)
+
+**Tables**: locales, content_types, contents, content_translations, pages
+
+---
+
+### Sprint 2: Block System
+**Goal**: Composable content with blocks
+
+**Deliverables**:
+- Block type registry
+- Block instances within pages
+- Basic block types (paragraph, heading, image)
+- Block rendering interfaces
+
+**Tables**: block_types, block_instances, block_translations, content_blocks
+
+---
+
+### Sprint 3: Menu Management
+**Goal**: Dynamic navigation system
+
+**Deliverables**:
+- Menu creation and management
+- Menu items with hierarchy
+- Menu locations
+- Menu rendering interfaces
+
+**Tables**: menus, menu_items, menu_item_translations
+
+---
+
+### Sprint 4: Widget System
+**Goal**: Dynamic sidebar/area content
+
+**Deliverables**:
+- Widget type registry
+- Widget areas definition
+- Widget visibility rules
+- Basic widget types
+
+**Tables**: widget_types, widget_instances, widget_translations
+
+---
+
+### Sprint 5: Themes and Templates
+**Goal**: Complete presentation layer
+
+**Deliverables**:
+- Theme management
+- Template hierarchy
+- Template assignment to content
+- Widget area definitions per theme
+
+**Tables**: themes, templates
+
+---
+
+### Sprint 6: Advanced Features
+**Goal**: Production-ready features
+
+**Deliverables**:
+- Content versioning
+- Scheduled publishing
+- Soft deletes
+- Media references
+- Advanced block patterns
+
+## Usage Example
 
 ```go
-// Example of how all components work together
 package main
 
 import (
     "context"
-    "github.com/yourdomain/cms/blocks"
-    "github.com/yourdomain/cms/pages"
-    "github.com/yourdomain/cms/templates"
-    "github.com/yourdomain/cms/widgets"
-    "github.com/yourdomain/cms/menus"
+    "github.com/yourdomain/cms"
+    "github.com/yourdomain/storage"
+    "github.com/yourdomain/cache"
+    "github.com/yourdomain/templates"
 )
 
-type PageRenderer struct {
-    pageService     pages.PageService
-    blockRegistry   blocks.BlockRegistry
-    widgetService   widgets.WidgetService
-    menuService     menus.MenuService
-    templateEngine  templates.TemplateEngine
-}
+func main() {
+    // Initialize external dependencies
+    db := storage.New(storageConfig)
+    cacheProvider := cache.New(cacheConfig)
+    templateEngine := templates.New(templateConfig)
 
-func (r *PageRenderer) RenderPage(ctx context.Context, path string, locale string) (string, error) {
-    // 1. Get the page
-    page, err := r.pageService.GetByPath(ctx, path, locale)
-    if err != nil {
-        return "", err
-    }
+    // Initialize CMS
+    cmsInstance := cms.New(cms.Config{
+        Storage:  db,
+        Cache:    cacheProvider,
+        Template: templateEngine,
+        Media:    mediaProvider,
+        Auth:     authProvider,
+    })
 
-    // 2. Render blocks
-    renderedBlocks := make(map[string]string)
-    for area, blocks := range page.GetBlocksByArea() {
-        var areaHTML string
-        for _, block := range blocks {
-            blockType, renderer, _ := r.blockRegistry.Get(block.BlockType.Slug)
-            html, _ := renderer.Render(ctx, block, locale)
-            areaHTML += html
-        }
-        renderedBlocks[area] = areaHTML
-    }
+    ctx := context.Background()
 
-    // 3. Get and render widgets for this page
-    renderedWidgets := make(map[string]string)
-    theme, _ := r.templateEngine.GetActiveTheme(ctx)
-    for _, area := range theme.WidgetAreas {
-        widgets, _ := r.widgetService.GetAreaWidgets(ctx, area.Slug, locale)
-        var areaHTML string
-        for _, widget := range widgets {
-            if r.widgetService.EvaluateVisibility(ctx, widget, pageContext) {
-                html, _ := widget.Render(ctx, locale)
-                areaHTML += area.BeforeWidget + html + area.AfterWidget
-            }
-        }
-        renderedWidgets[area.Slug] = areaHTML
-    }
+    // Create a page
+    page, err := cmsInstance.Pages.Create(ctx, pages.CreateRequest{
+        Slug:         "about",
+        TemplateSlug: "default",
+        Status:       "published",
+        AuthorID:     "user-123",
+    })
 
-    // 4. Get menus
-    menus := make(map[string]*menus.Menu)
-    for _, location := range theme.MenuLocations {
-        menu, _ := r.menuService.GetMenuByLocation(ctx, location.Slug, locale)
-        if menu != nil {
-            menus[location.Slug] = menu
-        }
-    }
+    // Add content translation
+    err = cmsInstance.Content.Translate(ctx, page.Content.ID, "en-US", content.ContentTranslation{
+        Title:           "About Us",
+        Data:            map[string]interface{}{"content": "Our company story..."},
+        MetaTitle:       "About | ACME Corp",
+        MetaDescription: "Learn about ACME Corp",
+    })
 
-    // 5. Prepare template data
-    templateData := templates.TemplateData{
-        Page:    page,
-        Content: page.Content,
-        Locale:  locale,
-        Blocks:  renderedBlocks,
-        Widgets: renderedWidgets,
-        Menus:   menus,
-    }
-
-    // 6. Render with template
-    return r.templateEngine.Render(ctx, page.Template, templateData)
+    // Add a block to the page (after Sprint 2)
+    block, err := cmsInstance.Blocks.AddToContent(ctx, page.Content.ID, blocks.BlockRequest{
+        Type:       "paragraph",
+        Attributes: map[string]interface{}{"content": "Welcome paragraph"},
+        Area:       "main",
+    })
 }
 ```
 
-### Block Implementation Example
+## Key Design Decisions
 
-```go
-// Example custom block implementation
-package blocks
+1. **Interface-Driven**: All external dependencies are interfaces, making the module pluggable into any Go application.
 
-import (
-    "context"
-    "fmt"
-)
+2. **Progressive Enhancement**: Start with pages (Sprint 1), add blocks (Sprint 2), then menus and widgets. Each feature is independent.
 
-// ParagraphBlock - a simple text paragraph block
-type ParagraphBlock struct{}
+3. **Service Layer Architecture**: Business logic resides in services, not in data models or repositories.
 
-func (p *ParagraphBlock) Render(ctx context.Context, block *BlockInstance, locale string) (string, error) {
-    content := block.Attributes["content"].(string)
-    align := block.Attributes["align"].(string)
-    return fmt.Sprintf(`<p class="align-%s">%s</p>`, align, content), nil
-}
+4. **Soft Deletes**: All entities support `deleted_at` for data recovery and audit trails.
 
-func (p *ParagraphBlock) RenderEditor(ctx context.Context, block *BlockInstance) (string, error) {
-    // Return editor HTML for block editing
-    return `<div class="paragraph-block-editor">...</div>`, nil
-}
+5. **Scheduled Publishing**: Content and widgets support `publish_on` for future publishing.
 
-// ImageBlock - an image block with caption
-type ImageBlock struct {
-    mediaService media.Service
-}
+6. **Translation-First**: Every user-facing string is translatable from day one.
 
-func (i *ImageBlock) Render(ctx context.Context, block *BlockInstance, locale string) (string, error) {
-    imageID := block.Attributes["image_id"].(string)
-    caption := block.Attributes["caption"].(string)
-    alignment := block.Attributes["alignment"].(string)
+7. **Minimal Dependencies**: The module itself has minimal external dependencies, relying on interfaces for integration.
 
-    image, err := i.mediaService.Get(ctx, imageID)
-    if err != nil {
-        return "", err
-    }
-
-    html := fmt.Sprintf(`
-        <figure class="wp-block-image align%s">
-            <img src="%s" alt="%s" />
-            <figcaption>%s</figcaption>
-        </figure>
-    `, alignment, image.URL, image.AltText, caption)
-
-    return html, nil
-}
-```
-
-### Widget Implementation Example
-
-```go
-// Example widget implementations
-package widgets
-
-import (
-    "context"
-    "fmt"
-)
-
-// RecentPostsWidget displays recent posts
-type RecentPostsWidget struct {
-    contentService content.Service
-}
-
-func (w *RecentPostsWidget) Render(ctx context.Context, instance *WidgetInstance, locale string) (string, error) {
-    count := instance.Settings["count"].(int)
-    showDate := instance.Settings["show_date"].(bool)
-
-    posts, err := w.contentService.GetRecentPosts(ctx, count, locale)
-    if err != nil {
-        return "", err
-    }
-
-    html := `<div class="widget widget-recent-posts">`
-    html += fmt.Sprintf(`<h3 class="widget-title">%s</h3>`, instance.Title)
-    html += `<ul>`
-
-    for _, post := range posts {
-        html += `<li>`
-        html += fmt.Sprintf(`<a href="%s">%s</a>`, post.URL, post.Title)
-        if showDate {
-            html += fmt.Sprintf(`<span class="post-date">%s</span>`, post.Date)
-        }
-        html += `</li>`
-    }
-
-    html += `</ul></div>`
-    return html, nil
-}
-
-func (w *RecentPostsWidget) RenderForm(ctx context.Context, instance *WidgetInstance) (string, error) {
-    // Return form HTML for widget configuration
-    return `
-        <div class="widget-form">
-            <label>Number of posts: <input type="number" name="count" /></label>
-            <label>Show date: <input type="checkbox" name="show_date" /></label>
-        </div>
-    `, nil
-}
-
-func (w *RecentPostsWidget) Validate(settings map[string]interface{}) error {
-    count, ok := settings["count"].(int)
-    if !ok || count < 1 || count > 20 {
-        return fmt.Errorf("count must be between 1 and 20")
-    }
-    return nil
-}
-```
-
-## Key Design Principles
-
-### 1. Separation of Concerns
-Each module has a single, well-defined responsibility. This makes the codebase easier to understand, test, and maintain.
-
-### 2. Dependency Injection
-Use interfaces throughout to allow for easy testing and flexibility. Dependencies are injected rather than created internally.
-
-### 3. Context-First Design
-All operations accept a context.Context as their first parameter for proper cancellation, timeout, and request-scoped value propagation.
-
-### 4. Translation by Design
-Every user-facing string is translatable from the start. The i18n/l10n support is built into the data model, avoiding costly refactoring later.
-
-### 5. Extensibility
-Plugin patterns are used where appropriate (storage backends, auth providers, block types, widgets) allowing third-party extensions without modifying core code.
-
-### 6. Event-Driven Architecture
-Modules communicate through an event bus to stay loosely coupled. This allows for features like cache invalidation, webhooks, and audit logging without tight coupling.
-
-### 7. Composable Content
-Content is built from composable blocks that can be nested and reused. Pages can contain blocks, blocks can contain other blocks, and widgets can contain blocks.
-
-### 8. Template Flexibility
-Templates exist at multiple levels (theme, content type, individual page) with proper inheritance and override mechanisms.
-
-### 9. Database Agnostic
-The storage layer abstracts database differences, allowing transparent use of PostgreSQL or SQLite based on deployment needs.
-
-### 10. Performance Considerations
-- Proper indexing on frequently queried columns
-- Multi-level caching support
-- Lazy loading for related data
-- Connection pooling configured per database type
-- Query optimization through careful N+1 query prevention
-
-## Database Library Recommendations
-
-### Primary Libraries
-
-1. **sqlx** - Extends database/sql with better scanning and struct mapping
-   - Provides named parameters
-   - Automatic struct scanning
-   - Compatible with database/sql
-
-2. **golang-migrate/migrate** - Database migration management
-   - Supports both PostgreSQL and SQLite
-   - Version control for schema changes
-   - Rollback capabilities
-
-3. **squirrel** - Fluent SQL query builder
-   - Helps abstract SQL differences between databases
-   - Type-safe query construction
-   - Supports complex queries
-
-### Alternative Options
-
-1. **GORM** - Full-featured ORM (if you prefer ORM over raw SQL)
-2. **sqlc** - Compile-time checked SQL queries
-3. **Ent** - Entity framework for Go
-
-## Deployment Considerations
-
-### Development Environment
-- Use SQLite for rapid local development
-- Docker Compose for full stack with PostgreSQL
-- Hot reload support for template development
-
-### Production Environment
-- PostgreSQL for production deployments
-- Redis for caching layer
-- S3 or compatible object storage for media
-- CDN for static asset delivery
-- Horizontal scaling through stateless design
-
-### Configuration Management
-- Environment variables for sensitive data
-- Configuration files for complex settings
-- Support for multiple environments (dev, staging, production)
-- Feature flags for gradual rollout
-
-## Security Considerations
-
-1. **SQL Injection Prevention** - Use parameterized queries exclusively
-2. **XSS Protection** - Automatic HTML escaping in templates
-3. **CSRF Protection** - Token-based CSRF protection for forms
-4. **Authentication** - JWT with refresh tokens or secure sessions
-5. **Authorization** - Fine-grained RBAC with resource-level permissions
-6. **Input Validation** - Comprehensive validation at API and service layers
-7. **Rate Limiting** - API rate limiting to prevent abuse
-8. **Audit Logging** - Track all content and configuration changes
-
-## Performance Optimization Strategies
-
-1. **Query Optimization**
-   - Use prepared statements
-   - Implement query result caching
-   - Batch operations where possible
-   - Optimize N+1 queries with eager loading
-
-2. **Caching Strategy**
-   - Page-level caching for anonymous users
-   - Fragment caching for expensive components
-   - Query result caching with smart invalidation
-   - CDN integration for static assets
-
-3. **Asset Optimization**
-   - Image lazy loading
-   - Responsive image generation
-   - CSS/JS minification and bundling
-   - HTTP/2 push for critical resources
-
-## Conclusion
-
-This architecture provides a solid foundation for a modern, scalable CMS with WordPress-like flexibility while maintaining clean Go code structure. The modular design allows teams to work independently on different components, and the comprehensive i18n/l10n support ensures global readiness from day one.
-
-The system is designed to be:
-- **Maintainable** through clear separation of concerns
-- **Scalable** through stateless design and proper caching
-- **Extensible** through plugin interfaces and event-driven architecture
-- **Testable** through dependency injection and interface-based design
-- **Performant** through optimized queries and multi-level caching
-- **Secure** through proper validation, authentication, and authorization
+8. **Isolated Modules**: Each content type module (pages, blocks, menus, widgets) is independent with no direct dependencies on others.
