@@ -234,6 +234,16 @@ CREATE TABLE locales (
 );
 ```
 
+```sql
+-- Add locale groups for fallback chains
+CREATE TABLE locale_groups (
+    id UUID PRIMARY KEY,
+    name VARCHAR(100), -- 'French', 'Spanish', 'English'
+    primary_locale_id UUID REFERENCES locales(id),
+    fallback_order JSONB -- ["fr-CA", "fr-FR", "en-US"]
+);
+```
+
 **Example Data:**
 
 ```json
@@ -348,6 +358,34 @@ CREATE TABLE content_translations (
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(content_id, locale_id, deleted_at)
+);
+```
+
+```sql
+-- Add translation status tracking
+CREATE TABLE translation_status (
+    id UUID PRIMARY KEY,
+    entity_type VARCHAR(50), -- 'content', 'block', 'widget'
+    entity_id UUID,
+    locale_id UUID REFERENCES locales(id),
+    status VARCHAR(50), -- 'missing', 'draft', 'review', 'approved'
+    completeness INTEGER, -- percentage
+    last_updated TIMESTAMP,
+    translator_id UUID,
+    reviewer_id UUID,
+    UNIQUE(entity_type, entity_id, locale_id)
+);
+```
+
+```sql
+-- Add locale-specific URLs
+CREATE TABLE url_redirects (
+    id UUID PRIMARY KEY,
+    from_path TEXT NOT NULL,
+    to_path TEXT NOT NULL,
+    locale_id UUID REFERENCES locales(id),
+    redirect_type INTEGER DEFAULT 301,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
