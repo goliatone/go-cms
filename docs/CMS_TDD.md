@@ -11,16 +11,18 @@
 
 ## Overview
 
-This document outlines a self-contained CMS module for Go applications. The module focuses exclusively on content management, providing interfaces for external dependencies while maintaining minimal coupling.
+This document outlines a self contained CMS module for Go applications. The module focuses exclusively on content management, providing interfaces for external dependencies while maintaining minimal coupling.
 
 ### Module Goals
-- Self-contained content management functionality
+
+- Self contained content management functionality
 - Minimal external dependencies
-- Interface-based design for pluggable implementations
+- Interface based design for pluggable implementations
 - Progressive enhancement through vertical slices
-- Integration-ready with existing Go ecosystem
+- Integration ready with existing Go ecosystem
 
 ### What This Module Provides
+
 - Content type management (pages, blocks, menus, widgets)
 - Template and theme concepts
 - Internationalization support
@@ -28,6 +30,7 @@ This document outlines a self-contained CMS module for Go applications. The modu
 - Hierarchical content organization
 
 ### What This Module Does NOT Provide
+
 - Authentication/Authorization (use external auth module)
 - File upload/storage (use external storage module)
 - Database implementation (use external persistence layer)
@@ -38,6 +41,7 @@ This document outlines a self-contained CMS module for Go applications. The modu
 ## Design Philosophy
 
 ### Vertical Slices Approach
+
 Start with minimal viable functionality and progressively enhance:
 1. **Sprint 1**: Pages with basic content
 2. **Sprint 2**: Block system for composable content
@@ -46,14 +50,17 @@ Start with minimal viable functionality and progressively enhance:
 5. **Sprint 5**: Advanced features (versioning, scheduling)
 
 ### Module Independence
+
 Each content type is isolated with no direct dependencies on others. Service layers orchestrate interactions between modules.
 
 ### Interface-Driven Design
+
 All external dependencies are defined as interfaces, allowing the host application to provide implementations.
 
 ## Entity Descriptions
 
 ### Pages
+
 **Role**: Hierarchical content containers representing website sections. The primary structural element of the site.
 
 **Usage**: Create site structure (homepage, about, contact). Build parent-child relationships for logical content organization. Assign templates for rendering.
@@ -66,14 +73,14 @@ All external dependencies are defined as interfaces, allowing the host applicati
 
 **Big Picture**: Forms the site's information architecture. Provides URL structure and logical content organization.
 
----
-
 ### Blocks
+
 **Role**: Atomic content units that compose pages. The fundamental building block of content.
 
-**Usage**: Create reusable content components (paragraphs, images, galleries). Nest blocks to build complex layouts. Save frequently-used blocks as patterns.
+**Usage**: Create reusable content components (paragraphs, images, galleries). Nest blocks to build complex layouts. Save frequently used blocks as patterns.
 
 **Relations**:
+
 - Contained within pages and widgets
 - Can contain other blocks (nested structure)
 - Reference media assets for rich content
@@ -81,14 +88,14 @@ All external dependencies are defined as interfaces, allowing the host applicati
 
 **Big Picture**: Provides content flexibility without code changes. Authors combine blocks to create unique layouts.
 
----
-
 ### Menus
+
 **Role**: Navigation structure that links content and external resources. Organizes site hierarchy for user navigation.
 
 **Usage**: Define navigation bars, footers, sidebars. Create hierarchical menu items linking to pages or custom URLs. Assign menus to locations.
 
 **Relations**:
+
 - Links to pages and external URLs
 - Assigned to menu locations
 - Menu items support parent-child relationships
@@ -96,14 +103,14 @@ All external dependencies are defined as interfaces, allowing the host applicati
 
 **Big Picture**: Decouples navigation from content structure. Allows arbitrary organization of site navigation.
 
----
-
 ### Widgets
+
 **Role**: Dynamic content modules displayed in defined areas. Provides contextual functionality across pages.
 
-**Usage**: Add functionality to sidebars, footers (recent posts, search). Configure per-instance settings. Apply visibility rules.
+**Usage**: Add functionality to sidebars, footers (recent posts, search). Configure per instance settings. Apply visibility rules.
 
 **Relations**:
+
 - Placed in widget areas
 - Can contain blocks for rich content
 - Visibility controlled by rules
@@ -111,9 +118,8 @@ All external dependencies are defined as interfaces, allowing the host applicati
 
 **Big Picture**: Extends pages with reusable functionality. Allows dynamic features without template modifications.
 
----
-
 ### Templates
+
 **Role**: Presentation layer concept defining how content renders. Controls visual structure and layout patterns.
 
 **Usage**: Define page layouts, post formats. Create template hierarchy. Link to theme for organization.
@@ -126,9 +132,8 @@ All external dependencies are defined as interfaces, allowing the host applicati
 
 **Big Picture**: Separates presentation from content. Enables design flexibility without content migration.
 
----
-
 ### Themes
+
 **Role**: Collection of templates and assets forming a complete site design. Organizes presentation resources.
 
 **Usage**: Package related templates, styles, and configurations. Switch between designs. Define widget areas and menu locations.
@@ -144,7 +149,9 @@ All external dependencies are defined as interfaces, allowing the host applicati
 ## Core Architecture Components
 
 ### Content Module (`content/`)
+
 Core content management functionality:
+
 - Content type definitions
 - Version control interfaces
 - Draft/publish workflow
@@ -152,7 +159,9 @@ Core content management functionality:
 - Slug generation
 
 ### Blocks Module (`blocks/`)
-Block-based content system:
+
+Block based content system:
+
 - Block type registry
 - Block rendering interfaces
 - Block validation
@@ -160,35 +169,45 @@ Block-based content system:
 - Reusable block patterns
 
 ### Pages Module (`pages/`)
+
 Hierarchical page management:
+
 - Page hierarchy
 - Path management
 - Template assignment
 - Menu order
 
 ### Menus Module (`menus/`)
+
 Navigation management:
+
 - Menu structure
 - Menu locations
 - Menu item types
 - Hierarchical items
 
 ### Widgets Module (`widgets/`)
+
 Widget functionality:
+
 - Widget types
 - Widget areas
 - Visibility rules
 - Widget settings
 
 ### i18n Module (`i18n/`)
+
 Internationalization support:
+
 - Locale management
 - Translation interfaces
 - Fallback chains
 - Content negotiation
 
 ### Themes Module (`themes/`)
+
 Theme management:
+
 - Theme registration
 - Template organization
 - Widget area definitions
@@ -197,6 +216,7 @@ Theme management:
 ## Data Model
 
 ### Locales Table
+
 Stores available languages and their configuration for multilingual support.
 
 ```sql
@@ -215,6 +235,7 @@ CREATE TABLE locales (
 ```
 
 **Example Data:**
+
 ```json
 {
   "id": "123e4567-e89b-12d3-a456-426614174000",
@@ -231,6 +252,7 @@ CREATE TABLE locales (
 ```
 
 ### Content Types Table
+
 Defines different types of content (pages, posts, custom types) and their capabilities.
 
 ```sql
@@ -251,6 +273,7 @@ CREATE TABLE content_types (
 ```
 
 **Example Data:**
+
 ```json
 {
   "id": "223e4567-e89b-12d3-a456-426614174000",
@@ -275,6 +298,7 @@ CREATE TABLE content_types (
 ```
 
 ### Contents Table
+
 Base content storage for all content types.
 
 ```sql
@@ -308,6 +332,7 @@ CREATE TABLE contents (
 ```
 
 ### Content Translations Table
+
 Stores localized content for each content item.
 
 ```sql
@@ -346,6 +371,7 @@ CREATE TABLE content_translations (
 ```
 
 ### Block Types Table
+
 Defines available block types and their configuration.
 
 ```sql
@@ -371,6 +397,7 @@ CREATE TABLE block_types (
 ```
 
 **Field Descriptions:**
+
 - `render_callback`: Function name or template path used to render the block on the frontend. Example: "blocks.RenderParagraph" or "templates/blocks/paragraph.html"
 - `editor_script_url`: URL to JavaScript file that implements the block editor interface. Loaded in admin panel for block editing.
 - `editor_style_url`: URL to CSS file for block editor styling. Defines how the block looks in the editor.
@@ -431,6 +458,7 @@ CREATE TABLE block_instances (
     attributes JSONB,
     is_reusable BOOLEAN DEFAULT false,
     name VARCHAR(200),
+    publish_on TIMESTAMP,
     deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
@@ -459,6 +487,7 @@ CREATE TABLE block_instances (
 ```
 
 ### Pages Table
+
 Extends content for hierarchical page structure.
 
 ```sql
@@ -469,8 +498,9 @@ CREATE TABLE pages (
     template_slug VARCHAR(100),
     path TEXT NOT NULL,
     menu_order INTEGER DEFAULT 0,
-    is_front_page BOOLEAN DEFAULT false,
+    page_type TEXT NOT NULL DEFAULT "page",
     page_attributes JSONB,
+    publish_on TIMESTAMP,
     deleted_at TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
@@ -487,7 +517,7 @@ CREATE TABLE pages (
   "template_slug": "default",
   "path": "/about-us",
   "menu_order": 2,
-  "is_front_page": false,
+  "page_type": "front_page",
   "page_attributes": {
     "show_sidebar": true,
     "layout": "full-width"
@@ -499,6 +529,7 @@ CREATE TABLE pages (
 ```
 
 ### Themes Table
+
 Defines available themes and their configuration.
 
 ```sql
@@ -597,6 +628,7 @@ CREATE TABLE menus (
     description TEXT,
     location VARCHAR(100),
     deleted_at TIMESTAMP,
+    -- publish_on TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -617,6 +649,7 @@ CREATE TABLE menus (
 ```
 
 ### Menu Items Table
+
 Defines individual items within menus.
 
 ```sql
@@ -632,6 +665,7 @@ CREATE TABLE menu_items (
     order_index INTEGER NOT NULL DEFAULT 0,
     is_active BOOLEAN DEFAULT true,
     deleted_at TIMESTAMP,
+    publish_on TIMESTAMP,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -657,6 +691,7 @@ CREATE TABLE menu_items (
 ```
 
 ### Widget Types Table
+
 Defines available widget types.
 
 ```sql
@@ -799,22 +834,22 @@ import (
 
 // StorageProvider defines the interface for data persistence
 type StorageProvider interface {
-    Query(ctx context.Context, query string, args ...interface{}) (Rows, error)
-    Exec(ctx context.Context, query string, args ...interface{}) (Result, error)
+    Query(ctx context.Context, query string, args ...any) (Rows, error)
+    Exec(ctx context.Context, query string, args ...any) (Result, error)
     Transaction(ctx context.Context, fn func(tx Transaction) error) error
 }
 
 // CacheProvider defines the interface for caching
 type CacheProvider interface {
-    Get(ctx context.Context, key string) (interface{}, error)
-    Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error
+    Get(ctx context.Context, key string) (any, error)
+    Set(ctx context.Context, key string, value any, ttl time.Duration) error
     Delete(ctx context.Context, key string) error
 }
 
 // TemplateRenderer defines the interface for template rendering
 type TemplateRenderer interface {
-    Render(ctx context.Context, template string, data interface{}) (string, error)
-    RegisterFunction(name string, fn interface{}) error
+    Render(ctx context.Context, template string, data any) (string, error)
+    RegisterFunction(name string, fn any) error
 }
 
 // MediaProvider defines the interface for media/asset handling
@@ -925,7 +960,7 @@ type ContentTranslation struct {
     ContentID       string
     LocaleCode      string
     Title           string
-    Data            map[string]interface{}
+    Data            map[string]any
     MetaTitle       string
     MetaDescription string
 }
@@ -934,6 +969,7 @@ type ContentStatus string
 
 const (
     StatusDraft     ContentStatus = "draft"
+    StatusInReview  ContentStatus = "review"
     StatusPublished ContentStatus = "published"
     StatusScheduled ContentStatus = "scheduled"
     StatusArchived  ContentStatus = "archived"
@@ -952,8 +988,8 @@ import (
 type Repository interface {
     Create(ctx context.Context, content *Content) error
     Update(ctx context.Context, content *Content) error
-    Delete(ctx context.Context, id string) error
-    GetByID(ctx context.Context, id string) (*Content, error)
+    Delete(ctx context.Context, id *uuid.UUID) error
+    GetByID(ctx context.Context, id *uuid.UUID) (*Content, error)
     GetBySlug(ctx context.Context, slug string) (*Content, error)
     List(ctx context.Context, opts ListOptions) ([]*Content, error)
 }
@@ -961,12 +997,12 @@ type Repository interface {
 // Service defines business logic for content
 type Service interface {
     Create(ctx context.Context, req CreateRequest) (*Content, error)
-    Update(ctx context.Context, id string, req UpdateRequest) (*Content, error)
-    Publish(ctx context.Context, id string) error
-    Schedule(ctx context.Context, id string, publishOn time.Time) error
-    Delete(ctx context.Context, id string) error
-    Get(ctx context.Context, id string, locale string) (*Content, error)
-    Translate(ctx context.Context, id string, locale string, translation ContentTranslation) error
+    Update(ctx context.Context, id *uuid.UUID, req UpdateRequest) (*Content, error)
+    Publish(ctx context.Context, id *uuid.UUID) error
+    Schedule(ctx context.Context, id *uuid.UUID, publishOn time.Time) error
+    Delete(ctx context.Context, id *uuid.UUID) error
+    Get(ctx context.Context, id *uuid.UUID, locale string) (*Content, error)
+    Translate(ctx context.Context, id *uuid.UUID, locale string, translation ContentTranslation) error
 }
 ```
 
@@ -982,14 +1018,14 @@ import (
 )
 
 type Page struct {
-    ID            string
+    ID            *uuid.UUID
     Content       *content.Content
-    ParentID      *string
+    ParentID      *uuid.UUID
     TemplateSlug  string
     Path          string
     MenuOrder     int
-    IsFrontPage   bool
-    Attributes    map[string]interface{}
+    PageType      string
+    Attributes    map[string]any
     Children      []*Page
     DeletedAt     *time.Time
 }
@@ -1076,8 +1112,6 @@ func (s *service) generatePath(parentID *string, slug string) string {
 
 **Tables**: locales, content_types, contents, content_translations, pages
 
----
-
 ### Sprint 2: Block System
 **Goal**: Composable content with blocks
 
@@ -1088,8 +1122,6 @@ func (s *service) generatePath(parentID *string, slug string) string {
 - Block rendering interfaces
 
 **Tables**: block_types, block_instances, block_translations, content_blocks
-
----
 
 ### Sprint 3: Menu Management
 **Goal**: Dynamic navigation system
@@ -1102,8 +1134,6 @@ func (s *service) generatePath(parentID *string, slug string) string {
 
 **Tables**: menus, menu_items, menu_item_translations
 
----
-
 ### Sprint 4: Widget System
 **Goal**: Dynamic sidebar/area content
 
@@ -1115,8 +1145,6 @@ func (s *service) generatePath(parentID *string, slug string) string {
 
 **Tables**: widget_types, widget_instances, widget_translations
 
----
-
 ### Sprint 5: Themes and Templates
 **Goal**: Complete presentation layer
 
@@ -1127,8 +1155,6 @@ func (s *service) generatePath(parentID *string, slug string) string {
 - Widget area definitions per theme
 
 **Tables**: themes, templates
-
----
 
 ### Sprint 6: Advanced Features
 **Goal**: Production-ready features
@@ -1181,7 +1207,7 @@ func main() {
     // Add content translation
     err = cmsInstance.Content.Translate(ctx, page.Content.ID, "en-US", content.ContentTranslation{
         Title:           "About Us",
-        Data:            map[string]interface{}{"content": "Our company story..."},
+        Data:            map[string]any{"content": "Our company story..."},
         MetaTitle:       "About | ACME Corp",
         MetaDescription: "Learn about ACME Corp",
     })
@@ -1189,7 +1215,7 @@ func main() {
     // Add a block to the page (after Sprint 2)
     block, err := cmsInstance.Blocks.AddToContent(ctx, page.Content.ID, blocks.BlockRequest{
         Type:       "paragraph",
-        Attributes: map[string]interface{}{"content": "Welcome paragraph"},
+        Attributes: map[string]any{"content": "Welcome paragraph"},
         Area:       "main",
     })
 }
