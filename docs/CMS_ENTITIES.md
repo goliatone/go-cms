@@ -635,42 +635,6 @@ func main() {
 }
 ```
 
-### Key Architectural Decisions
-
-1. **Opaque Locale Codes**: System treats locale codes as strings without parsing format assumptions.
-
-2. **Nullable Fields**: Advanced features use nullable foreign keys and JSONB fields. Simple mode leaves these `NULL`.
-
-3. **Interface-Based**: Locale-specific logic is behind interfaces with default implementations.
-
-4. **Default Configuration**: Functions with simple codes without required setup.
-
-5. **Opt-In Complexity**: Advanced features like custom fallback chains or regional formatters are inactive by default and must be enabled via the main `Config` struct.
-
-6. **Unified Schema**: Simple and complex modes use identical database schema with different data.
-
-### Architectural Approach: Progressive Complexity
-
-**Design Constraints**:
-- Many i18n libraries require choosing between simple or complex modes at initialization
-- Simple implementations cannot handle regional variations
-- Complex implementations have higher learning curves
-- Switching modes typically requires application rewrites
-
-**Implementation Approach**:
-```
-Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
-     |                      |                       |
-     v                      v                       v
-   "en"  ───────────────> "en-US" ──────────────> Custom
-   "es"                   "en-GB"                  Fallback
-   "fr"                   "fr-CA"                  Chains
-                          "fr-FR"
-     |                      |                       |
-  No config       Auto fallback "en-US"→"en"   Locale groups
-  No fallbacks    Automatic parsing            Explicit config
-```
-
 **Migration Path**:
 1. Start with simple codes: `"en"`, `"es"`, `"fr"`
 2. Add regions if needed: change `"en"` to `"en-US"` (automatic fallback to base code)
@@ -720,7 +684,7 @@ cms := NewCMS(&Config{
 
 ### What is a Page?
 
-A page is a hierarchical content container that represents a distinct section of the website. Pages define the site's information architecture through parent-child relationships.
+A page is a hierarchical content container that represents a distinct section of the website. Pages define the site's information architecture through parent child relationships.
 
 ### Key Concepts
 
@@ -754,7 +718,7 @@ The `page_type` field categorizes pages for special treatment:
 CREATE TABLE pages (
     id UUID PRIMARY KEY,
     content_id UUID,            -- Links to base content table
-    parent_id UUID,             -- Parent page (null for top-level)
+    parent_id UUID,             -- Parent page (null for top level)
     template_slug VARCHAR(100), -- Which template to use for rendering
     menu_order INTEGER,         -- Order among siblings
     page_type TEXT,             -- Special page designation
@@ -827,7 +791,7 @@ CREATE TABLE page_translations (
 }
 ```
 
-**`page_attributes`**: Flexible storage for page-specific settings:
+**`page_attributes`**: Flexible storage for page specific settings:
 ```json
 {
   "show_sidebar": true,
@@ -1141,7 +1105,7 @@ The `parent_type` field determines what kind of container holds the block. Under
 The block belongs directly to a page or post (any content item from the `contents` table).
 
 **Characteristics**:
-- Most common case for top-level blocks
+- Most common case for top level blocks
 - `parent_id` references a `content_id` from the `contents` table
 - These blocks appear in the main content area of a page
 
@@ -1234,7 +1198,7 @@ The block is contained within a widget instance.
 - `parent_id` references a `widget_instance_id` from `widget_instances` table
 - Widgets can use blocks for flexible content layouts
 
-**Example**: A call-to-action block inside a promotional widget
+**Example**: A CTA block inside a promotional widget
 ```json
 {
   "widget_instance": {
@@ -1268,7 +1232,7 @@ ORDER BY bi.order_index;
 
 | parent_type | parent_id references | Use Case | Query Target |
 |-------------|---------------------|----------|--------------|
-| `content`   | `contents.id`       | Top-level page/post blocks | Main content area |
+| `content`   | `contents.id`       | top level page/post blocks | Main content area |
 | `block`     | `block_instances.id`| Nested blocks | Recursive tree queries |
 | `widget`    | `widget_instances.id`| Blocks within widgets | Widget content areas |
 
@@ -1349,7 +1313,7 @@ A columns block containing paragraphs, with proper config/content separation:
 - Columns block `attributes` (columns, gap) contain configuration only
 - Paragraph blocks separate `attributes` (alignment, font_size) from `translations`
 - Each child block includes translations
-- Layout configuration is locale-independent
+- Layout configuration is locale independent
 
 ### Common Block Types with i18n Examples
 
@@ -1556,7 +1520,7 @@ CREATE TABLE widget_instances (
 **Settings Field Guidelines**:
 - **Store in settings**: behavior flags (show_date, count, sorting), technical config
 - **Do NOT store in settings**: titles, labels, help text, content
-- **Rule**: All user-visible text goes in `widget_translations`
+- **Rule**: All user visible text goes in `widget_translations`
 
 ### Widget Translations Table
 
@@ -1569,7 +1533,7 @@ CREATE TABLE widget_translations (
     locale_id UUID NOT NULL REFERENCES locales(id),
     title VARCHAR(200),              -- Widget title
     translatable_settings JSONB,     -- UI labels that need translation
-    content JSONB,                   -- Widget-specific content
+    content JSONB,                   -- Widget specific content
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(widget_instance_id, locale_id)
@@ -1593,7 +1557,7 @@ CREATE TABLE widget_translations (
 }
 ```
 
-**`content`**: Widget-specific translatable content:
+**`content`**: Widget specific translatable content:
 ```json
 {
   "intro_text": "Check out our latest articles",
@@ -1686,9 +1650,9 @@ Shows complete separation of configuration from translatable content:
 ```
 
 **Structure**:
-- `settings` contains technical config (map_zoom, icon_style) - not translated
-- `translatable_settings` contains UI labels - translated
-- `content` contains widget content - translated and locale-specific
+- `settings` contains technical config (map_zoom, icon_style): not translated
+- `translatable_settings` contains UI labels: translated
+- `content` contains widget content: translated and locale-specific
 
 #### Recent Posts Widget
 ```json
@@ -2591,7 +2555,7 @@ blackFridayBlock := &BlockInstance{
 blackFridayBlock.DeletedAt = time.Date(2024, 12, 2, 0, 0, 0, 0, time.UTC)
 ```
 
-### Multi-language Blocks
+### Multi language Blocks
 
 Blocks support translations:
 
@@ -2771,7 +2735,7 @@ func GetTranslation(contentID, locale string) *Translation {
 
 #### 6. locale specific Formatting
 
-**Use Locale-Aware Libraries**:
+**Use Locale Aware Libraries**:
 ```go
 import "golang.org/x/text/language"
 import "golang.org/x/text/message"
@@ -2787,10 +2751,10 @@ p.Printf("%d", 1234567)  // "1,234,567"
 **Date Formatting**:
 ```go
 // Don't hardcode date formats
-// ❌ Bad
+// Bad
 fmt.Sprintf("%d/%d/%d", month, day, year)
 
-// ✅ Good
+// Good
 time.Now().Format(getLocaleDateFormat(locale))
 ```
 
@@ -2870,6 +2834,7 @@ Vary: Accept-Language
 ```
 
 ### Block Design
+
 1. Keep blocks atomic and single-purpose
 2. Use nesting for complex layouts
 3. Make blocks reusable when patterns emerge
@@ -2879,15 +2844,17 @@ Vary: Accept-Language
 7. **Use `attribute_overrides` for locale specific media**
 
 ### Page Organization
+
 1. Use hierarchy to reflect site structure
 2. Keep paths short and meaningful
 3. Use page types for special behaviors
-4. Use `page_attributes` for page-specific settings not covered by other fields.
+4. Use `page_attributes` for page specific settings not covered by other fields.
 5. Plan for URL changes (redirects)
 6. **Create locale specific paths in `page_translations`**
 7. **Maintain consistent hierarchy across locales**
 
 ### Widget Strategy
+
 1. Use visibility rules to control widget display based on page, user role, or other conditions.
 2. Group related widgets in areas
 3. Consider performance (cache widget output)
@@ -2895,67 +2862,3 @@ Vary: Accept-Language
 5. Test visibility rules thoroughly
 6. **Separate `settings` from `translatable_settings`**
 7. **Apply visibility rules strategically for multilingual sites**. Since rules are not translatable, create separate widget instances per locale if different visibility is required, and use path-based rules to target them.
-
-### Performance Considerations
-1. Lazy load blocks below the fold
-2. Cache rendered widget output
-3. Optimize block queries (avoid N+1)
-4. Use CDN for block assets
-5. Implement fragment caching for complex blocks
-6. **Include locale in all cache keys**
-7. **Eager load translations with fallback chain**
-8. **Use database indexes on locale_id foreign keys**
-
-### Migration from Existing Systems
-
-**Step 1: Audit Current Content**
-```sql
--- Identify hardcoded strings
-SELECT * FROM blocks WHERE attributes::text LIKE '%text%';
-
--- Find locale-independent paths
-SELECT * FROM pages WHERE path NOT IN (
-    SELECT path FROM page_translations
-);
-```
-
-**Step 2: Separate Config from Content**
-```go
-// Transform old format
-oldBlock := {
-    "attributes": {
-        "text": "Welcome",
-        "alignment": "center"
-    }
-}
-
-// To new format
-newBlock := {
-    "attributes": {
-        "alignment": "center"  // Config only
-    },
-    "translations": {
-        "en-US": {
-            "content": {"text": "Welcome"}
-        }
-    }
-}
-```
-
-**Step 3: Create Translations**
-- Export all translatable strings
-- Send to translation service
-- Import translated content
-- Validate completeness
-
-**Step 4: Update Queries**
-- Add locale parameter to all content queries
-- Implement fallback logic
-- Update cache keys
-
-**Step 5: Test Thoroughly**
-- Verify all locales display correctly
-- Test fallback chains
-- Performance test with multiple locales
-
-This guide provides comprehensive understanding of implementing and working with a production-ready, multilingual CMS.

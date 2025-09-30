@@ -186,7 +186,7 @@ All table definitions, field descriptions, and example data are maintained in th
 ### Locales Table
 Stores available languages and their configuration for multilingual support.
 
-*Note: The schema in `CMS_ENTITIES.md` can be extended with fields like `native_name` for a richer implementation.*
+*Note: The `locales` table schema in [CMS_ENTITIES.md](./CMS_ENTITIES.md#internationalization-architecture) can be extended with fields like `native_name` for a richer implementation.*
 
 ### Content Types Table
 Defines different types of content (pages, posts, custom types) and their capabilities.
@@ -200,7 +200,7 @@ Stores localized content for each content item.
 ### Block Types Table
 Defines available block types and their configuration.
 
-*Note: The schema in `CMS_ENTITIES.md` can be extended with fields like `icon`, `description`, `editor_style_url`, and `frontend_style_url` for a more complete block editor experience.*
+*Note: The `block_types` table schema in [CMS_ENTITIES.md](./CMS_ENTITIES.md#block-types-table) can be extended with fields like `icon`, `description`, `editor_style_url`, and `frontend_style_url` for a more complete block editor experience.*
 
 ### Block Instances Table
 Stores actual block usage instances within content.
@@ -223,7 +223,7 @@ Defines individual items within menus.
 ### Widget Types Table
 Defines available widget types.
 
-*Note: The schema in `CMS_ENTITIES.md` can be extended with a `description` field.*
+*Note: The `widget_types` table schema in [CMS_ENTITIES.md](./CMS_ENTITIES.md#widget-types-table) can be extended with a `description` field.*
 
 ### Widget Instances Table
 Stores configured widget instances.
