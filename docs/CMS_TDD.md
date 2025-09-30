@@ -3,11 +3,12 @@
 ## Table of Contents
 1. [Overview](#overview)
 2. [Design Philosophy](#design-philosophy)
-3. [Entity Descriptions](#entity-descriptions)
-4. [Core Architecture Components](#core-architecture-components)
-5. [Data Model](#data-model)
-6. [Go Module Structure](#go-module-structure)
-7. [Implementation Roadmap](#implementation-roadmap)
+3. [Key Architectural Decisions](#key-architectural-decisions)
+4. [Entity Descriptions](#entity-descriptions)
+5. [Core Architecture Components](#core-architecture-components)
+6. [Data Model](#data-model)
+7. [Go Module Structure](#go-module-structure)
+8. [Implementation Roadmap](#implementation-roadmap)
 
 ## Overview
 
@@ -57,94 +58,57 @@ Each content type is isolated with no direct dependencies on others. Service lay
 
 All external dependencies are defined as interfaces, allowing the host application to provide implementations.
 
+## Key Architectural Decisions
+
+1. **Opaque Locale Codes**: System treats locale codes as strings without parsing format assumptions.
+
+2. **Nullable Fields**: Advanced features use nullable foreign keys and JSONB fields. Simple mode leaves these `NULL`.
+
+3. **Interface-Based**: Locale-specific logic is behind interfaces with default implementations.
+
+4. **Default Configuration**: Functions with simple codes without required setup.
+
+5. **Opt-In Complexity**: Advanced features like custom fallback chains or regional formatters are inactive by default and must be enabled via the main `Config` struct.
+
+6. **Unified Schema**: Simple and complex modes use identical database schema with different data.
+
+7. **Progressive Enhancement**: Start with pages (Sprint 1), add blocks (Sprint 2), then menus and widgets. Each feature is independent.
+
+8. **Service Layer Architecture**: Business logic resides in services, not in data models or repositories.
+
+9. **Soft Deletes**: All entities support `deleted_at` for data recovery and audit trails.
+
+10. **Scheduled Publishing**: Content and widgets support `publish_on` for future publishing.
+
+11. **Translation-First**: Every user-facing string is translatable from day one.
+
+12. **Minimal Dependencies**: The module itself has minimal external dependencies, relying on interfaces for integration.
+
+13. **Isolated Modules**: Each content type module (pages, blocks, menus, widgets) is independent with no direct dependencies on others.
+
 ## Entity Descriptions
 
-### Pages
+The CMS is composed of several key entities that work together to manage and deliver content. Each entity has a distinct role and set of responsibilities.
 
+For a detailed breakdown of each entity, its fields, and database schema, please refer to the [CMS Entities Guide](./CMS_ENTITIES.md).
+
+### Pages
 **Role**: Hierarchical content containers representing website sections. The primary structural element of the site.
 
-**Usage**: Create site structure (homepage, about, contact). Build parent-child relationships for logical content organization. Assign templates for rendering.
-
-**Relations**:
-- Extends base content type with hierarchy
-- Contains blocks in defined areas (when blocks module is enabled)
-- References templates for rendering
-- Supports parent-child relationships with other pages
-
-**Big Picture**: Forms the site's information architecture. Provides URL structure and logical content organization.
-
 ### Blocks
-
 **Role**: Atomic content units that compose pages. The fundamental building block of content.
 
-**Usage**: Create reusable content components (paragraphs, images, galleries). Nest blocks to build complex layouts. Save frequently used blocks as patterns.
-
-**Relations**:
-
-- Contained within pages and widgets
-- Can contain other blocks (nested structure)
-- Reference media assets for rich content
-- Translated independently per locale
-
-**Big Picture**: Provides content flexibility without code changes. Authors combine blocks to create unique layouts.
-
 ### Menus
-
 **Role**: Navigation structure that links content and external resources. Organizes site hierarchy for user navigation.
 
-**Usage**: Define navigation bars, footers, sidebars. Create hierarchical menu items linking to pages or custom URLs. Assign menus to locations.
-
-**Relations**:
-
-- Links to pages and external URLs
-- Assigned to menu locations
-- Menu items support parent-child relationships
-- Each item has translations per locale
-
-**Big Picture**: Decouples navigation from content structure. Allows arbitrary organization of site navigation.
-
 ### Widgets
-
 **Role**: Dynamic content modules displayed in defined areas. Provides contextual functionality across pages.
 
-**Usage**: Add functionality to sidebars, footers (recent posts, search). Configure per instance settings. Apply visibility rules.
-
-**Relations**:
-
-- Placed in widget areas
-- Can contain blocks for rich content
-- Visibility controlled by rules
-- Settings and content translated per locale
-
-**Big Picture**: Extends pages with reusable functionality. Allows dynamic features without template modifications.
-
 ### Templates
-
 **Role**: Presentation layer concept defining how content renders. Controls visual structure and layout patterns.
 
-**Usage**: Define page layouts, post formats. Create template hierarchy. Link to theme for organization.
-
-**Relations**:
-- Belongs to themes
-- Assigned to content types and pages
-- Defines widget areas and menu locations
-- Specifies block areas
-
-**Big Picture**: Separates presentation from content. Enables design flexibility without content migration.
-
 ### Themes
-
 **Role**: Collection of templates and assets forming a complete site design. Organizes presentation resources.
-
-**Usage**: Package related templates, styles, and configurations. Switch between designs. Define widget areas and menu locations.
-
-**Relations**:
-- Contains templates
-- Defines widget areas
-- Specifies menu locations
-- Provides default configurations
-
-**Big Picture**: Enables complete design changes through theme switching. Encapsulates all presentation logic.
 
 ## Core Architecture Components
 
@@ -215,605 +179,54 @@ Theme management:
 
 ## Data Model
 
-### Locales Table
+The data model is designed to be flexible and support the features outlined in this document, including internationalization, content versioning, and a component-based structure.
 
+All table definitions, field descriptions, and example data are maintained in the [CMS Entities Guide](./CMS_ENTITIES.md). Below is a high-level overview of the tables.
+
+### Locales Table
 Stores available languages and their configuration for multilingual support.
 
-```sql
-CREATE TABLE locales (
-    id UUID PRIMARY KEY,
-    code VARCHAR(10) UNIQUE NOT NULL,
-    name VARCHAR(100) NOT NULL,
-    native_name VARCHAR(100),
-    is_active BOOLEAN DEFAULT true,
-    is_default BOOLEAN DEFAULT false,
-    fallback_locale_id UUID REFERENCES locales(id),
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-```sql
--- Add locale groups for fallback chains
-CREATE TABLE locale_groups (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100), -- 'French', 'Spanish', 'English'
-    primary_locale_id UUID REFERENCES locales(id),
-    fallback_order JSONB -- ["fr-CA", "fr-FR", "en-US"]
-);
-```
-
-**Example Data:**
-
-```json
-{
-  "id": "123e4567-e89b-12d3-a456-426614174000",
-  "code": "en-US",
-  "name": "English (United States)",
-  "native_name": "English",
-  "is_active": true,
-  "is_default": true,
-  "fallback_locale_id": null,
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
+*Note: The schema in `CMS_ENTITIES.md` can be extended with fields like `native_name` for a richer implementation.*
 
 ### Content Types Table
-
 Defines different types of content (pages, posts, custom types) and their capabilities.
 
-```sql
-CREATE TABLE content_types (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    icon VARCHAR(100),
-    schema JSONB NOT NULL,
-    supports JSONB,
-    is_hierarchical BOOLEAN DEFAULT false,
-    is_translatable BOOLEAN DEFAULT true,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-
-```json
-{
-  "id": "223e4567-e89b-12d3-a456-426614174000",
-  "name": "Page",
-  "slug": "page",
-  "type": "page",
-  "icon": "file-text",
-  "schema": {
-    "properties": {
-      "title": {"type": "string", "maxLength": 200},
-      "content": {"type": "string"},
-      "excerpt": {"type": "string", "maxLength": 500}
-    }
-  },
-  "supports": ["blocks", "revisions", "custom-fields", "page-attributes"],
-  "is_hierarchical": true,
-  "is_translatable": true,
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Contents Table
-
 Base content storage for all content types.
 
-```sql
-CREATE TABLE contents (
-    id UUID PRIMARY KEY,
-    content_type_id UUID NOT NULL REFERENCES content_types(id),
-    slug VARCHAR(255) NOT NULL,
-    status VARCHAR(50) NOT NULL DEFAULT 'draft',
-    author_id UUID NOT NULL,
-    publish_on TIMESTAMP,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(content_type_id, slug, deleted_at)
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "323e4567-e89b-12d3-a456-426614174000",
-  "content_type_id": "223e4567-e89b-12d3-a456-426614174000",
-  "slug": "about-us",
-  "status": "published",
-  "author_id": "423e4567-e89b-12d3-a456-426614174000",
-  "publish_on": "2024-01-15T09:00:00Z",
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-10T00:00:00Z"
-}
-```
-
 ### Content Translations Table
-
 Stores localized content for each content item.
 
-```sql
-CREATE TABLE content_translations (
-    id UUID PRIMARY KEY,
-    content_id UUID NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
-    locale_id UUID NOT NULL REFERENCES locales(id),
-    title VARCHAR(500) NOT NULL,
-    data JSONB NOT NULL,
-    meta_title VARCHAR(160),
-    meta_description TEXT,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(content_id, locale_id, deleted_at)
-);
-```
-
-```sql
--- Add translation status tracking
-CREATE TABLE translation_status (
-    id UUID PRIMARY KEY,
-    entity_type VARCHAR(50), -- 'content', 'block', 'widget'
-    entity_id UUID,
-    locale_id UUID REFERENCES locales(id),
-    status VARCHAR(50), -- 'missing', 'draft', 'review', 'approved'
-    completeness INTEGER, -- percentage
-    last_updated TIMESTAMP,
-    translator_id UUID,
-    reviewer_id UUID,
-    UNIQUE(entity_type, entity_id, locale_id)
-);
-```
-
-```sql
--- Add locale-specific URLs
-CREATE TABLE url_redirects (
-    id UUID PRIMARY KEY,
-    from_path TEXT NOT NULL,
-    to_path TEXT NOT NULL,
-    locale_id UUID REFERENCES locales(id),
-    redirect_type INTEGER DEFAULT 301,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "523e4567-e89b-12d3-a456-426614174000",
-  "content_id": "323e4567-e89b-12d3-a456-426614174000",
-  "locale_id": "123e4567-e89b-12d3-a456-426614174000",
-  "title": "About Our Company",
-  "data": {
-    "content": "We are a technology company focused on innovation...",
-    "excerpt": "Learn more about our mission and values."
-  },
-  "meta_title": "About Us | ACME Corp",
-  "meta_description": "Learn about ACME Corp's mission, values, and team.",
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-10T00:00:00Z"
-}
-```
-
 ### Block Types Table
-
 Defines available block types and their configuration.
 
-```sql
-CREATE TABLE block_types (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    category VARCHAR(50),
-    icon VARCHAR(100),
-    description TEXT,
-    schema JSONB NOT NULL,
-    render_callback VARCHAR(200),
-    editor_script_url TEXT,
-    editor_style_url TEXT,
-    frontend_script_url TEXT,
-    frontend_style_url TEXT,
-    supports JSONB,
-    example JSONB,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Field Descriptions:**
-
-- `render_callback`: Function name or template path used to render the block on the frontend. Example: "blocks.RenderParagraph" or "templates/blocks/paragraph.html"
-- `editor_script_url`: URL to JavaScript file that implements the block editor interface. Loaded in admin panel for block editing.
-- `editor_style_url`: URL to CSS file for block editor styling. Defines how the block looks in the editor.
-- `frontend_script_url`: URL to JavaScript file for frontend block functionality. Loaded on public site if block requires interactive features.
-- `frontend_style_url`: URL to CSS file for frontend block styling. Defines how the block looks on the public site.
-- `supports`: JSON object defining block capabilities like alignment, custom CSS classes, anchors.
-- `example`: Sample block data used for preview in block picker.
-
-**Example Data:**
-```json
-{
-  "id": "623e4567-e89b-12d3-a456-426614174000",
-  "name": "Paragraph",
-  "slug": "paragraph",
-  "category": "text",
-  "icon": "paragraph",
-  "description": "A basic text paragraph block",
-  "schema": {
-    "properties": {
-      "content": {"type": "string"},
-      "align": {"type": "string", "enum": ["left", "center", "right"]},
-      "dropCap": {"type": "boolean", "default": false}
-    }
-  },
-  "render_callback": "blocks.RenderParagraph",
-  "editor_script_url": "/assets/blocks/paragraph/editor.js",
-  "editor_style_url": "/assets/blocks/paragraph/editor.css",
-  "frontend_script_url": null,
-  "frontend_style_url": "/assets/blocks/paragraph/style.css",
-  "supports": {
-    "align": true,
-    "anchor": true,
-    "customClassName": true,
-    "color": {"background": true, "text": true}
-  },
-  "example": {
-    "attributes": {
-      "content": "This is a sample paragraph.",
-      "align": "left"
-    }
-  },
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
+*Note: The schema in `CMS_ENTITIES.md` can be extended with fields like `icon`, `description`, `editor_style_url`, and `frontend_style_url` for a more complete block editor experience.*
 
 ### Block Instances Table
 Stores actual block usage instances within content.
 
-```sql
-CREATE TABLE block_instances (
-    id UUID PRIMARY KEY,
-    block_type_id UUID NOT NULL REFERENCES block_types(id),
-    parent_id UUID,
-    parent_type VARCHAR(50),
-    order_index INTEGER NOT NULL DEFAULT 0,
-    attributes JSONB,
-    is_reusable BOOLEAN DEFAULT false,
-    name VARCHAR(200),
-    publish_on TIMESTAMP,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "723e4567-e89b-12d3-a456-426614174000",
-  "block_type_id": "623e4567-e89b-12d3-a456-426614174000",
-  "parent_id": "323e4567-e89b-12d3-a456-426614174000",
-  "parent_type": "content",
-  "order_index": 0,
-  "attributes": {
-    "content": "Welcome to our about page. Here you'll learn about our company history.",
-    "align": "left",
-    "dropCap": false
-  },
-  "is_reusable": false,
-  "name": null,
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Pages Table
-
 Extends content for hierarchical page structure.
 
-```sql
-CREATE TABLE pages (
-    id UUID PRIMARY KEY,
-    content_id UUID UNIQUE NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
-    parent_id UUID REFERENCES pages(id),
-    template_slug VARCHAR(100),
-    path TEXT NOT NULL,
-    menu_order INTEGER DEFAULT 0,
-    page_type TEXT NOT NULL DEFAULT "page",
-    page_attributes JSONB,
-    publish_on TIMESTAMP,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(path, deleted_at)
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "823e4567-e89b-12d3-a456-426614174000",
-  "content_id": "323e4567-e89b-12d3-a456-426614174000",
-  "parent_id": null,
-  "template_slug": "default",
-  "path": "/about-us",
-  "menu_order": 2,
-  "page_type": "front_page",
-  "page_attributes": {
-    "show_sidebar": true,
-    "layout": "full-width"
-  },
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Themes Table
-
 Defines available themes and their configuration.
-
-```sql
-CREATE TABLE themes (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    version VARCHAR(20),
-    author VARCHAR(200),
-    description TEXT,
-    config JSONB,
-    is_active BOOLEAN DEFAULT false,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "923e4567-e89b-12d3-a456-426614174000",
-  "name": "Corporate Theme",
-  "slug": "corporate-theme",
-  "version": "1.0.0",
-  "author": "ACME Design Team",
-  "description": "A clean, professional theme for corporate websites",
-  "config": {
-    "colors": {
-      "primary": "#007bff",
-      "secondary": "#6c757d"
-    },
-    "fonts": {
-      "body": "Arial, sans-serif",
-      "heading": "Georgia, serif"
-    },
-    "widget_areas": ["sidebar", "footer-1", "footer-2", "footer-3"],
-    "menu_locations": ["primary", "footer"]
-  },
-  "is_active": true,
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
 
 ### Templates Table
 Defines templates available within themes.
 
-```sql
-CREATE TABLE templates (
-    id UUID PRIMARY KEY,
-    theme_id UUID REFERENCES themes(id) ON DELETE CASCADE,
-    name VARCHAR(100) NOT NULL,
-    slug VARCHAR(100) NOT NULL,
-    type VARCHAR(50) NOT NULL,
-    description TEXT,
-    schema JSONB,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    UNIQUE(theme_id, slug, deleted_at)
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "a23e4567-e89b-12d3-a456-426614174000",
-  "theme_id": "923e4567-e89b-12d3-a456-426614174000",
-  "name": "Default Page Template",
-  "slug": "default",
-  "type": "page",
-  "description": "Standard page layout with sidebar",
-  "schema": {
-    "areas": ["main", "sidebar"],
-    "variables": ["title", "content", "featured_image"],
-    "widgets": {
-      "sidebar": ["search", "recent-posts", "categories"]
-    }
-  },
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Menus Table
 Defines navigation menus.
 
-```sql
-CREATE TABLE menus (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    description TEXT,
-    location VARCHAR(100),
-    deleted_at TIMESTAMP,
-    -- publish_on TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "b23e4567-e89b-12d3-a456-426614174000",
-  "name": "Main Navigation",
-  "slug": "main-nav",
-  "description": "Primary site navigation",
-  "location": "primary",
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Menu Items Table
-
 Defines individual items within menus.
 
-```sql
-CREATE TABLE menu_items (
-    id UUID PRIMARY KEY,
-    menu_id UUID NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
-    parent_id UUID REFERENCES menu_items(id),
-    type VARCHAR(50) NOT NULL,
-    object_id UUID,
-    url TEXT,
-    target VARCHAR(50),
-    css_classes TEXT,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    is_active BOOLEAN DEFAULT true,
-    deleted_at TIMESTAMP,
-    publish_on TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "c23e4567-e89b-12d3-a456-426614174000",
-  "menu_id": "b23e4567-e89b-12d3-a456-426614174000",
-  "parent_id": null,
-  "type": "page",
-  "object_id": "823e4567-e89b-12d3-a456-426614174000",
-  "url": null,
-  "target": "_self",
-  "css_classes": "nav-item",
-  "order_index": 1,
-  "is_active": true,
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
-
 ### Widget Types Table
-
 Defines available widget types.
 
-```sql
-CREATE TABLE widget_types (
-    id UUID PRIMARY KEY,
-    name VARCHAR(100) UNIQUE NOT NULL,
-    slug VARCHAR(100) UNIQUE NOT NULL,
-    description TEXT,
-    category VARCHAR(50),
-    schema JSONB NOT NULL,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "d23e4567-e89b-12d3-a456-426614174000",
-  "name": "Recent Posts",
-  "slug": "recent-posts",
-  "description": "Display a list of recent posts",
-  "category": "posts",
-  "schema": {
-    "properties": {
-      "title": {"type": "string", "default": "Recent Posts"},
-      "count": {"type": "integer", "default": 5, "min": 1, "max": 20},
-      "show_date": {"type": "boolean", "default": true},
-      "show_excerpt": {"type": "boolean", "default": false}
-    }
-  },
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
+*Note: The schema in `CMS_ENTITIES.md` can be extended with a `description` field.*
 
 ### Widget Instances Table
 Stores configured widget instances.
-
-```sql
-CREATE TABLE widget_instances (
-    id UUID PRIMARY KEY,
-    widget_type_id UUID NOT NULL REFERENCES widget_types(id),
-    area VARCHAR(100),
-    title VARCHAR(200),
-    settings JSONB,
-    visibility_rules JSONB,
-    order_index INTEGER NOT NULL DEFAULT 0,
-    is_active BOOLEAN DEFAULT true,
-    publish_on TIMESTAMP,
-    deleted_at TIMESTAMP,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
-);
-```
-
-**Example Data:**
-```json
-{
-  "id": "e23e4567-e89b-12d3-a456-426614174000",
-  "widget_type_id": "d23e4567-e89b-12d3-a456-426614174000",
-  "area": "sidebar",
-  "title": "Latest News",
-  "settings": {
-    "count": 5,
-    "show_date": true,
-    "show_excerpt": true,
-    "category": "news"
-  },
-  "visibility_rules": {
-    "show_on_pages": ["home", "blog"],
-    "hide_on_pages": ["checkout"],
-    "show_if_logged_in": false
-  },
-  "order_index": 0,
-  "is_active": true,
-  "publish_on": null,
-  "deleted_at": null,
-  "created_at": "2024-01-01T00:00:00Z",
-  "updated_at": "2024-01-01T00:00:00Z"
-}
-```
 
 ## Go Module Structure
 
@@ -1259,20 +672,31 @@ func main() {
 }
 ```
 
-## Key Design Decisions
+## Architectural Approach: Progressive Complexity
 
-1. **Interface-Driven**: All external dependencies are interfaces, making the module pluggable into any Go application.
+**Design Constraints**:
+- Many i18n libraries require choosing between simple or complex modes at initialization
+- Simple implementations cannot handle regional variations
+- Complex implementations have higher learning curves
+- Switching modes typically requires application rewrites
 
-2. **Progressive Enhancement**: Start with pages (Sprint 1), add blocks (Sprint 2), then menus and widgets. Each feature is independent.
+**Implementation Approach**:
+```
+Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
+     |                      |                       |
+     v                      v                       v
+   "en"  ───────────────> "en-US" ──────────────> Custom
+   "es"                   "en-GB"                  Fallback
+   "fr"                   "fr-CA"                  Chains
+                          "fr-FR"
+     |                      |                       |
+  No config       Auto fallback "en-US"→"en"   Locale groups
+  No fallbacks    Automatic parsing            Explicit config
+```
 
-3. **Service Layer Architecture**: Business logic resides in services, not in data models or repositories.
+**Migration Path**:
+1. Start with simple codes: `"en"`, `"es"`, `"fr"`
+2. Add regions if needed: change `"en"` to `"en-US"` (automatic fallback to base code)
+3. Add locale groups for custom fallback logic
 
-4. **Soft Deletes**: All entities support `deleted_at` for data recovery and audit trails.
-
-5. **Scheduled Publishing**: Content and widgets support `publish_on` for future publishing.
-
-6. **Translation-First**: Every user-facing string is translatable from day one.
-
-7. **Minimal Dependencies**: The module itself has minimal external dependencies, relying on interfaces for integration.
-
-8. **Isolated Modules**: Each content type module (pages, blocks, menus, widgets) is independent with no direct dependencies on others.
+**Upgrade Path**: Each level of i18n complexity is enabled by providing additional configuration, without requiring modifications to existing application code or database schema.

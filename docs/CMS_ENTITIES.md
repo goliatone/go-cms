@@ -6,10 +6,13 @@
 3. [Pages - The Structure](#pages---the-structure)
 4. [Blocks - The Content](#blocks---the-content)
 5. [Widgets - The Features](#widgets---the-features)
-6. [How Components Work Together](#how-components-work-together)
-7. [Implementation Examples](#implementation-examples)
-8. [Common Patterns and Use Cases](#common-patterns-and-use-cases)
-9. [Best Practices](#best-practices)
+6. [Menus - The Navigation](#menus---the-navigation)
+7. [Themes and Templates - The Presentation](#themes-and-templates---the-presentation)
+8. [Core Content Structures](#core-content-structures)
+9. [How Components Work Together](#how-components-work-together)
+10. [Implementation Examples](#implementation-examples)
+11. [Common Patterns and Use Cases](#common-patterns-and-use-cases)
+12. [Best Practices](#best-practices)
 
 ## Overview
 
@@ -1777,6 +1780,147 @@ Shows complete separation of configuration from translatable content:
     }
   ]
 }
+```
+
+## Menus - The Navigation
+
+### What is a Menu?
+A menu is a navigation structure that links to pages and external resources, organizing the site's hierarchy for user navigation.
+
+### Menus Table
+Defines navigation menus.
+```sql
+CREATE TABLE menus (
+    id UUID PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    location VARCHAR(100),
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+### Menu Items Table
+Defines individual items within menus.
+```sql
+CREATE TABLE menu_items (
+    id UUID PRIMARY KEY,
+    menu_id UUID NOT NULL REFERENCES menus(id) ON DELETE CASCADE,
+    parent_id UUID REFERENCES menu_items(id),
+    type VARCHAR(50) NOT NULL,
+    object_id UUID,
+    url TEXT,
+    target VARCHAR(50),
+    css_classes TEXT,
+    order_index INTEGER NOT NULL DEFAULT 0,
+    is_active BOOLEAN DEFAULT true,
+    deleted_at TIMESTAMP,
+    publish_on TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+## Themes and Templates - The Presentation
+
+### What is a Theme?
+A theme is a collection of templates and assets that form a complete site design, encapsulating all presentation logic.
+
+### Themes Table
+Defines available themes and their configuration.
+```sql
+CREATE TABLE themes (
+    id UUID PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    version VARCHAR(20),
+    author VARCHAR(200),
+    description TEXT,
+    config JSONB,
+    is_active BOOLEAN DEFAULT false,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+### What is a Template?
+A template is a presentation layer concept that defines how content renders, controlling the visual structure and layout patterns.
+
+### Templates Table
+Defines templates available within themes.
+```sql
+CREATE TABLE templates (
+    id UUID PRIMARY KEY,
+    theme_id UUID REFERENCES themes(id) ON DELETE CASCADE,
+    name VARCHAR(100) NOT NULL,
+    slug VARCHAR(100) NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    description TEXT,
+    schema JSONB,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(theme_id, slug, deleted_at)
+);
+```
+
+## Core Content Structures
+
+### Content Types Table
+Defines different types of content (pages, posts, custom types) and their capabilities.
+```sql
+CREATE TABLE content_types (
+    id UUID PRIMARY KEY,
+    name VARCHAR(100) UNIQUE NOT NULL,
+    slug VARCHAR(100) UNIQUE NOT NULL,
+    type VARCHAR(50) NOT NULL,
+    icon VARCHAR(100),
+    schema JSONB NOT NULL,
+    supports JSONB,
+    is_hierarchical BOOLEAN DEFAULT false,
+    is_translatable BOOLEAN DEFAULT true,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+### Contents Table
+Base content storage for all content types.
+```sql
+CREATE TABLE contents (
+    id UUID PRIMARY KEY,
+    content_type_id UUID NOT NULL REFERENCES content_types(id),
+    slug VARCHAR(255) NOT NULL,
+    status VARCHAR(50) NOT NULL DEFAULT 'draft',
+    author_id UUID NOT NULL,
+    publish_on TIMESTAMP,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(content_type_id, slug, deleted_at)
+);
+```
+
+### Content Translations Table
+Stores localized content for each content item.
+```sql
+CREATE TABLE content_translations (
+    id UUID PRIMARY KEY,
+    content_id UUID NOT NULL REFERENCES contents(id) ON DELETE CASCADE,
+    locale_id UUID NOT NULL REFERENCES locales(id),
+    title VARCHAR(500) NOT NULL,
+    data JSONB NOT NULL,
+    meta_title VARCHAR(160),
+    meta_description TEXT,
+    deleted_at TIMESTAMP,
+    created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(content_id, locale_id, deleted_at)
+);
 ```
 
 ## How Components Work Together
