@@ -8,7 +8,6 @@
 5. [Core Architecture Components](#core-architecture-components)
 6. [Data Model](#data-model)
 7. [Go Module Structure](#go-module-structure)
-8. [Implementation Roadmap](#implementation-roadmap)
 
 ## Overview
 
@@ -232,56 +231,102 @@ Stores configured widget instances.
 
 ### Module Layout
 
+Following ARCH_DESIGN.md principles, the module uses `internal/` for implementation details and `pkg/` for exported packages:
+
 ```
 cms/
 ├── go.mod
 ├── go.sum
-├── cms.go           # Main module interface
-├── interfaces.go    # External dependency interfaces
-├── content/
-│   ├── types.go
-│   ├── service.go
-│   └── interfaces.go
-├── blocks/
-│   ├── types.go
-│   ├── registry.go
-│   ├── service.go
-│   └── interfaces.go
-├── pages/
-│   ├── types.go
-│   ├── service.go
-│   └── interfaces.go
-├── menus/
-│   ├── types.go
-│   ├── service.go
-│   └── interfaces.go
-├── widgets/
-│   ├── types.go
-│   ├── service.go
-│   └── interfaces.go
-├── themes/
-│   ├── types.go
-│   ├── service.go
-│   └── interfaces.go
-├── i18n/
-│   ├── types.go
-│   ├── service.go
-│   └── interfaces.go
-└── examples/
-    └── basic/
-        └── main.go
+├── cms.go                      # Public API wrapper
+├── config.go                   # Configuration types
+│
+├── cmd/
+│   └── example/
+│       └── main.go             # Example CLI with DI wiring
+│
+├── internal/
+│   ├── di/
+│   │   └── container.go        # Dependency injection container
+│   │
+│   ├── domain/
+│   │   └── types.go            # Core domain types (Status, etc.)
+│   │
+│   ├── content/
+│   │   ├── types.go            # Content-specific types
+│   │   ├── service.go          # Interface + implementation
+│   │   ├── repository.go       # Storage interface
+│   │   └── testdata/           # Fixtures for contract tests
+│   │       ├── basic_content.json
+│   │       └── basic_content_output.json
+│   │
+│   ├── pages/
+│   │   ├── types.go
+│   │   ├── service.go
+│   │   ├── repository.go
+│   │   └── testdata/
+│   │       ├── hierarchical_pages.json
+│   │       └── hierarchical_pages_output.json
+│   │
+│   ├── blocks/
+│   │   ├── types.go
+│   │   ├── service.go
+│   │   ├── registry.go
+│   │   ├── repository.go
+│   │   └── testdata/
+│   │       ├── nested_blocks.json
+│   │       └── nested_blocks_output.json
+│   │
+│   ├── menus/
+│   │   ├── types.go
+│   │   ├── service.go
+│   │   ├── repository.go
+│   │   └── testdata/
+│   │
+│   ├── widgets/
+│   │   ├── types.go
+│   │   ├── service.go
+│   │   ├── registry.go
+│   │   ├── repository.go
+│   │   └── testdata/
+│   │
+│   ├── themes/
+│   │   ├── types.go
+│   │   ├── service.go
+│   │   ├── repository.go
+│   │   └── testdata/
+│   │
+│   └── i18n/
+│       ├── types.go
+│       ├── service.go
+│       ├── resolver.go         # Locale resolution strategy
+│       ├── formatter.go        # Locale formatting strategy
+│       ├── repository.go
+│       └── testdata/
+│           ├── fallback_chain.json
+│           └── fallback_chain_output.json
+│
+└── pkg/
+    ├── interfaces/             # External dependency interfaces
+    │   ├── storage.go
+    │   ├── cache.go
+    │   ├── template.go
+    │   ├── media.go
+    │   └── auth.go
+    │
+    └── testsupport/            # Shared test utilities
+        ├── fixtures.go         # LoadFixture, LoadGolden, WriteGolden
+        └── dbtest.go           # Test database setup helpers
 ```
 
 ### External Dependency Interfaces
 
-```go
-// interfaces.go
-package cms
+Located in `pkg/interfaces/` to allow external implementations:
 
-import (
-    "context"
-    "time"
-)
+```go
+// pkg/interfaces/storage.go
+package interfaces
+
+import "context"
 
 // StorageProvider defines the interface for data persistence
 type StorageProvider interface {
@@ -290,18 +335,63 @@ type StorageProvider interface {
     Transaction(ctx context.Context, fn func(tx Transaction) error) error
 }
 
+// Rows represents query result rows
+type Rows interface {
+    Next() bool
+    Scan(dest ...any) error
+    Close() error
+}
+
+// Result represents execution result
+type Result interface {
+    RowsAffected() (int64, error)
+    LastInsertId() (int64, error)
+}
+
+// Transaction represents a database transaction
+type Transaction interface {
+    StorageProvider
+    Commit() error
+    Rollback() error
+}
+```
+
+```go
+// pkg/interfaces/cache.go
+package interfaces
+
+import (
+    "context"
+    "time"
+)
+
 // CacheProvider defines the interface for caching
 type CacheProvider interface {
     Get(ctx context.Context, key string) (any, error)
     Set(ctx context.Context, key string, value any, ttl time.Duration) error
     Delete(ctx context.Context, key string) error
+    Clear(ctx context.Context) error
 }
+```
+
+```go
+// pkg/interfaces/template.go
+package interfaces
+
+import "context"
 
 // TemplateRenderer defines the interface for template rendering
 type TemplateRenderer interface {
     Render(ctx context.Context, template string, data any) (string, error)
     RegisterFunction(name string, fn any) error
 }
+```
+
+```go
+// pkg/interfaces/media.go
+package interfaces
+
+import "context"
 
 // MediaProvider defines the interface for media/asset handling
 type MediaProvider interface {
@@ -309,14 +399,170 @@ type MediaProvider interface {
     GetMetadata(ctx context.Context, id string) (MediaMetadata, error)
 }
 
+// MediaMetadata represents media file metadata
+type MediaMetadata struct {
+    ID       string
+    MimeType string
+    Size     int64
+    Width    int
+    Height   int
+}
+```
+
+```go
+// pkg/interfaces/auth.go
+package interfaces
+
+import "context"
+
 // AuthProvider defines the interface for authentication
 type AuthProvider interface {
     GetCurrentUser(ctx context.Context) (User, error)
     HasPermission(ctx context.Context, user User, permission string) bool
 }
+
+// User represents an authenticated user
+type User struct {
+    ID    string
+    Email string
+    Roles []string
+}
 ```
 
-### Core Module Implementation
+### Configuration Layer
+
+Separates "what to use" from "how to wire" following ARCH_DESIGN.md principles:
+
+```go
+// config.go
+package cms
+
+import (
+    "fmt"
+    "time"
+
+    "github.com/goliatone/cms/pkg/interfaces"
+)
+
+// Config defines what the CMS should use (Layer 1: Configuration)
+type Config struct {
+    // Required infrastructure
+    Storage interfaces.StorageProvider
+
+    // Optional infrastructure (can be nil)
+    Cache    interfaces.CacheProvider
+    Template interfaces.TemplateRenderer
+    Media    interfaces.MediaProvider
+    Auth     interfaces.AuthProvider
+
+    // Locale configuration
+    DefaultLocale string
+    Locales       []Locale
+
+    // Feature flags (progressive complexity)
+    Features Features
+
+    // Performance tuning
+    CacheTTL      time.Duration
+    MaxPageDepth  int
+    MaxBlockDepth int
+}
+
+// Locale represents a language/region configuration
+type Locale struct {
+    Code             string
+    Name             string
+    IsDefault        bool
+    FallbackLocaleID string // Optional: for regional fallback
+}
+
+// Features controls which CMS features are enabled
+type Features struct {
+    // Sprint 1 (always enabled)
+    BasicContent bool // Always true
+    BasicPages   bool // Always true
+
+    // Sprint 2
+    Blocks       bool
+    NestedBlocks bool
+
+    // Sprint 3
+    Menus             bool
+    HierarchicalMenus bool
+
+    // Sprint 4
+    Widgets bool
+
+    // Sprint 5
+    Themes    bool
+    Templates bool
+
+    // Sprint 6
+    Versioning    bool
+    Scheduling    bool
+    MediaLibrary  bool
+    AdvancedCache bool
+}
+
+// Validate ensures config is usable
+func (c *Config) Validate() error {
+    if c.Storage == nil {
+        return fmt.Errorf("storage provider is required")
+    }
+
+    if c.DefaultLocale == "" {
+        c.DefaultLocale = "en"
+    }
+
+    if len(c.Locales) == 0 {
+        c.Locales = []Locale{
+            {Code: c.DefaultLocale, Name: "English", IsDefault: true},
+        }
+    }
+
+    if c.CacheTTL == 0 {
+        c.CacheTTL = 5 * time.Minute
+    }
+
+    if c.MaxPageDepth == 0 {
+        c.MaxPageDepth = 5
+    }
+
+    if c.MaxBlockDepth == 0 {
+        c.MaxBlockDepth = 10
+    }
+
+    // Validate feature dependencies
+    if c.Features.NestedBlocks && !c.Features.Blocks {
+        return fmt.Errorf("NestedBlocks requires Blocks feature")
+    }
+
+    if c.Features.HierarchicalMenus && !c.Features.Menus {
+        return fmt.Errorf("HierarchicalMenus requires Menus feature")
+    }
+
+    if c.Features.Templates && !c.Features.Themes {
+        return fmt.Errorf("Templates requires Themes feature")
+    }
+
+    return nil
+}
+
+// ApplyDefaults sets reasonable defaults for all features
+func (c *Config) ApplyDefaults() {
+    if c.Features == (Features{}) {
+        c.Features = Features{
+            BasicContent: true,
+            BasicPages:   true,
+            // Rest are false by default (progressive complexity)
+        }
+    }
+}
+```
+
+### Public API Layer
+
+Clean interface that delegates to DI container (Layer 3: Public API):
 
 ```go
 // cms.go
@@ -324,62 +570,456 @@ package cms
 
 import (
     "context"
-    "github.com/yourdomain/cms/content"
-    "github.com/yourdomain/cms/pages"
-    "github.com/yourdomain/cms/blocks"
-    "github.com/yourdomain/cms/menus"
-    "github.com/yourdomain/cms/widgets"
-    "github.com/yourdomain/cms/themes"
-    "github.com/yourdomain/cms/i18n"
+    "fmt"
+
+    "github.com/goliatone/cms/internal/di"
+    "github.com/goliatone/cms/internal/content"
+    "github.com/goliatone/cms/internal/pages"
+    "github.com/goliatone/cms/internal/blocks"
+    "github.com/goliatone/cms/internal/menus"
+    "github.com/goliatone/cms/internal/widgets"
+    "github.com/goliatone/cms/internal/themes"
 )
 
 // CMS is the main entry point for the CMS module
 type CMS struct {
-    storage  StorageProvider
-    cache    CacheProvider
-    template TemplateRenderer
-    media    MediaProvider
-    auth     AuthProvider
-
-    // Services
-    Content  content.Service
-    Pages    pages.Service
-    Blocks   blocks.Service
-    Menus    menus.Service
-    Widgets  widgets.Service
-    Themes   themes.Service
-    I18n     i18n.Service
-}
-
-// Config holds CMS configuration
-type Config struct {
-    Storage  StorageProvider
-    Cache    CacheProvider
-    Template TemplateRenderer
-    Media    MediaProvider
-    Auth     AuthProvider
+    container *di.Container
 }
 
 // New creates a new CMS instance
-func New(config Config) *CMS {
-    cms := &CMS{
-        storage:  config.Storage,
-        cache:    config.Cache,
-        template: config.Template,
-        media:    config.Media,
-        auth:     config.Auth,
+func New(config Config) (*CMS, error) {
+    container, err := di.NewContainer(&config)
+    if err != nil {
+        return nil, fmt.Errorf("failed to create CMS: %w", err)
     }
 
-    // Initialize services
-    cms.I18n = i18n.NewService(config.Storage)
-    cms.Content = content.NewService(config.Storage, cms.I18n)
-    cms.Themes = themes.NewService(config.Storage)
-    cms.Pages = pages.NewService(cms.Content, config.Storage)
-    cms.Blocks = blocks.NewService(config.Storage, cms.I18n)
-    cms.Menus = menus.NewService(config.Storage, cms.I18n)
-    cms.Widgets = widgets.NewService(config.Storage, cms.I18n)
+    return &CMS{
+        container: container,
+    }, nil
+}
 
-    return cms
+// Content returns the content service
+func (c *CMS) Content() content.Service {
+    return c.container.ContentService()
+}
+
+// Pages returns the page service
+func (c *CMS) Pages() pages.Service {
+    return c.container.PageService()
+}
+
+// Blocks returns the block service
+// Returns no-op service if blocks feature not enabled
+func (c *CMS) Blocks() blocks.Service {
+    return c.container.BlockService()
+}
+
+// Menus returns the menu service
+// Returns no-op service if menus feature not enabled
+func (c *CMS) Menus() menus.Service {
+    return c.container.MenuService()
+}
+
+// Widgets returns the widget service
+// Returns no-op service if widgets feature not enabled
+func (c *CMS) Widgets() widgets.Service {
+    return c.container.WidgetService()
+}
+
+// Themes returns the theme service
+// Returns no-op service if themes feature not enabled
+func (c *CMS) Themes() themes.Service {
+    return c.container.ThemeService()
+}
+
+// Close cleans up CMS resources
+func (c *CMS) Close() error {
+    return c.container.Close()
+}
+
+// HealthCheck verifies CMS is healthy
+func (c *CMS) HealthCheck(ctx context.Context) error {
+    // Check storage connectivity
+    if err := c.container.Storage().Ping(ctx); err != nil {
+        return fmt.Errorf("storage unhealthy: %w", err)
+    }
+
+    // Check if any services failed to initialize
+    if errors := c.container.GetErrors(); len(errors) > 0 {
+        return fmt.Errorf("service initialization errors: %v", errors)
+    }
+
+    return nil
+}
+```
+
+### DI Container Implementation
+
+The dependency injection container (Layer 2: Wiring) manages service lifecycle and lazy initialization:
+
+```go
+// internal/di/container.go
+package di
+
+import (
+    "fmt"
+    "sync"
+    "time"
+
+    "github.com/goliatone/cms"
+    "github.com/goliatone/cms/internal/content"
+    "github.com/goliatone/cms/internal/pages"
+    "github.com/goliatone/cms/internal/blocks"
+    "github.com/goliatone/cms/internal/menus"
+    "github.com/goliatone/cms/internal/widgets"
+    "github.com/goliatone/cms/internal/themes"
+    "github.com/goliatone/cms/internal/i18n"
+    "github.com/goliatone/cms/pkg/interfaces"
+)
+
+// Container manages service lifecycle and dependencies
+type Container struct {
+    config *cms.Config
+
+    // Infrastructure (provided by user)
+    storage  interfaces.StorageProvider
+    cache    interfaces.CacheProvider
+    template interfaces.TemplateRenderer
+    media    interfaces.MediaProvider
+    auth     interfaces.AuthProvider
+
+    // Services (lazy-initialized, singleton pattern)
+    i18nService    i18n.Service
+    contentService content.Service
+    pageService    pages.Service
+    blockService   blocks.Service
+    menuService    menus.Service
+    widgetService  widgets.Service
+    themeService   themes.Service
+
+    // Synchronization for lazy initialization
+    once struct {
+        i18n    sync.Once
+        content sync.Once
+        page    sync.Once
+        block   sync.Once
+        menu    sync.Once
+        widget  sync.Once
+        theme   sync.Once
+    }
+
+    // Error tracking for initialization failures
+    initErrors map[string]error
+    mu         sync.RWMutex
+}
+
+// NewContainer creates a new DI container
+func NewContainer(config *cms.Config) (*Container, error) {
+    // Config validation happens here
+    if err := config.Validate(); err != nil {
+        return nil, fmt.Errorf("invalid config: %w", err)
+    }
+
+    config.ApplyDefaults()
+
+    // Extract infrastructure
+    storage := config.Storage
+    cache := config.Cache
+    template := config.Template
+    media := config.Media
+    auth := config.Auth
+
+    // Provide no-op implementations if not provided
+    if cache == nil {
+        cache = newNoOpCache()
+    }
+
+    return &Container{
+        config:     config,
+        storage:    storage,
+        cache:      cache,
+        template:   template,
+        media:      media,
+        auth:       auth,
+        initErrors: make(map[string]error),
+    }, nil
+}
+
+// I18nService returns the i18n service (lazy init, singleton)
+func (c *Container) I18nService() i18n.Service {
+    c.once.i18n.Do(func() {
+        // Create locale resolver based on config
+        var resolver i18n.LocaleResolver
+        if hasRegionalLocales(c.config.Locales) {
+            resolver = i18n.NewRegionalResolver(c.config.Locales)
+        } else {
+            resolver = i18n.NewSimpleResolver(c.config.Locales)
+        }
+
+        // Create formatter
+        formatter := i18n.NewFormatter(c.config.DefaultLocale)
+
+        c.i18nService = i18n.NewService(
+            c.storage,
+            resolver,
+            formatter,
+            c.config.DefaultLocale,
+        )
+    })
+
+    return c.i18nService
+}
+
+// ContentService returns the content service (lazy init, singleton)
+func (c *Container) ContentService() content.Service {
+    c.once.content.Do(func() {
+        repo := content.NewRepository(c.storage)
+
+        c.contentService = content.NewService(
+            repo,
+            c.cache,
+            c.I18nService(), // Dependency: i18n
+            content.Options{
+                CacheTTL: c.config.CacheTTL,
+            },
+        )
+    })
+
+    return c.contentService
+}
+
+// PageService returns the page service (lazy init, singleton)
+func (c *Container) PageService() pages.Service {
+    c.once.page.Do(func() {
+        repo := pages.NewRepository(c.storage)
+
+        c.pageService = pages.NewService(
+            repo,
+            c.cache,
+            c.I18nService(),    // Dependency: i18n
+            c.ContentService(), // Dependency: content
+            pages.Options{
+                MaxDepth: c.config.MaxPageDepth,
+                CacheTTL: c.config.CacheTTL,
+            },
+        )
+    })
+
+    return c.pageService
+}
+
+// BlockService returns the block service (lazy init, singleton)
+func (c *Container) BlockService() blocks.Service {
+    if !c.config.Features.Blocks {
+        c.recordError("block", fmt.Errorf("blocks feature not enabled"))
+        return blocks.NewNoOpService()
+    }
+
+    c.once.block.Do(func() {
+        repo := blocks.NewRepository(c.storage)
+        registry := blocks.NewRegistry()
+
+        // Register built-in block types
+        registerBuiltInBlocks(registry)
+
+        opts := blocks.Options{
+            MaxDepth:     c.config.MaxBlockDepth,
+            AllowNesting: c.config.Features.NestedBlocks,
+            CacheTTL:     c.config.CacheTTL,
+        }
+
+        c.blockService = blocks.NewService(
+            repo,
+            registry,
+            c.cache,
+            c.I18nService(),
+            opts,
+        )
+    })
+
+    return c.blockService
+}
+
+// MenuService returns the menu service (lazy init, singleton)
+func (c *Container) MenuService() menus.Service {
+    if !c.config.Features.Menus {
+        c.recordError("menu", fmt.Errorf("menus feature not enabled"))
+        return menus.NewNoOpService()
+    }
+
+    c.once.menu.Do(func() {
+        repo := menus.NewRepository(c.storage)
+
+        opts := menus.Options{
+            AllowHierarchical: c.config.Features.HierarchicalMenus,
+            CacheTTL:          c.config.CacheTTL,
+        }
+
+        c.menuService = menus.NewService(
+            repo,
+            c.cache,
+            c.I18nService(),
+            c.PageService(), // Dependency: pages (for menu item validation)
+            opts,
+        )
+    })
+
+    return c.menuService
+}
+
+// WidgetService returns the widget service (lazy init, singleton)
+func (c *Container) WidgetService() widgets.Service {
+    if !c.config.Features.Widgets {
+        c.recordError("widget", fmt.Errorf("widgets feature not enabled"))
+        return widgets.NewNoOpService()
+    }
+
+    c.once.widget.Do(func() {
+        repo := widgets.NewRepository(c.storage)
+        registry := widgets.NewRegistry()
+
+        // Register built-in widgets
+        registerBuiltInWidgets(registry)
+
+        c.widgetService = widgets.NewService(
+            repo,
+            registry,
+            c.cache,
+            c.I18nService(),
+            c.BlockService(), // Dependency: blocks (widgets can contain blocks)
+            widgets.Options{
+                CacheTTL: c.config.CacheTTL,
+            },
+        )
+    })
+
+    return c.widgetService
+}
+
+// ThemeService returns the theme service (lazy init, singleton)
+func (c *Container) ThemeService() themes.Service {
+    if !c.config.Features.Themes {
+        c.recordError("theme", fmt.Errorf("themes feature not enabled"))
+        return themes.NewNoOpService()
+    }
+
+    if c.template == nil {
+        c.recordError("theme", fmt.Errorf("themes feature requires template renderer"))
+        return themes.NewNoOpService()
+    }
+
+    c.once.theme.Do(func() {
+        repo := themes.NewRepository(c.storage)
+
+        c.themeService = themes.NewService(
+            repo,
+            c.template,
+            c.WidgetService(), // Dependency: widgets
+            c.I18nService(),
+            themes.Options{
+                CacheTTL: c.config.CacheTTL,
+            },
+        )
+    })
+
+    return c.themeService
+}
+
+// Storage returns the storage provider
+func (c *Container) Storage() interfaces.StorageProvider {
+    return c.storage
+}
+
+// Close cleans up resources
+func (c *Container) Close() error {
+    var errs []error
+
+    // Close services in reverse dependency order
+    if c.themeService != nil {
+        if closer, ok := c.themeService.(interface{ Close() error }); ok {
+            if err := closer.Close(); err != nil {
+                errs = append(errs, fmt.Errorf("theme service: %w", err))
+            }
+        }
+    }
+
+    // Close infrastructure
+    if closer, ok := c.storage.(interface{ Close() error }); ok {
+        if err := closer.Close(); err != nil {
+            errs = append(errs, fmt.Errorf("storage: %w", err))
+        }
+    }
+
+    if len(errs) > 0 {
+        return fmt.Errorf("errors during cleanup: %v", errs)
+    }
+
+    return nil
+}
+
+// GetErrors returns all initialization errors
+func (c *Container) GetErrors() map[string]error {
+    c.mu.RLock()
+    defer c.mu.RUnlock()
+
+    errors := make(map[string]error)
+    for k, v := range c.initErrors {
+        errors[k] = v
+    }
+    return errors
+}
+
+// recordError stores initialization errors
+func (c *Container) recordError(service string, err error) {
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    c.initErrors[service] = err
+}
+
+// Helper functions
+
+func hasRegionalLocales(locales []cms.Locale) bool {
+    for _, loc := range locales {
+        if len(loc.Code) > 2 && loc.Code[2] == '-' {
+            return true
+        }
+    }
+    return false
+}
+
+func registerBuiltInBlocks(registry *blocks.Registry) {
+    // Register core block types
+    registry.Register("text", blocks.TextBlockType)
+    registry.Register("image", blocks.ImageBlockType)
+    registry.Register("video", blocks.VideoBlockType)
+}
+
+func registerBuiltInWidgets(registry *widgets.Registry) {
+    // Register core widgets
+    registry.Register("recent_posts", widgets.RecentPostsWidget)
+    registry.Register("tag_cloud", widgets.TagCloudWidget)
+}
+
+type noOpCache struct{}
+
+func newNoOpCache() interfaces.CacheProvider {
+    return &noOpCache{}
+}
+
+func (n *noOpCache) Get(ctx context.Context, key string) (interface{}, error) {
+    return nil, fmt.Errorf("not found")
+}
+
+func (n *noOpCache) Set(ctx context.Context, key string, value interface{}, ttl time.Duration) error {
+    return nil // No-op
+}
+
+func (n *noOpCache) Delete(ctx context.Context, key string) error {
+    return nil // No-op
+}
+
+func (n *noOpCache) Clear(ctx context.Context) error {
+    return nil // No-op
 }
 ```
 
@@ -465,7 +1105,7 @@ package pages
 
 import (
     "time"
-    "github.com/yourdomain/cms/content"
+    "github.com/goliatone/cms/content"
 )
 
 type Page struct {
@@ -489,7 +1129,7 @@ package pages
 import (
     "context"
     "fmt"
-    "github.com/yourdomain/cms/content"
+    "github.com/goliatone/cms/content"
 )
 
 type service struct {
@@ -550,125 +1190,369 @@ func (s *service) generatePath(parentID *string, slug string) string {
 }
 ```
 
-## Implementation Roadmap
+## Implementation Approach
 
-### Sprint 1: Core Foundation
-**Goal**: Basic page management with content
+### Testing Infrastructure
 
-**Deliverables**:
-- Content module with basic CRUD
-- Pages module with hierarchy
-- Simple template assignment
-- i18n structure (locale management)
+Following ARCH_DESIGN.md, establish fixture-driven testing infrastructure:
 
-**Tables**: locales, content_types, contents, content_translations, pages
+```go
+// pkg/testsupport/fixtures.go
+func LoadFixture(t *testing.T, path string) []byte
+func LoadGolden(t *testing.T, path string, v any) error
+func WriteGolden(t *testing.T, path string, data any) error
 
-### Sprint 2: Block System
-**Goal**: Composable content with blocks
+// pkg/testsupport/dbtest.go
+func NewMemoryStorage(t *testing.T) interfaces.StorageProvider
+func NewPostgresForTest(t *testing.T) interfaces.StorageProvider
+```
 
-**Deliverables**:
+**Contract Test Pattern**:
+```go
+// internal/content/service_test.go
+func TestContentService_Create_BasicContent(t *testing.T) {
+    input := testsupport.LoadFixture(t, "testdata/basic_content.json")
+    storage := testdb.NewMemoryStorage(t)
+    svc := content.NewService(storage, nil, nil, content.Options{})
+
+    got, err := svc.Create(context.Background(), input)
+    if err != nil {
+        t.Fatalf("Create: %v", err)
+    }
+
+    want := testsupport.LoadGolden(t, "testdata/basic_content_output.json")
+    if diff := cmp.Diff(want, got); diff != "" {
+        t.Fatalf("mismatch (-want +got):\n%s", diff)
+    }
+}
+```
+
+### Progressive Complexity Phases
+
+**Phase 1: Core**
+- Content module (CRUD operations)
+- Pages module (hierarchy support)
+- i18n (simple locale codes)
+- Tables: locales, content_types, contents, content_translations, pages
+
+**Phase 2: Blocks**
 - Block type registry
 - Block instances within pages
-- Basic block types (paragraph, heading, image)
-- Block rendering interfaces
+- Nested block support
+- Tables: block_types, block_instances, block_translations
 
-**Tables**: block_types, block_instances, block_translations, content_blocks
+**Phase 3: Menus**
+- Menu management
+- Hierarchical menu items
+- Tables: menus, menu_items, menu_item_translations
 
-### Sprint 3: Menu Management
-**Goal**: Dynamic navigation system
-
-**Deliverables**:
-- Menu creation and management
-- Menu items with hierarchy
-- Menu locations
-- Menu rendering interfaces
-
-**Tables**: menus, menu_items, menu_item_translations
-
-### Sprint 4: Widget System
-**Goal**: Dynamic sidebar/area content
-
-**Deliverables**:
+**Phase 4: Widgets**
 - Widget type registry
-- Widget areas definition
-- Widget visibility rules
-- Basic widget types
+- Widget areas and visibility rules
+- Tables: widget_types, widget_instances, widget_translations
 
-**Tables**: widget_types, widget_instances, widget_translations
-
-### Sprint 5: Themes and Templates
-**Goal**: Complete presentation layer
-
-**Deliverables**:
+**Phase 5: Themes**
 - Theme management
 - Template hierarchy
-- Template assignment to content
-- Widget area definitions per theme
+- Tables: themes, templates
 
-**Tables**: themes, templates
-
-### Sprint 6: Advanced Features
-**Goal**: Production-ready features
-
-**Deliverables**:
+**Phase 6: Advanced**
 - Content versioning
 - Scheduled publishing
-- Soft deletes
-- Media references
-- Advanced block patterns
+- Media library integration
 
-## Usage Example
+## Usage Examples
+
+### Sprint 1: Minimal Setup
+
+Basic content and pages with minimal configuration:
 
 ```go
 package main
 
 import (
     "context"
-    "github.com/yourdomain/cms"
-    "github.com/yourdomain/storage"
-    "github.com/yourdomain/cache"
-    "github.com/yourdomain/templates"
+    "log"
+
+    "github.com/goliatone/cms"
+    "github.com/goliatone/cms/adapters/storage/postgres"
 )
 
 func main() {
-    // Initialize external dependencies
-    db := storage.New(storageConfig)
-    cacheProvider := cache.New(cacheConfig)
-    templateEngine := templates.New(templateConfig)
+    // Setup storage
+    storage, err := postgres.New("postgres://localhost/cms")
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer storage.Close()
 
-    // Initialize CMS
-    cmsInstance := cms.New(cms.Config{
-        Storage:  db,
-        Cache:    cacheProvider,
-        Template: templateEngine,
-        Media:    mediaProvider,
-        Auth:     authProvider,
+    // Create CMS with minimal config
+    app, err := cms.New(cms.Config{
+        Storage: storage,
+        // Everything else uses defaults
+        // Only content and pages are enabled by default
     })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer app.Close()
+
+    // Use services
+    ctx := context.Background()
+
+    // Content service is ready
+    content, err := app.Content().Create(ctx, cms.CreateContentRequest{
+        Slug:   "hello-world",
+        Title:  "Hello World",
+        Body:   "Welcome to our CMS",
+        Status: cms.StatusPublished,
+        Locale: "en",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Created content: %s", content.ID)
+
+    // Pages service is ready
+    page, err := app.Pages().Create(ctx, cms.CreatePageRequest{
+        Path:      "/hello",
+        ContentID: content.ID,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Created page: %s", page.ID)
+
+    // Blocks service returns no-op (feature not enabled)
+    // This is safe, won't panic
+    blocks := app.Blocks()
+    _, err = blocks.Create(ctx, cms.CreateBlockRequest{})
+    // err will be "blocks feature not enabled"
+}
+```
+
+### Sprint 2: Add Blocks
+
+Enable blocks and nested blocks with caching:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+
+    "github.com/goliatone/cms"
+    "github.com/goliatone/cms/adapters/storage/postgres"
+    "github.com/goliatone/cms/adapters/cache/redis"
+)
+
+func main() {
+    storage, _ := postgres.New("postgres://localhost/cms")
+    defer storage.Close()
+
+    cache, _ := redis.New("redis://localhost:6379")
+    defer cache.Close()
+
+    // Enable blocks feature
+    app, err := cms.New(cms.Config{
+        Storage: storage,
+        Cache:   cache,
+        Features: cms.Features{
+            BasicContent: true,
+            BasicPages:   true,
+            Blocks:       true,        // NEW
+            NestedBlocks: true,        // NEW
+        },
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer app.Close()
 
     ctx := context.Background()
 
-    // Create a page
-    page, err := cmsInstance.Pages.Create(ctx, pages.CreateRequest{
-        Slug:         "about",
-        TemplateSlug: "default",
-        Status:       "published",
-        AuthorID:     "user-123",
+    // Now blocks work
+    block, err := app.Blocks().Create(ctx, cms.CreateBlockRequest{
+        TypeID: "text",
+        Attributes: map[string]any{
+            "text": "Hello from a block",
+        },
+        Locale: "en",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Created block: %s", block.ID)
+}
+```
+
+### Sprint 3: Add Menus
+
+Enable menu system with hierarchical support:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/goliatone/cms"
+    "github.com/goliatone/cms/adapters/storage/postgres"
+    "github.com/goliatone/cms/adapters/cache/redis"
+)
+
+func main() {
+    storage, _ := postgres.New("postgres://localhost/cms")
+    defer storage.Close()
+
+    cache, _ := redis.New("redis://localhost:6379")
+    defer cache.Close()
+
+    // Enable menus feature
+    app, err := cms.New(cms.Config{
+        Storage: storage,
+        Cache:   cache,
+        Features: cms.Features{
+            BasicContent:      true,
+            BasicPages:        true,
+            Blocks:            true,
+            NestedBlocks:      true,
+            Menus:             true,  // NEW
+            HierarchicalMenus: true,  // NEW
+        },
+        CacheTTL: 10 * time.Minute,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer app.Close()
+
+    ctx := context.Background()
+
+    // Create menu
+    menu, err := app.Menus().Create(ctx, cms.CreateMenuRequest{
+        Name:     "Main Navigation",
+        Location: "header",
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Created menu: %s", menu.ID)
+}
+```
+
+### Sprint 6: Full Features
+
+Complete CMS with all features enabled:
+
+```go
+package main
+
+import (
+    "context"
+    "log"
+    "time"
+
+    "github.com/goliatone/cms"
+    "github.com/goliatone/cms/adapters/storage/postgres"
+    "github.com/goliatone/cms/adapters/cache/redis"
+    "github.com/goliatone/cms/adapters/template/handlebars"
+    "github.com/goliatone/cms/adapters/media/s3"
+    "github.com/goliatone/cms/adapters/auth/jwt"
+)
+
+func main() {
+    storage, _ := postgres.New("postgres://localhost/cms")
+    defer storage.Close()
+
+    cache, _ := redis.New("redis://localhost:6379")
+    defer cache.Close()
+
+    template, _ := handlebars.New(handlebars.Config{
+        TemplateDir: "./themes",
     })
 
-    // Add content translation
-    err = cmsInstance.Content.Translate(ctx, page.Content.ID, "en-US", content.ContentTranslation{
-        Title:           "About Us",
-        Data:            map[string]any{"content": "Our company story..."},
-        MetaTitle:       "About | ACME Corp",
-        MetaDescription: "Learn about ACME Corp",
+    media, _ := s3.New(s3.Config{
+        Bucket: "my-cms-media",
+        Region: "us-east-1",
     })
 
-    // Add a block to the page (after Sprint 2)
-    block, err := cmsInstance.Blocks.AddToContent(ctx, page.Content.ID, blocks.BlockRequest{
-        Type:       "paragraph",
-        Attributes: map[string]any{"content": "Welcome paragraph"},
-        Area:       "main",
+    auth, _ := jwt.New(jwt.Config{
+        Secret: "my-secret",
     })
+
+    // Full feature set
+    app, err := cms.New(cms.Config{
+        Storage:  storage,
+        Cache:    cache,
+        Template: template,
+        Media:    media,
+        Auth:     auth,
+
+        DefaultLocale: "en",
+        Locales: []cms.Locale{
+            {Code: "en-US", Name: "English (US)", IsDefault: true},
+            {Code: "en-GB", Name: "English (UK)", FallbackLocaleID: "en-US"},
+            {Code: "es-ES", Name: "Spanish (Spain)"},
+            {Code: "es-MX", Name: "Spanish (Mexico)", FallbackLocaleID: "es-ES"},
+        },
+
+        Features: cms.Features{
+            BasicContent:      true,
+            BasicPages:        true,
+            Blocks:            true,
+            NestedBlocks:      true,
+            Menus:             true,
+            HierarchicalMenus: true,
+            Widgets:           true,
+            Themes:            true,
+            Templates:         true,
+            Versioning:        true,
+            Scheduling:        true,
+            MediaLibrary:      true,
+            AdvancedCache:     true,
+        },
+
+        CacheTTL:      10 * time.Minute,
+        MaxPageDepth:  10,
+        MaxBlockDepth: 15,
+    })
+    if err != nil {
+        log.Fatal(err)
+    }
+    defer app.Close()
+
+    ctx := context.Background()
+
+    // All services available
+    content := app.Content()
+    pages := app.Pages()
+    blocks := app.Blocks()
+    menus := app.Menus()
+    widgets := app.Widgets()
+    themes := app.Themes()
+
+    // Use advanced features
+    scheduled, err := content.Schedule(ctx, "content-123", time.Now().Add(24*time.Hour))
+    if err != nil {
+        log.Fatal(err)
+    }
+
+    log.Printf("Scheduled content for: %s", scheduled.PublishAt)
+
+    // Health check
+    if err := app.HealthCheck(ctx); err != nil {
+        log.Printf("Health check failed: %v", err)
+    } else {
+        log.Println("CMS is healthy")
+    }
 }
 ```
 
