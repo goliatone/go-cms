@@ -28,11 +28,11 @@ Think of it as building a house:
 
 ### Overview
 
-The CMS is designed with internationalization (i18n) and localization (l10n) as first class architectural concerns, not afterthoughts. Every piece of user facing content can be translated, and the system supports both **simple** and **complex** locale scenarios through progressive enhancement.
+The CMS includes internationalization (i18n) and localization (l10n) as core features. All user facing content can be translated. The system supports both simple language codes and complex regional locale codes.
 
-**Default Simple Mode**: Use basic language codes (`en`, `es`, `fr`, `de`) for most applications.
+**Default Mode**: Basic language codes (`en`, `es`, `fr`, `de`).
 
-**Advanced Mode** (opt in): Use full locale codes (`en-US`, `en-GB`, `fr-CA`, `fr-FR`) when you need regional variations, fallback chains, and locale specific formatting.
+**Optional Mode**: Full locale codes (`en-US`, `en-GB`, `fr-CA`, `fr-FR`) for regional variations, fallback chains, and locale specific formatting.
 
 ### Locale Complexity Levels
 
@@ -42,38 +42,33 @@ The CMS is designed with internationalization (i18n) and localization (l10n) as 
 
 **Locale Codes**: `en`, `es`, `fr`, `de`, `ja`, `ar`
 
-**What You Get**:
-- Simple locale codes
-- One translation per language
-- No fallback chains needed
-- Basic URL patterns: `/en/about`, `/es/acerca`
-- Works out of the box with zero configuration
+**Features**:
+- Single translation per language
+- No fallback chains
+- URL patterns: `/en/about`, `/es/acerca`
+- No configuration required
 
 **Example**:
 ```go
-// Simple setup
 cms.AddLocale("en", "English")
 cms.AddLocale("es", "Spanish")
 cms.AddLocale("fr", "French")
-
-// That's it! No fallback chains, no regional config
 ```
 
 #### Level 2: Regional Locales (opt in)
 
-**Use Case**: Need regional variations (US English vs UK English, Canadian French vs France French).
+**Use Case**: Regional variations (US English vs UK English, Canadian French vs France French).
 
 **Locale Codes**: `en-US`, `en-GB`, `fr-CA`, `fr-FR`
 
-**What You Get**:
-- Regional locale support
-- Automatic fallback chains (`fr-CA` → `fr` → `en`)
-- locale specific formatting (dates, numbers, currency)
+**Features**:
+- Regional locale codes
+- Automatic fallback chains (`fr-CA` → `fr` → default)
+- Locale specific formatting (dates, numbers, currency)
 - Regional URL patterns: `/en-us/about`, `/en-gb/about`
 
 **Example**:
 ```go
-// Advanced setup with fallbacks
 cms.AddLocale("en-US", "English (US)", WithFallback("en"))
 cms.AddLocale("en-GB", "English (UK)", WithFallback("en"))
 cms.AddLocale("fr-CA", "French (Canada)", WithFallback("fr", "en"))
@@ -82,11 +77,10 @@ cms.AddLocale("fr-FR", "French (France)", WithFallback("fr", "en"))
 
 #### Level 3: Custom Fallback Chains (Advanced)
 
-**Use Case**: Complex multi-region sites with sophisticated fallback logic.
+**Use Case**: Multi region sites with custom fallback logic.
 
 **Example**:
 ```go
-// Custom fallback groups
 cms.AddLocaleGroup("french-markets",
     WithPrimary("fr"),
     WithFallbacks("fr-CA", "fr-FR", "fr-BE", "fr-CH"),
@@ -94,9 +88,9 @@ cms.AddLocaleGroup("french-markets",
 )
 ```
 
-### Architecture: Simple by Default, Powerful When Needed
+### Architecture
 
-**Core Principle**: The locale code is just a string. The system doesn't care if it's `"en"` or `"en-US"`. All complexity is **opt in** through configuration.
+**Core Principle**: The locale code is an opaque string. The system accepts `"en"` or `"en-US"` without distinction. Complexity is opt in through configuration.
 
 **Schema Design** (supports both):
 ```sql
@@ -116,9 +110,9 @@ CREATE TABLE locales (
 
 **Key Design Points**:
 1. `code` field accepts any string: simple (`en`) or complex (`en-US`)
-2. `fallback_locale_id` is **nullable** - only use if you need fallbacks
-3. `metadata` is **nullable** - only populate for regional locales
-4. The system never assumes complexity - it adapts to your data
+2. `fallback_locale_id` is **nullable**: only use if you need fallbacks
+3. `metadata` is **nullable**: only populate for regional locales
+4. The system never assumes complexity: it adapts to your data
 
 ### Core Design Principles
 
@@ -159,28 +153,28 @@ CREATE TABLE locales (
 
 #### 2. Fallback Strategy (Progressive Complexity)
 
-**Simple Mode** (Level 1): No fallbacks needed
+**Simple Mode** (Level 1): No fallbacks
 ```go
-// With simple codes, missing translation = use default locale
+// Missing translation returns default locale
 // en → (not found) → en (default)
 // es → (not found) → en (default)
 ```
 
-**Regional Mode** (Level 2): Automatic fallback to base language
+**Regional Mode** (Level 2): Automatic base language fallback
 ```go
-// System automatically strips region: en-US → en → default
+// System strips region code automatically
+// en-US → en → default
 // fr-CA → fr → en (default)
-// No configuration needed - works automatically!
 ```
 
 **Advanced Mode** (Level 3): Custom fallback chains
 ```
-fr-CA (French Canadian) → fr-FR (French France) → fr (French) → en (Default)
+fr-CA → fr-FR → fr → en (default)
 ```
 
 **Implementation: Fallback Resolution**
 
-The fallback logic is a simple chain that progressively checks locales:
+The fallback logic checks locales in sequence:
 
 ```go
 // GetTranslation with automatic fallback
@@ -233,7 +227,7 @@ CREATE TABLE locale_groups (
 **When to Use Each Level**:
 - **Level 1**: 90% of projects (one translation per language)
 - **Level 2**: Regional sites (UK/US English, Canadian/France French)
-- **Level 3**: Complex multi-region enterprises
+- **Level 3**: Complex multi region enterprises
 
 #### 3. Multilingual URL Strategy
 
@@ -259,13 +253,13 @@ fr-FR: /a-propos
 - URL router resolves by `locale` + `path`
 - Works identically for simple or complex locale codes
 
-**The Beauty**: Same architecture, different data
+**Note**: Same schema for both modes
 ```sql
 -- Simple locales
 INSERT INTO page_translations (page_id, locale_id, path)
 VALUES (page_id, 'en', '/about-us');
 
--- Regional locales (exact same schema!)
+-- Regional locales (identical schema)
 INSERT INTO page_translations (page_id, locale_id, path)
 VALUES (page_id, 'en-US', '/about-us');
 ```
@@ -596,7 +590,7 @@ type DomainStrategy struct {
 
 #### 4. Configuration Example
 
-**Simple Setup** (5 lines, zero complexity):
+**Simple Setup**:
 ```go
 package main
 
@@ -608,12 +602,11 @@ func main() {
             {Code: "es", Name: "Spanish"},
             {Code: "fr", Name: "French"},
         },
-        // That's it! Uses all defaults
     })
 }
 ```
 
-**Advanced Setup** (opt in to complexity):
+**Advanced Setup**:
 ```go
 package main
 
@@ -627,7 +620,7 @@ func main() {
             {Code: "fr-FR", Name: "French (France)", Fallback: "fr"},
         },
 
-        // opt in to advanced features
+        // Optional: custom implementations
         LocaleResolver: &RegionalLocaleResolver{
             IPGeolocation: myIPService,
         },
@@ -641,30 +634,29 @@ func main() {
 
 ### Key Architectural Decisions
 
-1. **No Assumptions**: System never assumes `"en-US"` format. It treats locale codes as opaque strings.
+1. **Opaque Locale Codes**: System treats locale codes as strings without parsing format assumptions.
 
-2. **Nullable Complexity**: Advanced features use nullable foreign keys and JSONB fields that remain `NULL` for simple use cases.
+2. **Nullable Fields**: Advanced features use nullable foreign keys and JSONB fields. Simple mode leaves these `NULL`.
 
-3. **Interface-Based**: All locale specific logic is behind interfaces with simple default implementations.
+3. **Interface-Based**: Locale-specific logic is behind interfaces with default implementations.
 
-4. **Zero Configuration**: Works out of the box with simple codes, no setup needed.
+4. **Default Configuration**: Functions with simple codes without required setup.
 
-5. **Progressive Disclosure**: Complexity only appears when you explicitly opt in.
+5. **opt in Complexity**: Advanced features require explicit configuration.
 
-6. **Same Schema**: Simple and complex modes use identical database schema - just different data.
+6. **Unified Schema**: Simple and complex modes use identical database schema with different data.
 
 ### Implementation Philosophy: Progressive Complexity
 
-**The Problem with Traditional i18n Systems**:
-- Most i18n libraries force you to choose: simple OR complex
-- Simple libraries can't handle regional variations
-- Complex libraries have steep learning curves
-- You often outgrow simple libraries and must rewrite
+**Design Constraints**:
+- Many i18n libraries require choosing between simple or complex modes at initialization
+- Simple implementations cannot handle regional variations
+- Complex implementations have higher learning curves
+- Switching modes typically requires application rewrites
 
-**Our Solution: One System, Multiple Modes**:
+**Implementation Approach**:
 ```
 Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
-     |                      |                       |
      |                      |                       |
      v                      v                       v
    "en"  ───────────────> "en-US" ──────────────> Custom
@@ -672,22 +664,20 @@ Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
    "fr"                   "fr-CA"                  Chains
                           "fr-FR"
      |                      |                       |
-     |                      |                       |
   No config       Auto fallback "en-US"→"en"   Locale groups
-  No fallbacks    Zero extra code              Manual chains
-  Just works!     Just add dash!               Full control
+  No fallbacks    Automatic parsing            Explicit config
 ```
 
 **Migration Path**:
-1. **Start Simple**: Use `"en"`, `"es"`, `"fr"` - get up and running in minutes
-2. **Add Regions** (if needed): Change `"en"` to `"en-US"` - auto fallback kicks in automatically
-3. **Customize** (if needed): Add locale groups for complex fallback logic
+1. Start with simple codes: `"en"`, `"es"`, `"fr"`
+2. Add regions if needed: change `"en"` to `"en-US"` (automatic fallback to base code)
+3. Add locale groups for custom fallback logic
 
-**No Rewrites**: Upgrading from Level 1 → Level 2 → Level 3 is **additive**, not **rewrite**.
+**Upgrade Characteristics**: Each level adds configuration without modifying existing code or data.
 
-**Code Example** showing seamless upgrade:
+**Code Example**:
 ```go
-// Week 1: Start simple
+// Initial implementation
 cms := NewCMS(&Config{
     DefaultLocale: "en",
     Locales: []Locale{
@@ -696,8 +686,7 @@ cms := NewCMS(&Config{
     },
 })
 
-// Month 6: Add regional support (no breaking changes!)
-// Just change locale codes and add Fallback field
+// Add regional support
 cms := NewCMS(&Config{
     DefaultLocale: "en-US",
     Locales: []Locale{
@@ -708,7 +697,7 @@ cms := NewCMS(&Config{
     },
 })
 
-// Year 2: Advanced customization (still no rewrites!)
+// Add custom fallback logic
 cms := NewCMS(&Config{
     DefaultLocale: "en-US",
     Locales: []Locale{ /* same as before */ },
@@ -718,11 +707,11 @@ cms := NewCMS(&Config{
             Fallbacks: []string{"en-US", "en-CA", "fr-CA", "es-MX"},
         },
     },
-    LocaleFormatter: &CustomFormatter{},  // Your own implementation
+    LocaleFormatter: &CustomFormatter{},
 })
 ```
 
-**The Beauty**: Your database data doesn't change. Only configuration changes. All your existing translations still work.
+**Note**: Database schema and existing translations remain unchanged across upgrades. Only configuration changes.
 
 ## Pages - The Structure
 
@@ -935,7 +924,7 @@ CREATE TABLE page_translations (
 }
 ```
 
-**Key Point**: Same schema, different complexity based on your needs. The `locale` field accepts any string - simple or regional codes.
+**Note**: Schema is identical for both modes. The `locale` field accepts any string format.
 
 ## Blocks - The Content
 
@@ -1049,12 +1038,12 @@ CREATE TABLE block_instances (
 );
 ```
 
-**Critical i18n Note**: The `attributes` field contains ONLY non-translatable configuration (layout, styling, behavior). All translatable content goes in `block_translations`.
+**Critical i18n Note**: The `attributes` field contains ONLY non translatable configuration (layout, styling, behavior). All translatable content goes in `block_translations`.
 
 **Attributes Field Guidelines**:
 - **Store in attributes**: layout settings, column counts, padding, alignment, colors, enable/disable flags
 - **Do NOT store in attributes**: text content, labels, button text, URLs, alt text
-- **Rule**: All user-facing text must go in `block_translations.content`
+- **Rule**: All user facing text must go in `block_translations.content`
 
 ### Block Translations Table
 
@@ -1094,11 +1083,11 @@ CREATE TABLE block_translations (
 }
 ```
 
-**Why This Separation?**
-- Configuration in `attributes` applies to all locales (no duplication)
-- Only text content and locale specific media need translation
-- Makes bulk updates easier: change alignment once, affects all locales
-- Prevents inconsistencies where layout differs between languages
+**Rationale**:
+- Configuration in `attributes` applies to all locales
+- Only text content and locale specific media require translation
+- Bulk updates: changing alignment affects all locales
+- Prevents layout inconsistencies between languages
 
 ### Block Type Translations Table
 
@@ -1353,11 +1342,11 @@ A columns block containing paragraphs, with proper config/content separation:
 }
 ```
 
-**Key Points**:
-- Columns block `attributes` (columns, gap) are configuration → not translated
+**Structure**:
+- Columns block `attributes` (columns, gap) contain configuration only
 - Paragraph blocks separate `attributes` (alignment, font_size) from `translations`
-- Each child block has its own translations
-- Layout remains consistent across locales
+- Each child block includes translations
+- Layout configuration is locale-independent
 
 ### Common Block Types with i18n Examples
 
@@ -1543,7 +1532,7 @@ CREATE TABLE widget_types (
 
 ### Widget Instances Table
 
-**Critical for i18n**: Widget `settings` contains ONLY non-translatable configuration. Translatable content goes in `widget_translations`.
+**Critical for i18n**: Widget `settings` contains ONLY non translatable configuration. Translatable content goes in `widget_translations`.
 
 ```sql
 CREATE TABLE widget_instances (
@@ -1693,10 +1682,10 @@ Shows complete separation of configuration from translatable content:
 }
 ```
 
-**Key Points**:
-- `settings` contains technical config (map_zoom, icon_style) → not translated
-- `translatable_settings` contains UI labels → translated
-- `content` contains actual widget content → translated and can vary by locale
+**Structure**:
+- `settings` contains technical config (map_zoom, icon_style) - not translated
+- `translatable_settings` contains UI labels - translated
+- `content` contains widget content - translated and locale-specific
 
 #### Recent Posts Widget
 ```json
@@ -2514,15 +2503,15 @@ WHERE ts.status IN ('missing', 'draft')
 ORDER BY ts.entity_type, ts.completeness DESC;
 ```
 
-**Best Practices**:
-- Never publish a page until all required locale translations reach 100% completeness
+**Guidelines**:
+- Verify all required locale translations reach 100% completeness before publishing
 - Use `draft` status for partial translations
-- Assign translators and reviewers to track accountability
-- Set up automated notifications when translations need review
+- Assign translators and reviewers for accountability tracking
+- Configure automated notifications for translations requiring review
 
 #### 2. Configuration vs Content Separation
 
-**Always Ask**: "Does this need to be different per language?"
+**Decision Criteria**: Determine if field value varies by language.
 
 **Configuration (Not Translated)**:
 ```json
@@ -2549,10 +2538,10 @@ ORDER BY ts.entity_type, ts.completeness DESC;
 }
 ```
 
-**Warning Signs of Wrong Separation**:
-- ❌ Duplicating layout settings across locales
-- ❌ Different column counts per language (unless intentional)
-- ❌ Translating CSS classes or technical IDs
+**Common Errors**:
+- Duplicating layout settings across locales
+- Varying column counts per language without requirement
+- Translating CSS classes or technical identifiers
 
 #### 3. Handling Missing Translations
 
@@ -2578,9 +2567,9 @@ func GetTranslation(contentID, locale string) *Translation {
 ```
 
 **Display Strategy**:
-- Show content in fallback language (better than empty)
+- Display content in fallback language
 - Add visual indicator: `<span class="fallback-locale">Content in English</span>`
-- Log missing translations for translator queue
+- Log missing translations
 
 #### 4. SEO Best Practices
 
