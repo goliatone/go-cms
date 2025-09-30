@@ -90,7 +90,7 @@ cms.AddLocaleGroup("french-markets",
 
 ### Architecture
 
-**Core Principle**: The locale code is an opaque string. The system accepts `"en"` or `"en-US"` without distinction. Complexity is opt in through configuration.
+**Core Principle**: The `locale` code is treated as an opaque string. The system does not automatically parse `"en-US"` to infer a relationship with `"en"`. Regional fallbacks and other locale-specific behaviors are enabled through explicit configuration, not by parsing the locale code format.
 
 **Schema Design** (supports both):
 ```sql
@@ -112,7 +112,7 @@ CREATE TABLE locales (
 1. `code` field accepts any string: simple (`en`) or complex (`en-US`)
 2. `fallback_locale_id` is **nullable**: only use if you need fallbacks
 3. `metadata` is **nullable**: only populate for regional locales
-4. The system never assumes complexity: it adapts to your data
+4. The system's internationalization features are enabled based on data presence. Fallback behavior is inactive if `fallback_locale_id` is `NULL`. Regional locale features are enabled when `metadata` is populated.
 
 ### Core Design Principles
 
@@ -225,7 +225,7 @@ CREATE TABLE locale_groups (
 ```
 
 **When to Use Each Level**:
-- **Level 1**: 90% of projects (one translation per language)
+- **Level 1**: Most normal projects (one translation per language)
 - **Level 2**: Regional sites (UK/US English, Canadian/France French)
 - **Level 3**: Complex multi region enterprises
 
@@ -642,11 +642,11 @@ func main() {
 
 4. **Default Configuration**: Functions with simple codes without required setup.
 
-5. **opt in Complexity**: Advanced features require explicit configuration.
+5. **Opt-In Complexity**: Advanced features like custom fallback chains or regional formatters are inactive by default and must be enabled via the main `Config` struct.
 
 6. **Unified Schema**: Simple and complex modes use identical database schema with different data.
 
-### Implementation Philosophy: Progressive Complexity
+### Architectural Approach: Progressive Complexity
 
 **Design Constraints**:
 - Many i18n libraries require choosing between simple or complex modes at initialization
@@ -673,7 +673,7 @@ Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
 2. Add regions if needed: change `"en"` to `"en-US"` (automatic fallback to base code)
 3. Add locale groups for custom fallback logic
 
-**Upgrade Characteristics**: Each level adds configuration without modifying existing code or data.
+**Upgrade Path**: Each level of i18n complexity is enabled by providing additional configuration, without requiring modifications to existing application code or database schema.
 
 **Code Example**:
 ```go
@@ -717,7 +717,7 @@ cms := NewCMS(&Config{
 
 ### What is a Page?
 
-A page is a hierarchical content container that represents a distinct section of your website. Pages form the backbone of your site's information architecture.
+A page is a hierarchical content container that represents a distinct section of the website. Pages define the site's information architecture through parent-child relationships.
 
 ### Key Concepts
 
@@ -930,7 +930,7 @@ CREATE TABLE page_translations (
 
 ### What is a Block?
 
-A block is an atomic unit of content that can be combined to create rich layouts. Blocks are the LEGO pieces of your content.
+A block is an atomic unit of content that can be combined to create rich layouts.
 
 ### Block Architecture
 
@@ -2738,19 +2738,19 @@ Vary: Accept-Language
 1. Use hierarchy to reflect site structure
 2. Keep paths short and meaningful
 3. Use page types for special behaviors
-4. Leverage page attributes for flexibility
+4. Use `page_attributes` for page-specific settings not covered by other fields.
 5. Plan for URL changes (redirects)
 6. **Create locale specific paths in `page_translations`**
 7. **Maintain consistent hierarchy across locales**
 
 ### Widget Strategy
-1. Use visibility rules to reduce clutter
+1. Use visibility rules to control widget display based on page, user role, or other conditions.
 2. Group related widgets in areas
 3. Consider performance (cache widget output)
 4. Make widgets responsive
 5. Test visibility rules thoroughly
 6. **Separate `settings` from `translatable_settings`**
-7. **Consider locale specific visibility rules**
+7. **Apply visibility rules strategically for multilingual sites**. Since rules are not translatable, create separate widget instances per locale if different visibility is required, and use path-based rules to target them.
 
 ### Performance Considerations
 1. Lazy load blocks below the fold
