@@ -18,34 +18,34 @@
 
 ## Overview
 
-The CMS includes internationalization (i18n) and localization (l10n) as core features. All user-facing content can be translated. The system supports both simple language codes and complex regional locale codes with progressive complexity.
+The CMS includes internationalization (i18n) and localization (l10n) as core features. All user facing content can be translated. The system supports both simple language codes and complex regional locale codes with progressive complexity.
 
 ### Key Features
 
 - **Progressive Complexity**: Start simple (`en`, `es`) and add regional variations (`en-US`, `en-GB`) as needed
 - **Opaque Locale Codes**: System treats locale codes as strings without parsing assumptions
-- **Flexible Fallback Chains**: Support for automatic and custom fallback logic
-- **Translation-First**: Every user-facing string is translatable from day one
+- **Flexible Fallback Chains**: Optional fallback logic that is only enabled when configured
+- **Translation-First**: Every user facing string is translatable from day one
 - **Separation of Concerns**: Configuration (layout, behavior) is NOT translated; content (text, URLs) IS translated
-- **Performance Focused**: Built-in caching strategies and query optimization
+- **Performance Focused**: Built in caching strategies and query optimization
 
 ## Design Philosophy
 
 ### Core Principles
 
-1. **Opaque Locale Codes**: The `locale` code is treated as an opaque string. The system does not automatically parse `"en-US"` to infer a relationship with `"en"`. Regional fallbacks are enabled through explicit configuration.
+1. **Opaque Locale Codes**: The `locale` code is treated as an opaque string. The system does not automatically parse `"en-US"` to infer a relationship with `"en"`. Any fallback behaviour is opt in and driven by configuration.
 
 2. **Nullable Fields**: Advanced features use nullable foreign keys and JSONB fields. Simple mode leaves these `NULL`.
 
-3. **Interface-Based**: Locale-specific logic is behind interfaces with default implementations.
+3. **Interface-Based**: Locale specific logic is behind interfaces with default implementations.
 
 4. **Default Configuration**: Functions with simple codes without required setup.
 
-5. **Opt-In Complexity**: Advanced features are inactive by default and enabled via configuration.
+5. **Opt in Complexity**: Advanced features (including fallback chains) are inactive by default and enabled via configuration.
 
 6. **Unified Schema**: Simple and complex modes use identical database schema with different data.
 
-7. **Progressive Enhancement**: Start with Level 1, upgrade to Level 2 or 3 as needed without schema changes.
+7. **Progressive Enhancement**: Start with Level 1, upgrade to Level 2 or 3 as needed without schema changes or forced feature enablement.
 
 ### Progressive Complexity Levels
 
@@ -58,8 +58,8 @@ Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
    "fr"                   "fr-CA"                  Chains
                           "fr-FR"
      |                      |                       |
-  No config       Auto fallback "en-US"→"en"   Locale groups
-  No fallbacks    Automatic parsing            Explicit config
+  No config        Optional fallback         Locale groups
+  No fallbacks     via `WithFallback`        Explicit config
 ```
 
 ## Locale Architecture
@@ -78,12 +78,14 @@ Level 1 (Simple)     Level 2 (Regional)      Level 3 (Advanced)
 
 **Example Configuration**:
 ```go
-cms.AddLocale("en", "English")
-cms.AddLocale("es", "Spanish")
-cms.AddLocale("fr", "French")
+cfg := cms.Config{DefaultLocale: "en"}
+
+i18n.AddLocale(&cfg, "en", "English")
+i18n.AddLocale(&cfg, "es", "Spanish")
+i18n.AddLocale(&cfg, "fr", "French")
 ```
 
-### Level 2: Regional Locales (opt-in)
+### Level 2: Regional Locales (opt in)
 
 **Use Case**: Regional variations (US English vs UK English, Canadian French vs France French).
 
@@ -91,42 +93,47 @@ cms.AddLocale("fr", "French")
 
 **Features**:
 - Regional locale codes
-- Automatic fallback chains (`fr-CA` → `fr` → default)
-- Locale-specific formatting (dates, numbers, currency)
+- Optional fallback chains when configured (e.g., `WithFallback("fr", "en")`)
+- Locale specific formatting (dates, numbers, currency)
 - Regional URL patterns: `/en-us/about`, `/en-gb/about`
 
 **Example Configuration**:
 ```go
-cms.AddLocale("en-US", "English (US)", WithFallback("en"))
-cms.AddLocale("en-GB", "English (UK)", WithFallback("en"))
-cms.AddLocale("fr-CA", "French (Canada)", WithFallback("fr", "en"))
-cms.AddLocale("fr-FR", "French (France)", WithFallback("fr", "en"))
+cfg := cms.Config{DefaultLocale: "en-US"}
+
+i18n.AddLocale(&cfg, "en-US", "English (US)")
+i18n.AddLocale(&cfg, "en-GB", "English (UK)", i18n.WithFallback("en"))
+i18n.AddLocale(&cfg, "fr-CA", "French (Canada)", i18n.WithFallback("fr", "en"))
+i18n.AddLocale(&cfg, "fr-FR", "French (France)", i18n.WithFallback("fr"))
 ```
 
 ### Level 3: Custom Fallback Chains (Advanced)
 
-**Use Case**: Multi-region sites with custom fallback logic.
+**Use Case**: Multi region sites with custom fallback logic.
 
 **Example Configuration**:
 ```go
-cms := NewCMS(&Config{
-    DefaultLocale: "en-US",
-    Locales: []Locale{
-        {Code: "en-US", Name: "English (US)"},
-        {Code: "fr-CA", Name: "French (Canada)"},
-        {Code: "fr-FR", Name: "French (France)"},
-        {Code: "fr-BE", Name: "French (Belgium)"},
-        {Code: "fr-CH", Name: "French (Switzerland)"},
-    },
-    Locale: &LocaleConfig{
-        Groups: []LocaleGroup{
-            {
-                Name: "french-markets",
-                Fallbacks: []string{"fr-CA", "fr-FR", "fr-BE", "fr-CH", "en-US"},
-            },
+cfg := cms.Config{DefaultLocale: "en-US"}
+
+i18n.AddLocale(&cfg, "en-US", "English (US)")
+i18n.AddLocale(&cfg, "fr-CA", "French (Canada)", i18n.WithFallback("fr-FR", "fr", "en-US"))
+i18n.AddLocale(&cfg, "fr-FR", "French (France)")
+i18n.AddLocale(&cfg, "fr-BE", "French (Belgium)", i18n.WithFallback("fr-FR", "fr"))
+i18n.AddLocale(&cfg, "fr-CH", "French (Switzerland)", i18n.WithFallback("fr-FR", "fr"))
+
+cfg.Locale = &i18n.LocaleConfig{
+    Groups: []i18n.LocaleGroup{
+        {
+            Name: "french-markets",
+            Fallbacks: []string{"fr-CA", "fr-FR", "fr-BE", "fr-CH", "en-US"},
         },
     },
-})
+}
+
+cmsModule, err := cms.New(cfg)
+if err != nil {
+    panic(err)
+}
 ```
 
 ## Core Components
@@ -137,6 +144,7 @@ cms := NewCMS(&Config{
 internal/i18n/
 ├── types.go            # Core types (Locale, Translation, etc.)
 ├── service.go          # Interface + implementation
+├── config.go           # AddLocale, LocaleOption helpers
 ├── resolver.go         # Locale resolution strategy
 ├── formatter.go        # Locale formatting strategy
 ├── repository.go       # Storage interface
@@ -145,19 +153,38 @@ internal/i18n/
     └── fallback_chain_output.json
 ```
 
+### Configuration Helpers
+
+To keep configuration concerns isolated (see `ARCH_DESIGN.md`), the i18n package exposes helper functions that operate during the configuration phase before the CMS is constructed:
+
+```go
+// AddLocale appends a locale to the cms.Config while keeping the rest of the
+// configuration immutable to consumers of the public API.
+func AddLocale(cfg *cms.Config, code, name string, opts ...LocaleOption)
+
+// LocaleOption mutates the locale during registration (functional options).
+type LocaleOption func(*Locale)
+
+// WithFallback wires an explicit fallback chain. Passing multiple entries
+// allows progressive complexity without additional schema changes.
+func WithFallback(fallbacks ...string) LocaleOption
+```
+
+`AddLocale` keeps Level 1 setups trivial (call with no options) while `WithFallback` makes the upgrade path to more complex scenarios explicit and low-friction. Under the hood, the helper initializes locale metadata before applying options and records the fallback codes in `FallbackChain`, keeping progressive complexity encapsulated inside configuration. Implementations live in `config.go` alongside other configuration helpers.
+
 ### Key Types
 
 ```go
 // Locale represents a language/region configuration
 type Locale struct {
-    ID               string
-    Code             string  // "en" or "en-US"
-    Name             string  // "English" or "English (US)"
-    IsActive         bool
-    IsDefault        bool
-    FallbackLocaleID *string // Optional: for regional fallback
-    Metadata         map[string]any // Optional: regional metadata
-    CreatedAt        time.Time
+    ID            string
+    Code          string   // "en" or "en-US"
+    Name          string   // "English" or "English (US)"
+    IsActive      bool
+    IsDefault     bool
+    FallbackChain []string       // Optional: populated via i18n.WithFallback
+    Metadata      map[string]any // Optional: regional metadata
+    CreatedAt     time.Time
 }
 
 // LocaleConfig groups all locale-related configuration
@@ -165,7 +192,7 @@ type LocaleConfig struct {
     Groups      []LocaleGroup      // Custom fallback groups (Level 3)
     Resolver    LocaleResolver     // Strategy for resolving locale from request
     Formatter   LocaleFormatter    // Strategy for formatting dates, numbers, currency
-    URLStrategy URLPatternStrategy // Strategy for generating locale-specific URLs
+    URLStrategy URLPatternStrategy // Strategy for generating locale specific URLs
 }
 
 // LocaleGroup defines custom fallback chains for related locales
@@ -181,7 +208,7 @@ type Translation struct {
     EntityID        string
     LocaleID        string
     Content         map[string]any
-    AttributeOverrides map[string]any // For locale-specific media
+    AttributeOverrides map[string]any // For locale specific media
     CreatedAt       time.Time
     UpdatedAt       time.Time
 }
@@ -213,14 +240,14 @@ The i18n system uses different translation types for different purposes. Underst
 ```go
 // Translation is the base database record
 type Translation struct {
-    ID              string
-    EntityType      string // "content", "block", "widget", "page"
-    EntityID        string
-    LocaleID        string
-    Content         map[string]any
-    AttributeOverrides map[string]any
-    CreatedAt       time.Time
-    UpdatedAt       time.Time
+    ID                  string
+    EntityType          string // "content", "block", "widget", "page"
+    EntityID            string
+    LocaleID            string
+    Content             map[string]any
+    AttributeOverrides  map[string]any
+    CreatedAt           time.Time
+    UpdatedAt           time.Time
 }
 ```
 
@@ -267,7 +294,7 @@ func (s *ContentService) GetTranslated(ctx context.Context, contentID, locale st
 
 **Purpose**: Translation for block content with optional attribute overrides.
 
-**Use Case**: Translatable text in blocks, plus locale-specific media references.
+**Use Case**: Translatable text in blocks, plus locale specific media references.
 
 ```go
 // BlockTranslation is for block content with attribute overrides
@@ -276,12 +303,12 @@ type BlockTranslation struct {
     BlockInstanceID    string
     LocaleCode         string
     Content            map[string]any // Translatable text fields
-    AttributeOverrides map[string]any // Locale-specific config (e.g., media_id)
+    AttributeOverrides map[string]any // Locale specific config (e.g., media_id)
     CreatedAt          time.Time
     UpdatedAt          time.Time
 }
 
-// Example: Hero block with locale-specific image
+// Example: Hero block with locale specific image
 func (s *BlockService) GetWithTranslation(ctx context.Context, blockID, locale string) (*BlockWithTranslation, error) {
     block, err := s.repo.GetBlock(ctx, blockID)
     if err != nil {
@@ -294,7 +321,7 @@ func (s *BlockService) GetWithTranslation(ctx context.Context, blockID, locale s
         trans, _ = s.repo.GetBlockTranslation(ctx, blockID, s.defaultLocale)
     }
 
-    // Merge base attributes with locale-specific overrides
+    // Merge base attributes with locale specific overrides
     mergedAttrs := block.Attributes
     if trans.AttributeOverrides != nil {
         for k, v := range trans.AttributeOverrides {
@@ -511,7 +538,7 @@ func (s *RenderService) RenderPage(ctx *TranslationContext) (string, error) {
 
 **Use `BlockTranslation`**:
 - Rendering blocks with translated content
-- Handling locale-specific images/media
+- Handling locale specific images/media
 - Block preview/editing interfaces
 
 **Use `WidgetTranslation`**:
@@ -652,7 +679,7 @@ import "context"
 
 // Service handles all translation operations
 type Service interface {
-    // GetContentTranslation retrieves translation with automatic fallback
+    // GetContentTranslation retrieves translation with configured fallback
     GetContentTranslation(ctx context.Context, contentID, locale string) (*ContentTranslation, error)
 
     // GetBlockTranslation retrieves block translation with attribute overrides
@@ -739,7 +766,7 @@ func (r *SimpleLocaleResolver) ResolveFromRequest(req *http.Request) string {
 }
 ```
 
-### Regional Implementation (opt-in)
+### Regional Implementation (opt in)
 
 ```go
 type RegionalLocaleResolver struct {
@@ -752,7 +779,7 @@ func (r *RegionalLocaleResolver) ResolveFromRequest(req *http.Request) string {
     if cookie, _ := req.Cookie("locale"); cookie != nil {
         return cookie.Value
     }
-    // 2. Check IP geolocation (opt-in!)
+    // 2. Check IP geolocation (opt in!)
     if r.ipGeolocation != nil {
         if locale := r.ipGeolocation.GetLocale(req.RemoteAddr); locale != "" {
             return locale
@@ -772,7 +799,7 @@ type LocaleFormatter interface {
     // Format date according to locale conventions
     FormatDate(t time.Time, locale string) string
 
-    // Format number with locale-specific separators
+    // Format number with locale specific separators
     FormatNumber(n float64, locale string) string
 
     // Format currency
@@ -833,7 +860,7 @@ func (f *RegionalFormatter) FormatNumber(n float64, locale string) string {
 
 ### Multilingual URL Strategy
 
-**Simple Mode** (Level 1): locale-specific paths with simple codes
+**Simple Mode** (Level 1): locale specific paths with simple codes
 ```
 en: /about-us
 es: /acerca-de
@@ -862,7 +889,7 @@ func (s *PathPrefixStrategy) GenerateURL(locale, path string) string {
 }
 ```
 
-#### Subdomain Strategy (opt-in)
+#### Subdomain Strategy (opt in)
 
 ```go
 // URLs: en.example.com/about, es.example.com/about
@@ -894,7 +921,7 @@ type MultilingualRouter interface {
     // GetLocaleURLs returns all locale URLs for a page
     GetLocaleURLs(ctx context.Context, pageID string) map[string]string
 
-    // GenerateURL creates locale-specific URL for a page
+    // GenerateURL creates locale specific URL for a page
     GenerateURL(ctx context.Context, pageID, locale string) (string, error)
 
     // RedirectToLocale finds equivalent page in target locale
@@ -908,7 +935,7 @@ func (r *router) ResolvePage(ctx context.Context, path, locale string) (*Page, e
         return cached.(*Page), nil
     }
 
-    // Query with join to get page via locale-specific path
+    // Query with join to get page via locale specific path
     query := `
         SELECT p.*, pt.path, pt.slug, pt.meta
         FROM pages p
@@ -931,22 +958,23 @@ func (r *router) ResolvePage(ctx context.Context, path, locale string) (*Page, e
 
 ### Fallback Resolution Logic
 
+Fallbacks are entirely opt in. If no configuration is provided, the service simply returns content in the requested locale (or the default locale if missing). When teams progressively enable more advanced behaviour, the configured chains drive the resolution order.
+
 ```go
 // GetFallbackChain adapts to your setup
 func (s *TranslationService) GetFallbackChain(locale string) []string {
-    // Check for explicit fallback (Level 2 & 3)
-    if fallback := s.getExplicitFallback(locale); fallback != "" {
-        return []string{fallback}
+    // Level 3: custom groups take precedence
+    if chain, ok := s.localeGroups[locale]; ok {
+        return chain
     }
 
-    // Auto-generate fallback for regional codes (Level 2)
-    if strings.Contains(locale, "-") {
-        baseLocale := strings.Split(locale, "-")[0]  // "en-US" → "en"
-        return []string{baseLocale}
+    // Level 2: explicit fallback configured via WithFallback
+    if fallback := s.getExplicitFallback(locale); len(fallback) > 0 {
+        return fallback
     }
 
-    // No fallback (Level 1)
-    return []string{}
+    // Level 1: no fallback
+    return nil
 }
 ```
 
@@ -959,10 +987,11 @@ func (s *TranslationService) GetFallbackChain(locale string) []string {
 // es → (not found) → en (default)
 ```
 
-**Regional Mode** (Level 2): Automatic base language fallback
+**Regional Mode** (Level 2): Explicit fallback provided during configuration
 ```go
-// System strips region code automatically
-// en-US → en → default
+// i18n.WithFallback("en")
+// en-GB → en → default
+// i18n.WithFallback("fr", "en")
 // fr-CA → fr → en (default)
 ```
 
@@ -977,7 +1006,7 @@ fr-CA → fr-FR → fr → en (default)
 
 1. **Translation Cache**: Cache translations by `entity_type:entity_id:locale`
 2. **Fallback Cache**: Cache resolved fallback chains
-3. **URL Cache**: Cache locale-specific URL mappings
+3. **URL Cache**: Cache locale specific URL mappings
 4. **Fragment Caching**: Cache rendered blocks with locale in key
 
 **Cache Key Pattern**:
@@ -1055,7 +1084,7 @@ func (s *BlockService) GetBlocksWithTranslations(
 
 ### CDN Distribution
 
-- Serve locale-specific assets from regional CDNs
+- Serve locale specific assets from regional CDNs
 - URL pattern: `cdn.example.com/{locale}/assets/...`
 - Automatic cache warming for popular locales
 - Locale-based cache TTLs
@@ -1075,8 +1104,9 @@ func (s *BlockService) GetBlocksWithTranslations(
 2. Implement `LocaleRepository` interface
 3. Create `SimpleLocaleResolver`
 4. Implement basic `TranslationService`
-5. Add database migrations for `locales` table
-6. Write unit tests with fixtures
+5. Add `AddLocale` helper in `internal/i18n/config.go`
+6. Add database migrations for `locales` table
+7. Write unit tests with fixtures
 
 **Deliverables**:
 - Simple locale codes working (`en`, `es`, `fr`)
@@ -1086,20 +1116,20 @@ func (s *BlockService) GetBlocksWithTranslations(
 ### Phase 2: Fallback Chain Support (Sprint 2)
 
 **Goals**:
-- Automatic fallback for regional codes
+- Configurable fallback for regional codes
 - Level 2 support (regional locales)
 - Fallback chain resolution
 
 **Tasks**:
-1. Extend `Locale` type with `FallbackLocaleID`
-2. Implement `GetFallbackChain()` logic
+1. Extend `Locale` type with `FallbackChain` metadata
+2. Implement `GetFallbackChain()` logic using configured options
 3. Update `TranslationService` to use fallback chains
 4. Add `RegionalLocaleResolver`
 5. Write fallback chain tests
 
 **Deliverables**:
 - Regional locale codes working (`en-US`, `fr-CA`)
-- Automatic fallback (`en-US` → `en` → default)
+- Configured fallback chains honoured (`en-GB` → `en`)
 - Cached fallback chains
 
 ### Phase 3: URL Routing (Sprint 3)
@@ -1118,7 +1148,7 @@ func (s *BlockService) GetBlocksWithTranslations(
 6. Write routing tests
 
 **Deliverables**:
-- Locale-specific paths working
+- Locale specific paths working
 - Page resolution by path + locale
 - Locale switching with redirects
 
@@ -1186,67 +1216,62 @@ func (s *BlockService) GetBlocksWithTranslations(
 ### Simple Setup (Level 1)
 
 ```go
-package main
+cfg := cms.Config{DefaultLocale: "en"}
 
-func main() {
-    cms := NewCMS(&Config{
-        DefaultLocale: "en",
-        Locales: []Locale{
-            {Code: "en", Name: "English"},
-            {Code: "es", Name: "Spanish"},
-            {Code: "fr", Name: "French"},
-        },
-    })
+i18n.AddLocale(&cfg, "en", "English")
+i18n.AddLocale(&cfg, "es", "Spanish")
+i18n.AddLocale(&cfg, "fr", "French")
+
+cmsModule, err := cms.New(cfg)
+if err != nil {
+    panic(err)
 }
 ```
 
 ### Regional Setup (Level 2)
 
 ```go
-package main
+cfg := cms.Config{DefaultLocale: "en-US"}
 
-func main() {
-    cms := NewCMS(&Config{
-        DefaultLocale: "en-US",
-        Locales: []Locale{
-            {Code: "en-US", Name: "English (US)", Fallback: "en"},
-            {Code: "en-GB", Name: "English (UK)", Fallback: "en"},
-            {Code: "fr-CA", Name: "French (Canada)", Fallback: "fr"},
-            {Code: "fr-FR", Name: "French (France)", Fallback: "fr"},
-        },
-    })
+i18n.AddLocale(&cfg, "en-US", "English (US)")
+i18n.AddLocale(&cfg, "en-GB", "English (UK)", i18n.WithFallback("en"))
+i18n.AddLocale(&cfg, "fr-CA", "French (Canada)", i18n.WithFallback("fr", "en"))
+i18n.AddLocale(&cfg, "fr-FR", "French (France)")
+
+cmsModule, err := cms.New(cfg)
+if err != nil {
+    panic(err)
 }
 ```
 
 ### Advanced Setup (Level 3)
 
 ```go
-package main
+cfg := cms.Config{DefaultLocale: "en-US"}
 
-func main() {
-    cms := NewCMS(&Config{
-        DefaultLocale: "en-US",
-        Locales: []Locale{ /* same as before */ },
+i18n.AddLocale(&cfg, "en-US", "English (US)")
+i18n.AddLocale(&cfg, "en-CA", "English (Canada)", i18n.WithFallback("en-US"))
+i18n.AddLocale(&cfg, "fr-CA", "French (Canada)", i18n.WithFallback("fr-FR", "fr", "en-US"))
+i18n.AddLocale(&cfg, "fr-FR", "French (France)")
+i18n.AddLocale(&cfg, "es-MX", "Spanish (Mexico)", i18n.WithFallback("es"))
 
-        // Locale-specific configuration
-        Locale: &LocaleConfig{
-            Groups: []LocaleGroup{
-                {
-                    Name: "north-america",
-                    Fallbacks: []string{"en-US", "en-CA", "fr-CA", "es-MX"},
-                },
-            },
-
-            // Optional: custom implementations
-            Resolver: &RegionalLocaleResolver{
-                IPGeolocation: myIPService,
-            },
-            Formatter: &RegionalFormatter{},
-            URLStrategy: &SubdomainStrategy{
-                BaseDomain: "example.com",
-            },
+cfg.Locale = &i18n.LocaleConfig{
+    Groups: []i18n.LocaleGroup{
+        {
+            Name: "north-america",
+            Fallbacks: []string{"en-US", "en-CA", "fr-CA", "es-MX"},
         },
-    })
+    },
+    Resolver: &i18n.RegionalLocaleResolver{
+        IPGeolocation: myIPService,
+    },
+    Formatter:   &i18n.RegionalFormatter{},
+    URLStrategy: &i18n.SubdomainStrategy{BaseDomain: "example.com"},
+}
+
+cmsModule, err := cms.New(cfg)
+if err != nil {
+    panic(err)
 }
 ```
 
@@ -1335,7 +1360,7 @@ Content Creation → Translation Request → Translation → Review → Approval
 - [ ] Layout doesn't break with longer text
 - [ ] RTL languages display correctly
 - [ ] Numbers, dates, currency format correctly
-- [ ] Locale-specific media loads correctly
+- [ ] Locale specific media loads correctly
 - [ ] URLs work in all locales
 - [ ] Form validation messages are translated
 - [ ] SEO tags are translated
