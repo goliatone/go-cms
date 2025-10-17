@@ -8,11 +8,30 @@ The CMS organizes content through a small set of relational entities. Pages defi
 | Entity            | Purpose                                                     | Key Tables                                     |
 |-------------------|-------------------------------------------------------------|------------------------------------------------|
 | Locale            | Canonical list of supported languages                       | `locales`                                      |
+| Content Type      | Defines different content types and their capabilities      | `content_types`                                |
 | Page              | Defines site hierarchy, layout metadata                     | `pages`, `page_translations`, `page_versions`  |
 | Block             | Reusable content fragments placed within pages              | `block_definitions`, `block_instances`, `block_translations` |
 | Widget            | Behavioural components (forms, carousels, search, etc.)     | `widget_definitions`, `widget_instances`, `widget_translations` |
 | Menu              | Navigation structures and their localized labels             | `menus`, `menu_items`, `menu_item_translations` |
+| Theme             | Collection of templates and assets forming a complete design | `themes`                                       |
+| Template          | Presentation layer defining how content renders             | `templates`                                    |
 | Translation State | Tracks editorial progress for localized content             | `translation_status`                           |
+
+### Content Types
+Content types define the schema and capabilities for different kinds of content (pages, posts, custom types).
+
+```sql
+CREATE TABLE content_types (
+    id            UUID PRIMARY KEY,
+    name          VARCHAR(100) UNIQUE NOT NULL,
+    description   TEXT,
+    schema        JSONB NOT NULL,              -- field definitions
+    capabilities  JSONB,                       -- e.g., supports_hierarchy, supports_versioning
+    icon          VARCHAR(100),
+    created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
 
 ### Pages
 Pages carry structural information (routing, templates, scheduling) independent of locale-specific content.
@@ -28,6 +47,7 @@ CREATE TABLE pages (
     unpublish_at       TIMESTAMP,
     created_by         UUID NOT NULL,
     updated_by         UUID NOT NULL,
+    deleted_at         TIMESTAMPTZ,
     created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(parent_id, slug)
@@ -38,6 +58,7 @@ CREATE TABLE page_versions (
     page_id     UUID NOT NULL REFERENCES pages(id),
     version     INTEGER NOT NULL,
     snapshot    JSONB NOT NULL,       -- structural snapshot (layout, block ordering)
+    deleted_at  TIMESTAMPTZ,
     created_by  UUID NOT NULL,
     created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(page_id, version)
@@ -52,6 +73,7 @@ CREATE TABLE page_translations (
     seo_title          VARCHAR(255),
     seo_description    TEXT,
     summary            TEXT,
+    deleted_at         TIMESTAMPTZ,
     created_at         TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at         TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(page_id, locale_id),
@@ -64,11 +86,16 @@ Blocks are reusable content units. Definitions describe schema/options, instance
 
 ```sql
 CREATE TABLE block_definitions (
-    id            UUID PRIMARY KEY,
-    name          VARCHAR(100) UNIQUE NOT NULL,
-    schema        JSONB NOT NULL,     -- field definitions
-    defaults      JSONB,
-    created_at    TIMESTAMP NOT NULL DEFAULT NOW()
+    id                   UUID PRIMARY KEY,
+    name                 VARCHAR(100) UNIQUE NOT NULL,
+    description          TEXT,
+    icon                 VARCHAR(100),
+    schema               JSONB NOT NULL,            -- field definitions
+    defaults             JSONB,
+    editor_style_url     VARCHAR(255),
+    frontend_style_url   VARCHAR(255),
+    deleted_at           TIMESTAMPTZ,
+    created_at           TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE block_instances (
@@ -79,6 +106,9 @@ CREATE TABLE block_instances (
     definition_id     UUID NOT NULL REFERENCES block_definitions(id),
     configuration     JSONB NOT NULL DEFAULT '{}'::JSONB,
     is_global         BOOLEAN DEFAULT FALSE,
+    created_by        UUID NOT NULL,
+    updated_by        UUID NOT NULL,
+    deleted_at        TIMESTAMPTZ,
     created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -89,6 +119,7 @@ CREATE TABLE block_translations (
     locale_id            UUID NOT NULL REFERENCES locales(id),
     content              JSONB NOT NULL,          -- translatable fields
     attribute_overrides  JSONB,                   -- media swaps, link overrides, etc.
+    deleted_at           TIMESTAMPTZ,
     created_at           TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at           TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(block_instance_id, locale_id)
@@ -100,20 +131,25 @@ Widgets extend blocks with data-driven behaviour (e.g., search, newsletter signu
 
 ```sql
 CREATE TABLE widget_definitions (
-    id         UUID PRIMARY KEY,
-    name       VARCHAR(100) UNIQUE NOT NULL,
-    schema     JSONB NOT NULL,
-    defaults   JSONB,
-    created_at TIMESTAMP NOT NULL DEFAULT NOW()
+    id          UUID PRIMARY KEY,
+    name        VARCHAR(100) UNIQUE NOT NULL,
+    description TEXT,
+    schema      JSONB NOT NULL,
+    defaults    JSONB,
+    deleted_at  TIMESTAMPTZ,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE widget_instances (
-    id              UUID PRIMARY KEY,
+    id                UUID PRIMARY KEY,
     block_instance_id UUID REFERENCES block_instances(id) ON DELETE CASCADE,
-    definition_id   UUID NOT NULL REFERENCES widget_definitions(id),
-    configuration   JSONB NOT NULL DEFAULT '{}'::JSONB,
-    created_at      TIMESTAMP NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMP NOT NULL DEFAULT NOW()
+    definition_id     UUID NOT NULL REFERENCES widget_definitions(id),
+    configuration     JSONB NOT NULL DEFAULT '{}'::JSONB,
+    created_by        UUID NOT NULL,
+    updated_by        UUID NOT NULL,
+    deleted_at        TIMESTAMPTZ,
+    created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at        TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE widget_translations (
@@ -121,6 +157,7 @@ CREATE TABLE widget_translations (
     widget_instance_id UUID NOT NULL REFERENCES widget_instances(id) ON DELETE CASCADE,
     locale_id         UUID NOT NULL REFERENCES locales(id),
     content           JSONB NOT NULL,
+    deleted_at        TIMESTAMPTZ,
     created_at        TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at        TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(widget_instance_id, locale_id)
@@ -135,7 +172,10 @@ CREATE TABLE menus (
     id          UUID PRIMARY KEY,
     code        VARCHAR(50) UNIQUE NOT NULL,
     description TEXT,
-    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    created_by  UUID NOT NULL,
+    updated_by  UUID NOT NULL,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE menu_items (
@@ -144,6 +184,9 @@ CREATE TABLE menu_items (
     parent_id  UUID REFERENCES menu_items(id) ON DELETE CASCADE,
     position   INTEGER NOT NULL DEFAULT 0,
     target     JSONB NOT NULL,            -- {"type": "page", "id": "..."}
+    created_by UUID NOT NULL,
+    updated_by UUID NOT NULL,
+    deleted_at TIMESTAMPTZ,
     created_at TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMP NOT NULL DEFAULT NOW()
 );
@@ -154,6 +197,7 @@ CREATE TABLE menu_item_translations (
     locale_id     UUID NOT NULL REFERENCES locales(id),
     label         VARCHAR(150) NOT NULL,
     url_override  VARCHAR(255),
+    deleted_at    TIMESTAMPTZ,
     created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
     updated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(menu_item_id, locale_id)
@@ -200,27 +244,74 @@ Locales are optional for the CMS core, but a simple lookup table keeps metadata 
 ```sql
 CREATE TABLE locales (
     id            UUID PRIMARY KEY,
-    code          VARCHAR(20) UNIQUE NOT NULL,  -- e.g. "en", "es"
-    display_name  VARCHAR(100) NOT NULL,
+    code          VARCHAR(20) UNIQUE NOT NULL,  -- e.g. "en", "es", "en-US"
+    display_name  VARCHAR(100) NOT NULL,        -- e.g. "English", "Spanish"
+    native_name   VARCHAR(100),                 -- e.g. "English", "Español"
     is_active     BOOLEAN DEFAULT TRUE,
     is_default    BOOLEAN DEFAULT FALSE,
     metadata      JSONB,
+    deleted_at    TIMESTAMPTZ,
     created_at    TIMESTAMP NOT NULL DEFAULT NOW()
 );
 ```
 
+### Themes
+Themes define collections of templates and assets forming a complete site design.
+
+```sql
+CREATE TABLE themes (
+    id            UUID PRIMARY KEY,
+    name          VARCHAR(100) UNIQUE NOT NULL,
+    description   TEXT,
+    version       VARCHAR(20) NOT NULL,
+    author        VARCHAR(100),
+    is_active     BOOLEAN DEFAULT FALSE,
+    theme_path    VARCHAR(255) NOT NULL,
+    config        JSONB,
+    created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMP NOT NULL DEFAULT NOW()
+);
+```
+
+### Templates
+Templates define the presentation layer for content, controlling layout and structure.
+
+```sql
+CREATE TABLE templates (
+    id            UUID PRIMARY KEY,
+    theme_id      UUID NOT NULL REFERENCES themes(id) ON DELETE CASCADE,
+    name          VARCHAR(100) NOT NULL,
+    slug          VARCHAR(100) NOT NULL,
+    description   TEXT,
+    template_path VARCHAR(255) NOT NULL,
+    regions       JSONB NOT NULL,     -- widget/block regions defined in template
+    metadata      JSONB,
+    created_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at    TIMESTAMP NOT NULL DEFAULT NOW(),
+    UNIQUE(theme_id, slug)
+);
+```
+
 ## Entity Relationships
-- A page owns many block instances; blocks can be flagged as global to appear on multiple pages.
-- Widgets attach to block instances and inherit their placement.
-- Menus use hierarchical menu items; translations decorate items with localized labels.
-- Locale IDs link all translation tables back to configuration-driven locale metadata.
+- Content types define the schema and capabilities for different content (pages, posts, custom types)
+- A page owns many block instances; blocks can be flagged as global to appear on multiple pages
+- Widgets attach to block instances and inherit their placement
+- Menus use hierarchical menu items; translations decorate items with localized labels
+- Themes contain multiple templates; each page references a template
+- Templates define regions where blocks and widgets can be placed
+- Locale IDs link all translation tables back to configuration-driven locale metadata
 
 ## Implementation Notes
 1. **Configuration First**: Load locale metadata from configuration files and seed the `locales` table accordingly. Keep SQL schema agnostic to regional rules.
-2. **JSON Schemas**: `schema` columns describe allowed fields for blocks/widgets; use them to validate editorial input.
+2. **JSON Schemas**: `schema` columns describe allowed fields for blocks/widgets/content types; use them to validate editorial input.
 3. **Versioning**: `page_versions` captures structural snapshots. Extend the same pattern to blocks if draft/preview workflows require it.
-4. **Indices**: Add indexes on `(page_id, region, position)` for block instances, `(menu_id, parent_id, position)` for menu items, and `(entity_type, locale_id)` for translation status to support dashboard queries.
-5. **Soft Deletes**: Consider `deleted_at` columns on pages, blocks, and menus if audit requirements demand reversible deletions.
+4. **Indices**: Add indexes on `(page_id, region, position)` for block instances, `(menu_id, parent_id, position)` for menu items, `(theme_id, slug)` for templates, and `(entity_type, locale_id)` for translation status to support dashboard queries.
+5. **Soft Deletes**: All entities support `deleted_at` columns for audit requirements and reversible deletions.
+6. **Audit Fields**: All mutable entities include `created_by` and `updated_by` fields for tracking changes.
+7. **Content Type Capabilities**: The `capabilities` JSONB field in content types enables feature flags like `supports_hierarchy`, `supports_versioning`, `supports_comments`, etc.
+8. **Theme Assets**: The `theme_path` in themes points to the file system location where templates, CSS, and JavaScript assets are stored.
+9. **Template Regions**: The `regions` JSONB field in templates defines named areas where blocks and widgets can be placed (e.g., `{"header": {}, "sidebar": {}, "footer": {}}`).
+10. **Block Editor Experience**: Optional `icon`, `description`, `editor_style_url`, and `frontend_style_url` fields in block definitions enhance the editorial interface.
 
 ## Repository Integration (go-repository-bun)
 ### Model Registration
