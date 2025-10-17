@@ -822,172 +822,290 @@ func (n *noOpCache) Clear(ctx context.Context) error {
 
 ## Domain Module Examples
 
-### Content Module
+### Data Models (Bun ORM)
+
+The Bun models below mirror the latest schema described in `CMS_ENTITIES.md`, including the new tables (`content_types`, `themes`, `templates`) and the additional audit/soft-delete fields introduced across the existing entities.
 
 ```go
-// content/types.go
-package content
+// internal/models/models.go
+package models
 
 import (
     "time"
+
+    "github.com/google/uuid"
+    "github.com/uptrace/bun"
 )
 
-type Content struct {
-    ID           string
-    ContentType  string
-    Slug         string
-    Status       ContentStatus
-    AuthorID     string
-    PublishOn    *time.Time
-    DeletedAt    *time.Time
-    CreatedAt    time.Time
-    UpdatedAt    time.Time
-    Translations map[string]*ContentTranslation
+type ContentType struct {
+    bun.BaseModel `bun:"table:content_types,alias:ct"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    Name          string         `bun:"name,notnull"`
+    Description   *string        `bun:"description"`
+    Schema        map[string]any `bun:"schema,type:jsonb,notnull"`
+    Capabilities  map[string]any `bun:"capabilities,type:jsonb"`
+    Icon          *string        `bun:"icon"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
 }
-
-type ContentTranslation struct {
-    ID              string
-    ContentID       string
-    LocaleCode      string
-    Title           string
-    Data            map[string]any
-    MetaTitle       string
-    MetaDescription string
-}
-
-type ContentStatus string
-
-const (
-    StatusDraft     ContentStatus = "draft"
-    StatusInReview  ContentStatus = "review"
-    StatusPublished ContentStatus = "published"
-    StatusScheduled ContentStatus = "scheduled"
-    StatusArchived  ContentStatus = "archived"
-)
-```
-
-```go
-// content/interfaces.go
-package content
-
-import (
-    "context"
-)
-
-// Repository defines data access for content
-type Repository interface {
-    Create(ctx context.Context, content *Content) error
-    Update(ctx context.Context, content *Content) error
-    Delete(ctx context.Context, id *uuid.UUID) error
-    GetByID(ctx context.Context, id *uuid.UUID) (*Content, error)
-    GetBySlug(ctx context.Context, slug string) (*Content, error)
-    List(ctx context.Context, opts ListOptions) ([]*Content, error)
-}
-
-// Service defines business logic for content
-type Service interface {
-    Create(ctx context.Context, req CreateRequest) (*Content, error)
-    Update(ctx context.Context, id *uuid.UUID, req UpdateRequest) (*Content, error)
-    Publish(ctx context.Context, id *uuid.UUID) error
-    Schedule(ctx context.Context, id *uuid.UUID, publishOn time.Time) error
-    Delete(ctx context.Context, id *uuid.UUID) error
-    Get(ctx context.Context, id *uuid.UUID, locale string) (*Content, error)
-    Translate(ctx context.Context, id *uuid.UUID, locale string, translation ContentTranslation) error
-}
-```
-
-### Pages Module
-
-```go
-// pages/types.go
-package pages
-
-import (
-    "time"
-    "github.com/goliatone/cms/content"
-)
 
 type Page struct {
-    ID            *uuid.UUID
-    Content       *content.Content
-    ParentID      *uuid.UUID
-    TemplateSlug  string
-    Path          string
-    MenuOrder     int
-    PageType      string
-    Attributes    map[string]any
-    Children      []*Page
-    DeletedAt     *time.Time
+    bun.BaseModel `bun:"table:pages,alias:p"`
+    ID            uuid.UUID   `bun:",pk,type:uuid"`
+    ParentID      *uuid.UUID  `bun:"parent_id"`
+    Slug          string      `bun:"slug,notnull"`
+    TemplateID    uuid.UUID   `bun:"template_id,notnull"`
+    Status        string      `bun:"status,notnull"`
+    PublishAt     *time.Time  `bun:"publish_at"`
+    UnpublishAt   *time.Time  `bun:"unpublish_at"`
+    CreatedBy     uuid.UUID   `bun:"created_by,notnull"`
+    UpdatedBy     uuid.UUID   `bun:"updated_by,notnull"`
+    DeletedAt     *time.Time  `bun:"deleted_at"`
+    CreatedAt     time.Time   `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time   `bun:"updated_at,nullzero,default:now()"`
+
+    Template     *Template        `bun:"rel:belongs-to,join:template_id=id"`
+    Versions     []*PageVersion   `bun:"rel:has-many,join:id=page_id"`
+    Translations []*PageTranslation `bun:"rel:has-many,join:id=page_id"`
+    Blocks       []*BlockInstance `bun:"rel:has-many,join:id=page_id"`
+}
+
+type PageVersion struct {
+    bun.BaseModel `bun:"table:page_versions,alias:pv"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    PageID        uuid.UUID      `bun:"page_id,notnull"`
+    Version       int            `bun:"version,notnull"`
+    Snapshot      map[string]any `bun:"snapshot,type:jsonb,notnull"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedBy     uuid.UUID      `bun:"created_by,notnull"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+
+    Page *Page `bun:"rel:belongs-to,join:page_id=id"`
+}
+
+type PageTranslation struct {
+    bun.BaseModel `bun:"table:page_translations,alias:pt"`
+    ID            uuid.UUID  `bun:",pk,type:uuid"`
+    PageID        uuid.UUID  `bun:"page_id,notnull"`
+    LocaleID      uuid.UUID  `bun:"locale_id,notnull"`
+    Title         string     `bun:"title,notnull"`
+    Path          string     `bun:"path,notnull"`
+    SEOTitle      *string    `bun:"seo_title"`
+    SEODescription *string   `bun:"seo_description"`
+    Summary       *string    `bun:"summary"`
+    DeletedAt     *time.Time `bun:"deleted_at"`
+    CreatedAt     time.Time  `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time  `bun:"updated_at,nullzero,default:now()"`
+
+    Page   *Page   `bun:"rel:belongs-to,join:page_id=id"`
+    Locale *Locale `bun:"rel:belongs-to,join:locale_id=id"`
+}
+
+type BlockDefinition struct {
+    bun.BaseModel `bun:"table:block_definitions,alias:bd"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    Name          string         `bun:"name,notnull"`
+    Description   *string        `bun:"description"`
+    Icon          *string        `bun:"icon"`
+    Schema        map[string]any `bun:"schema,type:jsonb,notnull"`
+    Defaults      map[string]any `bun:"defaults,type:jsonb"`
+    EditorStyleURL   *string     `bun:"editor_style_url"`
+    FrontendStyleURL *string     `bun:"frontend_style_url"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+
+    Instances []*BlockInstance `bun:"rel:has-many,join:id=definition_id"`
+}
+
+type BlockInstance struct {
+    bun.BaseModel `bun:"table:block_instances,alias:bi"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    PageID        *uuid.UUID     `bun:"page_id"`
+    Region        string         `bun:"region,notnull"`
+    Position      int            `bun:"position,notnull"`
+    DefinitionID  uuid.UUID      `bun:"definition_id,notnull"`
+    Configuration map[string]any `bun:"configuration,type:jsonb,notnull"`
+    IsGlobal      bool           `bun:"is_global,notnull"`
+    CreatedBy     uuid.UUID      `bun:"created_by,notnull"`
+    UpdatedBy     uuid.UUID      `bun:"updated_by,notnull"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
+
+    Definition   *BlockDefinition     `bun:"rel:belongs-to,join:definition_id=id"`
+    Page         *Page                `bun:"rel:belongs-to,join:page_id=id"`
+    Translations []*BlockTranslation  `bun:"rel:has-many,join:id=block_instance_id"`
+    Widgets      []*WidgetInstance    `bun:"rel:has-many,join:id=block_instance_id"`
+}
+
+type BlockTranslation struct {
+    bun.BaseModel `bun:"table:block_translations,alias:bt"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    BlockInstanceID uuid.UUID    `bun:"block_instance_id,notnull"`
+    LocaleID      uuid.UUID      `bun:"locale_id,notnull"`
+    Content       map[string]any `bun:"content,type:jsonb,notnull"`
+    AttributeOverrides map[string]any `bun:"attribute_overrides,type:jsonb"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
+
+    Instance *BlockInstance `bun:"rel:belongs-to,join:block_instance_id=id"`
+    Locale   *Locale        `bun:"rel:belongs-to,join:locale_id=id"`
+}
+
+type WidgetDefinition struct {
+    bun.BaseModel `bun:"table:widget_definitions,alias:wd"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    Name          string         `bun:"name,notnull"`
+    Description   *string        `bun:"description"`
+    Schema        map[string]any `bun:"schema,type:jsonb,notnull"`
+    Defaults      map[string]any `bun:"defaults,type:jsonb"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+
+    Instances []*WidgetInstance `bun:"rel:has-many,join:id=definition_id"`
+}
+
+type WidgetInstance struct {
+    bun.BaseModel `bun:"table:widget_instances,alias:wi"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    BlockInstanceID *uuid.UUID   `bun:"block_instance_id"`
+    DefinitionID  uuid.UUID      `bun:"definition_id,notnull"`
+    Configuration map[string]any `bun:"configuration,type:jsonb,notnull"`
+    CreatedBy     uuid.UUID      `bun:"created_by,notnull"`
+    UpdatedBy     uuid.UUID      `bun:"updated_by,notnull"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
+
+    Definition   *WidgetDefinition    `bun:"rel:belongs-to,join:definition_id=id"`
+    Block        *BlockInstance       `bun:"rel:belongs-to,join:block_instance_id=id"`
+    Translations []*WidgetTranslation `bun:"rel:has-many,join:id=widget_instance_id"`
+}
+
+type WidgetTranslation struct {
+    bun.BaseModel `bun:"table:widget_translations,alias:wt"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    WidgetInstanceID uuid.UUID   `bun:"widget_instance_id,notnull"`
+    LocaleID      uuid.UUID      `bun:"locale_id,notnull"`
+    Content       map[string]any `bun:"content,type:jsonb,notnull"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
+
+    Instance *WidgetInstance `bun:"rel:belongs-to,join:widget_instance_id=id"`
+    Locale   *Locale         `bun:"rel:belongs-to,join:locale_id=id"`
+}
+
+type Menu struct {
+    bun.BaseModel `bun:"table:menus,alias:m"`
+    ID            uuid.UUID   `bun:",pk,type:uuid"`
+    Code          string      `bun:"code,notnull"`
+    Description   *string     `bun:"description"`
+    CreatedBy     uuid.UUID   `bun:"created_by,notnull"`
+    UpdatedBy     uuid.UUID   `bun:"updated_by,notnull"`
+    CreatedAt     time.Time   `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time   `bun:"updated_at,nullzero,default:now()"`
+
+    Items []*MenuItem `bun:"rel:has-many,join:id=menu_id"`
+}
+
+type MenuItem struct {
+    bun.BaseModel `bun:"table:menu_items,alias:mi"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    MenuID        uuid.UUID      `bun:"menu_id,notnull"`
+    ParentID      *uuid.UUID     `bun:"parent_id"`
+    Position      int            `bun:"position,notnull"`
+    Target        map[string]any `bun:"target,type:jsonb,notnull"`
+    CreatedBy     uuid.UUID      `bun:"created_by,notnull"`
+    UpdatedBy     uuid.UUID      `bun:"updated_by,notnull"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
+
+    Menu         *Menu                `bun:"rel:belongs-to,join:menu_id=id"`
+    Parent       *MenuItem            `bun:"rel:belongs-to,join:parent_id=id"`
+    Children     []*MenuItem          `bun:"rel:has-many,join:id=parent_id"`
+    Translations []*MenuItemTranslation `bun:"rel:has-many,join:id=menu_item_id"`
+}
+
+type MenuItemTranslation struct {
+    bun.BaseModel `bun:"table:menu_item_translations,alias:mit"`
+    ID            uuid.UUID  `bun:",pk,type:uuid"`
+    MenuItemID    uuid.UUID  `bun:"menu_item_id,notnull"`
+    LocaleID      uuid.UUID  `bun:"locale_id,notnull"`
+    Label         string     `bun:"label,notnull"`
+    URLOverride   *string    `bun:"url_override"`
+    DeletedAt     *time.Time `bun:"deleted_at"`
+    CreatedAt     time.Time  `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time  `bun:"updated_at,nullzero,default:now()"`
+
+    Item   *MenuItem `bun:"rel:belongs-to,join:menu_item_id=id"`
+    Locale *Locale   `bun:"rel:belongs-to,join:locale_id=id"`
+}
+
+type Theme struct {
+    bun.BaseModel `bun:"table:themes,alias:th"`
+    ID            uuid.UUID   `bun:",pk,type:uuid"`
+    Name          string      `bun:"name,notnull"`
+    Description   *string     `bun:"description"`
+    Version       string      `bun:"version,notnull"`
+    Author        *string     `bun:"author"`
+    IsActive      bool        `bun:"is_active"`
+    ThemePath     string      `bun:"theme_path,notnull"`
+    Config        map[string]any `bun:"config,type:jsonb"`
+    CreatedAt     time.Time   `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time   `bun:"updated_at,nullzero,default:now()"`
+
+    Templates []*Template `bun:"rel:has-many,join:id=theme_id"`
+}
+
+type Template struct {
+    bun.BaseModel `bun:"table:templates,alias:tp"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    ThemeID       uuid.UUID      `bun:"theme_id,notnull"`
+    Name          string         `bun:"name,notnull"`
+    Slug          string         `bun:"slug,notnull"`
+    Description   *string        `bun:"description"`
+    TemplatePath  string         `bun:"template_path,notnull"`
+    Regions       map[string]any `bun:"regions,type:jsonb,notnull"`
+    Metadata      map[string]any `bun:"metadata,type:jsonb"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
+    UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:now()"`
+
+    Theme *Theme `bun:"rel:belongs-to,join:theme_id=id"`
+}
+
+type TranslationStatus struct {
+    bun.BaseModel `bun:"table:translation_status,alias:ts"`
+    ID            uuid.UUID  `bun:",pk,type:uuid"`
+    EntityType    string     `bun:"entity_type,notnull"`
+    EntityID      uuid.UUID  `bun:"entity_id,notnull"`
+    LocaleID      uuid.UUID  `bun:"locale_id,notnull"`
+    Status        string     `bun:"status,notnull"`
+    Completeness  int        `bun:"completeness,notnull"`
+    LastUpdated   time.Time  `bun:"last_updated,nullzero,default:now()"`
+    TranslatorID  *uuid.UUID `bun:"translator_id"`
+    ReviewerID    *uuid.UUID `bun:"reviewer_id"`
+
+    Locale *Locale `bun:"rel:belongs-to,join:locale_id=id"`
+}
+
+type Locale struct {
+    bun.BaseModel `bun:"table:locales,alias:l"`
+    ID            uuid.UUID      `bun:",pk,type:uuid"`
+    Code          string         `bun:"code,notnull"`
+    DisplayName   string         `bun:"display_name,notnull"`
+    NativeName    *string        `bun:"native_name"`
+    IsActive      bool           `bun:"is_active"`
+    IsDefault     bool           `bun:"is_default"`
+    Metadata      map[string]any `bun:"metadata,type:jsonb"`
+    DeletedAt     *time.Time     `bun:"deleted_at"`
+    CreatedAt     time.Time      `bun:"created_at,nullzero,default:now()"`
 }
 ```
 
-```go
-// pages/service.go
-package pages
-
-import (
-    "context"
-    "fmt"
-    "github.com/goliatone/cms/content"
-)
-
-type service struct {
-    contentService content.Service
-    storage        StorageProvider
-}
-
-func NewService(contentService content.Service, storage StorageProvider) Service {
-    return &service{
-        contentService: contentService,
-        storage:        storage,
-    }
-}
-
-func (s *service) Create(ctx context.Context, req CreateRequest) (*Page, error) {
-    // First create the content
-    contentReq := content.CreateRequest{
-        ContentType: "page",
-        Slug:        req.Slug,
-        Status:      req.Status,
-        AuthorID:    req.AuthorID,
-    }
-
-    c, err := s.contentService.Create(ctx, contentReq)
-    if err != nil {
-        return nil, fmt.Errorf("failed to create content: %w", err)
-    }
-
-    // Then create the page-specific data
-    page := &Page{
-        Content:      c,
-        ParentID:     req.ParentID,
-        TemplateSlug: req.TemplateSlug,
-        Path:         s.generatePath(req.ParentID, req.Slug),
-        MenuOrder:    req.MenuOrder,
-    }
-
-    // Save page data
-    err = s.storage.Exec(ctx, `
-        INSERT INTO pages (id, content_id, parent_id, template_slug, path, menu_order)
-        VALUES (?, ?, ?, ?, ?, ?)
-    `, page.ID, c.ID, page.ParentID, page.TemplateSlug, page.Path, page.MenuOrder)
-
-    if err != nil {
-        return nil, fmt.Errorf("failed to save page: %w", err)
-    }
-
-    return page, nil
-}
-
-func (s *service) generatePath(parentID *string, slug string) string {
-    if parentID == nil {
-        return "/" + slug
-    }
-    // Get parent path and append slug
-    // Implementation details...
-    return ""
-}
-```
+These models provide a one-to-one mapping with the SQL DDL in `CMS_ENTITIES.md`, ensuring the Go layer captures newly added audit fields (`created_by`, `updated_by`, `deleted_at`), JSON-backed configuration columns, and the new top-level tables for content types, themes, and templates.
 
 ## Testing Infrastructure
 
