@@ -1,5 +1,26 @@
 {
-  "id": "00000000-0000-0000-0000-000000000000",
-  "title": "Placeholder"
+  "id": "00000000-0000-0000-0000-000000000010",
+  "slug": "about-us",
+  "status": "draft",
+  "type": {
+    "id": "00000000-0000-0000-0000-000000000020",
+    "name": "page",
+    "schema": {
+      "fields": [
+        {
+          "name": "body",
+          "type": "richtext"
+        }
+      ]
+    }
+  },
+  "translations": [
+    {
+      "locale_id": "00000000-0000-0000-0000-000000000001",
+      "title": "About Us",
+      "content": {
+        "body": "Welcome to our site"
+      }
+    }
+  ]
 }
-
