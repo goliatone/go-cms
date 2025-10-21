@@ -4,7 +4,7 @@ import "context"
 
 type MediaProvider interface {
 	GetURL(ctx context.Context, path string) (string, error)
-	GetMetadata(ctx context.Context, id string) (MediaProvider, error)
+	GetMetadata(ctx context.Context, id string) (MediaMetadata, error)
 }
 
 type MediaMetadata struct {
