@@ -92,6 +92,32 @@ cms/
 >
 > Cache decorators provided with the CMS wrap `github.com/goliatone/go-repository-cache`, giving any registered repository transparent read caching while still honouring the `CacheProvider` interface defined here.
 
+### Phase 1 Scaffolding Workflow
+
+During Phase 1 we maintain an isolated prototype of the module under `.tmp/cms/` so we can iterate quickly while core contracts settle. Bootstrap or review the scaffolding with:
+
+1. Inspect `.tmp/cms/go.mod` to confirm the module path (`github.com/goliatone/go-cms`) and Go toolchain version.
+2. Review `.tmp/cms/config.go` for baseline configuration defaults and feature flags.
+3. Explore `.tmp/cms/internal/` for placeholder services (`content`, `pages`, `i18n`) and the DI container stub in `internal/di/container.go`.
+4. Reuse shared testing helpers in `.tmp/cms/pkg/testsupport/` when sketching contract tests.
+5. Run the example bootstrap `go run ./cmd/example` from `.tmp/cms/` (using the full Go binary path provided in the task plan) to verify the scaffolding compiles.
+
+Once the interfaces stabilise, we will promote the `.tmp` implementation into the production tree following the guidelines in `CMS_TSK.md`.
+
+### Content Module (Phase 1 snapshot)
+
+- Domain structs for `locales`, `content_types`, `contents`, and `content_translations` live in `.tmp/cms/internal/content/types.go`, mirroring the schemas documented in `CMS_ENTITIES.md`.
+- Bun repositories are declared in `.tmp/cms/internal/content/repository.go` using `github.com/goliatone/go-repository-bun` handlers so the DI container can supply storage-backed behaviour later.
+- Application service logic with validation rules is staged in `.tmp/cms/internal/content/service.go`, backed by in-memory repositories (`.tmp/cms/internal/content/memory.go`) and unit tests in `.tmp/cms/internal/content/service_test.go`.
+- Fixture-driven contract tests reside in `.tmp/cms/internal/content/repository_test.go` with JSON samples under `.tmp/cms/internal/content/testdata/` to guide future implementation work (currently skipped until the repositories are wired to real persistence).
+
+### Pages Module (Phase 1 snapshot)
+
+- Page domain models (`pages`, `page_versions`, `page_translations`) are defined in `.tmp/cms/internal/pages/types.go`, with relations back to the shared content entities.
+- Repository constructors in `.tmp/cms/internal/pages/repository.go` wrap Bun repositories and align with the slug/path uniqueness rules referenced in `CMS_ENTITIES.md`.
+- Page service scaffolding lives in `.tmp/cms/internal/pages/service.go` with in-memory repositories (`.tmp/cms/internal/pages/memory.go`) and targeted unit tests at `.tmp/cms/internal/pages/service_test.go` covering slug and locale validation.
+- Contract fixtures and pending tests live in `.tmp/cms/internal/pages/testdata/` and `.tmp/cms/internal/pages/repository_test.go`, ensuring hierarchical paths and translations remain consistent once persistence logic is implemented.
+
 ## External Dependency Interfaces
 
 ### Storage Provider
@@ -160,12 +186,49 @@ type CacheProvider interface {
 // pkg/interfaces/template.go
 package interfaces
 
-import "context"
+import "io"
 
-// TemplateRenderer defines the interface for template rendering
+// TemplateRenderer mirrors github.com/goliatone/go-template's engine contract.
 type TemplateRenderer interface {
-    Render(ctx context.Context, template string, data any) (string, error)
-    RegisterFunction(name string, fn any) error
+    Render(name string, data any, out ...io.Writer) (string, error)
+    RenderTemplate(name string, data any, out ...io.Writer) (string, error)
+    RenderString(templateContent string, data any, out ...io.Writer) (string, error)
+    RegisterFilter(name string, fn func(input any, param any) (any, error)) error
+    GlobalContext(data any) error
+}
+```
+
+### i18n Service
+
+```go
+// pkg/interfaces/i18n.go
+package interfaces
+
+type Translator interface {
+    Translate(locale, key string, args ...any) (string, error)
+}
+
+type CultureService interface {
+    GetCurrencyCode(locale string) (string, error)
+    GetCurrency(locale string) (any, error)
+    GetSupportNumber(locale string) (string, error)
+    GetList(locale, name string) ([]string, error)
+    GetMeasurementPreference(locale, measurementType string) (any, error)
+    ConvertMeasurement(locale string, value float64, fromUnit, measurementType string) (float64, string, string, error)
+}
+
+type HelperConfig struct {
+    LocaleKey         string
+    TemplateHelperKey string
+    OnMissing         MissingTranslationHandler
+    Registry          FormatterRegistry
+}
+
+type Service interface {
+    Translator() Translator
+    Culture() CultureService
+    TemplateHelpers(cfg HelperConfig) map[string]any
+    DefaultLocale() string
 }
 ```
 
