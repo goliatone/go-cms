@@ -12,6 +12,6 @@ func TestAdaptersImplementInterfaces(t *testing.T) {
 		_ interfaces.CacheProvider    = noop.Cache()
 		_ interfaces.TemplateRenderer = noop.Template()
 		_ interfaces.MediaProvider    = noop.Media()
-		_ interfaces.AuthProvider     = noop.Auth()
+		_ interfaces.AuthService      = noop.Auth()
 	)
 }
