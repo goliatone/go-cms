@@ -9,64 +9,125 @@ import (
 	"github.com/google/uuid"
 )
 
+// Cache returns an interfaces.CacheProvider that does nothing.
 func Cache() interfaces.CacheProvider {
 	return cacheAdapter{}
 }
 
 type cacheAdapter struct{}
 
-func (cacheAdapter) Get(context.Context, string) (any, error)              { return nil, nil }
-func (cacheAdapter) Set(context.Context, string, any, time.Duration) error { return nil }
-func (cacheAdapter) Delete(context.Context, string) error                  { return nil }
-func (cacheAdapter) Clear(context.Context) error                           { return nil }
+func (cacheAdapter) Get(context.Context, string) (any, error) {
+	return nil, nil
+}
 
-func Template() interfaces.TemplateRenderer { return templateAdapter{} }
+func (cacheAdapter) Set(context.Context, string, any, time.Duration) error {
+	return nil
+}
+
+func (cacheAdapter) Delete(context.Context, string) error {
+	return nil
+}
+
+func (cacheAdapter) Clear(context.Context) error {
+	return nil
+}
+
+// Template returns a template renderer that bypasses rendering.
+func Template() interfaces.TemplateRenderer {
+	return templateAdapter{}
+}
 
 type templateAdapter struct{}
 
-func (templateAdapter) Render(string, any, ...io.Writer) (string, error)         { return "", nil }
-func (templateAdapter) RenderTemplate(string, any, ...io.Writer) (string, error) { return "", nil }
-func (templateAdapter) RenderString(string, any, ...io.Writer) (string, error)   { return "", nil }
-func (templateAdapter) RegisterFilter(string, func(any, any) (any, error)) error { return nil }
-func (templateAdapter) GlobalContext(any) error                                  { return nil }
+func (templateAdapter) Render(string, any, ...io.Writer) (string, error) {
+	return "", nil
+}
 
-func Media() interfaces.MediaProvider { return mediaAdapter{} }
+func (templateAdapter) RenderTemplate(string, any, ...io.Writer) (string, error) {
+	return "", nil
+}
+
+func (templateAdapter) RenderString(string, any, ...io.Writer) (string, error) {
+	return "", nil
+}
+
+func (templateAdapter) RegisterFilter(string, func(any, any) (any, error)) error {
+	return nil
+}
+
+func (templateAdapter) GlobalContext(any) error {
+	return nil
+}
+
+// Media returns a media provider that cannot resolve assets.
+func Media() interfaces.MediaProvider {
+	return mediaAdapter{}
+}
 
 type mediaAdapter struct{}
 
-func (mediaAdapter) GetURL(context.Context, string) (string, error) { return "", nil }
+func (mediaAdapter) GetURL(context.Context, string) (string, error) {
+	return "", nil
+}
+
 func (mediaAdapter) GetMetadata(context.Context, string) (interfaces.MediaMetadata, error) {
 	return interfaces.MediaMetadata{}, nil
 }
 
-func Auth() interfaces.AuthService { return authService{} }
+// Auth returns a no-op auth service compatible with go-auth interfaces.
+func Auth() interfaces.AuthService {
+	return authService{}
+}
 
 type authService struct{}
 
-func (authService) Authenticator() interfaces.Authenticator { return noopAuthenticator{} }
-func (authService) TokenService() interfaces.TokenService   { return noopTokenService{} }
-func (authService) TemplateHelpers() map[string]any         { return map[string]any{} }
+func (authService) Authenticator() interfaces.Authenticator {
+	return noopAuthenticator{}
+}
+
+func (authService) TokenService() interfaces.TokenService {
+	return noopTokenService{}
+}
+
+func (authService) TemplateHelpers() map[string]any {
+	return map[string]any{}
+}
 
 type noopAuthenticator struct{}
 
-func (noopAuthenticator) Login(context.Context, string, string) (string, error) { return "", nil }
-func (noopAuthenticator) Impersonate(context.Context, string) (string, error)   { return "", nil }
+func (noopAuthenticator) Login(context.Context, string, string) (string, error) {
+	return "", nil
+}
+
+func (noopAuthenticator) Impersonate(context.Context, string) (string, error) {
+	return "", nil
+}
+
 func (noopAuthenticator) SessionFromToken(string) (interfaces.Session, error) {
 	return noopSession{}, nil
 }
+
 func (noopAuthenticator) IdentityFromSession(context.Context, interfaces.Session) (interfaces.Identity, error) {
 	return noopIdentity{}, nil
 }
-func (noopAuthenticator) TokenService() interfaces.TokenService { return noopTokenService{} }
+
+func (noopAuthenticator) TokenService() interfaces.TokenService {
+	return noopTokenService{}
+}
 
 type noopSession struct{}
 
-func (noopSession) GetUserID() string               { return "" }
+func (noopSession) GetUserID() string { return "" }
+
 func (noopSession) GetUserUUID() (uuid.UUID, error) { return uuid.Nil, nil }
-func (noopSession) GetAudience() []string           { return nil }
-func (noopSession) GetIssuer() string               { return "" }
-func (noopSession) GetIssuedAt() *time.Time         { return nil }
-func (noopSession) GetData() map[string]any         { return nil }
+
+func (noopSession) GetAudience() []string { return nil }
+
+func (noopSession) GetIssuer() string { return "" }
+
+func (noopSession) GetIssuedAt() *time.Time { return nil }
+
+func (noopSession) GetData() map[string]any { return nil }
 
 type noopIdentity struct{}
 
@@ -81,7 +142,9 @@ func (noopTokenService) Generate(interfaces.Identity, map[string]string) (string
 	return "", nil
 }
 
-func (noopTokenService) Validate(string) (interfaces.AuthClaims, error) { return noopClaims{}, nil }
+func (noopTokenService) Validate(string) (interfaces.AuthClaims, error) {
+	return noopClaims{}, nil
+}
 
 type noopClaims struct{}
 
