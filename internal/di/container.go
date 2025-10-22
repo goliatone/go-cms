@@ -7,11 +7,13 @@ import (
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	"github.com/goliatone/go-cms/internal/adapters/storage"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
+// Container wires module dependencies. Phase 1 only returns no-op services.
 type Container struct {
 	Config   cms.Config
 	storage  interfaces.StorageProvider
@@ -23,56 +25,73 @@ type Container struct {
 	contentRepo     *content.MemoryContentRepository
 	contentTypeRepo *content.MemoryContentTypeRepository
 	localeRepo      *content.MemoryLocaleRepository
-	pagesRepo       *pages.MemoryPageRepository
+	pageRepo        *pages.MemoryPageRepository
 
 	contentSvc content.Service
 	pageSvc    pages.Service
+	i18nSvc    i18n.Service
 }
 
+// Option mutates the container before it is finalised.
 type Option func(*Container)
 
+// WithStorage overrides the default storage provider.
 func WithStorage(sp interfaces.StorageProvider) Option {
 	return func(c *Container) {
 		c.storage = sp
 	}
 }
 
+// WithCache overrides the default cache provider.
 func WithCache(cp interfaces.CacheProvider) Option {
 	return func(c *Container) {
 		c.cache = cp
 	}
 }
 
+// WithTemplate overrides the default template renderer.
 func WithTemplate(tr interfaces.TemplateRenderer) Option {
 	return func(c *Container) {
 		c.template = tr
 	}
 }
 
+// WithMedia overrides the default media provider.
 func WithMedia(mp interfaces.MediaProvider) Option {
 	return func(c *Container) {
 		c.media = mp
 	}
 }
 
+// WithAuth overrides the default auth provider.
 func WithAuth(ap interfaces.AuthService) Option {
 	return func(c *Container) {
 		c.auth = ap
 	}
 }
 
+// WithContentService overrides the default content service binding.
 func WithContentService(svc content.Service) Option {
 	return func(c *Container) {
 		c.contentSvc = svc
 	}
 }
 
+// WithPageService overrides the default page service binding.
 func WithPageService(svc pages.Service) Option {
 	return func(c *Container) {
 		c.pageSvc = svc
 	}
 }
 
+// WithI18nService overrides the default i18n service binding.
+func WithI18nService(svc i18n.Service) Option {
+	return func(c *Container) {
+		c.i18nSvc = svc
+	}
+}
+
+// NewContainer creates a container with the provided configuration.
 func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	c := &Container{
 		Config:          cfg,
@@ -84,7 +103,7 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		contentRepo:     content.NewMemoryContentRepository(),
 		contentTypeRepo: content.NewMemoryContentTypeRepository(),
 		localeRepo:      content.NewMemoryLocaleRepository(),
-		pagesRepo:       pages.NewMemoryPageRepository(),
+		pageRepo:        pages.NewMemoryPageRepository(),
 	}
 
 	c.seedLocales()
@@ -98,28 +117,34 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	}
 
 	if c.pageSvc == nil {
-		c.pageSvc = pages.NewService(c.pagesRepo, c.contentRepo, c.localeRepo)
+		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo)
 	}
 
 	return c
 }
 
+// API constructs the top-level CMS API façade.
 func (c *Container) API() *cms.API {
+	// Later phases will inject services; for now return the stub from cms.Module().
 	return cms.Module()
 }
 
+// StorageProvider exposes the configured storage implementation.
 func (c *Container) StorageProvider() interfaces.StorageProvider {
 	return c.storage
 }
 
+// CacheProvider exposes the configured cache implementation.
 func (c *Container) CacheProvider() interfaces.CacheProvider {
 	return c.cache
 }
 
+// TemplateRenderer exposes the configured template renderer.
 func (c *Container) TemplateRenderer() interfaces.TemplateRenderer {
 	return c.template
 }
 
+// MediaProvider exposes the configured media provider.
 func (c *Container) MediaProvider() interfaces.MediaProvider {
 	return c.media
 }
@@ -147,6 +172,45 @@ func (c *Container) ContentService() content.Service {
 // PageService returns the configured page service.
 func (c *Container) PageService() pages.Service {
 	return c.pageSvc
+}
+
+// I18nService returns the configured i18n service, falling back to the default fixture.
+func (c *Container) I18nService() i18n.Service {
+	if c.i18nSvc != nil {
+		return c.i18nSvc
+	}
+
+	if !c.Config.I18N.Enabled {
+		c.i18nSvc = i18n.NewNoOpService()
+		return c.i18nSvc
+	}
+
+	cfg := i18n.FromModuleConfig(c.Config.DefaultLocale, c.Config.I18N.Locales)
+
+	fixture, err := i18n.DefaultFixture()
+	if err != nil {
+		// Fall back to a no-op service while surfacing minimal context to callers.
+		c.i18nSvc = i18n.NewNoOpService()
+		return c.i18nSvc
+	}
+
+	for _, loc := range fixture.Config.Locales {
+		cfg.WithFallbacks(loc.Code, loc.Fallbacks...)
+	}
+
+	// If the module configuration does not define any locales, inherit the fixture defaults.
+	if len(cfg.Locales) == 0 && len(fixture.Config.Locales) > 0 {
+		cfg = fixture.Config
+	}
+
+	service, err := i18n.NewInMemoryService(cfg, fixture.Translations)
+	if err != nil {
+		c.i18nSvc = i18n.NewNoOpService()
+		return c.i18nSvc
+	}
+
+	c.i18nSvc = service
+	return c.i18nSvc
 }
 
 func (c *Container) seedLocales() {
