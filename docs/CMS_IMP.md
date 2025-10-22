@@ -256,25 +256,66 @@ type MediaMetadata struct {
 }
 ```
 
-### Auth Provider
+### Auth Service
 
 ```go
 // pkg/interfaces/auth.go
 package interfaces
 
-import "context"
+import (
+    "context"
+    "time"
 
-// AuthProvider defines the interface for authentication
-type AuthProvider interface {
-    GetCurrentUser(ctx context.Context) (User, error)
-    HasPermission(ctx context.Context, user User, permission string) bool
+    "github.com/google/uuid"
+)
+
+type AuthClaims interface {
+    Subject() string
+    UserID() string
+    Role() string
+    CanRead(resource string) bool
+    CanEdit(resource string) bool
+    CanCreate(resource string) bool
+    CanDelete(resource string) bool
+    HasRole(role string) bool
+    IsAtLeast(minRole string) bool
+    Expires() time.Time
+    IssuedAt() time.Time
 }
 
-// User represents an authenticated user
-type User struct {
-    ID    string
-    Email string
-    Roles []string
+type Session interface {
+    GetUserID() string
+    GetUserUUID() (uuid.UUID, error)
+    GetAudience() []string
+    GetIssuer() string
+    GetIssuedAt() *time.Time
+    GetData() map[string]any
+}
+
+type TokenService interface {
+    Generate(identity Identity, resourceRoles map[string]string) (string, error)
+    Validate(token string) (AuthClaims, error)
+}
+
+type Authenticator interface {
+    Login(ctx context.Context, identifier, password string) (string, error)
+    Impersonate(ctx context.Context, identifier string) (string, error)
+    SessionFromToken(token string) (Session, error)
+    IdentityFromSession(ctx context.Context, session Session) (Identity, error)
+    TokenService() TokenService
+}
+
+type Identity interface {
+    ID() string
+    Username() string
+    Email() string
+    Role() string
+}
+
+type AuthService interface {
+    Authenticator() Authenticator
+    TokenService() TokenService
+    TemplateHelpers() map[string]any
 }
 ```
 
@@ -300,7 +341,7 @@ type Config struct {
     Cache    interfaces.CacheProvider
     Template interfaces.TemplateRenderer
     Media    interfaces.MediaProvider
-    Auth     interfaces.AuthProvider
+    Auth     interfaces.AuthService
 
     // Locale configuration
     DefaultLocale string
@@ -531,7 +572,7 @@ type Container struct {
     cache    interfaces.CacheProvider
     template interfaces.TemplateRenderer
     media    interfaces.MediaProvider
-    auth     interfaces.AuthProvider
+    auth     interfaces.AuthService
 
     // Services (lazy-initialized, singleton pattern)
     i18nService    i18n.Service
