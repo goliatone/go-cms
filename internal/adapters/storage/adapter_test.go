@@ -7,37 +7,53 @@ import (
 
 	"github.com/goliatone/go-cms/internal/adapters/storage"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	_ "github.com/mattn/go-sqlite3"
 )
 
-type stubExecutor struct{}
-
-func (stubExecutor) ExecContext(context.Context, string, ...any) (sql.Result, error) {
-	return stubResult{}, nil
+type sqliteExecutor struct {
+	db *sql.DB
 }
 
-func (stubExecutor) QueryContext(context.Context, string, ...any) (*sql.Rows, error) {
-	return nil, nil
+func newSQLiteExecutor(t *testing.T) *sqliteExecutor {
+	t.Helper()
+
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Fatalf("open sqlite: %v", err)
+	}
+
+	t.Cleanup(func() {
+		_ = db.Close()
+	})
+
+	return &sqliteExecutor{db: db}
 }
 
-func (stubExecutor) BeginTx(context.Context, *sql.TxOptions) (*sql.Tx, error) {
-	return &sql.Tx{}, nil
+func (s *sqliteExecutor) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	return s.db.ExecContext(ctx, query, args...)
 }
 
-type stubResult struct{}
+func (s *sqliteExecutor) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	return s.db.QueryContext(ctx, query, args...)
+}
 
-func (stubResult) LastInsertId() (int64, error) { return 0, nil }
-func (stubResult) RowsAffected() (int64, error) { return 0, nil }
+func (s *sqliteExecutor) BeginTx(ctx context.Context, opts *sql.TxOptions) (*sql.Tx, error) {
+	return s.db.BeginTx(ctx, opts)
+}
 
 func TestProvidersImplementInterface(t *testing.T) {
+	executor := newSQLiteExecutor(t)
+
 	var (
-		_ interfaces.StorageProvider = storage.NewBunStorageAdapter(stubExecutor{})
+		_ interfaces.StorageProvider = storage.NewBunStorageAdapter(executor)
 		_ interfaces.StorageProvider = storage.NewNoOpProvider()
 	)
 
-	if err := storage.NewBunStorageAdapter(stubExecutor{}).Transaction(context.Background(), func(tx interfaces.Transaction) error {
+	err := storage.NewBunStorageAdapter(executor).Transaction(context.Background(), func(tx interfaces.Transaction) error {
 		_, err := tx.Exec(context.Background(), "SELECT 1")
 		return err
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("unexpected transaction error: %v", err)
 	}
 }
