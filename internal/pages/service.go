@@ -140,8 +140,11 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	if existing, err := s.pages.GetBySlug(ctx, slug); err == nil && existing != nil {
 		return nil, ErrSlugExists
-	} else if err != nil && !errors.As(err, &PageNotFoundError{}) {
-		return nil, err
+	} else if err != nil {
+		var notFound *PageNotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, err
+		}
 	}
 
 	now := s.now()
