@@ -8,22 +8,27 @@ import (
 	"github.com/uptrace/bun"
 )
 
+// Page captures hierarchical page metadata.
 type Page struct {
-	ID           uuid.UUID
-	ContentID    uuid.UUID
-	ParentID     *uuid.UUID
-	Slug         string
-	Status       string
-	PublishAt    *time.Time
-	UnpublishAt  *time.Time
-	CreatedBy    uuid.UUID
-	UpdatedBy    uuid.UUID
-	DeletedAt    *time.Time
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	Content      *content.Content
-	Translations []*PageTranslation
-	Versions     []*PageVersion
+	bun.BaseModel `bun:"table:pages,alias:p"`
+
+	ID          uuid.UUID  `bun:",pk,type:uuid" json:"id"`
+	ContentID   uuid.UUID  `bun:"content_id,notnull,type:uuid" json:"content_id"`
+	ParentID    *uuid.UUID `bun:"parent_id,type:uuid" json:"parent_id,omitempty"`
+	TemplateID  uuid.UUID  `bun:"template_id,notnull,type:uuid" json:"template_id"`
+	Slug        string     `bun:"slug,notnull" json:"slug"`
+	Status      string     `bun:"status,notnull,default:'draft'" json:"status"`
+	PublishAt   *time.Time `bun:"publish_at,nullzero" json:"publish_at,omitempty"`
+	UnpublishAt *time.Time `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`
+	CreatedBy   uuid.UUID  `bun:"created_by,notnull,type:uuid" json:"created_by"`
+	UpdatedBy   uuid.UUID  `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
+	DeletedAt   *time.Time `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt   time.Time  `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt   time.Time  `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+
+	Content      *content.Content   `bun:"rel:belongs-to,join:content_id=id" json:"content,omitempty"`
+	Translations []*PageTranslation `bun:"rel:has-many,join:id=page_id" json:"translations,omitempty"`
+	Versions     []*PageVersion     `bun:"rel:has-many,join:id=page_id" json:"versions,omitempty"`
 }
 
 // PageVersion snapshots structural layout for history/versioning.
