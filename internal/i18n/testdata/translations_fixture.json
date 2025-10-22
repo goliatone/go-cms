@@ -1,0 +1,23 @@
+{
+  "config": {
+    "default_locale": "en",
+    "template_helper_key": "translate",
+    "locale_context_key": "locale",
+    "locales": [
+      { "code": "en" },
+      { "code": "es", "fallbacks": ["en"] },
+      { "code": "es-mx", "fallbacks": ["es", "en"] }
+    ]
+  },
+  "translations": {
+    "en": {
+      "landing.headline": "Welcome",
+      "landing.tagline": "Build once, publish everywhere",
+      "landing.greeting": "Hello, %s!"
+    },
+    "es": {
+      "landing.headline": "Bienvenido",
+      "landing.greeting": "Hola, %s!"
+    }
+  }
+}
