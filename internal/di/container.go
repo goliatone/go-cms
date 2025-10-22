@@ -159,6 +159,11 @@ func (c *Container) ContentRepository() *content.MemoryContentRepository {
 	return c.contentRepo
 }
 
+// ContentTypeRepository exposes the content type repository.
+func (c *Container) ContentTypeRepository() *content.MemoryContentTypeRepository {
+	return c.contentTypeRepo
+}
+
 // LocaleRepository exposes the locale repository.
 func (c *Container) LocaleRepository() *content.MemoryLocaleRepository {
 	return c.localeRepo

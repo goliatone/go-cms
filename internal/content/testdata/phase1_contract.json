@@ -1,0 +1,65 @@
+{
+  "locales": [
+    {
+      "id": "00000000-0000-0000-0000-000000000201",
+      "code": "en",
+      "display": "English"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000202",
+      "code": "es",
+      "display": "Spanish"
+    }
+  ],
+  "content_types": [
+    {
+      "id": "00000000-0000-0000-0000-000000000210",
+      "name": "page",
+      "schema": {
+        "fields": [
+          {
+            "name": "body",
+            "type": "richtext"
+          }
+        ]
+      }
+    }
+  ],
+  "request": {
+    "content_type_id": "00000000-0000-0000-0000-000000000210",
+    "slug": "company-overview",
+    "status": "draft",
+    "created_by": "00000000-0000-0000-0000-000000000230",
+    "updated_by": "00000000-0000-0000-0000-000000000231",
+    "translations": [
+      {
+        "locale": "en",
+        "title": "Company Overview",
+        "summary": "What we do",
+        "content": {
+          "body": "Welcome to our company"
+        }
+      },
+      {
+        "locale": "es",
+        "title": "Resumen de la empresa",
+        "summary": "Que hacemos",
+        "content": {
+          "body": "Bienvenido a nuestra empresa"
+        }
+      }
+    ]
+  },
+  "expectation": {
+    "slug": "company-overview",
+    "status": "draft",
+    "titles": {
+      "en": "Company Overview",
+      "es": "Resumen de la empresa"
+    },
+    "locales": [
+      "en",
+      "es"
+    ]
+  }
+}

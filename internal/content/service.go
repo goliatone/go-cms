@@ -136,8 +136,11 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 
 	if existing, err := s.contents.GetBySlug(ctx, slug); err == nil && existing != nil {
 		return nil, ErrSlugExists
-	} else if err != nil && !errors.As(err, &NotFoundError{}) {
-		return nil, err
+	} else if err != nil {
+		var notFound *NotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, err
+		}
 	}
 
 	seenLocales := map[string]struct{}{}

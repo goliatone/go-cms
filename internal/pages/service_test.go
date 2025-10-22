@@ -129,6 +129,7 @@ func TestPageServiceCreateUnknownLocale(t *testing.T) {
 
 	typeID := uuid.New()
 	contentTypeStore.Put(&content.ContentType{ID: typeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
 	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
 	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{

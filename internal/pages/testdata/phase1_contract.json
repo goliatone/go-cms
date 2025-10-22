@@ -1,0 +1,27 @@
+{
+  "template_id": "00000000-0000-0000-0000-000000000310",
+  "slug": "company-overview",
+  "status": "published",
+  "created_by": "00000000-0000-0000-0000-000000000320",
+  "updated_by": "00000000-0000-0000-0000-000000000321",
+  "translations": [
+    {
+      "locale": "en",
+      "title": "Company Overview",
+      "path": "/company"
+    },
+    {
+      "locale": "es",
+      "title": "Resumen corporativo",
+      "path": "/es/compania"
+    }
+  ],
+  "expectation": {
+    "slug": "company-overview",
+    "status": "published",
+    "paths": {
+      "en": "/company",
+      "es": "/es/compania"
+    }
+  }
+}
