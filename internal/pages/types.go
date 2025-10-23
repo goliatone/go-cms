@@ -3,6 +3,7 @@ package pages
 import (
 	"time"
 
+	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
@@ -29,6 +30,7 @@ type Page struct {
 	Content      *content.Content   `bun:"rel:belongs-to,join:content_id=id" json:"content,omitempty"`
 	Translations []*PageTranslation `bun:"rel:has-many,join:id=page_id" json:"translations,omitempty"`
 	Versions     []*PageVersion     `bun:"rel:has-many,join:id=page_id" json:"versions,omitempty"`
+	Blocks       []*blocks.Instance `bun:"-" json:"blocks,omitempty"`
 }
 
 // PageVersion snapshots structural layout for history/versioning.
