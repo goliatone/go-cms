@@ -22,8 +22,8 @@ func NewInstanceRepository(db *bun.DB) repository.Repository[*Instance] {
 		NewRecord:          func() *Instance { return &Instance{} },
 		GetID:              func(inst *Instance) uuid.UUID { return inst.ID },
 		SetID:              func(inst *Instance, id uuid.UUID) { inst.ID = id },
-		GetIdentifier:      func() string { return "" },
-		GetIdentifierValue: func(*Instance) string { return "" },
+		GetIdentifier:      func() string { return "id" },
+		GetIdentifierValue: func(inst *Instance) string { return inst.ID.String() },
 	})
 }
 
@@ -33,7 +33,7 @@ func NewTranslationRepository(db *bun.DB) repository.Repository[*Translation] {
 		NewRecord:          func() *Translation { return &Translation{} },
 		GetID:              func(tr *Translation) uuid.UUID { return tr.ID },
 		SetID:              func(tr *Translation, id uuid.UUID) { tr.ID = id },
-		GetIdentifier:      func() string { return "" },
-		GetIdentifierValue: func(*Translation) string { return "" },
+		GetIdentifier:      func() string { return "id" },
+		GetIdentifierValue: func(tr *Translation) string { return tr.ID.String() },
 	})
 }
