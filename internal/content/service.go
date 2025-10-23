@@ -88,12 +88,23 @@ func WithClock(clock func() time.Time) ServiceOption {
 	}
 }
 
+type IDGenerator func() uuid.UUID
+
+func WithIDGenerator(generator IDGenerator) ServiceOption {
+	return func(s *service) {
+		if generator != nil {
+			s.id = generator
+		}
+	}
+}
+
 // service implements Service.
 type service struct {
 	contents     ContentRepository
 	contentTypes ContentTypeRepository
 	locales      LocaleRepository
 	now          func() time.Time
+	id           IDGenerator
 }
 
 // NewService constructs a content service with the required dependencies.
@@ -103,6 +114,7 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 		contentTypes: types,
 		locales:      locales,
 		now:          time.Now,
+		id:           uuid.New,
 	}
 
 	for _, opt := range opts {
@@ -147,7 +159,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	now := s.now()
 
 	record := &Content{
-		ID:            uuid.New(),
+		ID:            s.id(),
 		ContentTypeID: req.ContentTypeID,
 		Status:        chooseStatus(req.Status),
 		Slug:          slug,
@@ -174,7 +186,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		}
 
 		translation := &ContentTranslation{
-			ID:        uuid.New(),
+			ID:        s.id(),
 			ContentID: record.ID,
 			LocaleID:  loc.ID,
 			Title:     tr.Title,
