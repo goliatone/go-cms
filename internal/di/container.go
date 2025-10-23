@@ -7,6 +7,7 @@ import (
 	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	"github.com/goliatone/go-cms/internal/adapters/storage"
+	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/pages"
@@ -31,15 +32,19 @@ type Container struct {
 	cacheService  repocache.CacheService
 	keySerializer repocache.KeySerializer
 
-	contentRepo     content.ContentRepository
-	contentTypeRepo content.ContentTypeRepository
-	localeRepo      content.LocaleRepository
-	pageRepo        pages.PageRepository
+	contentRepo          content.ContentRepository
+	contentTypeRepo      content.ContentTypeRepository
+	localeRepo           content.LocaleRepository
+	pageRepo             pages.PageRepository
+	blockRepo            blocks.InstanceRepository
+	blockDefinitionRepo  blocks.DefinitionRepository
+	blockTranslationRepo blocks.TranslationRepository
 
 	memoryLocaleRepo *content.MemoryLocaleRepository
 
 	contentSvc content.Service
 	pageSvc    pages.Service
+	blockSvc   blocks.Service
 	i18nSvc    i18n.Service
 }
 
@@ -102,6 +107,13 @@ func WithPageService(svc pages.Service) Option {
 	}
 }
 
+// WithBlockService overrides the default page service binding.
+func WithBlockService(svc blocks.Service) Option {
+	return func(c *Container) {
+		c.blockSvc = svc
+	}
+}
+
 // WithI18nService overrides the default i18n service binding.
 func WithI18nService(svc i18n.Service) Option {
 	return func(c *Container) {
@@ -121,18 +133,25 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	memoryLocaleRepo := content.NewMemoryLocaleRepository()
 	memoryPageRepo := pages.NewMemoryPageRepository()
 
+	memoryBlockDefRepo := blocks.NewMemoryDefinitionRepository()
+	memoryBlockRepo := blocks.NewMemoryInstanceRepository()
+	memoryBlockTranslationRepo := blocks.NewMemoryTranslationRepository()
+
 	c := &Container{
-		Config:           cfg,
-		storage:          storage.NewNoOpProvider(),
-		template:         noop.Template(),
-		media:            noop.Media(),
-		auth:             noop.Auth(),
-		cacheTTL:         cacheTTL,
-		contentRepo:      memoryContentRepo,
-		contentTypeRepo:  memoryContentTypeRepo,
-		localeRepo:       memoryLocaleRepo,
-		pageRepo:         memoryPageRepo,
-		memoryLocaleRepo: memoryLocaleRepo,
+		Config:               cfg,
+		storage:              storage.NewNoOpProvider(),
+		template:             noop.Template(),
+		media:                noop.Media(),
+		auth:                 noop.Auth(),
+		cacheTTL:             cacheTTL,
+		contentRepo:          memoryContentRepo,
+		contentTypeRepo:      memoryContentTypeRepo,
+		localeRepo:           memoryLocaleRepo,
+		pageRepo:             memoryPageRepo,
+		blockDefinitionRepo:  memoryBlockDefRepo,
+		blockRepo:            memoryBlockRepo,
+		blockTranslationRepo: memoryBlockTranslationRepo,
+		memoryLocaleRepo:     memoryLocaleRepo,
 	}
 
 	c.seedLocales()
@@ -148,8 +167,20 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo)
 	}
 
+	if c.blockSvc == nil {
+		c.blockSvc = blocks.NewService(
+			c.blockDefinitionRepo,
+			c.blockRepo,
+			c.blockTranslationRepo,
+		)
+	}
+
 	if c.pageSvc == nil {
-		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo)
+		pageOpts := []pages.ServiceOption{}
+		if c.blockSvc != nil {
+			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
+		}
+		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
 	}
 
 	return c
@@ -181,7 +212,13 @@ func (c *Container) configureRepositories() {
 		c.contentRepo = content.NewBunContentRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.contentTypeRepo = content.NewBunContentTypeRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.localeRepo = content.NewBunLocaleRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+
 		c.pageRepo = pages.NewBunPageRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+
+		c.blockDefinitionRepo = blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.blockRepo = blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.blockTranslationRepo = blocks.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+
 		c.memoryLocaleRepo = nil
 	}
 }
@@ -234,6 +271,11 @@ func (c *Container) ContentService() content.Service {
 // PageService returns the configured page service.
 func (c *Container) PageService() pages.Service {
 	return c.pageSvc
+}
+
+// BlockService returns the configured block service.
+func (c *Container) BlockService() blocks.Service {
+	return c.blockSvc
 }
 
 // I18nService returns the configured i18n service (lazy).
