@@ -89,11 +89,23 @@ func WithPageClock(clock func() time.Time) ServiceOption {
 	}
 }
 
+// IDGenerator5 produces unique identifier for page entiteis
+type IDGenerator func() uuid.UUID
+
+func WithIDGenerator(generator IDGenerator) ServiceOption {
+	return func(ps *pageService) {
+		if generator != nil {
+			ps.id = generator
+		}
+	}
+}
+
 type pageService struct {
 	pages   PageRepository
 	content ContentRepository
 	locales LocaleRepository
 	now     func() time.Time
+	id      IDGenerator
 }
 
 // NewService constructs a page service with the required dependencies.
@@ -103,6 +115,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		content: contentRepo,
 		locales: locales,
 		now:     time.Now,
+		id:      uuid.New,
 	}
 
 	for _, opt := range opts {
@@ -149,7 +162,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	now := s.now()
 	page := &Page{
-		ID:           uuid.New(),
+		ID:           s.id(),
 		ContentID:    req.ContentID,
 		ParentID:     req.ParentID,
 		TemplateID:   req.TemplateID,
@@ -197,7 +210,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		}
 
 		translation := &PageTranslation{
-			ID:        uuid.New(),
+			ID:        s.id(),
 			PageID:    page.ID,
 			LocaleID:  locale.ID,
 			Title:     tr.Title,
