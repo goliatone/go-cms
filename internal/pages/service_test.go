@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/google/uuid"
@@ -155,5 +156,103 @@ func TestPageServiceCreateUnknownLocale(t *testing.T) {
 	})
 	if !errors.Is(err, pages.ErrUnknownLocale) {
 		t.Fatalf("expected ErrUnknownLocale got %v", err)
+	}
+}
+
+func TestPageServiceListIncludesBlocks(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "landing",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Landing"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	blockDefRepo := blocks.NewMemoryDefinitionRepository()
+	blockInstRepo := blocks.NewMemoryInstanceRepository()
+	blockTransRepo := blocks.NewMemoryTranslationRepository()
+
+	blockSvc := blocks.NewService(blockDefRepo, blockInstRepo, blockTransRepo)
+
+	definition, err := blockSvc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	pageID := uuid.New()
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithBlockService(blockSvc), pages.WithPageClock(func() time.Time {
+		return time.Unix(0, 0)
+	}), pages.WithIDGenerator(func() uuid.UUID { return pageID }))
+
+	createdPage, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "landing",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Landing",
+			Path:   "/landing",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	instance, err := blockSvc.CreateInstance(context.Background(), blocks.CreateInstanceInput{
+		DefinitionID: definition.ID,
+		PageID:       &createdPage.ID,
+		Region:       "hero",
+		Position:     0,
+		Configuration: map[string]any{
+			"layout": "full",
+		},
+		CreatedBy: uuid.New(),
+		UpdatedBy: uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("create block instance: %v", err)
+	}
+
+	if _, err := blockSvc.AddTranslation(context.Background(), blocks.AddTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		Content: map[string]any{
+			"title": "Hero Title",
+		},
+	}); err != nil {
+		t.Fatalf("add block translation: %v", err)
+	}
+
+	pagesList, err := pageSvc.List(context.Background())
+	if err != nil {
+		t.Fatalf("list pages: %v", err)
+	}
+	if len(pagesList) != 1 {
+		t.Fatalf("expected one page got %d", len(pagesList))
+	}
+	if len(pagesList[0].Blocks) != 1 {
+		t.Fatalf("expected blocks to be attached")
+	}
+	if pagesList[0].Blocks[0].Region != "hero" {
+		t.Fatalf("unexpected block region %s", pagesList[0].Blocks[0].Region)
 	}
 }
