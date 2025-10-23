@@ -1,0 +1,235 @@
+package blocks
+
+import (
+	"context"
+	"maps"
+	"sync"
+
+	"github.com/google/uuid"
+)
+
+type memoryDefinitionRepository struct {
+	mu     sync.RWMutex
+	byID   map[uuid.UUID]*Definition
+	byName map[string]uuid.UUID
+}
+
+func NewMemoryDefinitionRepository() DefinitionRepository {
+	return &memoryDefinitionRepository{
+		byID:   make(map[uuid.UUID]*Definition),
+		byName: make(map[string]uuid.UUID),
+	}
+}
+
+func (m *memoryDefinitionRepository) Create(_ context.Context, definition *Definition) (*Definition, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneDefinition(definition)
+	m.byID[cloned.ID] = cloned
+	if cloned.Name != "" {
+		m.byName[cloned.Name] = cloned.ID
+	}
+
+	return cloneDefinition(definition), nil
+}
+
+func (m *memoryDefinitionRepository) GetByID(_ context.Context, id uuid.UUID) (*Definition, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_definition", Key: id.String()}
+	}
+	return cloneDefinition(record), nil
+}
+
+func (m *memoryDefinitionRepository) GetByName(_ context.Context, name string) (*Definition, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	id, ok := m.byName[name]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_definition", Key: name}
+	}
+	return cloneDefinition(m.byID[id]), nil
+}
+
+func (m *memoryDefinitionRepository) List(_ context.Context) ([]*Definition, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	defs := make([]*Definition, 0, len(m.byID))
+	for _, def := range m.byID {
+		defs = append(defs, cloneDefinition(def))
+	}
+	return defs, nil
+}
+
+// NewMemoryInstanceRepository constructs an in-memory instance repository.
+func NewMemoryInstanceRepository() InstanceRepository {
+	return &memoryInstanceRepository{
+		byID:      make(map[uuid.UUID]*Instance),
+		byPageID:  make(map[uuid.UUID][]uuid.UUID),
+		globalIDs: make([]uuid.UUID, 0),
+	}
+}
+
+type memoryInstanceRepository struct {
+	mu        sync.RWMutex
+	byID      map[uuid.UUID]*Instance
+	byPageID  map[uuid.UUID][]uuid.UUID
+	globalIDs []uuid.UUID
+}
+
+func (m *memoryInstanceRepository) Create(_ context.Context, instance *Instance) (*Instance, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneInstance(instance)
+	m.byID[cloned.ID] = cloned
+	if cloned.PageID != nil {
+		idList := append([]uuid.UUID{}, m.byPageID[*cloned.PageID]...)
+		idList = append(idList, cloned.ID)
+		m.byPageID[*cloned.PageID] = idList
+	}
+	if cloned.IsGlobal {
+		m.globalIDs = append(m.globalIDs, cloned.ID)
+	}
+	return cloneInstance(cloned), nil
+}
+
+func (m *memoryInstanceRepository) GetByID(_ context.Context, id uuid.UUID) (*Instance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_instance", Key: id.String()}
+	}
+	return cloneInstance(record), nil
+}
+
+func (m *memoryInstanceRepository) ListByPage(_ context.Context, pageID uuid.UUID) ([]*Instance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ids := m.byPageID[pageID]
+	instances := make([]*Instance, 0, len(ids))
+	for _, id := range ids {
+		instances = append(instances, cloneInstance(m.byID[id]))
+	}
+	return instances, nil
+}
+
+func (m *memoryInstanceRepository) ListGlobal(_ context.Context) ([]*Instance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	instances := make([]*Instance, 0, len(m.globalIDs))
+	for _, id := range m.globalIDs {
+		instances = append(instances, cloneInstance(m.byID[id]))
+	}
+	return instances, nil
+}
+
+// NewMemoryTranslationRepository constructs an in-memory translation repository.
+func NewMemoryTranslationRepository() TranslationRepository {
+	return &memoryTranslationRepository{
+		byID:             make(map[uuid.UUID]*Translation),
+		byInstanceLocale: make(map[string]uuid.UUID),
+		byInstance:       make(map[uuid.UUID][]uuid.UUID),
+	}
+}
+
+type memoryTranslationRepository struct {
+	mu               sync.RWMutex
+	byID             map[uuid.UUID]*Translation
+	byInstanceLocale map[string]uuid.UUID
+	byInstance       map[uuid.UUID][]uuid.UUID
+}
+
+func (m *memoryTranslationRepository) Create(_ context.Context, translation *Translation) (*Translation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneTranslation(translation)
+	m.byID[cloned.ID] = cloned
+	key := translationKey(cloned.BlockInstanceID, cloned.LocaleID)
+	m.byInstanceLocale[key] = cloned.ID
+	m.byInstance[cloned.BlockInstanceID] = append(m.byInstance[cloned.BlockInstanceID], cloned.ID)
+	return cloneTranslation(cloned), nil
+}
+
+func (m *memoryTranslationRepository) GetByInstanceAndLocale(_ context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	id, ok := m.byInstanceLocale[translationKey(instanceID, localeID)]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_translation", Key: translationKey(instanceID, localeID)}
+	}
+	return cloneTranslation(m.byID[id]), nil
+}
+
+func (m *memoryTranslationRepository) ListByInstance(_ context.Context, instanceID uuid.UUID) ([]*Translation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ids := m.byInstance[instanceID]
+	translations := make([]*Translation, 0, len(ids))
+	for _, id := range ids {
+		translations = append(translations, cloneTranslation(m.byID[id]))
+	}
+	return translations, nil
+}
+
+func cloneDefinition(src *Definition) *Definition {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.Schema != nil {
+		cloned.Schema = maps.Clone(src.Schema)
+	}
+	if src.Defaults != nil {
+		cloned.Defaults = maps.Clone(src.Defaults)
+	}
+	return &cloned
+}
+
+func cloneInstance(src *Instance) *Instance {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.Configuration != nil {
+		cloned.Configuration = maps.Clone(src.Configuration)
+	}
+	if src.Translations != nil {
+		cloned.Translations = make([]*Translation, len(src.Translations))
+		for i, tr := range src.Translations {
+			cloned.Translations[i] = cloneTranslation(tr)
+		}
+	}
+	return &cloned
+}
+
+func cloneTranslation(src *Translation) *Translation {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.Content != nil {
+		cloned.Content = maps.Clone(src.Content)
+	}
+	if src.AttributeOverride != nil {
+		cloned.AttributeOverride = maps.Clone(src.AttributeOverride)
+	}
+	return &cloned
+}
+
+func translationKey(instanceID uuid.UUID, localeID uuid.UUID) string {
+	return instanceID.String() + ":" + localeID.String()
+}
