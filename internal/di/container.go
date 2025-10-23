@@ -2,6 +2,7 @@ package di
 
 import (
 	"strings"
+	"time"
 
 	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/adapters/noop"
@@ -10,22 +11,32 @@ import (
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	repocache "github.com/goliatone/go-repository-cache/cache"
 	"github.com/google/uuid"
+	"github.com/uptrace/bun"
 )
 
 // Container wires module dependencies. Phase 1 only returns no-op services.
 type Container struct {
-	Config   cms.Config
+	Config cms.Config
+
 	storage  interfaces.StorageProvider
 	cache    interfaces.CacheProvider
 	template interfaces.TemplateRenderer
 	media    interfaces.MediaProvider
 	auth     interfaces.AuthService
 
-	contentRepo     *content.MemoryContentRepository
-	contentTypeRepo *content.MemoryContentTypeRepository
-	localeRepo      *content.MemoryLocaleRepository
-	pageRepo        *pages.MemoryPageRepository
+	bunDB         *bun.DB
+	cacheTTL      time.Duration
+	cacheService  repocache.CacheService
+	keySerializer repocache.KeySerializer
+
+	contentRepo     content.ContentRepository
+	contentTypeRepo content.ContentTypeRepository
+	localeRepo      content.LocaleRepository
+	pageRepo        pages.PageRepository
+
+	memoryLocaleRepo *content.MemoryLocaleRepository
 
 	contentSvc content.Service
 	pageSvc    pages.Service
@@ -43,9 +54,10 @@ func WithStorage(sp interfaces.StorageProvider) Option {
 }
 
 // WithCache overrides the default cache provider.
-func WithCache(cp interfaces.CacheProvider) Option {
+func WithCache(service repocache.CacheService, serializer repocache.KeySerializer) Option {
 	return func(c *Container) {
-		c.cache = cp
+		c.cacheService = service
+		c.keySerializer = serializer
 	}
 }
 
@@ -67,6 +79,12 @@ func WithMedia(mp interfaces.MediaProvider) Option {
 func WithAuth(ap interfaces.AuthService) Option {
 	return func(c *Container) {
 		c.auth = ap
+	}
+}
+
+func WithBunDB(db *bun.DB) Option {
+	return func(c *Container) {
+		c.bunDB = db
 	}
 }
 
@@ -93,17 +111,28 @@ func WithI18nService(svc i18n.Service) Option {
 
 // NewContainer creates a container with the provided configuration.
 func NewContainer(cfg cms.Config, opts ...Option) *Container {
+	cacheTTL := cfg.Cache.DefaultTTL
+	if cacheTTL <= 0 {
+		cacheTTL = time.Minute
+	}
+
+	memoryContentRepo := content.NewMemoryContentRepository()
+	memoryContentTypeRepo := content.NewMemoryContentTypeRepository()
+	memoryLocaleRepo := content.NewMemoryLocaleRepository()
+	memoryPageRepo := pages.NewMemoryPageRepository()
+
 	c := &Container{
-		Config:          cfg,
-		storage:         storage.NewNoOpProvider(),
-		cache:           noop.Cache(),
-		template:        noop.Template(),
-		media:           noop.Media(),
-		auth:            noop.Auth(),
-		contentRepo:     content.NewMemoryContentRepository(),
-		contentTypeRepo: content.NewMemoryContentTypeRepository(),
-		localeRepo:      content.NewMemoryLocaleRepository(),
-		pageRepo:        pages.NewMemoryPageRepository(),
+		Config:           cfg,
+		storage:          storage.NewNoOpProvider(),
+		template:         noop.Template(),
+		media:            noop.Media(),
+		auth:             noop.Auth(),
+		cacheTTL:         cacheTTL,
+		contentRepo:      memoryContentRepo,
+		contentTypeRepo:  memoryContentTypeRepo,
+		localeRepo:       memoryLocaleRepo,
+		pageRepo:         memoryPageRepo,
+		memoryLocaleRepo: memoryLocaleRepo,
 	}
 
 	c.seedLocales()
@@ -111,6 +140,9 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	for _, opt := range opts {
 		opt(c)
 	}
+
+	c.configureCacheDefaults()
+	c.configureRepositories()
 
 	if c.contentSvc == nil {
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo)
@@ -123,20 +155,45 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	return c
 }
 
+func (c *Container) configureCacheDefaults() {
+	if !c.Config.Cache.Enabled {
+		return
+	}
+
+	if c.cacheService == nil {
+		cfg := repocache.DefaultConfig()
+		if c.cacheTTL > 0 {
+			cfg.TTL = c.cacheTTL
+		}
+		service, err := repocache.NewCacheService(cfg)
+		if err == nil {
+			c.cacheService = service
+		}
+	}
+
+	if c.cacheService != nil && c.keySerializer == nil {
+		c.keySerializer = repocache.NewDefaultKeySerializer()
+	}
+}
+
+func (c *Container) configureRepositories() {
+	if c.bunDB != nil {
+		c.contentRepo = content.NewBunContentRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.contentTypeRepo = content.NewBunContentTypeRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.localeRepo = content.NewBunLocaleRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.pageRepo = pages.NewBunPageRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.memoryLocaleRepo = nil
+	}
+}
+
 // API constructs the top-level CMS API façade.
 func (c *Container) API() *cms.API {
-	// Later phases will inject services; for now return the stub from cms.Module().
 	return cms.Module()
 }
 
 // StorageProvider exposes the configured storage implementation.
 func (c *Container) StorageProvider() interfaces.StorageProvider {
 	return c.storage
-}
-
-// CacheProvider exposes the configured cache implementation.
-func (c *Container) CacheProvider() interfaces.CacheProvider {
-	return c.cache
 }
 
 // TemplateRenderer exposes the configured template renderer.
@@ -154,18 +211,18 @@ func (c *Container) AuthService() interfaces.AuthService {
 	return c.auth
 }
 
-// ContentRepository exposes the in-memory content repository (scaffolding helper).
-func (c *Container) ContentRepository() *content.MemoryContentRepository {
+// ContentRepository exposes the configured content repository.
+func (c *Container) ContentRepository() content.ContentRepository {
 	return c.contentRepo
 }
 
-// ContentTypeRepository exposes the content type repository.
-func (c *Container) ContentTypeRepository() *content.MemoryContentTypeRepository {
+// ContentTypeRepository exposes the configured content-type repository.
+func (c *Container) ContentTypeRepository() content.ContentTypeRepository {
 	return c.contentTypeRepo
 }
 
-// LocaleRepository exposes the locale repository.
-func (c *Container) LocaleRepository() *content.MemoryLocaleRepository {
+// LocaleRepository exposes the configured locale repository.
+func (c *Container) LocaleRepository() content.LocaleRepository {
 	return c.localeRepo
 }
 
@@ -179,7 +236,7 @@ func (c *Container) PageService() pages.Service {
 	return c.pageSvc
 }
 
-// I18nService returns the configured i18n service, falling back to the default fixture.
+// I18nService returns the configured i18n service (lazy).
 func (c *Container) I18nService() i18n.Service {
 	if c.i18nSvc != nil {
 		return c.i18nSvc
@@ -194,7 +251,6 @@ func (c *Container) I18nService() i18n.Service {
 
 	fixture, err := i18n.DefaultFixture()
 	if err != nil {
-		// Fall back to a no-op service while surfacing minimal context to callers.
 		c.i18nSvc = i18n.NewNoOpService()
 		return c.i18nSvc
 	}
@@ -203,7 +259,6 @@ func (c *Container) I18nService() i18n.Service {
 		cfg.WithFallbacks(loc.Code, loc.Fallbacks...)
 	}
 
-	// If the module configuration does not define any locales, inherit the fixture defaults.
 	if len(cfg.Locales) == 0 && len(fixture.Config.Locales) > 0 {
 		cfg = fixture.Config
 	}
@@ -219,6 +274,10 @@ func (c *Container) I18nService() i18n.Service {
 }
 
 func (c *Container) seedLocales() {
+	if c.memoryLocaleRepo == nil {
+		return
+	}
+
 	locales := c.Config.I18N.Locales
 	if len(locales) == 0 {
 		locales = []string{c.Config.DefaultLocale}
@@ -235,7 +294,7 @@ func (c *Container) seedLocales() {
 			continue
 		}
 		seen[lower] = struct{}{}
-		c.localeRepo.Put(&content.Locale{
+		c.memoryLocaleRepo.Put(&content.Locale{
 			ID:        uuid.New(),
 			Code:      lower,
 			Display:   normalized,
