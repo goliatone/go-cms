@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/i18n"
+	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	repocache "github.com/goliatone/go-repository-cache/cache"
@@ -32,13 +33,20 @@ type Container struct {
 	cacheService  repocache.CacheService
 	keySerializer repocache.KeySerializer
 
-	contentRepo          content.ContentRepository
-	contentTypeRepo      content.ContentTypeRepository
-	localeRepo           content.LocaleRepository
-	pageRepo             pages.PageRepository
+	contentRepo     content.ContentRepository
+	contentTypeRepo content.ContentTypeRepository
+
+	localeRepo content.LocaleRepository
+
+	pageRepo pages.PageRepository
+
 	blockRepo            blocks.InstanceRepository
 	blockDefinitionRepo  blocks.DefinitionRepository
 	blockTranslationRepo blocks.TranslationRepository
+
+	menuRepo            menus.MenuRepository
+	menuItemRepo        menus.MenuItemRepository
+	menuTranslationRepo menus.MenuItemTranslationRepository
 
 	memoryLocaleRepo *content.MemoryLocaleRepository
 
@@ -46,6 +54,7 @@ type Container struct {
 	pageSvc    pages.Service
 	blockSvc   blocks.Service
 	i18nSvc    i18n.Service
+	menuSvc    menus.Service
 }
 
 // Option mutates the container before it is finalised.
@@ -114,6 +123,12 @@ func WithBlockService(svc blocks.Service) Option {
 	}
 }
 
+func WithMenuService(svc menus.Service) Option {
+	return func(c *Container) {
+		c.menuSvc = svc
+	}
+}
+
 // WithI18nService overrides the default i18n service binding.
 func WithI18nService(svc i18n.Service) Option {
 	return func(c *Container) {
@@ -137,6 +152,10 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	memoryBlockRepo := blocks.NewMemoryInstanceRepository()
 	memoryBlockTranslationRepo := blocks.NewMemoryTranslationRepository()
 
+	memoryMenuRepo := menus.NewMemoryMenuRepository()
+	memoryMenuItemRepo := menus.NewMemoryMenuItemRepository()
+	memoryMenuTranslationRepo := menus.NewMemoryMenuItemTranslationRepository()
+
 	c := &Container{
 		Config:               cfg,
 		storage:              storage.NewNoOpProvider(),
@@ -151,6 +170,9 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		blockDefinitionRepo:  memoryBlockDefRepo,
 		blockRepo:            memoryBlockRepo,
 		blockTranslationRepo: memoryBlockTranslationRepo,
+		menuRepo:             memoryMenuRepo,
+		menuItemRepo:         memoryMenuItemRepo,
+		menuTranslationRepo:  memoryMenuTranslationRepo,
 		memoryLocaleRepo:     memoryLocaleRepo,
 	}
 
@@ -181,6 +203,20 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
 		}
 		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
+	}
+
+	if c.menuSvc == nil {
+		menuOpts := []menus.ServiceOption{}
+		if c.pageRepo != nil {
+			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
+		}
+		c.menuSvc = menus.NewService(
+			c.menuRepo,
+			c.menuItemRepo,
+			c.menuTranslationRepo,
+			c.localeRepo,
+			menuOpts...,
+		)
 	}
 
 	return c
@@ -218,6 +254,10 @@ func (c *Container) configureRepositories() {
 		c.blockDefinitionRepo = blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.blockRepo = blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.blockTranslationRepo = blocks.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+
+		c.menuRepo = menus.NewBunMenuRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.menuItemRepo = menus.NewBunMenuItemRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.menuTranslationRepo = menus.NewBunMenuItemTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 
 		c.memoryLocaleRepo = nil
 	}
