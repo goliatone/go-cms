@@ -2,7 +2,9 @@ package menus_test
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -10,8 +12,55 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
 )
+
+type serviceFixture struct {
+	Locales      []localeFixture                             `json:"locales"`
+	Translations map[string][]menus.MenuItemTranslationInput `json:"translations"`
+}
+
+type localeFixture struct {
+	ID      string `json:"id"`
+	Code    string `json:"code"`
+	Display string `json:"display"`
+}
+
+func loadServiceFixture(t *testing.T) serviceFixture {
+	t.Helper()
+	path := filepath.Join("testdata", "service_fixture.json")
+	raw, err := testsupport.LoadFixture(path)
+	if err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	var fx serviceFixture
+	if err := json.Unmarshal(raw, &fx); err != nil {
+		t.Fatalf("unmarshal fixture: %v", err)
+	}
+	return fx
+}
+
+func (fx serviceFixture) locales() []content.Locale {
+	locales := make([]content.Locale, len(fx.Locales))
+	for i, loc := range fx.Locales {
+		locales[i] = content.Locale{
+			ID:        uuid.MustParse(loc.ID),
+			Code:      loc.Code,
+			Display:   loc.Display,
+			IsActive:  true,
+			IsDefault: i == 0,
+		}
+	}
+	return locales
+}
+
+func (fx serviceFixture) translations(key string) []menus.MenuItemTranslationInput {
+	items := fx.Translations[key]
+	out := make([]menus.MenuItemTranslationInput, len(items))
+	copy(out, items)
+	return out
+}
 
 func TestService_CreateMenu_DuplicateCode(t *testing.T) {
 	ctx := context.Background()
@@ -38,7 +87,8 @@ func TestService_CreateMenu_DuplicateCode(t *testing.T) {
 
 func TestService_AddMenuItem_ShiftsSiblings(t *testing.T) {
 	ctx := context.Background()
-	service, ids := newServiceWithIDs(t,
+	fixture := loadServiceFixture(t)
+	service, ids := newServiceWithIDs(t, fixture,
 		uuid.MustParse("00000000-0000-0000-0000-000000000101"), // menu
 		uuid.MustParse("00000000-0000-0000-0000-000000000201"), // item A
 		uuid.MustParse("00000000-0000-0000-0000-000000000202"), // tr A en
@@ -63,10 +113,7 @@ func TestService_AddMenuItem_ShiftsSiblings(t *testing.T) {
 			"type": " page ",
 			"slug": "home",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Home"},
-			{Locale: "es", Label: "Inicio"},
-		},
+		Translations: fixture.translations("home"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem first: %v", err)
@@ -88,9 +135,7 @@ func TestService_AddMenuItem_ShiftsSiblings(t *testing.T) {
 			"type": "page",
 			"slug": "about",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "About"},
-		},
+		Translations: fixture.translations("about"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem second: %v", err)
@@ -147,6 +192,7 @@ func TestService_AddMenuItem_UnknownLocale(t *testing.T) {
 
 func TestService_AddMenuItemTranslation_Duplicate(t *testing.T) {
 	ctx := context.Background()
+	fixture := loadServiceFixture(t)
 	service := newService(t)
 
 	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
@@ -165,9 +211,7 @@ func TestService_AddMenuItemTranslation_Duplicate(t *testing.T) {
 			"type": "page",
 			"slug": "home",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Home"},
-		},
+		Translations: fixture.translations("home"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem: %v", err)
@@ -185,6 +229,7 @@ func TestService_AddMenuItemTranslation_Duplicate(t *testing.T) {
 
 func TestService_AddMenuItem_PageValidation(t *testing.T) {
 	ctx := context.Background()
+	fixture := loadServiceFixture(t)
 	enLocale := uuid.MustParse("00000000-0000-0000-0000-000000000201")
 	pageID := uuid.MustParse("10000000-0000-0000-0000-000000000001")
 	repo := newStubPageRepository(&pages.Page{
@@ -195,9 +240,8 @@ func TestService_AddMenuItem_PageValidation(t *testing.T) {
 		},
 	})
 
-	service := newServiceWithLocales(t, []content.Locale{
-		{ID: enLocale, Code: "en", Display: "English"},
-	}, uuid.New, repo)
+	locales := fixture.locales()
+	service := newServiceWithLocales(t, []content.Locale{locales[0]}, uuid.New, repo)
 
 	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
 		Code:      "primary",
@@ -208,6 +252,7 @@ func TestService_AddMenuItem_PageValidation(t *testing.T) {
 		t.Fatalf("CreateMenu: %v", err)
 	}
 
+	homeTranslations := fixture.translations("home")
 	item, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
 		MenuID:   menu.ID,
 		Position: 0,
@@ -215,7 +260,7 @@ func TestService_AddMenuItem_PageValidation(t *testing.T) {
 			"type": "page",
 			"slug": " home ",
 		},
-		Translations: []menus.MenuItemTranslationInput{{Locale: "en", Label: "Home"}},
+		Translations: homeTranslations[:1],
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem: %v", err)
@@ -235,7 +280,7 @@ func TestService_AddMenuItem_PageValidation(t *testing.T) {
 			"type": "page",
 			"slug": "missing",
 		},
-		Translations: []menus.MenuItemTranslationInput{{Locale: "en", Label: "Missing"}},
+		Translations: fixture.translations("about"),
 	})
 	if !errors.Is(err, menus.ErrMenuItemPageNotFound) {
 		t.Fatalf("expected ErrMenuItemPageNotFound, got %v", err)
@@ -244,6 +289,7 @@ func TestService_AddMenuItem_PageValidation(t *testing.T) {
 
 func TestService_ResolveNavigation_PageIntegration(t *testing.T) {
 	ctx := context.Background()
+	fixture := loadServiceFixture(t)
 	enLocale := uuid.MustParse("00000000-0000-0000-0000-000000000201")
 	esLocale := uuid.MustParse("00000000-0000-0000-0000-000000000202")
 	pageID := uuid.MustParse("20000000-0000-0000-0000-000000000001")
@@ -256,10 +302,8 @@ func TestService_ResolveNavigation_PageIntegration(t *testing.T) {
 		},
 	})
 
-	service := newServiceWithLocales(t, []content.Locale{
-		{ID: enLocale, Code: "en", Display: "English"},
-		{ID: esLocale, Code: "es", Display: "Spanish"},
-	}, uuid.New, repo)
+	locs := fixture.locales()
+	service := newServiceWithLocales(t, locs, uuid.New, repo)
 
 	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
 		Code:      "primary",
@@ -277,10 +321,7 @@ func TestService_ResolveNavigation_PageIntegration(t *testing.T) {
 			"type": "page",
 			"slug": "company",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Company"},
-			{Locale: "es", Label: "Empresa"},
-		},
+		Translations: fixture.translations("navigation_company"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem: %v", err)
@@ -348,6 +389,7 @@ func (s *stubPageRepository) GetBySlug(ctx context.Context, slug string) (*pages
 
 func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
 	ctx := context.Background()
+	fixture := loadServiceFixture(t)
 	service := newService(t)
 
 	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
@@ -366,9 +408,7 @@ func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
 			"type": "page",
 			"slug": "parent",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Parent"},
-		},
+		Translations: fixture.translations("parent"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem parent: %v", err)
@@ -382,9 +422,7 @@ func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
 			"type": "page",
 			"slug": "child",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Child"},
-		},
+		Translations: fixture.translations("child"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem child: %v", err)
@@ -404,6 +442,7 @@ func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
 
 func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 	ctx := context.Background()
+	fixture := loadServiceFixture(t)
 	service := newService(t)
 
 	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
@@ -422,9 +461,7 @@ func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 			"type": "page",
 			"slug": "first",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "First"},
-		},
+		Translations: fixture.translations("first"),
 	})
 	if err != nil {
 		t.Fatalf("add first: %v", err)
@@ -437,9 +474,7 @@ func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 			"type": "page",
 			"slug": "second",
 		},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Second"},
-		},
+		Translations: fixture.translations("second"),
 	})
 	if err != nil {
 		t.Fatalf("add second: %v", err)
@@ -468,6 +503,7 @@ func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 
 func TestService_UpdateMenuItem_TargetValidation(t *testing.T) {
 	ctx := context.Background()
+	fixture := loadServiceFixture(t)
 	service := newService(t)
 
 	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
@@ -480,12 +516,10 @@ func TestService_UpdateMenuItem_TargetValidation(t *testing.T) {
 	}
 
 	item, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
-		MenuID:   menu.ID,
-		Position: 0,
-		Target:   map[string]any{"type": "page", "slug": "home"},
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Home"},
-		},
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "home"},
+		Translations: fixture.translations("home"),
 	})
 	if err != nil {
 		t.Fatalf("AddMenuItem: %v", err)
@@ -518,21 +552,11 @@ func TestService_UpdateMenuItem_TargetValidation(t *testing.T) {
 
 func newService(t *testing.T) menus.Service {
 	t.Helper()
-	return newServiceWithLocales(t, []content.Locale{
-		{
-			ID:      uuid.MustParse("00000000-0000-0000-0000-000000000201"),
-			Code:    "en",
-			Display: "English",
-		},
-		{
-			ID:      uuid.MustParse("00000000-0000-0000-0000-000000000202"),
-			Code:    "es",
-			Display: "Spanish",
-		},
-	}, uuid.New, nil)
+	fixture := loadServiceFixture(t)
+	return newServiceWithLocales(t, fixture.locales(), uuid.New, nil)
 }
 
-func newServiceWithIDs(t *testing.T, ids ...uuid.UUID) (menus.Service, []uuid.UUID) {
+func newServiceWithIDs(t *testing.T, fixture serviceFixture, ids ...uuid.UUID) (menus.Service, []uuid.UUID) {
 	t.Helper()
 	idx := 0
 	idGen := func() uuid.UUID {
@@ -543,18 +567,7 @@ func newServiceWithIDs(t *testing.T, ids ...uuid.UUID) (menus.Service, []uuid.UU
 		idx++
 		return id
 	}
-	svc := newServiceWithLocales(t, []content.Locale{
-		{
-			ID:      uuid.MustParse("00000000-0000-0000-0000-000000000201"),
-			Code:    "en",
-			Display: "English",
-		},
-		{
-			ID:      uuid.MustParse("00000000-0000-0000-0000-000000000202"),
-			Code:    "es",
-			Display: "Spanish",
-		},
-	}, idGen, nil)
+	svc := newServiceWithLocales(t, fixture.locales(), idGen, nil)
 	return svc, ids
 }
 

@@ -1,0 +1,39 @@
+{
+  "locales": [
+    {
+      "id": "00000000-0000-0000-0000-000000000201",
+      "code": "en",
+      "display": "English"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000202",
+      "code": "es",
+      "display": "Spanish"
+    }
+  ],
+  "translations": {
+    "home": [
+      {"locale": "en", "label": "Home"},
+      {"locale": "es", "label": "Inicio"}
+    ],
+    "about": [
+      {"locale": "en", "label": "About"}
+    ],
+    "parent": [
+      {"locale": "en", "label": "Parent"}
+    ],
+    "child": [
+      {"locale": "en", "label": "Child"}
+    ],
+    "first": [
+      {"locale": "en", "label": "First"}
+    ],
+    "second": [
+      {"locale": "en", "label": "Second"}
+    ],
+    "navigation_company": [
+      {"locale": "en", "label": "Company"},
+      {"locale": "es", "label": "Empresa"}
+    ]
+  }
+}
