@@ -4,10 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/google/uuid"
 )
@@ -104,8 +106,15 @@ type pageService struct {
 	pages   PageRepository
 	content ContentRepository
 	locales LocaleRepository
+	blocks  blocks.Service
 	now     func() time.Time
 	id      IDGenerator
+}
+
+func WithBlockService(service blocks.Service) ServiceOption {
+	return func(ps *pageService) {
+		ps.blocks = service
+	}
 }
 
 // NewService constructs a page service with the required dependencies.
@@ -234,12 +243,93 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 // Get fetches a page by identifier.
 func (s *pageService) Get(ctx context.Context, id uuid.UUID) (*Page, error) {
-	return s.pages.GetByID(ctx, id)
+	page, err := s.pages.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	enriched, err := s.enrichWithBlocks(ctx, []*Page{page})
+	if err != nil {
+		return nil, err
+	}
+	return enriched[0], nil
 }
 
 // List returns all pages.
 func (s *pageService) List(ctx context.Context) ([]*Page, error) {
-	return s.pages.List(ctx)
+	pages, err := s.pages.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return s.enrichWithBlocks(ctx, pages)
+}
+
+func (s *pageService) enrichWithBlocks(ctx context.Context, pages []*Page) ([]*Page, error) {
+	if s.blocks == nil || len(pages) == 0 {
+		return pages, nil
+	}
+
+	global := []*blocks.Instance{}
+	if inst, err := s.blocks.ListGlobalInstances(ctx); err == nil {
+		global = inst
+	} else {
+		var nf *blocks.NotFoundError
+		if !errors.As(err, &nf) {
+			return nil, err
+		}
+	}
+
+	enriched := make([]*Page, 0, len(pages))
+	for _, page := range pages {
+		clone := *page
+		pageBlocks, err := s.blocks.ListPageInstances(ctx, page.ID)
+		if err != nil {
+			var nf *blocks.NotFoundError
+			if !errors.As(err, &nf) {
+				return nil, err
+			}
+			pageBlocks = nil
+		}
+		combined := append(cloneBlockInstances(pageBlocks), cloneBlockInstances(global)...)
+		clone.Blocks = combined
+		enriched = append(enriched, &clone)
+	}
+	return enriched, nil
+}
+
+func cloneBlockInstances(instances []*blocks.Instance) []*blocks.Instance {
+	if len(instances) == 0 {
+		return nil
+	}
+
+	cloned := make([]*blocks.Instance, len(instances))
+	for i, inst := range instances {
+		if inst == nil {
+			continue
+		}
+		copyInst := *inst
+		if inst.Configuration != nil {
+			copyInst.Configuration = maps.Clone(inst.Configuration)
+		}
+		if len(inst.Translations) > 0 {
+			copyInst.Translations = make([]*blocks.Translation, len(inst.Translations))
+			for j, tr := range inst.Translations {
+				if tr == nil {
+					continue
+				}
+				copyTr := *tr
+				if tr.Content != nil {
+					copyTr.Content = maps.Clone(tr.Content)
+				}
+				if tr.AttributeOverride != nil {
+					copyTr.AttributeOverride = maps.Clone(tr.AttributeOverride)
+				}
+				copyInst.Translations[j] = &copyTr
+			}
+		}
+		cloned[i] = &copyInst
+	}
+	return cloned
 }
 
 func sanitizePath(path string) string {
