@@ -60,6 +60,14 @@ func (r *BunMenuRepository) List(ctx context.Context) ([]*Menu, error) {
 	return records, err
 }
 
+func (r *BunMenuRepository) Update(ctx context.Context, menu *Menu) (*Menu, error) {
+	record, err := r.repo.Update(ctx, menu)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
 // BunMenuItemRepository implements MenuItemRepository with optional caching.
 type BunMenuItemRepository struct {
 	repo repository.Repository[*MenuItem]
@@ -115,6 +123,14 @@ func (r *BunMenuItemRepository) ListChildren(ctx context.Context, parentID uuid.
 	return records, err
 }
 
+func (r *BunMenuItemRepository) Update(ctx context.Context, item *MenuItem) (*MenuItem, error) {
+	record, err := r.repo.Update(ctx, item)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
 // BunMenuItemTranslationRepository implements MenuItemTranslationRepository with optional caching.
 type BunMenuItemTranslationRepository struct {
 	repo repository.Repository[*MenuItemTranslation]
@@ -168,6 +184,14 @@ func (r *BunMenuItemTranslationRepository) ListByMenuItem(ctx context.Context, m
 		}),
 	)
 	return records, err
+}
+
+func (r *BunMenuItemTranslationRepository) Update(ctx context.Context, translation *MenuItemTranslation) (*MenuItemTranslation, error) {
+	record, err := r.repo.Update(ctx, translation)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
 func mapRepositoryError(err error, resource, key string) error {

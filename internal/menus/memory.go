@@ -14,6 +14,7 @@ type memoryMenuRepository struct {
 	byCode map[string]uuid.UUID
 }
 
+// NewMemoryMenuRepository constructs an in-memory repository for menus
 func NewMemoryMenuRepository() MenuRepository {
 	return &memoryMenuRepository{
 		byID:   make(map[uuid.UUID]*Menu),
@@ -64,6 +65,30 @@ func (m *memoryMenuRepository) List(_ context.Context) ([]*Menu, error) {
 		records = append(records, cloneMenu(record))
 	}
 	return records, nil
+}
+
+func (m *memoryMenuRepository) Update(_ context.Context, menu *Menu) (*Menu, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[menu.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu", Key: menu.ID.String()}
+	}
+
+	oldCode := existing.Code
+	cloned := cloneMenu(menu)
+
+	m.byID[cloned.ID] = cloned
+
+	if oldCode != "" && oldCode != cloned.Code {
+		delete(m.byCode, oldCode)
+	}
+	if cloned.Code != "" {
+		m.byCode[cloned.Code] = cloned.ID
+	}
+
+	return cloneMenu(cloned), nil
 }
 
 // NewMemoryMenuItemRepository constructs an in-memory repository for menu items.
@@ -131,6 +156,44 @@ func (m *memoryMenuItemRepository) ListChildren(_ context.Context, parentID uuid
 	return children, nil
 }
 
+func (m *memoryMenuItemRepository) Update(_ context.Context, item *MenuItem) (*MenuItem, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[item.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_item", Key: item.ID.String()}
+	}
+
+	oldMenuID := existing.MenuID
+	var oldParentID *uuid.UUID
+	if existing.ParentID != nil {
+		tmp := *existing.ParentID
+		oldParentID = &tmp
+	}
+
+	cloned := cloneMenuItem(item)
+	m.byID[cloned.ID] = cloned
+
+	// Update menu index if needed.
+	if oldMenuID != cloned.MenuID {
+		m.byMenuID[oldMenuID] = removeUUID(m.byMenuID[oldMenuID], cloned.ID)
+		m.byMenuID[cloned.MenuID] = appendUniqueUUID(m.byMenuID[cloned.MenuID], cloned.ID)
+	}
+
+	// Update parent index if changed.
+	if !uuidPtrEqual(oldParentID, cloned.ParentID) {
+		if oldParentID != nil {
+			m.byParent[*oldParentID] = removeUUID(m.byParent[*oldParentID], cloned.ID)
+		}
+		if cloned.ParentID != nil {
+			m.byParent[*cloned.ParentID] = appendUniqueUUID(m.byParent[*cloned.ParentID], cloned.ID)
+		}
+	}
+
+	return cloneMenuItem(cloned), nil
+}
+
 // NewMemoryMenuItemTranslationRepository constructs an in-memory repository for menu item translations.
 func NewMemoryMenuItemTranslationRepository() MenuItemTranslationRepository {
 	return &memoryMenuItemTranslationRepository{
@@ -181,6 +244,34 @@ func (m *memoryMenuItemTranslationRepository) ListByMenuItem(_ context.Context, 
 		translations = append(translations, cloneMenuItemTranslation(m.byID[id]))
 	}
 	return translations, nil
+}
+
+func (m *memoryMenuItemTranslationRepository) Update(_ context.Context, translation *MenuItemTranslation) (*MenuItemTranslation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[translation.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_item_translation", Key: translation.ID.String()}
+	}
+
+	oldKey := translationKey(existing.MenuItemID, existing.LocaleID)
+
+	cloned := cloneMenuItemTranslation(translation)
+	m.byID[cloned.ID] = cloned
+
+	// Update locale index if changed.
+	if oldKey != translationKey(cloned.MenuItemID, cloned.LocaleID) {
+		delete(m.byItemLocale, oldKey)
+		m.byItemLocale[translationKey(cloned.MenuItemID, cloned.LocaleID)] = cloned.ID
+		// also adjust byItem slices if menu item changed
+		if existing.MenuItemID != cloned.MenuItemID {
+			m.byItem[existing.MenuItemID] = removeUUID(m.byItem[existing.MenuItemID], cloned.ID)
+			m.byItem[cloned.MenuItemID] = appendUniqueUUID(m.byItem[cloned.MenuItemID], cloned.ID)
+		}
+	}
+
+	return cloneMenuItemTranslation(cloned), nil
 }
 
 func cloneMenu(src *Menu) *Menu {
@@ -237,4 +328,36 @@ func cloneMenuItemTranslation(src *MenuItemTranslation) *MenuItemTranslation {
 
 func translationKey(menuItemID uuid.UUID, localeID uuid.UUID) string {
 	return menuItemID.String() + ":" + localeID.String()
+}
+
+func removeUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
+	if len(list) == 0 {
+		return list
+	}
+	out := make([]uuid.UUID, 0, len(list))
+	for _, item := range list {
+		if item != id {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func appendUniqueUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
+	for _, item := range list {
+		if item == id {
+			return list
+		}
+	}
+	return append(list, id)
+}
+
+func uuidPtrEqual(a, b *uuid.UUID) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return *a == *b
 }

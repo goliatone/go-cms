@@ -1,0 +1,142 @@
+{
+  "locales": [
+    {
+      "id": "00000000-0000-0000-0000-000000000201",
+      "code": "en",
+      "display": "English"
+    },
+    {
+      "id": "00000000-0000-0000-0000-000000000202",
+      "code": "es",
+      "display": "Spanish"
+    }
+  ],
+  "menu": {
+    "id": "00000000-0000-0000-0000-000000000500",
+    "code": "primary",
+    "description": "Primary navigation menu",
+    "created_by": "00000000-0000-0000-0000-000000000410",
+    "updated_by": "00000000-0000-0000-0000-000000000411",
+    "items": [
+      {
+        "id": "00000000-0000-0000-0000-000000000510",
+        "parent_id": null,
+        "position": 0,
+        "target": {
+          "type": "page",
+          "slug": "home"
+        },
+        "created_by": "00000000-0000-0000-0000-000000000410",
+        "updated_by": "00000000-0000-0000-0000-000000000411",
+        "translations": [
+          {
+            "locale": "en",
+            "label": "Home"
+          },
+          {
+            "locale": "es",
+            "label": "Inicio"
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000520",
+        "parent_id": null,
+        "position": 1,
+        "target": {
+          "type": "page",
+          "slug": "products"
+        },
+        "created_by": "00000000-0000-0000-0000-000000000410",
+        "updated_by": "00000000-0000-0000-0000-000000000411",
+        "translations": [
+          {
+            "locale": "en",
+            "label": "Products"
+          },
+          {
+            "locale": "es",
+            "label": "Productos"
+          }
+        ],
+        "children": [
+          {
+            "id": "00000000-0000-0000-0000-000000000521",
+            "parent_id": "00000000-0000-0000-0000-000000000520",
+            "position": 0,
+            "target": {
+              "type": "page",
+              "slug": "products/software"
+            },
+            "created_by": "00000000-0000-0000-0000-000000000410",
+            "updated_by": "00000000-0000-0000-0000-000000000411",
+            "translations": [
+              {
+                "locale": "en",
+                "label": "Software"
+              },
+              {
+                "locale": "es",
+                "label": "Software"
+              }
+            ]
+          },
+          {
+            "id": "00000000-0000-0000-0000-000000000522",
+            "parent_id": "00000000-0000-0000-0000-000000000520",
+            "position": 1,
+            "target": {
+              "type": "page",
+              "slug": "products/hardware"
+            },
+            "created_by": "00000000-0000-0000-0000-000000000410",
+            "updated_by": "00000000-0000-0000-0000-000000000411",
+            "translations": [
+              {
+                "locale": "en",
+                "label": "Hardware"
+              },
+              {
+                "locale": "es",
+                "label": "Hardware"
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "00000000-0000-0000-0000-000000000530",
+        "parent_id": null,
+        "position": 2,
+        "target": {
+          "type": "external",
+          "url": "https://example.com/support"
+        },
+        "created_by": "00000000-0000-0000-0000-000000000410",
+        "updated_by": "00000000-0000-0000-0000-000000000411",
+        "translations": [
+          {
+            "locale": "en",
+            "label": "Support"
+          },
+          {
+            "locale": "es",
+            "label": "Soporte"
+          }
+        ]
+      }
+    ]
+  },
+  "expectation": {
+    "code": "primary",
+    "locales": [
+      "en",
+      "es"
+    ],
+    "root_items": [
+      "00000000-0000-0000-0000-000000000510",
+      "00000000-0000-0000-0000-000000000520",
+      "00000000-0000-0000-0000-000000000530"
+    ]
+  }
+}

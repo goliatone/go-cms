@@ -1,0 +1,15 @@
+{
+  "menu_code": "primary",
+  "navigation": [
+    {
+      "label": "Company",
+      "url": "/company-overview"
+    }
+  ],
+  "navigation_es": [
+    {
+      "label": "Empresa",
+      "url": "/company-overview"
+    }
+  ]
+}
