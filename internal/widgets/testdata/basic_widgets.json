@@ -1,0 +1,56 @@
+{
+  "definitions": [
+    {
+      "id": "00000000-0000-0000-0000-00000000w100",
+      "name": "newsletter_signup",
+      "description": "Captures email address and triggers double opt-in flow",
+      "schema": {
+        "fields": [
+          {"name": "headline", "type": "text"},
+          {"name": "subheadline", "type": "text"},
+          {"name": "cta_text", "type": "text"},
+          {"name": "success_message", "type": "text"}
+        ]
+      },
+      "defaults": {
+        "cta_text": "Subscribe",
+        "success_message": "Thanks for subscribing!"
+      },
+      "category": "marketing",
+      "icon": "envelope-open"
+    }
+  ],
+  "instances": [
+    {
+      "id": "00000000-0000-0000-0000-00000000w200",
+      "definition_id": "00000000-0000-0000-0000-00000000w100",
+      "area_code": "sidebar.primary",
+      "placement_metadata": {
+        "layout": "stacked",
+        "theme_variant": "light"
+      },
+      "configuration": {
+        "cta_text": "Join our list",
+        "privacy_copy": "No spam. Unsubscribe anytime."
+      },
+      "visibility_rules": {
+        "audience": ["guest", "anonymous"],
+        "schedule": {
+          "starts_at": "2024-01-01T00:00:00Z"
+        }
+      },
+      "position": 1
+    }
+  ],
+  "translations": [
+    {
+      "id": "00000000-0000-0000-0000-00000000w300",
+      "widget_instance_id": "00000000-0000-0000-0000-00000000w200",
+      "locale_id": "00000000-0000-0000-0000-000000000201",
+      "content": {
+        "headline": "Stay in the loop",
+        "subheadline": "Subscribe to receive product updates"
+      }
+    }
+  ]
+}
