@@ -11,6 +11,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/google/uuid"
 )
 
@@ -107,6 +108,7 @@ type pageService struct {
 	content ContentRepository
 	locales LocaleRepository
 	blocks  blocks.Service
+	widgets widgets.Service
 	now     func() time.Time
 	id      IDGenerator
 }
@@ -114,6 +116,12 @@ type pageService struct {
 func WithBlockService(service blocks.Service) ServiceOption {
 	return func(ps *pageService) {
 		ps.blocks = service
+	}
+}
+
+func WithWidgetService(svc widgets.Service) ServiceOption {
+	return func(ps *pageService) {
+		ps.widgets = svc
 	}
 }
 
@@ -248,7 +256,7 @@ func (s *pageService) Get(ctx context.Context, id uuid.UUID) (*Page, error) {
 		return nil, err
 	}
 
-	enriched, err := s.enrichWithBlocks(ctx, []*Page{page})
+	enriched, err := s.enrichPages(ctx, []*Page{page})
 	if err != nil {
 		return nil, err
 	}
@@ -261,10 +269,18 @@ func (s *pageService) List(ctx context.Context) ([]*Page, error) {
 	if err != nil {
 		return nil, err
 	}
-	return s.enrichWithBlocks(ctx, pages)
+	return s.enrichPages(ctx, pages)
 }
 
-func (s *pageService) enrichWithBlocks(ctx context.Context, pages []*Page) ([]*Page, error) {
+func (s *pageService) enrichPages(ctx context.Context, pages []*Page) ([]*Page, error) {
+	withBlocks, err := s.attachBlocks(ctx, pages)
+	if err != nil {
+		return nil, err
+	}
+	return s.attachWidgets(ctx, withBlocks)
+}
+
+func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page, error) {
 	if s.blocks == nil || len(pages) == 0 {
 		return pages, nil
 	}
@@ -281,6 +297,10 @@ func (s *pageService) enrichWithBlocks(ctx context.Context, pages []*Page) ([]*P
 
 	enriched := make([]*Page, 0, len(pages))
 	for _, page := range pages {
+		if page == nil {
+			enriched = append(enriched, nil)
+			continue
+		}
 		clone := *page
 		pageBlocks, err := s.blocks.ListPageInstances(ctx, page.ID)
 		if err != nil {
@@ -295,6 +315,78 @@ func (s *pageService) enrichWithBlocks(ctx context.Context, pages []*Page) ([]*P
 		enriched = append(enriched, &clone)
 	}
 	return enriched, nil
+}
+
+func (s *pageService) attachWidgets(ctx context.Context, pages []*Page) ([]*Page, error) {
+	if s.widgets == nil || len(pages) == 0 {
+		return pages, nil
+	}
+
+	definitions, err := s.widgets.ListAreaDefinitions(ctx)
+	if err != nil {
+		if errors.Is(err, widgets.ErrFeatureDisabled) || errors.Is(err, widgets.ErrAreaFeatureDisabled) {
+			return pages, nil
+		}
+		return nil, err
+	}
+	if len(definitions) == 0 {
+		return pages, nil
+	}
+
+	now := s.now()
+	enriched := make([]*Page, 0, len(pages))
+	for _, page := range pages {
+		if page == nil {
+			enriched = append(enriched, nil)
+			continue
+		}
+
+		clone := *page
+		var areaWidgets map[string][]*widgets.ResolvedWidget
+		for _, definition := range definitions {
+			if definition == nil {
+				continue
+			}
+			code := strings.TrimSpace(definition.Code)
+			if code == "" {
+				continue
+			}
+
+			resolved, err := s.widgets.ResolveArea(ctx, widgets.ResolveAreaInput{
+				AreaCode: code,
+				Now:      now,
+			})
+			if err != nil {
+				if errors.Is(err, widgets.ErrFeatureDisabled) || errors.Is(err, widgets.ErrAreaFeatureDisabled) {
+					areaWidgets = nil
+					break
+				}
+				return nil, err
+			}
+			if len(resolved) == 0 {
+				continue
+			}
+			if areaWidgets == nil {
+				areaWidgets = make(map[string][]*widgets.ResolvedWidget)
+			}
+			areaWidgets[code] = cloneResolvedWidgetSlice(resolved)
+		}
+
+		if len(areaWidgets) > 0 {
+			clone.Widgets = areaWidgets
+		}
+		enriched = append(enriched, &clone)
+	}
+	return enriched, nil
+}
+
+func cloneResolvedWidgetSlice(input []*widgets.ResolvedWidget) []*widgets.ResolvedWidget {
+	if len(input) == 0 {
+		return nil
+	}
+	cloned := make([]*widgets.ResolvedWidget, len(input))
+	copy(cloned, input)
+	return cloned
 }
 
 func cloneBlockInstances(instances []*blocks.Instance) []*blocks.Instance {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -27,10 +28,11 @@ type Page struct {
 	CreatedAt   time.Time  `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
 	UpdatedAt   time.Time  `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 
-	Content      *content.Content   `bun:"rel:belongs-to,join:content_id=id" json:"content,omitempty"`
-	Translations []*PageTranslation `bun:"rel:has-many,join:id=page_id" json:"translations,omitempty"`
-	Versions     []*PageVersion     `bun:"rel:has-many,join:id=page_id" json:"versions,omitempty"`
-	Blocks       []*blocks.Instance `bun:"-" json:"blocks,omitempty"`
+	Content      *content.Content                     `bun:"rel:belongs-to,join:content_id=id" json:"content,omitempty"`
+	Translations []*PageTranslation                   `bun:"rel:has-many,join:id=page_id" json:"translations,omitempty"`
+	Versions     []*PageVersion                       `bun:"rel:has-many,join:id=page_id" json:"versions,omitempty"`
+	Blocks       []*blocks.Instance                   `bun:"-" json:"blocks,omitempty"`
+	Widgets      map[string][]*widgets.ResolvedWidget `bun:"-" json:"widgets,omitempty"`
 }
 
 // PageVersion snapshots structural layout for history/versioning.
