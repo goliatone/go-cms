@@ -766,6 +766,72 @@ func (c *Container) MenuService() menus.Service {
     return c.menuService
 }
 
+### Navigation Routing (go-urlkit)
+
+Menus can now delegate URL generation to [go-urlkit](https://github.com/goliatone/go-urlkit). The CMS config exposes a `Navigation` block:
+
+```go
+type NavigationConfig struct {
+    RouteConfig *urlkit.Config           // hierarchy of groups/routes
+    URLKit      URLKitResolverConfig     // resolver options
+}
+
+type URLKitResolverConfig struct {
+    DefaultGroup string            // e.g. "frontend"
+    LocaleGroups map[string]string // e.g. {"es": "frontend.es"}
+    DefaultRoute string            // e.g. "page"
+    SlugParam    string            // parameter name to receive the page slug (default: "slug")
+    LocaleParam  string            // optional param for locale
+    LocaleIDParam string           // optional param for locale UUID
+    RouteField   string            // target field containing an override route name (default: "route")
+    ParamsField  string            // target field containing extra params (default: "params")
+    QueryField   string            // target field containing query map (default: "query")
+}
+```
+
+When `Navigation.RouteConfig` is provided the DI container constructs a shared `urlkit.RouteManager` and injects a `menus.URLResolver`. Menu items continue to use slug-based fallbacks if the resolver cannot produce a URL. Locale-specific groups are optional; omit `LocaleGroups` to share a single group across locales.
+
+Example wiring:
+
+```go
+cfg := cms.DefaultConfig()
+cfg.Navigation.RouteConfig = &urlkit.Config{
+    Groups: []urlkit.GroupConfig{
+        {
+            Name:    "frontend",
+            BaseURL: "https://example.com",
+            Paths: map[string]string{
+                "page": "/pages/:slug",
+            },
+            Groups: []urlkit.GroupConfig{
+                {
+                    Name: "es",
+                    Path: "/es",
+                    Paths: map[string]string{"page": "/paginas/:slug"},
+                },
+            },
+        },
+    },
+}
+cfg.Navigation.URLKit = cms.URLKitResolverConfig{
+    DefaultGroup: "frontend",
+    LocaleGroups: map[string]string{"es": "frontend.es"},
+    DefaultRoute: "page",
+    SlugParam:    "slug",
+}
+
+container := di.NewContainer(cfg)
+menuSvc := container.MenuService()
+```
+
+Menu targets can set optional fields:
+
+- `route` – override the route name resolved through go-urlkit.
+- `params` – map of additional route parameters.
+- `query` – map (or map of slices) for query string values.
+
+If these fields are absent the resolver uses the configured defaults and the item slug.
+
 // WidgetService returns the widget service (lazy init, singleton)
 func (c *Container) WidgetService() widgets.Service {
     if !c.config.Features.Widgets {
@@ -1245,186 +1311,105 @@ func TestContentService_Create_BasicContent(t *testing.T) {
 }
 ```
 
+### Local Test Command
+
+Run the contract and integration suites locally (uses a repo-local build cache to satisfy sandbox restrictions):
+
+```bash
+GOCACHE=$(pwd)/.gocache /Users/goliatone/.g/go/bin/go test ./internal/content ./internal/pages ./internal/blocks ./internal/menus
+
+When configuring CI, mirror the same command (or ensure your existing `./...` invocation includes `./internal/menus`) so menu services and integrations are exercised alongside content, pages, and blocks.
+```
+
+### Blocks Integration
+
+Phase 2 adds the Blocks module on top of the existing structure:
+
+- `internal/blocks` contains definitions, instances, translations, and the block service.
+- The DI container wires block repositories alongside content/pages. Calling
+  `di.NewContainer` now exposes `BlockService` by default (memory-backed) and upgrades
+  to Bun+cache when `di.WithBunDB` is provided.
+- The page service automatically enriches `Get`/`List` results with block instances when a
+  block service is configured, keeping consumers unaware of storage details.
+- The example CLI seeds a block definition and instance to demonstrate rendering.
+
+### Bun Storage & Repository Cache
+
+Phase 1 hardening introduced production-ready storage and cache wiring:
+
+- `di.WithBunDB(*bun.DB)` switches the container from the in-memory scaffolding
+  to the Bun repositories (`content.NewBunContentRepository`,
+  `pages.NewBunPageRepository`, etc.).
+- Repository caching is implemented via
+  `github.com/goliatone/go-repository-cache`. When `cms.Config.Cache.Enabled`
+  is true the container creates a default cache service; callers can override
+  it with `di.WithCache(cacheService, keySerializer)`.
+- TTL defaults to one minute (`Cache.DefaultTTL`) and flows directly into the
+  cache.Config passed to the library.
+
+```go
+sqlDB, _ := sql.Open("sqlite3", "file::memory:?cache=shared")
+bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+
+cfg := cms.DefaultConfig()
+cfg.Cache.DefaultTTL = 5 * time.Minute
+
+cacheCfg := cache.DefaultConfig()
+cacheCfg.TTL = cfg.Cache.DefaultTTL
+cacheService, _ := cache.NewCacheService(cacheCfg)
+keySerializer := cache.NewDefaultKeySerializer()
+
+container := di.NewContainer(
+    cfg,
+    di.WithBunDB(bunDB),
+    di.WithCache(cacheService, keySerializer),
+)
+
+contentSvc := container.ContentService() // Bun + cache aware
+pageSvc := container.PageService()
+```
+
 ## Usage Examples
 
-### Sprint 1: Minimal Setup
+### Sprint 1: Example CLI
 
-```go
-package main
+A runnable demonstration lives in `.tmp/cms/cmd/example`. It uses the in-memory repositories provided by the DI container, seeds a locale-aware content type, and creates a localized page. Run it from the staged module root with the helper script:
 
-import (
-    "context"
-    "log"
+```bash
+cd .tmp/cms
+./scripts/run_example.sh
+```
 
-    "github.com/goliatone/cms"
-    "github.com/goliatone/cms/adapters/storage/postgres" // wraps go-persistence-bun/go-repository-bun
-)
+Sample output:
 
-func main() {
-    // Setup storage
-    storage, err := postgres.New("postgres://localhost/cms")
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer storage.Close()
-
-    // Create CMS with minimal config
-    app, err := cms.New(cms.Config{
-        Storage: storage,
-        // Everything else uses defaults
-        // Only content and pages are enabled by default
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer app.Close()
-
-    // Use services
-    ctx := context.Background()
-
-    // Content service is ready
-    content, err := app.Content().Create(ctx, cms.CreateContentRequest{
-        Slug:   "hello-world",
-        Title:  "Hello World",
-        Body:   "Welcome to our CMS",
-        Status: cms.StatusPublished,
-        Locale: "en",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Created content: %s", content.ID)
-
-    // Pages service is ready
-    page, err := app.Pages().Create(ctx, cms.CreatePageRequest{
-        Path:      "/hello",
-        ContentID: content.ID,
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Created page: %s", page.ID)
-
-    // Blocks service returns no-op (feature not enabled)
-    // This is safe, won't panic
-    blocks := app.Blocks()
-    _, err = blocks.Create(ctx, cms.CreateBlockRequest{})
-    // err will be "blocks feature not enabled"
+```json
+{
+  "content_id": "<uuid>",
+  "page_id": "<uuid>",
+  "page": {
+    "id": "<uuid>",
+    "slug": "company-overview",
+    "status": "published",
+    "contentID": "<uuid>",
+    "template": "22222222-2222-2222-2222-222222222222",
+    "translations": [
+      {"locale": "en", "title": "Company Overview", "path": "/company"},
+      {"locale": "es", "title": "Resumen corporativo", "path": "/es/empresa"}
+    ]
+  },
+  "pages": [
+    {"id": "<uuid>", "slug": "company-overview", "status": "published"}
+  ]
 }
 ```
 
-### Sprint 2: Add Blocks
+The UUID values are generated at runtime, so expect different identifiers on each execution.
 
-```go
-package main
+The script pins `GOCACHE` to `.tmp/cms/.gocache` so it remains sandbox-friendly and forwards additional arguments to `go run` if you need to experiment (for example `./scripts/run_example.sh -v` once flags are added).
 
-import (
-    "context"
-    "log"
+### Future Sprints
 
-    "github.com/goliatone/cms"
-    "github.com/goliatone/cms/adapters/storage/postgres" // wraps go-persistence-bun/go-repository-bun
-    "github.com/goliatone/cms/adapters/cache/redis" // built on go-repository-cache decorators
-)
-
-func main() {
-    storage, _ := postgres.New("postgres://localhost/cms")
-    defer storage.Close()
-
-    cache, _ := redis.New("redis://localhost:6379")
-    defer cache.Close()
-
-    // Enable blocks feature
-    app, err := cms.New(cms.Config{
-        Storage: storage,
-        Cache:   cache,
-        Features: cms.Features{
-            BasicContent: true,
-            BasicPages:   true,
-            Blocks:       true,        // NEW
-            NestedBlocks: true,        // NEW
-        },
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer app.Close()
-
-    ctx := context.Background()
-
-    // Now blocks work
-    block, err := app.Blocks().Create(ctx, cms.CreateBlockRequest{
-        TypeID: "text",
-        Attributes: map[string]any{
-            "text": "Hello from a block",
-        },
-        Locale: "en",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Created block: %s", block.ID)
-}
-```
-
-### Sprint 3: Add Menus
-
-```go
-package main
-
-import (
-    "context"
-    "log"
-    "time"
-
-    "github.com/goliatone/cms"
-    "github.com/goliatone/cms/adapters/storage/postgres" // wraps go-persistence-bun/go-repository-bun
-    "github.com/goliatone/cms/adapters/cache/redis" // built on go-repository-cache decorators
-)
-
-func main() {
-    storage, _ := postgres.New("postgres://localhost/cms")
-    defer storage.Close()
-
-    cache, _ := redis.New("redis://localhost:6379")
-    defer cache.Close()
-
-    // Enable menus feature
-    app, err := cms.New(cms.Config{
-        Storage: storage,
-        Cache:   cache,
-        Features: cms.Features{
-            BasicContent:      true,
-            BasicPages:        true,
-            Blocks:            true,
-            NestedBlocks:      true,
-            Menus:             true,  // NEW
-            HierarchicalMenus: true,  // NEW
-        },
-        CacheTTL: 10 * time.Minute,
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-    defer app.Close()
-
-    ctx := context.Background()
-
-    // Create menu
-    menu, err := app.Menus().Create(ctx, cms.CreateMenuRequest{
-        Name:     "Main Navigation",
-        Location: "header",
-    })
-    if err != nil {
-        log.Fatal(err)
-    }
-
-    log.Printf("Created menu: %s", menu.ID)
-}
-```
+Example applications for Blocks, Menus, and Widgets will be added as those vertical slices promote from `.tmp/` to production packages. The CLI is structured so additional subcommands can be layered on without changing existing behaviour.
 
 ### Sprint 6: Full Features
 
