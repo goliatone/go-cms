@@ -38,3 +38,25 @@ func NewTranslationRepository(db *bun.DB) repository.Repository[*Translation] {
 		GetIdentifierValue: func(tr *Translation) string { return tr.ID.String() },
 	})
 }
+
+// NewAreaDefinitionRepository creates a repository for area definitions.
+func NewAreaDefinitionRepository(db *bun.DB) repository.Repository[*AreaDefinition] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*AreaDefinition]{
+		NewRecord:          func() *AreaDefinition { return &AreaDefinition{} },
+		GetID:              func(def *AreaDefinition) uuid.UUID { return def.ID },
+		SetID:              func(def *AreaDefinition, id uuid.UUID) { def.ID = id },
+		GetIdentifier:      func() string { return "code" },
+		GetIdentifierValue: func(def *AreaDefinition) string { return def.Code },
+	})
+}
+
+// NewAreaPlacementRepository creates a repository for area placements.
+func NewAreaPlacementRepository(db *bun.DB) repository.Repository[*AreaPlacement] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*AreaPlacement]{
+		NewRecord:          func() *AreaPlacement { return &AreaPlacement{} },
+		GetID:              func(placement *AreaPlacement) uuid.UUID { return placement.ID },
+		SetID:              func(placement *AreaPlacement, id uuid.UUID) { placement.ID = id },
+		GetIdentifier:      func() string { return "id" },
+		GetIdentifierValue: func(placement *AreaPlacement) string { return placement.ID.String() },
+	})
+}

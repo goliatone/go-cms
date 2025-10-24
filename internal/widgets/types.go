@@ -65,7 +65,58 @@ type Translation struct {
 	Instance *Instance `bun:"rel:belongs-to,join:widget_instance_id=id" json:"instance,omitempty"`
 }
 
+// AreaScope identifies how broadly an area definition applies.
+type AreaScope string
+
+const (
+	// AreaScopeGlobal registers an area that applies across the entire site.
+	AreaScopeGlobal AreaScope = "global"
+	// AreaScopeTheme registers an area that is scoped to a specific theme.
+	AreaScopeTheme AreaScope = "theme"
+	// AreaScopeTemplate registers an area scoped to a specific template.
+	AreaScopeTemplate AreaScope = "template"
+)
+
+// AreaDefinition documents a named region where widgets can be rendered.
+type AreaDefinition struct {
+	bun.BaseModel `bun:"table:widget_area_definitions,alias:wad"`
+
+	ID          uuid.UUID  `bun:",pk,type:uuid" json:"id"`
+	Code        string     `bun:"code,notnull,unique" json:"code"`
+	Name        string     `bun:"name,notnull" json:"name"`
+	Description *string    `bun:"description" json:"description,omitempty"`
+	Scope       AreaScope  `bun:"scope,notnull,default:'global'" json:"scope"`
+	ThemeID     *uuid.UUID `bun:"theme_id,type:uuid" json:"theme_id,omitempty"`
+	TemplateID  *uuid.UUID `bun:"template_id,type:uuid" json:"template_id,omitempty"`
+	CreatedAt   time.Time  `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt   time.Time  `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+}
+
+// AreaPlacement binds a widget instance to an area with optional locale-specific ordering.
+type AreaPlacement struct {
+	bun.BaseModel `bun:"table:widget_area_placements,alias:wap"`
+
+	ID         uuid.UUID      `bun:",pk,type:uuid" json:"id"`
+	AreaCode   string         `bun:"area_code,notnull" json:"area_code"`
+	LocaleID   *uuid.UUID     `bun:"locale_id,type:uuid" json:"locale_id,omitempty"`
+	InstanceID uuid.UUID      `bun:"instance_id,notnull,type:uuid" json:"instance_id"`
+	Position   int            `bun:"position,notnull,default:0" json:"position"`
+	Metadata   map[string]any `bun:"metadata,type:jsonb" json:"metadata,omitempty"`
+	CreatedAt  time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt  time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+
+	Instance *Instance `bun:"rel:belongs-to,join:instance_id=id" json:"instance,omitempty"`
+}
+
 // translationKey formats a composite cache key for widget instance translations.
 func translationKey(instanceID uuid.UUID, localeID uuid.UUID) string {
 	return instanceID.String() + ":" + localeID.String()
+}
+
+// areaLocaleKey generates a stable key for area + locale combinations.
+func areaLocaleKey(areaCode string, localeID *uuid.UUID) string {
+	if localeID == nil {
+		return areaCode + ":default"
+	}
+	return areaCode + ":" + localeID.String()
 }

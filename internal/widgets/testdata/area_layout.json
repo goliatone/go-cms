@@ -1,0 +1,22 @@
+{
+  "areas": [
+    {
+      "code": "sidebar.primary",
+      "name": "Primary Sidebar",
+      "scope": "global"
+    }
+  ],
+  "placements": [
+    {
+      "area_code": "sidebar.primary",
+      "locale": "default",
+      "instance_id": "00000000-0000-0000-0000-00000000b121",
+      "position": 0
+    }
+  ],
+  "expected": {
+    "fallback": [
+      "00000000-0000-0000-0000-00000000b121"
+    ]
+  }
+}

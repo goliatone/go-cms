@@ -1,0 +1,677 @@
+package widgets
+
+import (
+	"context"
+	"errors"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/goliatone/go-cms/pkg/testsupport"
+	"github.com/google/uuid"
+)
+
+func TestServiceRegisterDefinitionValidation(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 1, 1, 12, 0, 0, 0, time.UTC)
+
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithClock(func() time.Time { return now }),
+		WithIDGenerator(sequentialIDs(
+			"00000000-0000-0000-0000-00000000d001",
+		)),
+	)
+
+	if _, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{}); !errors.Is(err, ErrDefinitionNameRequired) {
+		t.Fatalf("expected ErrDefinitionNameRequired, got %v", err)
+	}
+
+	if _, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{Name: "promo"}); !errors.Is(err, ErrDefinitionSchemaRequired) {
+		t.Fatalf("expected ErrDefinitionSchemaRequired, got %v", err)
+	}
+
+	schema := map[string]any{
+		"fields": []any{
+			map[string]any{"name": "headline"},
+		},
+	}
+	if _, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:     "promo",
+		Schema:   schema,
+		Defaults: map[string]any{"unknown": "value"},
+	}); !errors.Is(err, ErrDefinitionDefaultsInvalid) {
+		t.Fatalf("expected ErrDefinitionDefaultsInvalid, got %v", err)
+	}
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:     "promo",
+		Schema:   schema,
+		Defaults: map[string]any{"headline": "Default"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if definition.ID != uuid.MustParse("00000000-0000-0000-0000-00000000d001") {
+		t.Fatalf("unexpected definition ID: %s", definition.ID)
+	}
+	if !definition.CreatedAt.Equal(now) || !definition.UpdatedAt.Equal(now) {
+		t.Fatalf("expected timestamps to equal now (%s), got %s / %s", now, definition.CreatedAt, definition.UpdatedAt)
+	}
+
+	if _, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "promo",
+		Schema: schema,
+	}); !errors.Is(err, ErrDefinitionExists) {
+		t.Fatalf("expected ErrDefinitionExists, got %v", err)
+	}
+}
+
+func TestServiceCreateInstanceLifecycle(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 1, 2, 9, 0, 0, 0, time.UTC)
+	idGen := sequentialIDs(
+		"00000000-0000-0000-0000-00000000d010", // definition
+		"00000000-0000-0000-0000-00000000a010", // instance
+	)
+
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithClock(func() time.Time { return now }),
+		WithIDGenerator(idGen),
+	)
+
+	schema := map[string]any{
+		"fields": []any{
+			map[string]any{"name": "headline"},
+			map[string]any{"name": "cta_text"},
+		},
+	}
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:     "newsletter_signup",
+		Schema:   schema,
+		Defaults: map[string]any{"cta_text": "Subscribe"},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000111")
+	publishOn := now.Add(1 * time.Hour)
+
+	visibility := map[string]any{
+		"schedule": map[string]any{
+			"starts_at": now.Format(time.RFC3339),
+		},
+	}
+
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID:    definition.ID,
+		Configuration:   map[string]any{"headline": "Join the list"},
+		VisibilityRules: visibility,
+		PublishOn:       &publishOn,
+		Position:        0,
+		CreatedBy:       userID,
+		UpdatedBy:       userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	expectedConfig := map[string]any{
+		"cta_text": "Subscribe",
+		"headline": "Join the list",
+	}
+	if !reflect.DeepEqual(instance.Configuration, expectedConfig) {
+		t.Fatalf("expected configuration %v, got %v", expectedConfig, instance.Configuration)
+	}
+
+	if instance.PublishOn == nil || !instance.PublishOn.Equal(publishOn) {
+		t.Fatalf("expected publish_on %s, got %v", publishOn, instance.PublishOn)
+	}
+
+	visibility["schedule"].(map[string]any)["starts_at"] = "mutated"
+	if instance.VisibilityRules["schedule"].(map[string]any)["starts_at"] == "mutated" {
+		t.Fatalf("expected visibility rules to be cloned")
+	}
+}
+
+func TestServiceCreateInstanceValidationFailures(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name: "banner",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "message"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000222")
+
+	if _, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID:  definition.ID,
+		Configuration: map[string]any{"unknown": "value"},
+		CreatedBy:     userID,
+		UpdatedBy:     userID,
+	}); !errors.Is(err, ErrInstanceConfigurationInvalid) {
+		t.Fatalf("expected ErrInstanceConfigurationInvalid, got %v", err)
+	}
+
+	publish := time.Date(2024, 1, 1, 10, 0, 0, 0, time.UTC)
+	unpublish := time.Date(2024, 1, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+		PublishOn:    &publish,
+		UnpublishOn:  &unpublish,
+	}); !errors.Is(err, ErrInstanceScheduleInvalid) {
+		t.Fatalf("expected ErrInstanceScheduleInvalid, got %v", err)
+	}
+
+	if _, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+		VisibilityRules: map[string]any{
+			"invalid_key": true,
+		},
+	}); !errors.Is(err, ErrVisibilityRulesInvalid) {
+		t.Fatalf("expected ErrVisibilityRulesInvalid, got %v", err)
+	}
+}
+
+func TestServiceTranslationLifecycle(t *testing.T) {
+	ctx := context.Background()
+	idGen := sequentialIDs(
+		"00000000-0000-0000-0000-00000000d020", // definition
+		"00000000-0000-0000-0000-00000000a020", // instance
+		"00000000-0000-0000-0000-00000000b020", // translation create
+		"00000000-0000-0000-0000-00000000b021", // translation update (unused id)
+	)
+
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithIDGenerator(idGen),
+	)
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name: "promo",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "headline"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000333")
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	localeID := uuid.MustParse("00000000-0000-0000-0000-000000000444")
+
+	translation, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+		Content:    map[string]any{"headline": "Hola"},
+	})
+	if err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	if translation.ID != uuid.MustParse("00000000-0000-0000-0000-00000000b020") {
+		t.Fatalf("unexpected translation ID: %s", translation.ID)
+	}
+
+	if _, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+		Content:    map[string]any{"headline": "Bonjour"},
+	}); !errors.Is(err, ErrTranslationExists) {
+		t.Fatalf("expected ErrTranslationExists, got %v", err)
+	}
+
+	updated, err := svc.UpdateTranslation(ctx, UpdateTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+		Content:    map[string]any{"headline": "Salut"},
+	})
+	if err != nil {
+		t.Fatalf("update translation: %v", err)
+	}
+
+	if updated.Content["headline"] != "Salut" {
+		t.Fatalf("expected updated headline, got %v", updated.Content["headline"])
+	}
+
+}
+
+func TestServiceUpdateInstance(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 2, 1, 8, 0, 0, 0, time.UTC)
+
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithClock(func() time.Time { return now }),
+	)
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name: "promo",
+		Schema: map[string]any{
+			"fields": []any{
+				map[string]any{"name": "headline"},
+				map[string]any{"name": "cta_text"},
+			},
+		},
+		Defaults: map[string]any{"cta_text": "Default CTA"},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000666")
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	newConfig := map[string]any{"headline": "Updated"}
+	newArea := "  sidebar.secondary  "
+	newPosition := 3
+	updated, err := svc.UpdateInstance(ctx, UpdateInstanceInput{
+		InstanceID:    instance.ID,
+		Configuration: newConfig,
+		UpdatedBy:     userID,
+		AreaCode:      &newArea,
+		Position:      &newPosition,
+	})
+	if err != nil {
+		t.Fatalf("update instance: %v", err)
+	}
+
+	expectedConfig := map[string]any{
+		"cta_text": "Default CTA",
+		"headline": "Updated",
+	}
+	if !reflect.DeepEqual(updated.Configuration, expectedConfig) {
+		t.Fatalf("expected configuration %v, got %v", expectedConfig, updated.Configuration)
+	}
+
+	if updated.AreaCode == nil || *updated.AreaCode != "sidebar.secondary" {
+		t.Fatalf("expected trimmed area code, got %v", updated.AreaCode)
+	}
+
+	if updated.Position != newPosition {
+		t.Fatalf("expected position %d, got %d", newPosition, updated.Position)
+	}
+}
+
+func TestServiceRegistryFactories(t *testing.T) {
+	ctx := context.Background()
+	registry := NewRegistry()
+	registry.RegisterFactory("newsletter", Registration{
+		Definition: func() RegisterDefinitionInput {
+			return RegisterDefinitionInput{
+				Name: "newsletter",
+				Schema: map[string]any{
+					"fields": []any{
+						map[string]any{"name": "headline"},
+						map[string]any{"name": "cta_text"},
+					},
+				},
+			}
+		},
+		InstanceFactory: func(_ context.Context, _ *Definition, _ CreateInstanceInput) (map[string]any, error) {
+			return map[string]any{
+				"headline": "Stay updated",
+				"cta_text": "Subscribe now",
+			}, nil
+		},
+	})
+
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithRegistry(registry),
+	)
+
+	definitions, err := svc.ListDefinitions(ctx)
+	if err != nil {
+		t.Fatalf("list definitions: %v", err)
+	}
+	if len(definitions) != 1 {
+		t.Fatalf("expected 1 definition from registry, got %d", len(definitions))
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000555")
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definitions[0].ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	expectedConfig := map[string]any{
+		"cta_text": "Subscribe now",
+		"headline": "Stay updated",
+	}
+	if !reflect.DeepEqual(instance.Configuration, expectedConfig) {
+		t.Fatalf("expected configuration from factory %v, got %v", expectedConfig, instance.Configuration)
+	}
+}
+
+func TestServiceRegisterAreaDefinitionValidation(t *testing.T) {
+	ctx := context.Background()
+	idGen := sequentialIDs(
+		"00000000-0000-0000-0000-00000000ad01",
+	)
+
+	svc := newServiceWithAreas(WithIDGenerator(idGen))
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{}); !errors.Is(err, ErrAreaCodeRequired) {
+		t.Fatalf("expected ErrAreaCodeRequired, got %v", err)
+	}
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "invalid code"}); !errors.Is(err, ErrAreaCodeInvalid) {
+		t.Fatalf("expected ErrAreaCodeInvalid, got %v", err)
+	}
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "sidebar.primary"}); !errors.Is(err, ErrAreaNameRequired) {
+		t.Fatalf("expected ErrAreaNameRequired, got %v", err)
+	}
+
+	def, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "sidebar.primary", Name: "Primary Sidebar"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if def.Code != "sidebar.primary" {
+		t.Fatalf("unexpected area code %s", def.Code)
+	}
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "sidebar.primary", Name: "Duplicate"}); !errors.Is(err, ErrAreaDefinitionExists) {
+		t.Fatalf("expected ErrAreaDefinitionExists, got %v", err)
+	}
+}
+
+func TestServiceAssignAndReorderAreaWidgets(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 3, 1, 8, 0, 0, 0, time.UTC)
+	idGen := sequentialIDs(
+		"00000000-0000-0000-0000-00000000ad10", // area definition
+		"00000000-0000-0000-0000-00000000bd10", // widget definition
+		"00000000-0000-0000-0000-00000000b110", // instance A
+		"00000000-0000-0000-0000-00000000b111", // instance B
+		"00000000-0000-0000-0000-00000000b210", // placement 1
+		"00000000-0000-0000-0000-00000000b211", // placement 2
+	)
+
+	svc := newServiceWithAreas(
+		WithClock(func() time.Time { return now }),
+		WithIDGenerator(idGen),
+	)
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "sidebar.primary", Name: "Primary Sidebar"}); err != nil {
+		t.Fatalf("register area definition: %v", err)
+	}
+
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{map[string]any{"name": "headline"}}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000900")
+	instA, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance A: %v", err)
+	}
+
+	instB, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance B: %v", err)
+	}
+
+	placements, err := svc.AssignWidgetToArea(ctx, AssignWidgetToAreaInput{
+		AreaCode:   "sidebar.primary",
+		InstanceID: instA.ID,
+	})
+	if err != nil {
+		t.Fatalf("assign widget A: %v", err)
+	}
+	if len(placements) != 1 || placements[0].InstanceID != instA.ID {
+		t.Fatalf("unexpected placements after first assign: %#v", placements)
+	}
+
+	position := 0
+	placements, err = svc.AssignWidgetToArea(ctx, AssignWidgetToAreaInput{
+		AreaCode:   "sidebar.primary",
+		InstanceID: instB.ID,
+		Position:   &position,
+	})
+	if err != nil {
+		t.Fatalf("assign widget B: %v", err)
+	}
+	if len(placements) != 2 {
+		t.Fatalf("expected 2 placements, got %d", len(placements))
+	}
+	if placements[0].InstanceID != instB.ID || placements[1].InstanceID != instA.ID {
+		t.Fatalf("unexpected ordering: %#v", placements)
+	}
+
+	reorder := ReorderAreaWidgetsInput{
+		AreaCode: "sidebar.primary",
+		Items: []AreaWidgetOrder{
+			{PlacementID: placements[1].ID, Position: 0},
+			{PlacementID: placements[0].ID, Position: 1},
+		},
+	}
+
+	placements, err = svc.ReorderAreaWidgets(ctx, reorder)
+	if err != nil {
+		t.Fatalf("reorder placements: %v", err)
+	}
+	if placements[0].InstanceID != instA.ID {
+		t.Fatalf("expected instance A first after reorder")
+	}
+
+	if err := svc.RemoveWidgetFromArea(ctx, RemoveWidgetFromAreaInput{AreaCode: "sidebar.primary", InstanceID: instB.ID}); err != nil {
+		t.Fatalf("remove widget: %v", err)
+	}
+
+	placements, err = svc.ReorderAreaWidgets(ctx, ReorderAreaWidgetsInput{AreaCode: "sidebar.primary", Items: []AreaWidgetOrder{{PlacementID: placements[0].ID, Position: 0}}})
+	if err != nil {
+		t.Fatalf("reorder single placement: %v", err)
+	}
+	if len(placements) != 1 {
+		t.Fatalf("expected single placement after removal, got %d", len(placements))
+	}
+}
+
+func TestServiceResolveAreaWithFallbacksAndVisibility(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 4, 1, 9, 0, 0, 0, time.UTC)
+	localePrimary := uuid.MustParse("00000000-0000-0000-0000-000000000201")
+	idGen := sequentialIDs(
+		"00000000-0000-0000-0000-00000000ad20", // area definition
+		"00000000-0000-0000-0000-00000000bd20", // widget definition
+		"00000000-0000-0000-0000-00000000b120", // locale instance
+		"00000000-0000-0000-0000-00000000b121", // fallback instance
+		"00000000-0000-0000-0000-00000000b220", // placement locale
+		"00000000-0000-0000-0000-00000000b221", // placement fallback
+	)
+
+	svc := newServiceWithAreas(
+		WithClock(func() time.Time { return now }),
+		WithIDGenerator(idGen),
+	)
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "sidebar.primary", Name: "Primary Sidebar"}); err != nil {
+		t.Fatalf("register area definition: %v", err)
+	}
+
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "alert",
+		Schema: map[string]any{"fields": []any{map[string]any{"name": "message"}}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000910")
+	localeInstance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create locale instance: %v", err)
+	}
+
+	fallbackInstance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID:    def.ID,
+		VisibilityRules: map[string]any{"audience": []any{"guest"}},
+		CreatedBy:       userID,
+		UpdatedBy:       userID,
+	})
+	if err != nil {
+		t.Fatalf("create fallback instance: %v", err)
+	}
+
+	if _, err := svc.AssignWidgetToArea(ctx, AssignWidgetToAreaInput{AreaCode: "sidebar.primary", LocaleID: &localePrimary, InstanceID: localeInstance.ID}); err != nil {
+		t.Fatalf("assign locale placement: %v", err)
+	}
+	if _, err := svc.AssignWidgetToArea(ctx, AssignWidgetToAreaInput{AreaCode: "sidebar.primary", InstanceID: fallbackInstance.ID}); err != nil {
+		t.Fatalf("assign fallback placement: %v", err)
+	}
+
+	resolved, err := svc.ResolveArea(ctx, ResolveAreaInput{
+		AreaCode: "sidebar.primary",
+		LocaleID: &localePrimary,
+		Audience: []string{"guest"},
+		Now:      now,
+	})
+	if err != nil {
+		t.Fatalf("resolve area: %v", err)
+	}
+	if len(resolved) != 1 || resolved[0].Instance.ID != localeInstance.ID {
+		t.Fatalf("expected locale-specific widget, got %#v", resolved)
+	}
+
+	if err := svc.RemoveWidgetFromArea(ctx, RemoveWidgetFromAreaInput{AreaCode: "sidebar.primary", LocaleID: &localePrimary, InstanceID: localeInstance.ID}); err != nil {
+		t.Fatalf("remove locale placement: %v", err)
+	}
+
+	resolved, err = svc.ResolveArea(ctx, ResolveAreaInput{
+		AreaCode: "sidebar.primary",
+		LocaleID: &localePrimary,
+		Audience: []string{"guest"},
+		Now:      now,
+	})
+	if err != nil {
+		t.Fatalf("resolve fallback area: %v", err)
+	}
+	if len(resolved) != 1 || resolved[0].Instance.ID != fallbackInstance.ID {
+		t.Fatalf("expected fallback widget, got %#v", resolved)
+	}
+
+	visible, err := svc.EvaluateVisibility(ctx, fallbackInstance, VisibilityContext{Now: now, Audience: []string{"guest"}})
+	if err != nil {
+		t.Fatalf("evaluate visibility: %v", err)
+	}
+	if !visible {
+		t.Fatalf("expected fallback instance to be visible")
+	}
+
+	fixturePath := filepath.Join("testdata", "area_layout.json")
+	var layout struct {
+		Expected struct {
+			Fallback []string `json:"fallback"`
+		} `json:"expected"`
+	}
+	if err := testsupport.LoadGolden(fixturePath, &layout); err != nil {
+		t.Fatalf("load fixture: %v", err)
+	}
+	ids := make([]string, len(resolved))
+	for i, item := range resolved {
+		ids[i] = item.Instance.ID.String()
+	}
+	if !reflect.DeepEqual(ids, layout.Expected.Fallback) {
+		t.Fatalf("expected fallback order %v, got %v", layout.Expected.Fallback, ids)
+	}
+}
+
+func sequentialIDs(values ...string) IDGenerator {
+	ids := make([]uuid.UUID, len(values))
+	for i, value := range values {
+		ids[i] = uuid.MustParse(value)
+	}
+
+	var idx int
+	return func() uuid.UUID {
+		if idx >= len(ids) {
+			return uuid.New()
+		}
+		value := ids[idx]
+		idx++
+		return value
+	}
+}
+
+func newServiceWithAreas(options ...ServiceOption) Service {
+	memDef := NewMemoryDefinitionRepository()
+	memInst := NewMemoryInstanceRepository()
+	memTr := NewMemoryTranslationRepository()
+	memAreas := NewMemoryAreaDefinitionRepository()
+	memPlacements := NewMemoryAreaPlacementRepository()
+
+	opts := append([]ServiceOption{}, options...)
+	opts = append(opts,
+		WithAreaDefinitionRepository(memAreas),
+		WithAreaPlacementRepository(memPlacements),
+	)
+
+	return NewService(memDef, memInst, memTr, opts...)
+}

@@ -3,6 +3,7 @@ package widgets
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/goliatone/go-errors"
 	repository "github.com/goliatone/go-repository-bun"
@@ -114,6 +115,14 @@ func (r *BunInstanceRepository) ListAll(ctx context.Context) ([]*Instance, error
 	return records, err
 }
 
+func (r *BunInstanceRepository) Update(ctx context.Context, instance *Instance) (*Instance, error) {
+	record, err := r.repo.Update(ctx, instance)
+	if err != nil {
+		return nil, mapRepositoryError(err, "widget_instance", instance.ID.String())
+	}
+	return record, nil
+}
+
 // BunTranslationRepository implements TranslationRepository with optional caching.
 type BunTranslationRepository struct {
 	repo repository.Repository[*Translation]
@@ -167,6 +176,133 @@ func (r *BunTranslationRepository) ListByInstance(ctx context.Context, instanceI
 	return records, err
 }
 
+func (r *BunTranslationRepository) Update(ctx context.Context, translation *Translation) (*Translation, error) {
+	record, err := r.repo.Update(ctx, translation)
+	if err != nil {
+		return nil, mapRepositoryError(err, "widget_translation", translation.ID.String())
+	}
+	return record, nil
+}
+
+// BunAreaDefinitionRepository implements AreaDefinitionRepository.
+type BunAreaDefinitionRepository struct {
+	repo repository.Repository[*AreaDefinition]
+}
+
+// NewBunAreaDefinitionRepository creates an area definition repository.
+func NewBunAreaDefinitionRepository(db *bun.DB) *BunAreaDefinitionRepository {
+	return &BunAreaDefinitionRepository{repo: NewAreaDefinitionRepository(db)}
+}
+
+func (r *BunAreaDefinitionRepository) Create(ctx context.Context, definition *AreaDefinition) (*AreaDefinition, error) {
+	record, err := r.repo.Create(ctx, definition)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (r *BunAreaDefinitionRepository) GetByCode(ctx context.Context, code string) (*AreaDefinition, error) {
+	record, err := r.repo.GetByIdentifier(ctx, code)
+	if err != nil {
+		return nil, mapRepositoryError(err, "widget_area_definition", code)
+	}
+	return record, nil
+}
+
+func (r *BunAreaDefinitionRepository) List(ctx context.Context) ([]*AreaDefinition, error) {
+	records, _, err := r.repo.List(ctx)
+	return records, err
+}
+
+// BunAreaPlacementRepository implements AreaPlacementRepository.
+type BunAreaPlacementRepository struct {
+	repo repository.Repository[*AreaPlacement]
+	db   *bun.DB
+}
+
+// NewBunAreaPlacementRepository creates an area placement repository.
+func NewBunAreaPlacementRepository(db *bun.DB) *BunAreaPlacementRepository {
+	return &BunAreaPlacementRepository{
+		repo: NewAreaPlacementRepository(db),
+		db:   db,
+	}
+}
+
+func (r *BunAreaPlacementRepository) ListByAreaAndLocale(ctx context.Context, areaCode string, localeID *uuid.UUID) ([]*AreaPlacement, error) {
+	selectors := []repository.SelectCriteria{
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.area_code = ?", areaCode)
+		}),
+	}
+	selectors = append(selectors, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		if localeID == nil {
+			return q.Where("?TableAlias.locale_id IS NULL")
+		}
+		return q.Where("?TableAlias.locale_id = ?", *localeID)
+	}))
+	selectors = append(selectors, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.OrderExpr("?TableAlias.position ASC")
+	}))
+
+	records, _, err := r.repo.List(ctx, selectors...)
+	return records, err
+}
+
+func (r *BunAreaPlacementRepository) Replace(ctx context.Context, areaCode string, localeID *uuid.UUID, placements []*AreaPlacement) error {
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		deleteQuery := tx.NewDelete().Model((*AreaPlacement)(nil)).Where("area_code = ?", areaCode)
+		if localeID == nil {
+			deleteQuery.Where("locale_id IS NULL")
+		} else {
+			deleteQuery.Where("locale_id = ?", *localeID)
+		}
+		if _, err := deleteQuery.Exec(ctx); err != nil {
+			return err
+		}
+
+		now := time.Now().UTC()
+		for idx, placement := range placements {
+			record := &AreaPlacement{
+				ID:         placement.ID,
+				AreaCode:   areaCode,
+				InstanceID: placement.InstanceID,
+				Position:   idx,
+				Metadata:   clonePlacementMetadata(placement.Metadata),
+				CreatedAt:  placement.CreatedAt,
+				UpdatedAt:  placement.UpdatedAt,
+			}
+			if record.ID == uuid.Nil {
+				record.ID = uuid.New()
+			}
+			if localeID != nil {
+				value := *localeID
+				record.LocaleID = &value
+			}
+			if record.CreatedAt.IsZero() {
+				record.CreatedAt = now
+			}
+			record.UpdatedAt = now
+
+			if _, err := tx.NewInsert().Model(record).Exec(ctx); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+}
+
+func (r *BunAreaPlacementRepository) DeleteByAreaLocaleInstance(ctx context.Context, areaCode string, localeID *uuid.UUID, instanceID uuid.UUID) error {
+	query := r.db.NewDelete().Model((*AreaPlacement)(nil)).Where("area_code = ?", areaCode).Where("instance_id = ?", instanceID)
+	if localeID == nil {
+		query.Where("locale_id IS NULL")
+	} else {
+		query.Where("locale_id = ?", *localeID)
+	}
+	_, err := query.Exec(ctx)
+	return err
+}
+
 func mapRepositoryError(err error, resource, key string) error {
 	if err == nil {
 		return nil
@@ -175,4 +311,15 @@ func mapRepositoryError(err error, resource, key string) error {
 		return &NotFoundError{Resource: resource, Key: key}
 	}
 	return fmt.Errorf("%s repository error: %w", resource, err)
+}
+
+func clonePlacementMetadata(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(src))
+	for key, value := range src {
+		cloned[key] = value
+	}
+	return cloned
 }
