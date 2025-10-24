@@ -643,6 +643,176 @@ func TestServiceResolveAreaWithFallbacksAndVisibility(t *testing.T) {
 	}
 }
 
+func TestServiceEvaluateVisibilityInvalidScheduleFormat(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	instance := &Instance{
+		VisibilityRules: map[string]any{
+			"schedule": map[string]any{
+				"starts_at": "not-a-timestamp",
+			},
+		},
+	}
+
+	visible, err := svc.EvaluateVisibility(ctx, instance, VisibilityContext{Now: time.Now()})
+	if !errors.Is(err, ErrVisibilityScheduleInvalid) {
+		t.Fatalf("expected ErrVisibilityScheduleInvalid, got %v", err)
+	}
+	if visible {
+		t.Fatalf("expected visibility to be false on invalid schedule")
+	}
+}
+
+func TestServiceEvaluateVisibilityLocaleRestrictions(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	allowed := uuid.MustParse("00000000-0000-0000-0000-000000000123")
+	instance := &Instance{
+		VisibilityRules: map[string]any{
+			"locales": []any{allowed.String()},
+		},
+	}
+
+	visible, err := svc.EvaluateVisibility(ctx, instance, VisibilityContext{})
+	if !errors.Is(err, ErrVisibilityLocaleRestricted) {
+		t.Fatalf("expected ErrVisibilityLocaleRestricted, got %v", err)
+	}
+	if visible {
+		t.Fatalf("expected hidden widget without locale match")
+	}
+
+	visible, err = svc.EvaluateVisibility(ctx, instance, VisibilityContext{LocaleID: &allowed})
+	if err != nil {
+		t.Fatalf("evaluate visibility with allowed locale: %v", err)
+	}
+	if !visible {
+		t.Fatalf("expected widget to be visible for allowed locale")
+	}
+}
+
+func TestServiceEvaluateVisibilityAudienceAndSegments(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	instance := &Instance{
+		VisibilityRules: map[string]any{
+			"audience": []any{"guest"},
+			"segments": []string{"beta"},
+		},
+	}
+
+	visible, err := svc.EvaluateVisibility(ctx, instance, VisibilityContext{
+		Audience: []string{"member"},
+		Segments: []string{"control"},
+	})
+	if err != nil {
+		t.Fatalf("evaluate visibility without matches: %v", err)
+	}
+	if visible {
+		t.Fatalf("expected widget to be hidden without audience/segment match")
+	}
+
+	visible, err = svc.EvaluateVisibility(ctx, instance, VisibilityContext{
+		Audience: []string{"member", "guest"},
+		Segments: []string{"beta"},
+	})
+	if err != nil {
+		t.Fatalf("evaluate visibility with matches: %v", err)
+	}
+	if !visible {
+		t.Fatalf("expected widget to be visible when audience and segments match")
+	}
+}
+
+func TestEnsureDefinitions(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	definitions := []RegisterDefinitionInput{
+		{
+			Name: "announcement",
+			Schema: map[string]any{
+				"fields": []any{
+					map[string]any{"name": "message"},
+				},
+			},
+		},
+	}
+
+	if err := EnsureDefinitions(ctx, svc, definitions); err != nil {
+		t.Fatalf("ensure definitions: %v", err)
+	}
+	if err := EnsureDefinitions(ctx, svc, definitions); err != nil {
+		t.Fatalf("ensure definitions second run: %v", err)
+	}
+
+	list, err := svc.ListDefinitions(ctx)
+	if err != nil {
+		t.Fatalf("list definitions: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected one definition, got %d", len(list))
+	}
+	if list[0].Name != "announcement" {
+		t.Fatalf("unexpected definition name %s", list[0].Name)
+	}
+}
+
+func TestEnsureAreaDefinitions(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithAreaDefinitionRepository(NewMemoryAreaDefinitionRepository()),
+		WithAreaPlacementRepository(NewMemoryAreaPlacementRepository()),
+	)
+
+	areas := []RegisterAreaDefinitionInput{
+		{
+			Code:  "footer.global",
+			Name:  "Footer",
+			Scope: AreaScopeGlobal,
+		},
+	}
+
+	if err := EnsureAreaDefinitions(ctx, svc, areas); err != nil {
+		t.Fatalf("ensure areas: %v", err)
+	}
+	if err := EnsureAreaDefinitions(ctx, svc, areas); err != nil {
+		t.Fatalf("ensure areas second run: %v", err)
+	}
+
+	list, err := svc.ListAreaDefinitions(ctx)
+	if err != nil {
+		t.Fatalf("list areas: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected one area definition, got %d", len(list))
+	}
+	if list[0].Code != "footer.global" {
+		t.Fatalf("unexpected area code %s", list[0].Code)
+	}
+}
+
 func sequentialIDs(values ...string) IDGenerator {
 	ids := make([]uuid.UUID, len(values))
 	for i, value := range values {
