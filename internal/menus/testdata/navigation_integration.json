@@ -3,13 +3,13 @@
   "navigation": [
     {
       "label": "Company",
-      "url": "/company-overview"
+      "url": "https://example.com/pages/company-overview"
     }
   ],
   "navigation_es": [
     {
       "label": "Empresa",
-      "url": "/company-overview"
+      "url": "https://example.com/es/paginas/company-overview"
     }
   ]
 }

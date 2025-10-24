@@ -13,6 +13,7 @@ import (
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/testsupport"
+	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 )
 
@@ -356,6 +357,99 @@ func TestService_ResolveNavigation_PageIntegration(t *testing.T) {
 	}
 }
 
+func TestService_ResolveNavigation_URLKitResolver(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+	enLocale := uuid.MustParse("00000000-0000-0000-0000-000000000201")
+	esLocale := uuid.MustParse("00000000-0000-0000-0000-000000000202")
+	pageID := uuid.MustParse("30000000-0000-0000-0000-000000000001")
+	repo := newStubPageRepository(&pages.Page{
+		ID:   pageID,
+		Slug: "company",
+		Translations: []*pages.PageTranslation{
+			{LocaleID: enLocale, Path: "/company"},
+			{LocaleID: esLocale, Path: "/es/empresa"},
+		},
+	})
+
+	manager := urlkit.NewRouteManager(&urlkit.Config{
+		Groups: []urlkit.GroupConfig{
+			{
+				Name:    "frontend",
+				BaseURL: "https://example.com",
+				Paths: map[string]string{
+					"page": "/pages/:slug",
+				},
+				Groups: []urlkit.GroupConfig{
+					{
+						Name: "es",
+						Path: "/es",
+						Paths: map[string]string{
+							"page": "/paginas/:slug",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	resolver := menus.NewURLKitResolver(menus.URLKitResolverOptions{
+		Manager:      manager,
+		DefaultGroup: "frontend",
+		LocaleGroups: map[string]string{
+			"es": "frontend.es",
+		},
+		DefaultRoute: "page",
+		SlugParam:    "slug",
+	})
+
+	service := newServiceWithLocales(t, fixture.locales(), uuid.New, repo, menus.WithURLResolver(resolver))
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "company",
+		},
+		Translations: fixture.translations("navigation_company"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem: %v", err)
+	}
+
+	navEN, err := service.ResolveNavigation(ctx, "primary", "en")
+	if err != nil {
+		t.Fatalf("ResolveNavigation en: %v", err)
+	}
+	if len(navEN) != 1 {
+		t.Fatalf("expected 1 nav item, got %d", len(navEN))
+	}
+	if navEN[0].URL != "https://example.com/pages/company" {
+		t.Fatalf("expected urlkit url, got %q", navEN[0].URL)
+	}
+
+	navES, err := service.ResolveNavigation(ctx, "primary", "es")
+	if err != nil {
+		t.Fatalf("ResolveNavigation es: %v", err)
+	}
+	if len(navES) != 1 {
+		t.Fatalf("expected 1 nav item, got %d", len(navES))
+	}
+	if navES[0].URL != "https://example.com/es/paginas/company" {
+		t.Fatalf("expected localized urlkit url, got %q", navES[0].URL)
+	}
+}
+
 type stubPageRepository struct {
 	byID   map[uuid.UUID]*pages.Page
 	bySlug map[string]*pages.Page
@@ -571,7 +665,7 @@ func newServiceWithIDs(t *testing.T, fixture serviceFixture, ids ...uuid.UUID) (
 	return svc, ids
 }
 
-func newServiceWithLocales(t *testing.T, locales []content.Locale, idGen menus.IDGenerator, pageRepo menus.PageRepository) menus.Service {
+func newServiceWithLocales(t *testing.T, locales []content.Locale, idGen menus.IDGenerator, pageRepo menus.PageRepository, extra ...menus.ServiceOption) menus.Service {
 	t.Helper()
 
 	menuRepo := menus.NewMemoryMenuRepository()
@@ -591,6 +685,7 @@ func newServiceWithLocales(t *testing.T, locales []content.Locale, idGen menus.I
 	if pageRepo != nil {
 		opts = append(opts, menus.WithPageRepository(pageRepo))
 	}
+	ops = append(opts, extra...)
 	return menus.NewService(menuRepo, itemRepo, trRepo, localeRepo, opts...)
 }
 

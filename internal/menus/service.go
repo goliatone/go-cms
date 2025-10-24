@@ -163,6 +163,7 @@ type service struct {
 	pageRepo     PageRepository
 	now          func() time.Time
 	id           IDGenerator
+	urlResolver  URLResolver
 }
 
 // NewService constructs a menu service instance.
@@ -175,6 +176,8 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 		now:          time.Now,
 		id:           uuid.New,
 	}
+
+	s.urlResolver = &defaultURLResolver{service: s}
 
 	for _, opt := range opts {
 		opt(s)
@@ -561,7 +564,7 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 
 	nodes := make([]NavigationNode, 0, len(menu.Items))
 	for _, item := range menu.Items {
-		node, err := s.buildNavigationNode(ctx, item, localeID, locale)
+		node, err := s.buildNavigationNode(ctx, menu.Code, item, localeID, locale)
 		if err != nil {
 			return nil, err
 		}
@@ -570,7 +573,7 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 	return nodes, nil
 }
 
-func (s *service) buildNavigationNode(ctx context.Context, item *MenuItem, localeID uuid.UUID, locale string) (NavigationNode, error) {
+func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) (NavigationNode, error) {
 	node := NavigationNode{
 		ID: item.ID,
 	}
@@ -594,11 +597,7 @@ func (s *service) buildNavigationNode(ctx context.Context, item *MenuItem, local
 	}
 
 	if node.URL == "" {
-		url, err := s.resolveURLForTarget(ctx, item.Target, localeID)
-		if err != nil {
-			return NavigationNode{}, err
-		}
-		node.URL = url
+		node.URL = s.resolveNodeURL(ctx, menuCode, item, localeID, locale)
 	}
 
 	if node.Label == "" {
@@ -616,7 +615,7 @@ func (s *service) buildNavigationNode(ctx context.Context, item *MenuItem, local
 	if len(item.Children) > 0 {
 		children := make([]NavigationNode, 0, len(item.Children))
 		for _, child := range item.Children {
-			childNode, err := s.buildNavigationNode(ctx, child, localeID, locale)
+			childNode, err := s.buildNavigationNode(ctx, menuCode, child, localeID, locale)
 			if err != nil {
 				return NavigationNode{}, err
 			}
@@ -649,6 +648,30 @@ func (s *service) hydrateMenu(ctx context.Context, menu *Menu) (*Menu, error) {
 
 	menu.Items = buildHierarchy(items, trMap)
 	return menu, nil
+}
+
+func (s *service) resolveNodeURL(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) string {
+	if item == nil {
+		return ""
+	}
+	if s.urlResolver != nil {
+		url, err := s.urlResolver.Resolve(ctx, ResolveRequest{
+			MenuCode: menuCode,
+			Item:     item,
+			Locale:   locale,
+			LocaleID: localeID,
+		})
+		if err == nil {
+			if trimmed := strings.TrimSpace(url); trimmed != "" {
+				return trimmed
+			}
+		}
+	}
+	url, err := s.resolveURLForTarget(ctx, item.Target, localeID)
+	if err != nil {
+		return ""
+	}
+	return url
 }
 
 func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, inputs []MenuItemTranslationInput) ([]*MenuItemTranslation, error) {

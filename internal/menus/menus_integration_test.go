@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	repocache "github.com/goliatone/go-repository-cache/cache"
+	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
@@ -51,7 +52,41 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 
 	contentSvc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
 	pageSvc := pages.NewService(pageRepo, contentRepo, localeRepo)
-	menuSvc := menus.NewService(menuRepo, menuItemRepo, menuTranslationRepo, localeRepo, menus.WithPageRepository(pageRepo))
+	routeManager := urlkit.NewRouteManager(&urlkit.Config{
+		Groups: []urlkit.GroupConfig{
+			{
+				Name:    "frontend",
+				BaseURL: "https://example.com",
+				Paths: map[string]string{
+					"page": "/pages/:slug",
+				},
+				Groups: []urlkit.GroupConfig{
+					{
+						Name: "es",
+						Path: "/es",
+						Paths: map[string]string{
+							"page": "/paginas/:slug",
+						},
+					},
+				},
+			},
+		},
+	})
+
+	urlResolver := menus.NewURLKitResolver(menus.URLKitResolverOptions{
+		Manager:      routeManager,
+		DefaultGroup: "frontend",
+		LocaleGroups: map[string]string{
+			"es": "frontend.es",
+		},
+		DefaultRoute: "page",
+		SlugParam:    "slug",
+	})
+
+	menuSvc := menus.NewService(menuRepo, menuItemRepo, menuTranslationRepo, localeRepo,
+		menus.WithPageRepository(pageRepo),
+		menus.WithURLResolver(urlResolver),
+	)
 
 	authorID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 
