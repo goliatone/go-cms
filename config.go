@@ -14,6 +14,7 @@ type Config struct {
 	Storage       StorageConfig
 	Cache         CacheConfig
 	Navigation    NavigationConfig
+	Features      Features
 }
 
 type ContentConfig struct {
@@ -53,6 +54,11 @@ type URLKitResolverConfig struct {
 	QueryField    string
 }
 
+// Features toggles module functionality
+type Features struct {
+	Widgets bool
+}
+
 func DefaultConfig() Config {
 	return Config{
 		Enabled:       true,
@@ -72,5 +78,6 @@ func DefaultConfig() Config {
 			DefaultTTL: time.Minute,
 		},
 		Navigation: NavigationConfig{},
+		Features:   Features{},
 	}
 }
