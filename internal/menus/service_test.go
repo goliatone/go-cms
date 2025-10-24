@@ -685,7 +685,7 @@ func newServiceWithLocales(t *testing.T, locales []content.Locale, idGen menus.I
 	if pageRepo != nil {
 		opts = append(opts, menus.WithPageRepository(pageRepo))
 	}
-	ops = append(opts, extra...)
+	opts = append(opts, extra...)
 	return menus.NewService(menuRepo, itemRepo, trRepo, localeRepo, opts...)
 }
 

@@ -9,6 +9,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/google/uuid"
 )
 
@@ -254,5 +255,135 @@ func TestPageServiceListIncludesBlocks(t *testing.T) {
 	}
 	if pagesList[0].Blocks[0].Region != "hero" {
 		t.Fatalf("unexpected block region %s", pagesList[0].Blocks[0].Region)
+	}
+}
+
+func TestPageServiceListIncludesWidgets(t *testing.T) {
+	ctx := context.Background()
+
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	authorID := uuid.New()
+	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "features",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Features",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	now := time.Date(2024, 2, 1, 12, 0, 0, 0, time.UTC)
+	widgetSvc := widgets.NewService(
+		widgets.NewMemoryDefinitionRepository(),
+		widgets.NewMemoryInstanceRepository(),
+		widgets.NewMemoryTranslationRepository(),
+		widgets.WithAreaDefinitionRepository(widgets.NewMemoryAreaDefinitionRepository()),
+		widgets.WithAreaPlacementRepository(widgets.NewMemoryAreaPlacementRepository()),
+		widgets.WithClock(func() time.Time { return now }),
+	)
+
+	definition, err := widgetSvc.RegisterDefinition(ctx, widgets.RegisterDefinitionInput{
+		Name: "promo_banner",
+		Schema: map[string]any{
+			"fields": []any{
+				map[string]any{"name": "headline"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register widget definition: %v", err)
+	}
+
+	instance, err := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
+		DefinitionID:  definition.ID,
+		Configuration: map[string]any{"headline": "Limited time offer"},
+		Position:      0,
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+	})
+	if err != nil {
+		t.Fatalf("create widget instance: %v", err)
+	}
+
+	if _, err := widgetSvc.RegisterAreaDefinition(ctx, widgets.RegisterAreaDefinitionInput{
+		Code:  "sidebar.primary",
+		Name:  "Primary Sidebar",
+		Scope: widgets.AreaScopeGlobal,
+	}); err != nil {
+		t.Fatalf("register area definition: %v", err)
+	}
+
+	if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+		AreaCode:   "sidebar.primary",
+		InstanceID: instance.ID,
+	}); err != nil {
+		t.Fatalf("assign widget to area: %v", err)
+	}
+
+	pageID := uuid.New()
+	pageSvc := pages.NewService(
+		pageStore,
+		contentStore,
+		localeStore,
+		pages.WithWidgetService(widgetSvc),
+		pages.WithPageClock(func() time.Time { return now }),
+		pages.WithIDGenerator(func() uuid.UUID { return pageID }),
+	)
+
+	createdPage, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "features",
+		CreatedBy:  authorID,
+		UpdatedBy:  authorID,
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Features",
+			Path:   "/features",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+	if createdPage.ID != pageID {
+		t.Fatalf("expected deterministic page ID")
+	}
+
+	results, err := pageSvc.List(ctx)
+	if err != nil {
+		t.Fatalf("list pages: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected one page, got %d", len(results))
+	}
+
+	areaWidgets, ok := results[0].Widgets["sidebar.primary"]
+	if !ok {
+		t.Fatalf("expected widgets for sidebar.primary")
+	}
+	if len(areaWidgets) != 1 {
+		t.Fatalf("expected one widget resolved, got %d", len(areaWidgets))
+	}
+	if areaWidgets[0] == nil || areaWidgets[0].Instance == nil {
+		t.Fatalf("expected resolved widget instance")
+	}
+	if areaWidgets[0].Instance.ID != instance.ID {
+		t.Fatalf("expected widget instance %s, got %s", instance.ID, areaWidgets[0].Instance.ID)
 	}
 }
