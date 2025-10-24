@@ -120,7 +120,8 @@ Core content management functionality:
 - Draft/publish workflow
 - Content validation
 - Slug generation
-- Persistence through the `StorageProvider` interface (fulfilled by go-persistence-bun/go-repository-bun adapters)
+- Persistence through the `StorageProvider` interface (fulfilled by go-persistence-bun/go-repository-bun adapters via `di.WithBunDB`)
+- Repository-level caching backed by `interfaces.CacheProvider` (defaults enabled via `cms.Config.Cache`)
 
 ### Blocks Module (`blocks/`)
 
@@ -132,6 +133,7 @@ Block based content system:
 - Nested block support
 - Reusable block patterns
 - Repository integration through go-repository-bun
+- Repository-level caching (go-repository-cache) and DI wiring via `BlockService`
 
 ### Pages Module (`pages/`)
 
