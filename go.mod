@@ -1,11 +1,14 @@
 module github.com/goliatone/go-cms
 
-go 1.23.4
+go 1.24.0
+
+toolchain go1.24.9
 
 require (
 	github.com/goliatone/go-errors v0.9.0
-	github.com/goliatone/go-repository-bun v0.6.0
-	github.com/goliatone/go-repository-cache v0.4.0
+	github.com/goliatone/go-repository-bun v0.7.0
+	github.com/goliatone/go-repository-cache v0.5.0
+	github.com/goliatone/go-urlkit v0.2.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/uptrace/bun v1.2.15
@@ -14,10 +17,13 @@ require (
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
+	github.com/flosch/pongo2/v6 v6.0.0 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
+	github.com/soongo/path-to-regexp v1.6.4 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/viccon/sturdyc v1.1.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
