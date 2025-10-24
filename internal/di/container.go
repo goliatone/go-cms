@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	repocache "github.com/goliatone/go-repository-cache/cache"
 	urlkit "github.com/goliatone/go-urlkit"
@@ -51,6 +52,12 @@ type Container struct {
 	menuURLResolver     menus.URLResolver
 	routeManager        *urlkit.RouteManager
 
+	widgetDefinitionRepo  widgets.DefinitionRepository
+	widgetInstanceRepo    widgets.InstanceRepository
+	widgetTranslationRepo widgets.TranslationRepository
+	widgetAreaRepo        widgets.AreaDefinitionRepository
+	widgetPlacementRepo   widgets.AreaPlacementRepository
+
 	memoryLocaleRepo *content.MemoryLocaleRepository
 
 	contentSvc content.Service
@@ -58,6 +65,7 @@ type Container struct {
 	blockSvc   blocks.Service
 	i18nSvc    i18n.Service
 	menuSvc    menus.Service
+	widgetSvg  widgets.Service
 }
 
 // Option mutates the container before it is finalised.
@@ -126,6 +134,12 @@ func WithBlockService(svc blocks.Service) Option {
 	}
 }
 
+func WithWidgetService(svc widgets.Service) Option {
+	return func(c *Container) {
+		c.widgetSvg = svc
+	}
+}
+
 func WithMenuService(svc menus.Service) Option {
 	return func(c *Container) {
 		c.menuSvc = svc
@@ -159,24 +173,35 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	memoryMenuItemRepo := menus.NewMemoryMenuItemRepository()
 	memoryMenuTranslationRepo := menus.NewMemoryMenuItemTranslationRepository()
 
+	memoryWidgetDefinitionRepo := widgets.NewMemoryDefinitionRepository()
+	memoryWidgetInstanceRepo := widgets.NewMemoryInstanceRepository()
+	memoryWidgetTranslationRepo := widgets.NewMemoryTranslationRepository()
+	memoryWidgetAreaRepo := widgets.NewMemoryAreaDefinitionRepository()
+	memoryWidgetPlacementRepo := widgets.NewMemoryAreaPlacementRepository()
+
 	c := &Container{
-		Config:               cfg,
-		storage:              storage.NewNoOpProvider(),
-		template:             noop.Template(),
-		media:                noop.Media(),
-		auth:                 noop.Auth(),
-		cacheTTL:             cacheTTL,
-		contentRepo:          memoryContentRepo,
-		contentTypeRepo:      memoryContentTypeRepo,
-		localeRepo:           memoryLocaleRepo,
-		pageRepo:             memoryPageRepo,
-		blockDefinitionRepo:  memoryBlockDefRepo,
-		blockRepo:            memoryBlockRepo,
-		blockTranslationRepo: memoryBlockTranslationRepo,
-		menuRepo:             memoryMenuRepo,
-		menuItemRepo:         memoryMenuItemRepo,
-		menuTranslationRepo:  memoryMenuTranslationRepo,
-		memoryLocaleRepo:     memoryLocaleRepo,
+		Config:                cfg,
+		storage:               storage.NewNoOpProvider(),
+		template:              noop.Template(),
+		media:                 noop.Media(),
+		auth:                  noop.Auth(),
+		cacheTTL:              cacheTTL,
+		contentRepo:           memoryContentRepo,
+		contentTypeRepo:       memoryContentTypeRepo,
+		localeRepo:            memoryLocaleRepo,
+		pageRepo:              memoryPageRepo,
+		blockDefinitionRepo:   memoryBlockDefRepo,
+		blockRepo:             memoryBlockRepo,
+		blockTranslationRepo:  memoryBlockTranslationRepo,
+		menuRepo:              memoryMenuRepo,
+		menuItemRepo:          memoryMenuItemRepo,
+		menuTranslationRepo:   memoryMenuTranslationRepo,
+		widgetDefinitionRepo:  memoryWidgetDefinitionRepo,
+		widgetInstanceRepo:    memoryWidgetInstanceRepo,
+		widgetTranslationRepo: memoryWidgetTranslationRepo,
+		widgetAreaRepo:        memoryWidgetAreaRepo,
+		widgetPlacementRepo:   memoryWidgetPlacementRepo,
+		memoryLocaleRepo:      memoryLocaleRepo,
 	}
 
 	c.seedLocales()
@@ -226,6 +251,32 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		)
 	}
 
+	if c.widgetSvg == nil {
+		if !c.Config.Features.Widgets {
+			c.widgetSvg = widgets.NewNoOpService()
+		} else {
+			registry := widgets.NewRegistry()
+			registerBuiltInWidgets(registry)
+
+			serviceOptions := []widgets.ServiceOption{
+				widgets.WithRegistry(registry),
+			}
+			if c.widgetAreaRepo != nil {
+				serviceOptions = append(serviceOptions, widgets.WithAreaDefinitionRepository(c.widgetAreaRepo))
+			}
+			if c.widgetPlacementRepo != nil {
+				serviceOptions = append(serviceOptions, widgets.WithAreaPlacementRepository(c.widgetPlacementRepo))
+			}
+
+			c.widgetSvg = widgets.NewService(
+				c.widgetDefinitionRepo,
+				c.widgetInstanceRepo,
+				c.widgetTranslationRepo,
+				serviceOptions...,
+			)
+		}
+	}
+
 	return c
 }
 
@@ -265,6 +316,12 @@ func (c *Container) configureRepositories() {
 		c.menuRepo = menus.NewBunMenuRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.menuItemRepo = menus.NewBunMenuItemRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.menuTranslationRepo = menus.NewBunMenuItemTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+
+		c.widgetDefinitionRepo = widgets.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.widgetInstanceRepo = widgets.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.widgetTranslationRepo = widgets.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.widgetAreaRepo = widgets.NewBunAreaDefinitionRepository(c.bunDB)
+		c.widgetPlacementRepo = widgets.NewBunAreaPlacementRepository(c.bunDB)
 
 		c.memoryLocaleRepo = nil
 	}
@@ -359,6 +416,11 @@ func (c *Container) MenuService() menus.Service {
 	return c.menuSvc
 }
 
+// WidgetService returns the configured widget service.
+func (c *Container) WidgetService() widgets.Service {
+	return c.widgetSvg
+}
+
 // I18nService returns the configured i18n service (lazy).
 func (c *Container) I18nService() i18n.Service {
 	if c.i18nSvc != nil {
@@ -425,4 +487,37 @@ func (c *Container) seedLocales() {
 			IsDefault: strings.EqualFold(normalized, c.Config.DefaultLocale),
 		})
 	}
+}
+
+func registerBuiltInWidgets(registry *widgets.Registry) {
+	if registry == nil {
+		return
+	}
+	// TODO: Do now hardcode this, take from config
+	description := strPtr("Captures visitor email addresses with a simple form")
+	category := strPtr("marketing")
+	icon := strPtr("envelope-open")
+
+	registry.Register(widgets.RegisterDefinitionInput{
+		Name:        "newsletter_signup",
+		Description: description,
+		Schema: map[string]any{
+			"fields": []any{
+				map[string]any{"name": "headline", "type": "text"},
+				map[string]any{"name": "subheadline", "type": "text"},
+				map[string]any{"name": "cta_text", "type": "text"},
+				map[string]any{"name": "success_message", "type": "text"},
+			},
+		},
+		Defaults: map[string]any{
+			"cta_text":        "Subscribe",
+			"success_message": "Thanks for subscribing!",
+		},
+		Category: category,
+		Icon:     icon,
+	})
+}
+
+func strPtr(value string) *string {
+	return &value
 }
