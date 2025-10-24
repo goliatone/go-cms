@@ -6,7 +6,7 @@ import (
 	"strings"
 	"sync"
 
-	urlkit "github.com/goliatone/go-urlkit"
+	"github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 )
 

@@ -1,6 +1,10 @@
 package cms
 
-import "time"
+import (
+	"time"
+
+	urlkit "github.com/goliatone/go-urlkit"
+)
 
 type Config struct {
 	Enabled       bool
@@ -9,6 +13,7 @@ type Config struct {
 	I18N          I18NConfig
 	Storage       StorageConfig
 	Cache         CacheConfig
+	Navigation    NavigationConfig
 }
 
 type ContentConfig struct {
@@ -29,6 +34,25 @@ type CacheConfig struct {
 	DefaultTTL time.Duration
 }
 
+// NavigationConfig captures routing configuration for menu URL resolution.
+type NavigationConfig struct {
+	RouteConfig *urlkit.Config
+	URLKit      URLKitResolverConfig
+}
+
+// URLKitResolverConfig configures the go-urlkit based resolver.
+type URLKitResolverConfig struct {
+	DefaultGroup  string
+	LocaleGroups  map[string]string
+	DefaultRoute  string
+	SlugParam     string
+	LocaleParam   string
+	LocaleIDParam string
+	RouteField    string
+	ParamsField   string
+	QueryField    string
+}
+
 func DefaultConfig() Config {
 	return Config{
 		Enabled:       true,
@@ -47,5 +71,6 @@ func DefaultConfig() Config {
 			Enabled:    true,
 			DefaultTTL: time.Minute,
 		},
+		Navigation: NavigationConfig{},
 	}
 }
