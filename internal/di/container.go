@@ -14,6 +14,7 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	repocache "github.com/goliatone/go-repository-cache/cache"
+	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -47,6 +48,8 @@ type Container struct {
 	menuRepo            menus.MenuRepository
 	menuItemRepo        menus.MenuItemRepository
 	menuTranslationRepo menus.MenuItemTranslationRepository
+	menuURLResolver     menus.URLResolver
+	routeManager        *urlkit.RouteManager
 
 	memoryLocaleRepo *content.MemoryLocaleRepository
 
@@ -184,6 +187,7 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 
 	c.configureCacheDefaults()
 	c.configureRepositories()
+	c.configureNavigation()
 
 	if c.contentSvc == nil {
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo)
@@ -209,6 +213,9 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		menuOpts := []menus.ServiceOption{}
 		if c.pageRepo != nil {
 			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
+		}
+		if c.menuURLResolver != nil {
+			menuOpts = append(menuOpts, menus.WithURLResolver(c.menuURLResolver))
 		}
 		c.menuSvc = menus.NewService(
 			c.menuRepo,
@@ -261,6 +268,35 @@ func (c *Container) configureRepositories() {
 
 		c.memoryLocaleRepo = nil
 	}
+}
+
+func (c *Container) configureNavigation() {
+	if c.menuURLResolver != nil {
+		return
+	}
+
+	navCfg := c.Config.Navigation
+	if navCfg.RouteConfig == nil {
+		return
+	}
+
+	manager := urlkit.NewRouteManager(navCfg.RouteConfig)
+	c.routeManager = manager
+
+	resolver := menus.NewURLKitResolver(menus.URLKitResolverOptions{
+		Manager:       manager,
+		DefaultGroup:  strings.TrimSpace(navCfg.URLKit.DefaultGroup),
+		LocaleGroups:  navCfg.URLKit.LocaleGroups,
+		DefaultRoute:  strings.TrimSpace(navCfg.URLKit.DefaultRoute),
+		SlugParam:     navCfg.URLKit.SlugParam,
+		LocaleParam:   strings.TrimSpace(navCfg.URLKit.LocaleParam),
+		LocaleIDParam: strings.TrimSpace(navCfg.URLKit.LocaleIDParam),
+		RouteField:    strings.TrimSpace(navCfg.URLKit.RouteField),
+		ParamsField:   strings.TrimSpace(navCfg.URLKit.ParamsField),
+		QueryField:    strings.TrimSpace(navCfg.URLKit.QueryField),
+	})
+
+	c.menuURLResolver = resolver
 }
 
 // API constructs the top-level CMS API façade.
@@ -316,6 +352,11 @@ func (c *Container) PageService() pages.Service {
 // BlockService returns the configured block service.
 func (c *Container) BlockService() blocks.Service {
 	return c.blockSvc
+}
+
+// MenuService returns the configured menu service.
+func (c *Container) MenuService() menus.Service {
+	return c.menuSvc
 }
 
 // I18nService returns the configured i18n service (lazy).
