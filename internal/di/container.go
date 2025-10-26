@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	repocache "github.com/goliatone/go-repository-cache/cache"
@@ -58,6 +59,9 @@ type Container struct {
 	widgetAreaRepo        widgets.AreaDefinitionRepository
 	widgetPlacementRepo   widgets.AreaPlacementRepository
 
+	themeRepo    themes.ThemeRepository
+	templateRepo themes.TemplateRepository
+
 	memoryLocaleRepo *content.MemoryLocaleRepository
 
 	contentSvc content.Service
@@ -66,6 +70,7 @@ type Container struct {
 	i18nSvc    i18n.Service
 	menuSvc    menus.Service
 	widgetSvg  widgets.Service
+	themeSvc   themes.Service
 }
 
 // Option mutates the container before it is finalised.
@@ -140,6 +145,12 @@ func WithWidgetService(svc widgets.Service) Option {
 	}
 }
 
+func WithThemeService(svc themes.Service) Option {
+	return func(c *Container) {
+		c.themeSvc = svc
+	}
+}
+
 func WithMenuService(svc menus.Service) Option {
 	return func(c *Container) {
 		c.menuSvc = svc
@@ -155,6 +166,10 @@ func WithI18nService(svc i18n.Service) Option {
 
 // NewContainer creates a container with the provided configuration.
 func NewContainer(cfg cms.Config, opts ...Option) *Container {
+	if err := cfg.Validate(); err != nil {
+		panic(err)
+	}
+
 	cacheTTL := cfg.Cache.DefaultTTL
 	if cacheTTL <= 0 {
 		cacheTTL = time.Minute
@@ -179,6 +194,9 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	memoryWidgetAreaRepo := widgets.NewMemoryAreaDefinitionRepository()
 	memoryWidgetPlacementRepo := widgets.NewMemoryAreaPlacementRepository()
 
+	memoryThemeRepo := themes.NewMemoryThemeRepository()
+	memoryTemplateRepo := themes.NewMemoryTemplateRepository()
+
 	c := &Container{
 		Config:                cfg,
 		storage:               storage.NewNoOpProvider(),
@@ -201,6 +219,8 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		widgetTranslationRepo: memoryWidgetTranslationRepo,
 		widgetAreaRepo:        memoryWidgetAreaRepo,
 		widgetPlacementRepo:   memoryWidgetPlacementRepo,
+		themeRepo:             memoryThemeRepo,
+		templateRepo:          memoryTemplateRepo,
 		memoryLocaleRepo:      memoryLocaleRepo,
 	}
 
@@ -224,6 +244,14 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 			c.blockRepo,
 			c.blockTranslationRepo,
 		)
+	}
+
+	if c.themeSvc == nil {
+		if !c.Config.Features.Themes {
+			c.themeSvc = themes.NewNoOpService()
+		} else {
+			c.themeSvc = themes.NewService(c.themeRepo, c.templateRepo)
+		}
 	}
 
 	if c.pageSvc == nil {
@@ -277,6 +305,37 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		}
 	}
 
+	if c.pageSvc == nil {
+		pageOpts := []pages.ServiceOption{}
+		if c.blockSvc != nil {
+			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
+		}
+		if c.widgetSvg != nil {
+			pageOpts = append(pageOpts, pages.WithWidgetService(c.widgetSvg))
+		}
+		if c.themeSvc != nil {
+			pageOpts = append(pageOpts, pages.WithThemeService(c.themeSvc))
+		}
+		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
+	}
+
+	if c.menuSvc == nil {
+		menuOpcs := []menus.ServiceOption{}
+		if c.pageRepo != nil {
+			menuOpcs = append(menuOpcs, menus.WithPageRepository(c.pageRepo))
+		}
+		if c.menuURLResolver != nil {
+			menuOpcs = append(menuOpcs, menus.WithURLResolver(c.menuURLResolver))
+		}
+		c.menuSvc = menus.NewService(
+			c.menuRepo,
+			c.menuItemRepo,
+			c.menuTranslationRepo,
+			c.localeRepo,
+			menuOpcs...,
+		)
+	}
+
 	return c
 }
 
@@ -322,6 +381,9 @@ func (c *Container) configureRepositories() {
 		c.widgetTranslationRepo = widgets.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.widgetAreaRepo = widgets.NewBunAreaDefinitionRepository(c.bunDB)
 		c.widgetPlacementRepo = widgets.NewBunAreaPlacementRepository(c.bunDB)
+
+		c.themeRepo = themes.NewBunThemeRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.templateRepo = themes.NewBunTemplateRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 
 		c.memoryLocaleRepo = nil
 	}
@@ -419,6 +481,10 @@ func (c *Container) MenuService() menus.Service {
 // WidgetService returns the configured widget service.
 func (c *Container) WidgetService() widgets.Service {
 	return c.widgetSvg
+}
+
+func (c *Container) ThemeService() themes.Service {
+	return c.themeSvc
 }
 
 // I18nService returns the configured i18n service (lazy).

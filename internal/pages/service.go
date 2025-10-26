@@ -11,6 +11,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/google/uuid"
 )
@@ -53,6 +54,7 @@ var (
 	ErrDuplicateLocale    = errors.New("pages: duplicate locale provided")
 	ErrParentNotFound     = errors.New("pages: parent page not found")
 	ErrNoPageTranslations = errors.New("pages: at least one translation is required")
+	ErrTemplateUnknown    = errors.New("pages: template not found")
 )
 
 // PageRepository abstracts storage operations for pages.
@@ -109,6 +111,7 @@ type pageService struct {
 	locales LocaleRepository
 	blocks  blocks.Service
 	widgets widgets.Service
+	themes  themes.Service
 	now     func() time.Time
 	id      IDGenerator
 }
@@ -122,6 +125,12 @@ func WithBlockService(service blocks.Service) ServiceOption {
 func WithWidgetService(svc widgets.Service) ServiceOption {
 	return func(ps *pageService) {
 		ps.widgets = svc
+	}
+}
+
+func WithThemeService(svc themes.Service) ServiceOption {
+	return func(ps *pageService) {
+		ps.themes = svc
 	}
 }
 
@@ -166,6 +175,18 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	if _, err := s.content.GetByID(ctx, req.ContentID); err != nil {
 		return nil, ErrContentRequired
+	}
+
+	if s.themes != nil {
+		if _, err := s.themes.GetTemplate(ctx, req.TemplateID); err != nil {
+			if errors.Is(err, themes.ErrFeatureDisabled) {
+				// feature disabled, skip template validation
+			} else if errors.Is(err, themes.ErrTemplateNotFound) {
+				return nil, ErrTemplateUnknown
+			} else {
+				return nil, err
+			}
+		}
 	}
 
 	if existing, err := s.pages.GetBySlug(ctx, slug); err == nil && existing != nil {
@@ -333,6 +354,9 @@ func (s *pageService) attachWidgets(ctx context.Context, pages []*Page) ([]*Page
 		return pages, nil
 	}
 
+	templateCache := make(map[uuid.UUID]*themes.Template)
+	regionCache := make(map[uuid.UUID]map[string]struct{})
+
 	now := s.now()
 	enriched := make([]*Page, 0, len(pages))
 	for _, page := range pages {
@@ -343,6 +367,51 @@ func (s *pageService) attachWidgets(ctx context.Context, pages []*Page) ([]*Page
 
 		clone := *page
 		var areaWidgets map[string][]*widgets.ResolvedWidget
+
+		var template *themes.Template
+		allowedRegions := map[string]struct{}{}
+		if s.themes != nil && page.TemplateID != uuid.Nil {
+			if cached, ok := templateCache[page.TemplateID]; ok {
+				template = cached
+			} else {
+				tpl, tplErr := s.themes.GetTemplate(ctx, page.TemplateID)
+				if tplErr != nil {
+					if errors.Is(tplErr, themes.ErrFeatureDisabled) || errors.Is(tplErr, themes.ErrTemplateNotFound) {
+						templateCache[page.TemplateID] = nil
+					} else {
+						return nil, tplErr
+					}
+				} else {
+					templateCache[page.TemplateID] = tpl
+					template = tpl
+				}
+			}
+			if template != nil {
+				if cachedRegions, ok := regionCache[template.ID]; ok {
+					if cachedRegions != nil {
+						allowedRegions = cachedRegions
+					}
+				} else {
+					infos, regionErr := s.themes.TemplateRegions(ctx, template.ID)
+					if regionErr != nil {
+						if errors.Is(regionErr, themes.ErrFeatureDisabled) || errors.Is(regionErr, themes.ErrTemplateNotFound) {
+							regionCache[template.ID] = nil
+						} else {
+							return nil, regionErr
+						}
+					} else {
+						regionMap := make(map[string]struct{})
+						for _, info := range infos {
+							if info.AcceptsWidgets {
+								regionMap[info.Key] = struct{}{}
+							}
+						}
+						regionCache[template.ID] = regionMap
+						allowedRegions = regionMap
+					}
+				}
+			}
+		}
 		for _, definition := range definitions {
 			if definition == nil {
 				continue
@@ -350,6 +419,14 @@ func (s *pageService) attachWidgets(ctx context.Context, pages []*Page) ([]*Page
 			code := strings.TrimSpace(definition.Code)
 			if code == "" {
 				continue
+			}
+			if template != nil && !areaDefinitionApplies(definition, template) {
+				continue
+			}
+			if len(allowedRegions) > 0 {
+				if _, ok := allowedRegions[code]; !ok {
+					continue
+				}
 			}
 
 			resolved, err := s.widgets.ResolveArea(ctx, widgets.ResolveAreaInput{
@@ -387,6 +464,28 @@ func cloneResolvedWidgetSlice(input []*widgets.ResolvedWidget) []*widgets.Resolv
 	cloned := make([]*widgets.ResolvedWidget, len(input))
 	copy(cloned, input)
 	return cloned
+}
+
+func areaDefinitionApplies(definition *widgets.AreaDefinition, template *themes.Template) bool {
+	if definition == nil {
+		return false
+	}
+	scope := definition.Scope
+	switch scope {
+	case widgets.AreaScopeTheme:
+		if template == nil || definition.ThemeID == nil {
+			return false
+		}
+		return template.ThemeID == *definition.ThemeID
+	case widgets.AreaScopeTemplate:
+		if template == nil || definition.TemplateID == nil {
+			return false
+		}
+		return template.ID == *definition.TemplateID
+	default:
+		// Treat global/unspecified scopes as applicable everywhere.
+		return true
+	}
 }
 
 func cloneBlockInstances(instances []*blocks.Instance) []*blocks.Instance {
