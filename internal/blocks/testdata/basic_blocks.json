@@ -1,37 +1,125 @@
 {
   "definitions": [
     {
-      "id": "00000000-0000-0000-0000-00000000b100",
-      "name": "hero",
-      "description": "Hero block",
+      "id": "00000000-0000-0000-0000-00000000c100",
+      "name": "feature-card",
+      "description": "Feature card block",
       "schema": {
         "fields": [
           {"name": "title", "type": "text"},
-          {"name": "body", "type": "richtext"}
+          {"name": "description", "type": "richtext"},
+          {"name": "cta_label", "type": "text"}
         ]
       }
     }
   ],
   "instances": [
     {
-      "id": "00000000-0000-0000-0000-00000000b200",
-      "definition_id": "00000000-0000-0000-0000-00000000b100",
-      "region": "hero",
-      "position": 0,
+      "id": "00000000-0000-0000-0000-00000000c200",
+      "definition_id": "00000000-0000-0000-0000-00000000c100",
+      "page_id": "00000000-0000-0000-0000-000000000610",
+      "region": "body",
+      "position": 1,
       "configuration": {
-        "layout": "full"
-      }
-    }
-  ],
-  "translations": [
-    {
-      "id": "00000000-0000-0000-0000-00000000b300",
-      "block_instance_id": "00000000-0000-0000-0000-00000000b200",
-      "locale_id": "00000000-0000-0000-0000-000000000201",
-      "content": {
-        "title": "Hello",
-        "body": "Welcome"
-      }
+        "layout": "split"
+      },
+      "current_version": 3,
+      "published_version": 2,
+      "published_at": "2024-05-01T09:00:00Z",
+      "published_by": "00000000-0000-0000-0000-000000000301",
+      "versions": [
+        {
+          "id": "00000000-0000-0000-0000-00000000c300",
+          "block_instance_id": "00000000-0000-0000-0000-00000000c200",
+          "version": 1,
+          "status": "archived",
+          "snapshot": {
+            "configuration": {
+              "layout": "split"
+            },
+            "translations": [
+              {
+                "locale": "en",
+                "content": {
+                  "title": "Archived Feature",
+                  "description": "Archived description",
+                  "cta_label": "Learn more"
+                }
+              }
+            ],
+            "metadata": {
+              "notes": "Initial layout"
+            }
+          },
+          "created_by": "00000000-0000-0000-0000-000000000300",
+          "created_at": "2024-04-01T08:00:00Z"
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000c301",
+          "block_instance_id": "00000000-0000-0000-0000-00000000c200",
+          "version": 2,
+          "status": "published",
+          "snapshot": {
+            "configuration": {
+              "layout": "stacked"
+            },
+            "translations": [
+              {
+                "locale": "en",
+                "content": {
+                  "title": "Live Feature",
+                  "description": "Published description",
+                  "cta_label": "Download"
+                }
+              },
+              {
+                "locale": "fr",
+                "content": {
+                  "title": "Fonctionnalité",
+                  "description": "Description publiée",
+                  "cta_label": "Télécharger"
+                }
+              }
+            ],
+            "metadata": {
+              "notes": "Localized variant"
+            }
+          },
+          "created_by": "00000000-0000-0000-0000-000000000300",
+          "created_at": "2024-04-15T08:00:00Z",
+          "published_at": "2024-05-01T09:00:00Z",
+          "published_by": "00000000-0000-0000-0000-000000000301"
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000c302",
+          "block_instance_id": "00000000-0000-0000-0000-00000000c200",
+          "version": 3,
+          "status": "draft",
+          "snapshot": {
+            "configuration": {
+              "layout": "split"
+            },
+            "translations": [
+              {
+                "locale": "en",
+                "content": {
+                  "title": "Feature Refresh",
+                  "description": "Draft description update",
+                  "cta_label": "Contact sales"
+                },
+                "attribute_overrides": {
+                  "cta_style": "primary"
+                }
+              }
+            ],
+            "metadata": {
+              "notes": "Pending approval"
+            }
+          },
+          "created_by": "00000000-0000-0000-0000-000000000301",
+          "created_at": "2024-04-25T08:00:00Z"
+        }
+      ]
     }
   ]
 }
