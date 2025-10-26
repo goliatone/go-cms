@@ -165,6 +165,22 @@ Widget functionality:
 - Widget settings
 - Repository integration through go-repository-bun
 
+#### Behaviour
+
+- **Definition registration** – widget types require a non-empty name and JSON schema. Defaults are validated against the schema field list to avoid phantom configuration. The service deduplicates registrations and surfaces `ErrDefinitionExists` when IDs collide. Registry entries (built-in or host supplied) are applied automatically at service start.
+- **Instance lifecycle** – instances merge configuration with definition defaults and enforce creator/updater UUIDs. Visibility schedule (`publish_on` / `unpublish_on`) is validated, and visibility rules must contain supported keys (`schedule`, `audience`, `segments`, `locales`). Unknown configuration keys or invalid schedules raise errors.
+- **Translations** – each widget instance can store one translation per locale. Duplicate inserts return `ErrTranslationExists`; updates replace the JSON payload in place.
+- **Area management** – areas are optional and feature-gated by repository availability. Definitions require canonical codes (`[a-z0-9._-]`), human-readable names, and an optional scope (`global`, `theme`, `template`). Assigning widgets to areas enforces uniqueness per locale/area pair, supports explicit positioning, and persists placement metadata. Reordering requires the full placement list to guarantee deterministic ordering.
+- **Visibility evaluation** – `EvaluateVisibility` runs chronological gating followed by audience/segment matching and locale allowlists. Locale mismatches surface `ErrVisibilityLocaleRestricted` so callers can fall back to other placements. `ResolveArea` walks a locale chain (primary → configured fallbacks → default) and only returns visible widgets, preserving placement metadata for rendering.
+- **Bootstrapping** – `widgets.Bootstrap` wraps `EnsureDefinitions` / `EnsureAreaDefinitions` to seed built-ins repeatedly without failing when they already exist or when the feature is disabled.
+
+#### Storage
+
+- Memory repositories exist for tests and no-op deployments.
+- Bun repositories support optional cache decorators (go-repository-cache) for definitions, instances, and translations.
+- Area definitions/placements use Bun transactions to replace locale-specific ordering atomically.
+- Integration tests cover sqlite + cache wiring to ensure parity with blocks/pages/menus.
+
 ### i18n Module (`i18n/`)
 
 Internationalization facade:
