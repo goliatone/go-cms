@@ -53,6 +53,10 @@ type ContentRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Content, error)
 	GetBySlug(ctx context.Context, slug string) (*Content, error)
 	List(ctx context.Context) ([]*Content, error)
+	CreateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error)
+	ListVersions(ctx context.Context, contentID uuid.UUID) ([]*ContentVersion, error)
+	GetVersion(ctx context.Context, contentID uuid.UUID, number int) (*ContentVersion, error)
+	GetLatestVersion(ctx context.Context, contentID uuid.UUID) (*ContentVersion, error)
 }
 
 // ContentTypeRepository resolves content types.

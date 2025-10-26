@@ -13,17 +13,21 @@ import (
 )
 
 type BunContentRepository struct {
-	repo repository.Repository[*Content]
+	repo     repository.Repository[*Content]
+	versions repository.Repository[*ContentVersion]
 }
 
 func NewBunContentRepository(db *bun.DB) *BunContentRepository {
 	return NewBunContentRepositoryWithCache(db, nil, nil)
 }
 
-func NewBunContentRepositoryWithCache(db *bun.DB, cacheServcie cache.CacheService, keySerializer cache.KeySerializer) *BunContentRepository {
+func NewBunContentRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, keySerializer cache.KeySerializer) *BunContentRepository {
 	base := NewContentRepository(db)
-	wrapped := wrapWithCache(base, cacheServcie, keySerializer)
-	return &BunContentRepository{repo: wrapped}
+	versionBase := NewContentVersionRepository(db)
+	return &BunContentRepository{
+		repo:     wrapWithCache(base, cacheService, keySerializer),
+		versions: wrapWithCache(versionBase, cacheService, keySerializer),
+	}
 }
 
 func (r *BunContentRepository) Create(ctx context.Context, record *Content) (*Content, error) {
@@ -53,6 +57,70 @@ func (r *BunContentRepository) GetBySlug(ctx context.Context, slug string) (*Con
 func (r *BunContentRepository) List(ctx context.Context) ([]*Content, error) {
 	records, _, err := r.repo.List(ctx)
 	return records, err
+}
+
+func (r *BunContentRepository) CreateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error) {
+	created, err := r.versions.Create(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (r *BunContentRepository) ListVersions(ctx context.Context, contentID uuid.UUID) ([]*ContentVersion, error) {
+	records, _, err := r.versions.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.content_id = ?", contentID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.OrderExpr("?TableAlias.version ASC")
+		}),
+	)
+	return records, err
+}
+
+func (r *BunContentRepository) GetVersion(ctx context.Context, contentID uuid.UUID, number int) (*ContentVersion, error) {
+	records, _, err := r.versions.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.content_id = ?", contentID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.version = ?", number)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{
+			Resource: "content_version",
+			Key:      contentVersionKey(contentID, number),
+		}
+	}
+	return records[0], nil
+}
+
+func (r *BunContentRepository) GetLatestVersion(ctx context.Context, contentID uuid.UUID) (*ContentVersion, error) {
+	records, _, err := r.versions.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.content_id = ?", contentID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.OrderExpr("?TableAlias.version DESC")
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{
+			Resource: "content_version",
+			Key:      contentID.String(),
+		}
+	}
+	return records[0], nil
 }
 
 type BunContentTypeRepository struct {
@@ -118,4 +186,8 @@ func wrapWithCache[T any](base repository.Repository[T], cacheService cache.Cach
 		return base
 	}
 	return repositorycache.New(base, cacheService, keySerializer)
+}
+
+func contentVersionKey(contentID uuid.UUID, version int) string {
+	return fmt.Sprintf("%s:%d", contentID.String(), version)
 }

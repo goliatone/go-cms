@@ -77,3 +77,25 @@ func NewContentTranslationRepository(db *bun.DB) repository.Repository[*ContentT
 		},
 	})
 }
+
+// NewContentVersionRepository creates a repository for ContentVersion entities.
+func NewContentVersionRepository(db *bun.DB) repository.Repository[*ContentVersion] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*ContentVersion]{
+		NewRecord: func() *ContentVersion { return &ContentVersion{} },
+		GetID: func(cv *ContentVersion) uuid.UUID {
+			return cv.ID
+		},
+		SetID: func(cv *ContentVersion, id uuid.UUID) {
+			cv.ID = id
+		},
+		GetIdentifier: func() string {
+			return "id"
+		},
+		GetIdentifierValue: func(cv *ContentVersion) string {
+			if cv == nil {
+				return ""
+			}
+			return cv.ID.String()
+		},
+	})
+}
