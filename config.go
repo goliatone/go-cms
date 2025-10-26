@@ -1,10 +1,15 @@
 package cms
 
 import (
+	"errors"
+	"strings"
 	"time"
 
 	urlkit "github.com/goliatone/go-urlkit"
 )
+
+// ErrThemesFeatureRequired indicates inconsistent theme configuration.
+var ErrThemesFeatureRequired = errors.New("cms config: themes feature must be enabled to configure themes")
 
 type Config struct {
 	Enabled       bool
@@ -14,6 +19,7 @@ type Config struct {
 	Storage       StorageConfig
 	Cache         CacheConfig
 	Navigation    NavigationConfig
+	Themes        ThemeConfig
 	Features      Features
 }
 
@@ -41,6 +47,11 @@ type NavigationConfig struct {
 	URLKit      URLKitResolverConfig
 }
 
+type ThemeConfig struct {
+	BasePath     string
+	DefaultTheme string
+}
+
 // URLKitResolverConfig configures the go-urlkit based resolver.
 type URLKitResolverConfig struct {
 	DefaultGroup  string
@@ -57,6 +68,7 @@ type URLKitResolverConfig struct {
 // Features toggles module functionality
 type Features struct {
 	Widgets bool
+	Themes  bool
 }
 
 func DefaultConfig() Config {
@@ -78,6 +90,19 @@ func DefaultConfig() Config {
 			DefaultTTL: time.Minute,
 		},
 		Navigation: NavigationConfig{},
-		Features:   Features{},
+		Themes: ThemeConfig{
+			BasePath: "themes",
+		},
+		Features: Features{},
 	}
+}
+
+// Validate performs high-level consistency checks.
+func (cfg Config) Validate() error {
+	if !cfg.Features.Themes {
+		if strings.TrimSpace(cfg.Themes.DefaultTheme) != "" {
+			return ErrThemesFeatureRequired
+		}
+	}
+	return nil
 }
