@@ -109,6 +109,80 @@ func (r *BunInstanceRepository) ListGlobal(ctx context.Context) ([]*Instance, er
 	return records, err
 }
 
+// BunInstanceVersionRepository implements InstanceVersionRepository with optional caching.
+type BunInstanceVersionRepository struct {
+	repo repository.Repository[*InstanceVersion]
+}
+
+// NewBunInstanceVersionRepository creates a block instance version repository without caching.
+func NewBunInstanceVersionRepository(db *bun.DB) *BunInstanceVersionRepository {
+	return NewBunInstanceVersionRepositoryWithCache(db, nil, nil)
+}
+
+// NewBunInstanceVersionRepositoryWithCache creates a block instance version repository with caching services.
+func NewBunInstanceVersionRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, serializer cache.KeySerializer) *BunInstanceVersionRepository {
+	base := NewInstanceVersionRepository(db)
+	if cacheService != nil && serializer != nil {
+		base = repositorycache.New(base, cacheService, serializer)
+	}
+	return &BunInstanceVersionRepository{repo: base}
+}
+
+func (r *BunInstanceVersionRepository) Create(ctx context.Context, version *InstanceVersion) (*InstanceVersion, error) {
+	record, err := r.repo.Create(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (r *BunInstanceVersionRepository) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]*InstanceVersion, error) {
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.Where("?TableAlias.block_instance_id = ?", instanceID)
+	}), repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.OrderExpr("?TableAlias.version ASC")
+	}))
+	return records, err
+}
+
+func (r *BunInstanceVersionRepository) GetVersion(ctx context.Context, instanceID uuid.UUID, number int) (*InstanceVersion, error) {
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.block_instance_id = ?", instanceID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.version = ?", number)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "block_version", Key: versionKey(instanceID, number)}
+	}
+	return records[0], nil
+}
+
+func (r *BunInstanceVersionRepository) GetLatest(ctx context.Context, instanceID uuid.UUID) (*InstanceVersion, error) {
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.block_instance_id = ?", instanceID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.OrderExpr("?TableAlias.version DESC")
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "block_version", Key: instanceID.String()}
+	}
+	return records[0], nil
+}
+
 // BunTranslationRepository implements TranslationRepository with optional caching.
 type BunTranslationRepository struct {
 	repo repository.Repository[*Translation]
@@ -172,4 +246,8 @@ func mapRepositoryError(err error, resource, key string) error {
 	}
 
 	return fmt.Errorf("%s repository error: %w", resource, err)
+}
+
+func versionKey(instanceID uuid.UUID, version int) string {
+	return fmt.Sprintf("%s:%d", instanceID.String(), version)
 }

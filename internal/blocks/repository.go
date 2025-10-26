@@ -37,3 +37,25 @@ func NewTranslationRepository(db *bun.DB) repository.Repository[*Translation] {
 		GetIdentifierValue: func(tr *Translation) string { return tr.ID.String() },
 	})
 }
+
+// NewInstanceVersionRepository creates a repository for InstanceVersion entities.
+func NewInstanceVersionRepository(db *bun.DB) repository.Repository[*InstanceVersion] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*InstanceVersion]{
+		NewRecord: func() *InstanceVersion { return &InstanceVersion{} },
+		GetID: func(iv *InstanceVersion) uuid.UUID {
+			return iv.ID
+		},
+		SetID: func(iv *InstanceVersion, id uuid.UUID) {
+			iv.ID = id
+		},
+		GetIdentifier: func() string {
+			return "id"
+		},
+		GetIdentifierValue: func(iv *InstanceVersion) string {
+			if iv == nil {
+				return ""
+			}
+			return iv.ID.String()
+		},
+	})
+}

@@ -23,6 +23,14 @@ type InstanceRepository interface {
 	ListGlobal(ctx context.Context) ([]*Instance, error)
 }
 
+// InstanceVersionRepository exposes persistence operations for block instance versions.
+type InstanceVersionRepository interface {
+	Create(ctx context.Context, version *InstanceVersion) (*InstanceVersion, error)
+	ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]*InstanceVersion, error)
+	GetVersion(ctx context.Context, instanceID uuid.UUID, number int) (*InstanceVersion, error)
+	GetLatest(ctx context.Context, instanceID uuid.UUID) (*InstanceVersion, error)
+}
+
 // TranslationRepository exposes persistence operations for block translations.
 type TranslationRepository interface {
 	Create(ctx context.Context, translation *Translation) (*Translation, error)

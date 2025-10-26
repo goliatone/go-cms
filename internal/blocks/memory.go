@@ -8,17 +8,18 @@ import (
 	"github.com/google/uuid"
 )
 
-type memoryDefinitionRepository struct {
-	mu     sync.RWMutex
-	byID   map[uuid.UUID]*Definition
-	byName map[string]uuid.UUID
-}
-
+// NewMemoryDefinitionRepository constructs an "in memory" definition repository.
 func NewMemoryDefinitionRepository() DefinitionRepository {
 	return &memoryDefinitionRepository{
 		byID:   make(map[uuid.UUID]*Definition),
 		byName: make(map[string]uuid.UUID),
 	}
+}
+
+type memoryDefinitionRepository struct {
+	mu     sync.RWMutex
+	byID   map[uuid.UUID]*Definition
+	byName map[string]uuid.UUID
 }
 
 func (m *memoryDefinitionRepository) Create(_ context.Context, definition *Definition) (*Definition, error) {
@@ -31,7 +32,7 @@ func (m *memoryDefinitionRepository) Create(_ context.Context, definition *Defin
 		m.byName[cloned.Name] = cloned.ID
 	}
 
-	return cloneDefinition(definition), nil
+	return cloneDefinition(cloned), nil
 }
 
 func (m *memoryDefinitionRepository) GetByID(_ context.Context, id uuid.UUID) (*Definition, error) {
@@ -67,7 +68,7 @@ func (m *memoryDefinitionRepository) List(_ context.Context) ([]*Definition, err
 	return defs, nil
 }
 
-// NewMemoryInstanceRepository constructs an in-memory instance repository.
+// NewMemoryInstanceRepository constructs an "in memory" instance repository.
 func NewMemoryInstanceRepository() InstanceRepository {
 	return &memoryInstanceRepository{
 		byID:      make(map[uuid.UUID]*Instance),
@@ -134,7 +135,60 @@ func (m *memoryInstanceRepository) ListGlobal(_ context.Context) ([]*Instance, e
 	return instances, nil
 }
 
-// NewMemoryTranslationRepository constructs an in-memory translation repository.
+// NewMemoryInstanceVersionRepository constructs an "in memory" instance version repository.
+func NewMemoryInstanceVersionRepository() InstanceVersionRepository {
+	return &memoryInstanceVersionRepository{
+		byInstance: make(map[uuid.UUID][]*InstanceVersion),
+	}
+}
+
+type memoryInstanceVersionRepository struct {
+	mu         sync.RWMutex
+	byInstance map[uuid.UUID][]*InstanceVersion
+}
+
+func (m *memoryInstanceVersionRepository) Create(_ context.Context, version *InstanceVersion) (*InstanceVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneInstanceVersion(version)
+	queue := append([]*InstanceVersion{}, m.byInstance[cloned.BlockInstanceID]...)
+	queue = append(queue, cloned)
+	m.byInstance[cloned.BlockInstanceID] = queue
+	return cloneInstanceVersion(cloned), nil
+}
+
+func (m *memoryInstanceVersionRepository) ListByInstance(_ context.Context, instanceID uuid.UUID) ([]*InstanceVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	return cloneInstanceVersions(m.byInstance[instanceID]), nil
+}
+
+func (m *memoryInstanceVersionRepository) GetVersion(_ context.Context, instanceID uuid.UUID, number int) (*InstanceVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, version := range m.byInstance[instanceID] {
+		if version.Version == number {
+			return cloneInstanceVersion(version), nil
+		}
+	}
+	return nil, &NotFoundError{Resource: "block_version", Key: versionKey(instanceID, number)}
+}
+
+func (m *memoryInstanceVersionRepository) GetLatest(_ context.Context, instanceID uuid.UUID) (*InstanceVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	queue := m.byInstance[instanceID]
+	if len(queue) == 0 {
+		return nil, &NotFoundError{Resource: "block_version", Key: instanceID.String()}
+	}
+	return cloneInstanceVersion(queue[len(queue)-1]), nil
+}
+
+// NewMemoryTranslationRepository constructs an "in memory" translation repository.
 func NewMemoryTranslationRepository() TranslationRepository {
 	return &memoryTranslationRepository{
 		byID:             make(map[uuid.UUID]*Translation),
@@ -213,6 +267,9 @@ func cloneInstance(src *Instance) *Instance {
 			cloned.Translations[i] = cloneTranslation(tr)
 		}
 	}
+	if src.Versions != nil {
+		cloned.Versions = cloneInstanceVersions(src.Versions)
+	}
 	return &cloned
 }
 
@@ -232,4 +289,42 @@ func cloneTranslation(src *Translation) *Translation {
 
 func translationKey(instanceID uuid.UUID, localeID uuid.UUID) string {
 	return instanceID.String() + ":" + localeID.String()
+}
+
+func cloneInstanceVersions(src []*InstanceVersion) []*InstanceVersion {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]*InstanceVersion, len(src))
+	for i, version := range src {
+		out[i] = cloneInstanceVersion(version)
+	}
+	return out
+}
+
+func cloneInstanceVersion(src *InstanceVersion) *InstanceVersion {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	cloned.Snapshot = cloneBlockVersionSnapshot(src.Snapshot)
+	return &cloned
+}
+
+func cloneBlockVersionSnapshot(src BlockVersionSnapshot) BlockVersionSnapshot {
+	target := BlockVersionSnapshot{
+		Configuration: maps.Clone(src.Configuration),
+		Metadata:      maps.Clone(src.Metadata),
+	}
+	if len(src.Translations) > 0 {
+		target.Translations = make([]BlockVersionTranslationSnapshot, len(src.Translations))
+		for i, tr := range src.Translations {
+			target.Translations[i] = BlockVersionTranslationSnapshot{
+				Locale:             tr.Locale,
+				Content:            maps.Clone(tr.Content),
+				AttributeOverrides: maps.Clone(tr.AttributeOverrides),
+			}
+		}
+	}
+	return target
 }
