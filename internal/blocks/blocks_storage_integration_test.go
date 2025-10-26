@@ -107,11 +107,26 @@ func registerBlockModels(t *testing.T, db *bun.DB) {
 			definition_id TEXT NOT NULL,
 			configuration TEXT,
 			is_global BOOLEAN DEFAULT FALSE,
+			current_version INTEGER NOT NULL DEFAULT 1,
+			published_version INTEGER,
+			published_at TEXT,
+			published_by TEXT,
 			created_by TEXT NOT NULL,
 			updated_by TEXT NOT NULL,
 			deleted_at TEXT,
 			created_at TEXT,
 			updated_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_versions (
+			id TEXT PRIMARY KEY,
+			block_instance_id TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			snapshot TEXT NOT NULL,
+			created_by TEXT NOT NULL,
+			created_at TEXT,
+			published_at TEXT,
+			published_by TEXT
 		)`,
 		`CREATE TABLE IF NOT EXISTS block_translations (
 			id TEXT PRIMARY KEY,
