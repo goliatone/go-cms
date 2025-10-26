@@ -5,46 +5,45 @@
   "Author": "Go CMS",
   "ThemePath": "themes/aurora",
   "Config": {
-    "WidgetAreas": [
+    "widget_areas": [
       {
-        "Code": "header.global",
-        "Name": "Global Header",
-        "Scope": "global"
+        "code": "header.global",
+        "name": "Global Header",
+        "scope": "global"
       },
       {
-        "Code": "footer.global",
-        "Name": "Global Footer",
-        "Scope": "global"
+        "code": "footer.global",
+        "name": "Global Footer",
+        "scope": "global"
       }
     ],
-    "MenuLocations": [
+    "menu_locations": [
       {
-        "Code": "primary_navigation",
-        "Name": "Primary Navigation"
+        "code": "primary_navigation",
+        "name": "Primary Navigation"
       },
       {
-        "Code": "footer_links",
-        "Name": "Footer Links"
+        "code": "footer_links",
+        "name": "Footer Links"
       }
     ],
-    "Assets": {
-      "BasePath": "public",
-      "Styles": [
+    "assets": {
+      "base_path": "public",
+      "styles": [
         "css/base.css",
         "css/aurora.css"
       ],
-      "Scripts": [
+      "scripts": [
         "js/site.js"
       ],
-      "Images": [
+      "images": [
         "images/logo.png"
       ]
     },
-    "Metadata": {
+    "metadata": {
       "preview_image": "images/previews/landing.png",
       "support_email": "support@example.com"
     }
   },
   "Activate": false
 }
-

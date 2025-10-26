@@ -4,13 +4,15 @@
       "Key": "aside",
       "Name": "Aside Widgets",
       "AcceptsBlocks": false,
-      "AcceptsWidgets": true
+      "AcceptsWidgets": true,
+      "Fallbacks": []
     },
     {
       "Key": "content",
       "Name": "Main Content",
       "AcceptsBlocks": true,
-      "AcceptsWidgets": false
+      "AcceptsWidgets": false,
+      "Fallbacks": []
     }
   ],
   "landing": [
@@ -18,13 +20,15 @@
       "Key": "footer",
       "Name": "Footer",
       "AcceptsBlocks": true,
-      "AcceptsWidgets": true
+      "AcceptsWidgets": true,
+      "Fallbacks": []
     },
     {
       "Key": "hero",
       "Name": "Hero Banner",
       "AcceptsBlocks": true,
-      "AcceptsWidgets": false
+      "AcceptsWidgets": false,
+      "Fallbacks": []
     },
     {
       "Key": "sidebar",
@@ -37,4 +41,3 @@
     }
   ]
 }
-
