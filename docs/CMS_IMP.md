@@ -832,34 +832,98 @@ Menu targets can set optional fields:
 
 If these fields are absent the resolver uses the configured defaults and the item slug.
 
-// WidgetService returns the widget service (lazy init, singleton)
-func (c *Container) WidgetService() widgets.Service {
-    if !c.config.Features.Widgets {
-        c.recordError("widget", fmt.Errorf("widgets feature not enabled"))
-        return widgets.NewNoOpService()
-    }
+### Widgets Integration
 
-    c.once.widget.Do(func() {
-        repo := widgets.NewRepository(c.storage)
-        registry := widgets.NewRegistry()
+Widgets follow the same dependency structure as the other slices: the container wires an in-memory service by default and upgrades to Bun + cache repositories when `di.WithBunDB` is provided. If the widgets feature flag is disabled the container returns `widgets.NewNoOpService()`.
 
-        // Register built-in widgets
-        registerBuiltInWidgets(registry)
+- **Repositories** – `NewContainer` primes memory repositories for definition, instance, translation, area definition, and area placement data. `configureRepositories` swaps in the Bun-backed implementations (`NewBunDefinitionRepositoryWithCache`, `NewBunInstanceRepositoryWithCache`, etc.) and clears the memory locale seed when a database connection is available.
+- **Registry** – the container always creates a `widgets.Registry`, registers the built-in definitions (currently a `newsletter_signup` widget), and passes it to the service through `widgets.WithRegistry`. Hosts can supply their own registry via `di.WithWidgetService` or by mutating the registry after construction.
+- **Area support** – area repositories are optional. When the container can provide `widgetAreaRepo` and `widgetPlacementRepo` (memory or Bun) it includes `widgets.WithAreaDefinitionRepository` and `widgets.WithAreaPlacementRepository`. If neither repository is configured, area APIs return `ErrAreaFeatureDisabled`, making it safe to ship applications that do not need placements yet.
+- **Visibility** – the service enforces `publish_on`/`unpublish_on` windows, rule-based scheduling, audience/segment filters, and locale allowlists through `EvaluateVisibility`. `ResolveArea` walks the primary locale, fallbacks, and finally the default locale to return the first visible widgets, cloning placement metadata for presentation.
+- **Bootstrap helpers** – `widgets.Bootstrap` wraps `EnsureDefinitions`/`EnsureAreaDefinitions`, allowing hosts to seed types and areas idempotently at startup even when the module is running in no-op mode or when definitions already exist.
 
-        c.widgetService = widgets.NewService(
-            repo,
-            registry,
-            c.cache,
-            c.I18nService(),
-            c.BlockService(), // Dependency: blocks (widgets can contain blocks)
-            widgets.Options{
-                CacheTTL: c.config.CacheTTL,
+Example wiring with Bun storage and a custom registry addition:
+
+```go
+cfg := cms.DefaultConfig()
+cfg.Features.Widgets = true
+
+container := di.NewContainer(cfg, di.WithBunDB(bunDB))
+widgetSvc := container.WidgetService()
+
+// Seed definitions + areas on boot
+_ = widgets.Bootstrap(ctx, widgetSvc, widgets.BootstrapConfig{
+    Definitions: []widgets.RegisterDefinitionInput{
+        {
+            Name: "promo_banner",
+            Schema: map[string]any{
+                "fields": []any{
+                    map[string]any{"name": "headline"},
+                    map[string]any{"name": "cta_text"},
+                },
             },
-        )
-    })
+        },
+    },
+    Areas: []widgets.RegisterAreaDefinitionInput{
+        {Code: "sidebar.primary", Name: "Primary Sidebar"},
+        {Code: "footer.global", Name: "Global Footer", Scope: widgets.AreaScopeGlobal},
+    },
+})
 
-    return c.widgetService
+// Fetch placements
+resolved, err := widgetSvc.ResolveArea(ctx, widgets.ResolveAreaInput{
+    AreaCode: "sidebar.primary",
+    LocaleID: &localeID,
+    Audience: []string{"guest"},
+    Now:      time.Now().UTC(),
+})
+```
+
+Visibility rules mirror the service tests:
+
+```json
+{
+  "visibility_rules": {
+    "schedule": {"starts_at": "2024-01-01T00:00:00Z", "ends_at": "2024-02-01T00:00:00Z"},
+    "audience": ["guest", "anonymous"],
+    "segments": ["beta_tester"],
+    "locales": ["00000000-0000-0000-0000-000000000201"]
+  }
 }
+```
+
+Widgets assigned to an area can also carry placement metadata (layout hints, theme variants, etc.) which the service preserves when returning `ResolvedWidget` results.
+
+Area definitions accept `AreaScopeGlobal`, `AreaScopeTheme`, and `AreaScopeTemplate`, allowing themes to layer their own slots on top of the global defaults without affecting existing placements.
+
+When implementing a custom registry, prefer factories so host applications can generate instance defaults:
+
+```go
+registry := widgets.NewRegistry()
+registry.RegisterFactory("latest_posts", widgets.Registration{
+    Definition: func() widgets.RegisterDefinitionInput {
+        return widgets.RegisterDefinitionInput{
+            Name: "latest_posts",
+            Schema: map[string]any{"fields": []any{map[string]any{"name": "limit"}}},
+            Defaults: map[string]any{"limit": 3},
+        }
+    },
+    InstanceFactory: func(ctx context.Context, def *widgets.Definition, input widgets.CreateInstanceInput) (map[string]any, error) {
+        return map[string]any{"limit": 5}, nil
+    },
+})
+
+container := di.NewContainer(cfg, di.WithWidgetService(
+    widgets.NewService(
+        widgets.NewMemoryDefinitionRepository(),
+        widgets.NewMemoryInstanceRepository(),
+        widgets.NewMemoryTranslationRepository(),
+        widgets.WithRegistry(registry),
+    ),
+))
+```
+
+### Theme Integration
 
 // ThemeService returns the theme service (lazy init, singleton)
 func (c *Container) ThemeService() themes.Service {
@@ -1316,10 +1380,16 @@ func TestContentService_Create_BasicContent(t *testing.T) {
 Run the contract and integration suites locally (uses a repo-local build cache to satisfy sandbox restrictions):
 
 ```bash
-GOCACHE=$(pwd)/.gocache /Users/goliatone/.g/go/bin/go test ./internal/content ./internal/pages ./internal/blocks ./internal/menus
-
-When configuring CI, mirror the same command (or ensure your existing `./...` invocation includes `./internal/menus`) so menu services and integrations are exercised alongside content, pages, and blocks.
+GOCACHE=$(pwd)/.gocache /Users/goliatone/.g/go/bin/go test \
+  ./internal/content \
+  ./internal/pages \
+  ./internal/blocks \
+  ./internal/themes \
+  ./internal/menus \
+  ./internal/widgets
 ```
+
+When configuring CI, mirror the same command (or ensure your existing `./...` invocation includes the widgets and themes packages) so widget contracts, Bun/cache integrations, and visibility evaluation helpers run beside the established content, pages, blocks, themes, and menus suites.
 
 ### Blocks Integration
 
