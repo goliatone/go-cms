@@ -63,6 +63,10 @@ type PageRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Page, error)
 	GetBySlug(ctx context.Context, slug string) (*Page, error)
 	List(ctx context.Context) ([]*Page, error)
+	CreateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error)
+	ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error)
+	GetVersion(ctx context.Context, pageID uuid.UUID, number int) (*PageVersion, error)
+	GetLatestVersion(ctx context.Context, pageID uuid.UUID) (*PageVersion, error)
 }
 
 // LocaleRepository resolves locales.
@@ -82,6 +86,21 @@ type PageNotFoundError struct {
 
 func (e *PageNotFoundError) Error() string {
 	return fmt.Sprintf("page %q not found", e.Key)
+}
+
+type PageVersionNotFoundError struct {
+	PageID  uuid.UUID
+	Version int
+}
+
+func (e *PageVersionNotFoundError) Error() string {
+	if e.PageID == uuid.Nil {
+		return "page version not found"
+	}
+	if e.Version > 0 {
+		return fmt.Sprintf("page version %s@%d not found", e.PageID.String(), e.Version)
+	}
+	return fmt.Sprintf("page version %s not found", e.PageID.String())
 }
 
 // ServiceOption mutates the service configuration.

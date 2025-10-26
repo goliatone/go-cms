@@ -13,7 +13,8 @@ import (
 )
 
 type BunPageRepository struct {
-	repo repository.Repository[*Page]
+	repo     repository.Repository[*Page]
+	versions repository.Repository[*PageVersion]
 }
 
 func NewBunPageRepository(db *bun.DB) *BunPageRepository {
@@ -23,8 +24,11 @@ func NewBunPageRepository(db *bun.DB) *BunPageRepository {
 // NewBunPageRepositoryWithCache constructs a PageRepository backed by bun with optional caching.
 func NewBunPageRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, keySerializer cache.KeySerializer) *BunPageRepository {
 	base := NewPageRepository(db)
-	wrapped := wrapWithCache(base, cacheService, keySerializer)
-	return &BunPageRepository{repo: wrapped}
+	versionBase := NewPageVersionRepository(db)
+	return &BunPageRepository{
+		repo:     wrapWithCache(base, cacheService, keySerializer),
+		versions: wrapWithCache(versionBase, cacheService, keySerializer),
+	}
 }
 
 func (r *BunPageRepository) Create(ctx context.Context, record *Page) (*Page, error) {
@@ -54,6 +58,64 @@ func (r *BunPageRepository) GetBySlug(ctx context.Context, slug string) (*Page, 
 func (r *BunPageRepository) List(ctx context.Context) ([]*Page, error) {
 	records, _, err := r.repo.List(ctx)
 	return records, err
+}
+
+func (r *BunPageRepository) CreateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error) {
+	created, err := r.versions.Create(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
+func (r *BunPageRepository) ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error) {
+	records, _, err := r.versions.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.page_id = ?", pageID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.OrderExpr("?TableAlias.version ASC")
+		}),
+	)
+	return records, err
+}
+
+func (r *BunPageRepository) GetVersion(ctx context.Context, pageID uuid.UUID, number int) (*PageVersion, error) {
+	records, _, err := r.versions.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.page_id = ?", pageID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.version = ?", number)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &PageVersionNotFoundError{PageID: pageID, Version: number}
+	}
+	return records[0], nil
+}
+
+func (r *BunPageRepository) GetLatestVersion(ctx context.Context, pageID uuid.UUID) (*PageVersion, error) {
+	records, _, err := r.versions.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.page_id = ?", pageID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.OrderExpr("?TableAlias.version DESC")
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &PageVersionNotFoundError{PageID: pageID}
+	}
+	return records[0], nil
 }
 
 func mapRepositoryError(err error, resource, key string) error {

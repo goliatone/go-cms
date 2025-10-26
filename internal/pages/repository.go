@@ -52,10 +52,13 @@ func NewPageVersionRepository(db *bun.DB) repository.Repository[*PageVersion] {
 			pv.ID = id
 		},
 		GetIdentifier: func() string {
-			return ""
+			return "id"
 		},
-		GetIdentifierValue: func(*PageVersion) string {
-			return ""
+		GetIdentifierValue: func(pv *PageVersion) string {
+			if pv == nil {
+				return ""
+			}
+			return pv.ID.String()
 		},
 	})
 }
