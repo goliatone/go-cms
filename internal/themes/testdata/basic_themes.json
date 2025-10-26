@@ -1,0 +1,123 @@
+{
+  "themes": [
+    {
+      "id": "00000000-0000-0000-0000-00000000a001",
+      "name": "aurora",
+      "description": "Default marketing theme with hero-focused layout",
+      "version": "1.0.0",
+      "author": "Go CMS",
+      "is_active": true,
+      "theme_path": "themes/aurora",
+      "config": {
+        "widget_areas": [
+          {
+            "code": "header.global",
+            "name": "Global Header",
+            "scope": "global"
+          },
+          {
+            "code": "footer.global",
+            "name": "Global Footer",
+            "scope": "global"
+          }
+        ],
+        "menu_locations": [
+          {
+            "code": "primary_navigation",
+            "name": "Primary Navigation"
+          },
+          {
+            "code": "footer_links",
+            "name": "Footer Links"
+          }
+        ],
+        "assets": {
+          "base_path": "public",
+          "styles": [
+            "css/base.css",
+            "css/aurora.css"
+          ],
+          "scripts": [
+            "js/site.js"
+          ]
+        }
+      },
+      "templates": [
+        {
+          "id": "00000000-0000-0000-0000-00000000b101",
+          "theme_id": "00000000-0000-0000-0000-00000000a001",
+          "name": "Landing Page",
+          "slug": "landing",
+          "description": "Hero driven landing layout",
+          "template_path": "templates/landing.html.tmpl",
+          "regions": {
+            "hero": {
+              "name": "Hero Banner",
+              "accepts_blocks": true,
+              "accepts_widgets": false
+            },
+            "sidebar": {
+              "name": "Sidebar",
+              "accepts_blocks": false,
+              "accepts_widgets": true,
+              "fallback_regions": [
+                "footer"
+              ]
+            },
+            "footer": {
+              "name": "Footer",
+              "accepts_blocks": true,
+              "accepts_widgets": true
+            }
+          },
+          "metadata": {
+            "preview_image": "images/previews/landing.png"
+          }
+        },
+        {
+          "id": "00000000-0000-0000-0000-00000000b102",
+          "theme_id": "00000000-0000-0000-0000-00000000a001",
+          "name": "Blog Detail",
+          "slug": "blog-detail",
+          "template_path": "templates/blog_detail.html.tmpl",
+          "regions": {
+            "content": {
+              "name": "Main Content",
+              "accepts_blocks": true,
+              "accepts_widgets": false
+            },
+            "aside": {
+              "name": "Aside Widgets",
+              "accepts_blocks": false,
+              "accepts_widgets": true
+            }
+          }
+        }
+      ]
+    },
+    {
+      "id": "00000000-0000-0000-0000-00000000a002",
+      "name": "nocturne",
+      "version": "0.9.0",
+      "author": "Go CMS",
+      "is_active": false,
+      "theme_path": "themes/nocturne",
+      "templates": [
+        {
+          "id": "00000000-0000-0000-0000-00000000b201",
+          "theme_id": "00000000-0000-0000-0000-00000000a002",
+          "name": "Marketing Default",
+          "slug": "marketing",
+          "template_path": "templates/marketing.html.tmpl",
+          "regions": {
+            "spotlight": {
+              "name": "Spotlight",
+              "accepts_blocks": true,
+              "accepts_widgets": true
+            }
+          }
+        }
+      ]
+    }
+  ]
+}

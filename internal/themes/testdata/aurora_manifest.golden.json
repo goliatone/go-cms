@@ -1,0 +1,50 @@
+{
+  "Name": "aurora",
+  "Description": "Default marketing theme with hero-focused layout",
+  "Version": "1.0.0",
+  "Author": "Go CMS",
+  "ThemePath": "themes/aurora",
+  "Config": {
+    "WidgetAreas": [
+      {
+        "Code": "header.global",
+        "Name": "Global Header",
+        "Scope": "global"
+      },
+      {
+        "Code": "footer.global",
+        "Name": "Global Footer",
+        "Scope": "global"
+      }
+    ],
+    "MenuLocations": [
+      {
+        "Code": "primary_navigation",
+        "Name": "Primary Navigation"
+      },
+      {
+        "Code": "footer_links",
+        "Name": "Footer Links"
+      }
+    ],
+    "Assets": {
+      "BasePath": "public",
+      "Styles": [
+        "css/base.css",
+        "css/aurora.css"
+      ],
+      "Scripts": [
+        "js/site.js"
+      ],
+      "Images": [
+        "images/logo.png"
+      ]
+    },
+    "Metadata": {
+      "preview_image": "images/previews/landing.png",
+      "support_email": "support@example.com"
+    }
+  },
+  "Activate": false
+}
+

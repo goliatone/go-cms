@@ -1,0 +1,40 @@
+{
+  "blog-detail": [
+    {
+      "Key": "aside",
+      "Name": "Aside Widgets",
+      "AcceptsBlocks": false,
+      "AcceptsWidgets": true
+    },
+    {
+      "Key": "content",
+      "Name": "Main Content",
+      "AcceptsBlocks": true,
+      "AcceptsWidgets": false
+    }
+  ],
+  "landing": [
+    {
+      "Key": "footer",
+      "Name": "Footer",
+      "AcceptsBlocks": true,
+      "AcceptsWidgets": true
+    },
+    {
+      "Key": "hero",
+      "Name": "Hero Banner",
+      "AcceptsBlocks": true,
+      "AcceptsWidgets": false
+    },
+    {
+      "Key": "sidebar",
+      "Name": "Sidebar",
+      "AcceptsBlocks": false,
+      "AcceptsWidgets": true,
+      "Fallbacks": [
+        "footer"
+      ]
+    }
+  ]
+}
+
