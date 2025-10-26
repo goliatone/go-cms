@@ -136,15 +136,24 @@ CREATE TABLE widget_definitions (
     description TEXT,
     schema      JSONB NOT NULL,
     defaults    JSONB,
+    category    VARCHAR(50),
+    icon        VARCHAR(64),
     deleted_at  TIMESTAMPTZ,
-    created_at  TIMESTAMP NOT NULL DEFAULT NOW()
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
 );
 
 CREATE TABLE widget_instances (
     id                UUID PRIMARY KEY,
     block_instance_id UUID REFERENCES block_instances(id) ON DELETE CASCADE,
     definition_id     UUID NOT NULL REFERENCES widget_definitions(id),
+    area_code         VARCHAR(120),
+    placement_metadata JSONB,
     configuration     JSONB NOT NULL DEFAULT '{}'::JSONB,
+    visibility_rules  JSONB,
+    publish_on        TIMESTAMPTZ,
+    unpublish_on      TIMESTAMPTZ,
+    position          INTEGER NOT NULL DEFAULT 0,
     created_by        UUID NOT NULL,
     updated_by        UUID NOT NULL,
     deleted_at        TIMESTAMPTZ,
@@ -162,7 +171,49 @@ CREATE TABLE widget_translations (
     updated_at        TIMESTAMP NOT NULL DEFAULT NOW(),
     UNIQUE(widget_instance_id, locale_id)
 );
+
+CREATE TABLE widget_area_definitions (
+    id          UUID PRIMARY KEY,
+    code        VARCHAR(120) UNIQUE NOT NULL,
+    name        VARCHAR(150) NOT NULL,
+    description TEXT,
+    scope       VARCHAR(20) NOT NULL DEFAULT 'global', -- global, theme, template
+    theme_id    UUID,
+    template_id UUID,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE widget_area_placements (
+    id          UUID PRIMARY KEY,
+    area_code   VARCHAR(120) NOT NULL REFERENCES widget_area_definitions(code) ON DELETE CASCADE,
+    locale_id   UUID REFERENCES locales(id),
+    instance_id UUID NOT NULL REFERENCES widget_instances(id) ON DELETE CASCADE,
+    position    INTEGER NOT NULL DEFAULT 0,
+    metadata    JSONB,
+    created_at  TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at  TIMESTAMP NOT NULL DEFAULT NOW()
+);
+
+CREATE UNIQUE INDEX widget_area_locale_instance_idx
+    ON widget_area_placements(
+        area_code,
+        COALESCE(locale_id, '00000000-0000-0000-0000-000000000000'::uuid),
+        instance_id
+    );
+
+-- Recommended additional indexes for visibility evaluation
+CREATE INDEX widget_instances_publish_window_idx ON widget_instances (publish_on, unpublish_on);
+CREATE INDEX widget_area_placements_locale_idx ON widget_area_placements (area_code, locale_id, position);
 ```
+
+Area scopes map directly to the enum in code:
+
+- `global` – available to every site/theme combination.
+- `theme` – limited to a single theme (set `theme_id`).
+- `template` – targeted at a single template (set `template_id`).
+
+The service falls back from the requested locale to the default locale by looking up placements where `locale_id IS NULL`. Ensure the placement index keeps locale-specific queries fast.
 
 ### Menus
 Menus provide navigational structures with localized labels.
