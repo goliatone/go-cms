@@ -102,7 +102,7 @@ func NewSchedulePageHandler(service pages.Service, logger interfaces.Logger, gat
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &SchedulePageHandler{
-		inner: commands.NewHandler[SchedulePageCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

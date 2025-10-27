@@ -94,7 +94,7 @@ func NewRestorePageVersionHandler(service pages.Service, logger interfaces.Logge
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &RestorePageVersionHandler{
-		inner: commands.NewHandler[RestorePageVersionCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 
