@@ -1,0 +1,88 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<div class="page-layout">
+    <article class="page-content">
+        <h1 class="page-title">{{ title }}</h1>
+
+        {% if content %}
+            {% if content.translations %}
+                {% for translation in content.translations %}
+                    {% if translation.summary %}
+                    <p class="page-summary">{{ translation.summary }}</p>
+                    {% endif %}
+
+                    {% if translation.content %}
+                        {% if translation.content.body %}
+                        <div class="page-body">
+                            {{ translation.content.body|safe }}
+                        </div>
+                        {% endif %}
+                    {% endif %}
+                {% endfor %}
+            {% endif %}
+        {% endif %}
+
+        {% if page.blocks %}
+        <section class="page-blocks">
+            <h2>Page Blocks</h2>
+            {% for block in page.blocks %}
+            <div class="block">
+                <h3>{{ block.region }}</h3>
+                {% if block.translations %}
+                    {% for translation in block.translations %}
+                    <div class="block-content">
+                        {% if translation.content.title %}
+                        <h4>{{ translation.content.title }}</h4>
+                        {% endif %}
+                        {% if translation.content.body %}
+                        <p>{{ translation.content.body }}</p>
+                        {% endif %}
+                    </div>
+                    {% endfor %}
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+    </article>
+
+    <aside class="sidebar">
+        {% if widgets %}
+        <section class="sidebar-widgets">
+            <h3>Sidebar Widgets</h3>
+            {% for widget in widgets %}
+            <div class="widget">
+                {% if widget.instance.configuration.headline %}
+                <h4>{{ widget.instance.configuration.headline }}</h4>
+                {% endif %}
+                {% if widget.instance.configuration.cta_text %}
+                <a href="#" class="widget-cta">{{ widget.instance.configuration.cta_text }}</a>
+                {% endif %}
+            </div>
+            {% endfor %}
+        </section>
+        {% endif %}
+
+        <section class="sidebar-info">
+            <h3>Page Info</h3>
+            <dl class="info-list">
+                <dt>Slug:</dt>
+                <dd><code>{{ page.slug }}</code></dd>
+                <dt>Status:</dt>
+                <dd><span class="status {{ page.status }}">{{ page.status }}</span></dd>
+                {% if page.translations %}
+                    <dt>Translations:</dt>
+                    <dd>
+                        {% for translation in page.translations %}
+                        <span class="locale-badge">{{ translation.locale }}</span>
+                        {% endfor %}
+                    </dd>
+                {% endif %}
+            </dl>
+        </section>
+    </aside>
+</div>
+{% endblock %}

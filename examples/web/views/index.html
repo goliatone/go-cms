@@ -1,0 +1,65 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ title }}{% endblock %}
+
+{% block content %}
+<section class="hero">
+    <h1 class="hero-title">Welcome to go-cms</h1>
+    <p class="hero-subtitle">A modular headless CMS library written in Go</p>
+</section>
+
+<section class="features">
+    <h2>Features</h2>
+    <div class="feature-grid">
+        <div class="feature-card">
+            <h3>Pages & Content</h3>
+            <p>Hierarchical page management with flexible content types and internationalization support.</p>
+        </div>
+        <div class="feature-card">
+            <h3>Blocks & Widgets</h3>
+            <p>Reusable content blocks and dynamic widgets with area-based placement.</p>
+        </div>
+        <div class="feature-card">
+            <h3>Menus</h3>
+            <p>Navigation structures with URL resolution and multi-language support.</p>
+        </div>
+        <div class="feature-card">
+            <h3>Themes</h3>
+            <p>Template system with regions and widget areas for flexible layouts.</p>
+        </div>
+    </div>
+</section>
+
+<section class="pages-section">
+    <h2>Available Pages</h2>
+    {% if pages %}
+    <ul class="pages-list">
+        {% for page in pages %}
+        <li class="page-item">
+            <a href="/pages/{{ page.slug }}?locale={{ locale }}" class="page-link">
+                {% if page.translations %}
+                    {% for translation in page.translations %}
+                        {{ translation.title }}
+                    {% endfor %}
+                {% else %}
+                    {{ page.slug }}
+                {% endif %}
+            </a>
+            <span class="page-status {{ page.status }}">{{ page.status }}</span>
+        </li>
+        {% endfor %}
+    </ul>
+    {% else %}
+    <p>No pages available.</p>
+    {% endif %}
+</section>
+
+<section class="api-section">
+    <h2>API Endpoints</h2>
+    <ul class="api-list">
+        <li><code>GET /api/pages</code> - List all pages</li>
+        <li><code>GET /api/pages/:id</code> - Get page by ID</li>
+        <li><code>GET /api/menus/:code</code> - Get menu by code</li>
+    </ul>
+</section>
+{% endblock %}

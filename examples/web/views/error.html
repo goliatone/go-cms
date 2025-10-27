@@ -1,0 +1,17 @@
+{% extends "layout.html" %}
+
+{% block title %}{{ error_title }}{% endblock %}
+
+{% block content %}
+<div class="error-page">
+    <div class="error-content">
+        <h1 class="error-code">{{ error_code }}</h1>
+        <h2 class="error-title">{{ error_title }}</h2>
+        <p class="error-message">{{ error_message }}</p>
+        <div class="error-actions">
+            <a href="/" class="btn btn-primary">Go Home</a>
+            <a href="javascript:history.back()" class="btn btn-secondary">Go Back</a>
+        </div>
+    </div>
+</div>
+{% endblock %}
