@@ -4,6 +4,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -55,14 +56,15 @@ type Instance struct {
 type Translation struct {
 	bun.BaseModel `bun:"table:block_translations,alias:bt"`
 
-	ID                uuid.UUID      `bun:",pk,type:uuid" json:"id"`
-	BlockInstanceID   uuid.UUID      `bun:"block_instance_id,notnull,type:uuid" json:"block_instance_id"`
-	LocaleID          uuid.UUID      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
-	Content           map[string]any `bun:"content,type:jsonb,notnull" json:"content"`
-	AttributeOverride map[string]any `bun:"attribute_overrides,type:jsonb" json:"attribute_overrides,omitempty"`
-	DeletedAt         *time.Time     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
-	CreatedAt         time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt         time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	ID                uuid.UUID        `bun:",pk,type:uuid" json:"id"`
+	BlockInstanceID   uuid.UUID        `bun:"block_instance_id,notnull,type:uuid" json:"block_instance_id"`
+	LocaleID          uuid.UUID        `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	Content           map[string]any   `bun:"content,type:jsonb,notnull" json:"content"`
+	AttributeOverride map[string]any   `bun:"attribute_overrides,type:jsonb" json:"attribute_overrides,omitempty"`
+	MediaBindings     media.BindingSet `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
+	DeletedAt         *time.Time       `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt         time.Time        `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt         time.Time        `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
 
 // InstanceVersion captures a snapshot of a block instance's configuration and translations.
@@ -87,6 +89,7 @@ type BlockVersionSnapshot struct {
 	Configuration map[string]any                    `json:"configuration,omitempty"`
 	Translations  []BlockVersionTranslationSnapshot `json:"translations,omitempty"`
 	Metadata      map[string]any                    `json:"metadata,omitempty"`
+	Media         media.BindingSet                  `json:"media,omitempty"`
 }
 
 // BlockVersionTranslationSnapshot encodes localized payloads within a block snapshot.
@@ -125,6 +128,56 @@ var BlockVersionSnapshotSchema = map[string]any{
 		"metadata": map[string]any{
 			"type":                 "object",
 			"additionalProperties": true,
+		},
+		"media": map[string]any{
+			"type": "object",
+			"additionalProperties": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"$ref": "#/$defs/mediaBinding"},
+			},
+		},
+	},
+	"$defs": map[string]any{
+		"mediaBinding": map[string]any{
+			"type":     "object",
+			"required": []string{"slot", "reference"},
+			"properties": map[string]any{
+				"slot": map[string]any{"type": "string"},
+				"reference": map[string]any{
+					"type":                 "object",
+					"additionalProperties": true,
+					"properties": map[string]any{
+						"id":         map[string]any{"type": "string"},
+						"path":       map[string]any{"type": "string"},
+						"collection": map[string]any{"type": "string"},
+						"locale":     map[string]any{"type": "string"},
+						"variant":    map[string]any{"type": "string"},
+						"attributes": map[string]any{
+							"type":                 "object",
+							"additionalProperties": true,
+						},
+					},
+				},
+				"renditions": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"required": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"locale":          map[string]any{"type": "string"},
+				"fallback_locale": map[string]any{"type": "string"},
+				"gallery":         map[string]any{"type": "boolean"},
+				"position": map[string]any{
+					"type":    "integer",
+					"minimum": 0,
+				},
+				"metadata": map[string]any{
+					"type":                 "object",
+					"additionalProperties": true,
+				},
+			},
 		},
 	},
 }

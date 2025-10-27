@@ -9,8 +9,10 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 

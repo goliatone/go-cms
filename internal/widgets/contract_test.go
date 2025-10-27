@@ -28,13 +28,13 @@ type widgetDefinitionFixture struct {
 }
 
 type widgetInstanceFixture struct {
-	ID               string         `json:"id"`
-	DefinitionID     string         `json:"definition_id"`
-	AreaCode         string         `json:"area_code"`
+	ID                string         `json:"id"`
+	DefinitionID      string         `json:"definition_id"`
+	AreaCode          string         `json:"area_code"`
 	PlacementMetadata map[string]any `json:"placement_metadata"`
-	Configuration    map[string]any `json:"configuration"`
-	VisibilityRules  map[string]any `json:"visibility_rules"`
-	Position         int            `json:"position"`
+	Configuration     map[string]any `json:"configuration"`
+	VisibilityRules   map[string]any `json:"visibility_rules"`
+	Position          int            `json:"position"`
 }
 
 type widgetTranslationFixture struct {

@@ -9,6 +9,8 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -65,6 +67,81 @@ func TestServiceCreateInstance(t *testing.T) {
 
 	if _, err := svc.CreateInstance(context.Background(), blocks.CreateInstanceInput{}); !errors.Is(err, blocks.ErrInstanceDefinitionRequired) {
 		t.Fatalf("expected ErrInstanceDefinitionRequired got %v", err)
+	}
+}
+
+func TestAddTranslationResolvesMedia(t *testing.T) {
+	ctx := context.Background()
+	provider := &blockMediaProvider{
+		assets: map[string]*interfaces.MediaAsset{
+			"asset-1": {
+				Reference: interfaces.MediaReference{ID: "asset-1"},
+				Metadata:  interfaces.MediaMetadata{ID: "asset-1"},
+				Source:    &interfaces.MediaResource{URL: "https://cdn.local/full.jpg"},
+				Renditions: map[string]*interfaces.MediaResource{
+					"thumb": {URL: "https://cdn.local/thumb.jpg"},
+				},
+			},
+		},
+	}
+	svc := newBlockService(blocks.WithMediaService(media.NewService(provider)))
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	pageID := uuid.MustParse("00000000-0000-0000-0000-0000000000aa")
+	inst, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		PageID:       &pageID,
+		Region:       "hero",
+		Position:     0,
+		Configuration: map[string]any{
+			"variant": "primary",
+		},
+		CreatedBy: uuid.MustParse("00000000-0000-0000-0000-000000000101"),
+		UpdatedBy: uuid.MustParse("00000000-0000-0000-0000-000000000101"),
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	localeID := uuid.MustParse("00000000-0000-0000-0000-000000000001")
+	translation, err := svc.AddTranslation(ctx, blocks.AddTranslationInput{
+		BlockInstanceID: inst.ID,
+		LocaleID:        localeID,
+		Content: map[string]any{
+			"title": "Hero block",
+		},
+		MediaBindings: media.BindingSet{
+			"image": {{
+				Slot:      "image",
+				Reference: interfaces.MediaReference{ID: "asset-1"},
+				Required:  []string{"thumb"},
+			}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+	if translation.ResolvedMedia == nil || translation.ResolvedMedia["image"] == nil {
+		t.Fatalf("expected resolved media to be populated")
+	}
+	if translation.ResolvedMedia["image"][0].Renditions["thumb"].URL != "https://cdn.local/thumb.jpg" {
+		t.Fatalf("expected resolved thumb rendition")
+	}
+
+	instances, err := svc.ListPageInstances(ctx, pageID)
+	if err != nil {
+		t.Fatalf("list page instances: %v", err)
+	}
+	if len(instances) != 1 {
+		t.Fatalf("expected one instance, got %d", len(instances))
+	}
+	gotTranslations := instances[0].Translations
+	if len(gotTranslations) != 1 || gotTranslations[0].ResolvedMedia["image"][0].Metadata.ID != "asset-1" {
+		t.Fatalf("expected resolved media propagated in list")
 	}
 }
 
@@ -296,4 +373,37 @@ func newBlockService(opts ...blocks.ServiceOption) blocks.Service {
 	}
 	baseOpts = append(baseOpts, opts...)
 	return blocks.NewService(defRepo, instRepo, trRepo, baseOpts...)
+}
+
+type blockMediaProvider struct {
+	assets map[string]*interfaces.MediaAsset
+}
+
+func (p *blockMediaProvider) Resolve(_ context.Context, req interfaces.MediaResolveRequest) (*interfaces.MediaAsset, error) {
+	if p.assets == nil {
+		return nil, nil
+	}
+	if req.Reference.Locale != "" {
+		if asset, ok := p.assets[req.Reference.ID+":"+req.Reference.Locale]; ok {
+			return asset, nil
+		}
+	}
+	asset, ok := p.assets[req.Reference.ID]
+	if !ok {
+		return nil, nil
+	}
+	return asset, nil
+}
+
+func (p *blockMediaProvider) ResolveBatch(ctx context.Context, reqs []interfaces.MediaResolveRequest) (map[string]*interfaces.MediaAsset, error) {
+	result := make(map[string]*interfaces.MediaAsset, len(reqs))
+	for _, req := range reqs {
+		asset, _ := p.Resolve(ctx, req)
+		result[req.Reference.ID] = asset
+	}
+	return result, nil
+}
+
+func (p *blockMediaProvider) Invalidate(context.Context, ...interfaces.MediaReference) error {
+	return nil
 }

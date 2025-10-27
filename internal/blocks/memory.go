@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/google/uuid"
 )
 
@@ -327,6 +328,7 @@ func cloneTranslation(src *Translation) *Translation {
 	if src.AttributeOverride != nil {
 		cloned.AttributeOverride = maps.Clone(src.AttributeOverride)
 	}
+	cloned.MediaBindings = media.CloneBindingSet(src.MediaBindings)
 	return &cloned
 }
 
@@ -371,6 +373,7 @@ func cloneBlockVersionSnapshot(src BlockVersionSnapshot) BlockVersionSnapshot {
 			}
 		}
 	}
+	target.Media = media.CloneBindingSet(src.Media)
 	return target
 }
 

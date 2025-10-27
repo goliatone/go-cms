@@ -133,6 +133,7 @@ func registerBlockModels(t *testing.T, db *bun.DB) {
 			block_instance_id TEXT NOT NULL,
 			locale_id TEXT NOT NULL,
 			content TEXT,
+			media_bindings TEXT,
 			attribute_overrides TEXT,
 			deleted_at TEXT,
 			created_at TEXT,
