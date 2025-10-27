@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/google/uuid"
 )
 
@@ -175,6 +176,8 @@ func clonePage(src *Page) *Page {
 				continue
 			}
 			local := *tr
+			local.MediaBindings = media.CloneBindingSet(tr.MediaBindings)
+			local.ResolvedMedia = media.CloneAttachments(tr.ResolvedMedia)
 			copied.Translations[i] = &local
 		}
 	}
@@ -244,6 +247,7 @@ func clonePageVersionSnapshot(src PageVersionSnapshot) PageVersionSnapshot {
 			target.Widgets[area] = cloneWidgetPlacements(placements)
 		}
 	}
+	target.Media = media.CloneBindingSet(src.Media)
 	return target
 }
 

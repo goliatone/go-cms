@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -45,10 +46,11 @@ type CreatePageRequest struct {
 
 // PageTranslationInput represents localized routing information.
 type PageTranslationInput struct {
-	Locale  string
-	Title   string
-	Path    string
-	Summary *string
+	Locale        string
+	Title         string
+	Path          string
+	Summary       *string
+	MediaBindings media.BindingSet
 }
 
 // CreatePageDraftRequest captures the data required to create a page version draft.
@@ -84,26 +86,27 @@ type SchedulePageRequest struct {
 }
 
 var (
-	ErrContentRequired          = errors.New("pages: content does not exist")
-	ErrTemplateRequired         = errors.New("pages: template is required")
-	ErrSlugRequired             = errors.New("pages: slug is required")
-	ErrSlugInvalid              = errors.New("pages: slug contains invalid characters")
-	ErrSlugExists               = errors.New("pages: slug already exists")
-	ErrPathExists               = errors.New("pages: translation path already exists")
-	ErrUnknownLocale            = errors.New("pages: unknown locale")
-	ErrDuplicateLocale          = errors.New("pages: duplicate locale provided")
-	ErrParentNotFound           = errors.New("pages: parent page not found")
-	ErrNoPageTranslations       = errors.New("pages: at least one translation is required")
-	ErrTemplateUnknown          = errors.New("pages: template not found")
-	ErrPageRequired             = errors.New("pages: page id required")
-	ErrVersioningDisabled       = errors.New("pages: versioning feature disabled")
-	ErrPageVersionRequired      = errors.New("pages: version identifier required")
-	ErrVersionAlreadyPublished  = errors.New("pages: version already published")
-	ErrVersionRetentionExceeded = errors.New("pages: version retention limit reached")
-	ErrVersionConflict          = errors.New("pages: base version mismatch")
-	ErrSchedulingDisabled       = errors.New("pages: scheduling feature disabled")
-	ErrScheduleWindowInvalid    = errors.New("pages: publish_at must be before unpublish_at")
-	ErrScheduleTimestampInvalid = errors.New("pages: schedule timestamp is invalid")
+	ErrContentRequired            = errors.New("pages: content does not exist")
+	ErrTemplateRequired           = errors.New("pages: template is required")
+	ErrSlugRequired               = errors.New("pages: slug is required")
+	ErrSlugInvalid                = errors.New("pages: slug contains invalid characters")
+	ErrSlugExists                 = errors.New("pages: slug already exists")
+	ErrPathExists                 = errors.New("pages: translation path already exists")
+	ErrUnknownLocale              = errors.New("pages: unknown locale")
+	ErrDuplicateLocale            = errors.New("pages: duplicate locale provided")
+	ErrParentNotFound             = errors.New("pages: parent page not found")
+	ErrNoPageTranslations         = errors.New("pages: at least one translation is required")
+	ErrTemplateUnknown            = errors.New("pages: template not found")
+	ErrPageRequired               = errors.New("pages: page id required")
+	ErrVersioningDisabled         = errors.New("pages: versioning feature disabled")
+	ErrPageVersionRequired        = errors.New("pages: version identifier required")
+	ErrVersionAlreadyPublished    = errors.New("pages: version already published")
+	ErrVersionRetentionExceeded   = errors.New("pages: version retention limit reached")
+	ErrVersionConflict            = errors.New("pages: base version mismatch")
+	ErrSchedulingDisabled         = errors.New("pages: scheduling feature disabled")
+	ErrScheduleWindowInvalid      = errors.New("pages: publish_at must be before unpublish_at")
+	ErrScheduleTimestampInvalid   = errors.New("pages: schedule timestamp is invalid")
+	ErrPageMediaReferenceRequired = errors.New("pages: media reference requires id or path")
 )
 
 // PageRepository abstracts storage operations for pages.
@@ -182,6 +185,7 @@ type pageService struct {
 	blocks                blocks.Service
 	widgets               widgets.Service
 	themes                themes.Service
+	media                 media.Service
 	now                   func() time.Time
 	id                    IDGenerator
 	versioningEnabled     bool
@@ -205,6 +209,14 @@ func WithWidgetService(svc widgets.Service) ServiceOption {
 func WithThemeService(svc themes.Service) ServiceOption {
 	return func(ps *pageService) {
 		ps.themes = svc
+	}
+}
+
+func WithMediaService(svc media.Service) ServiceOption {
+	return func(ps *pageService) {
+		if svc != nil {
+			ps.media = svc
+		}
 	}
 }
 
@@ -249,6 +261,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		locales:   locales,
 		now:       time.Now,
 		id:        uuid.New,
+		media:     media.NewNoOpService(),
 		scheduler: cmsscheduler.NewNoOp(),
 	}
 
@@ -346,6 +359,9 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		if err != nil {
 			return nil, ErrUnknownLocale
 		}
+		if err := validatePageMediaBindings(tr.MediaBindings); err != nil {
+			return nil, err
+		}
 
 		path := sanitizePath(tr.Path)
 		if path == "" {
@@ -356,14 +372,15 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		}
 
 		translation := &PageTranslation{
-			ID:        s.id(),
-			PageID:    page.ID,
-			LocaleID:  locale.ID,
-			Title:     tr.Title,
-			Path:      path,
-			Summary:   tr.Summary,
-			CreatedAt: now,
-			UpdatedAt: now,
+			ID:            s.id(),
+			PageID:        page.ID,
+			LocaleID:      locale.ID,
+			Title:         tr.Title,
+			Path:          path,
+			Summary:       tr.Summary,
+			MediaBindings: media.CloneBindingSet(tr.MediaBindings),
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}
 
 		page.Translations = append(page.Translations, translation)
@@ -375,7 +392,11 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		return nil, err
 	}
 
-	return s.decoratePage(created), nil
+	enriched, err := s.enrichPages(ctx, []*Page{created})
+	if err != nil {
+		return nil, err
+	}
+	return enriched[0], nil
 }
 
 // Get fetches a page by identifier.
@@ -481,8 +502,11 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 	if err != nil {
 		return nil, err
 	}
-
-	return s.decoratePage(updated), nil
+	enriched, err := s.enrichPages(ctx, []*Page{updated})
+	if err != nil {
+		return nil, err
+	}
+	return enriched[0], nil
 }
 
 func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error) {
@@ -665,10 +689,14 @@ func (s *pageService) enrichPages(ctx context.Context, pages []*Page) ([]*Page, 
 	if err != nil {
 		return nil, err
 	}
-	for _, page := range withWidgets {
+	withMedia, err := s.attachMedia(ctx, withWidgets)
+	if err != nil {
+		return nil, err
+	}
+	for _, page := range withMedia {
 		s.decoratePage(page)
 	}
-	return withWidgets, nil
+	return withMedia, nil
 }
 
 func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page, error) {
@@ -829,6 +857,63 @@ func (s *pageService) attachWidgets(ctx context.Context, pages []*Page) ([]*Page
 	return enriched, nil
 }
 
+func (s *pageService) attachMedia(ctx context.Context, pages []*Page) ([]*Page, error) {
+	if len(pages) == 0 {
+		return pages, nil
+	}
+	enriched := make([]*Page, 0, len(pages))
+	for _, page := range pages {
+		if page == nil {
+			enriched = append(enriched, nil)
+			continue
+		}
+		clone := *page
+		if len(page.Translations) > 0 {
+			hydrated := make([]*PageTranslation, len(page.Translations))
+			for i, tr := range page.Translations {
+				translation, err := s.hydrateTranslation(ctx, tr)
+				if err != nil {
+					return nil, err
+				}
+				hydrated[i] = translation
+			}
+			clone.Translations = hydrated
+		}
+		enriched = append(enriched, &clone)
+	}
+	return enriched, nil
+}
+
+func validatePageMediaBindings(bindings media.BindingSet) error {
+	for slot, entries := range bindings {
+		for _, binding := range entries {
+			reference := binding.Reference
+			if strings.TrimSpace(reference.ID) == "" && strings.TrimSpace(reference.Path) == "" {
+				return fmt.Errorf("%w: %s", ErrPageMediaReferenceRequired, slot)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *pageService) hydrateTranslation(ctx context.Context, translation *PageTranslation) (*PageTranslation, error) {
+	if translation == nil {
+		return nil, nil
+	}
+	clone := *translation
+	clone.MediaBindings = media.CloneBindingSet(translation.MediaBindings)
+	if len(clone.MediaBindings) == 0 || s.media == nil {
+		clone.ResolvedMedia = nil
+		return &clone, nil
+	}
+	resolved, err := s.media.ResolveBindings(ctx, clone.MediaBindings, media.ResolveOptions{})
+	if err != nil {
+		return nil, err
+	}
+	clone.ResolvedMedia = resolved
+	return &clone, nil
+}
+
 func cloneResolvedWidgetSlice(input []*widgets.ResolvedWidget) []*widgets.ResolvedWidget {
 	if len(input) == 0 {
 		return nil
@@ -932,6 +1017,8 @@ func cloneBlockInstances(instances []*blocks.Instance) []*blocks.Instance {
 				if tr.AttributeOverride != nil {
 					copyTr.AttributeOverride = maps.Clone(tr.AttributeOverride)
 				}
+				copyTr.MediaBindings = media.CloneBindingSet(tr.MediaBindings)
+				copyTr.ResolvedMedia = media.CloneAttachments(tr.ResolvedMedia)
 				copyInst.Translations[j] = &copyTr
 			}
 		}
