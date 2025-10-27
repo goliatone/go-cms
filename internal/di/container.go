@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/i18n"
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
@@ -71,6 +72,7 @@ type Container struct {
 	menuSvc    menus.Service
 	widgetSvg  widgets.Service
 	themeSvc   themes.Service
+	mediaSvc   media.Service
 }
 
 // Option mutates the container before it is finalised.
@@ -222,6 +224,7 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		themeRepo:             memoryThemeRepo,
 		templateRepo:          memoryTemplateRepo,
 		memoryLocaleRepo:      memoryLocaleRepo,
+		mediaSvc:              media.NewNoOpService(),
 	}
 
 	c.seedLocales()
@@ -233,16 +236,21 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	c.configureCacheDefaults()
 	c.configureRepositories()
 	c.configureNavigation()
+	c.configureMediaService()
 
 	if c.contentSvc == nil {
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo)
 	}
 
 	if c.blockSvc == nil {
+		blockOpts := []blocks.ServiceOption{
+			blocks.WithMediaService(c.mediaSvc),
+		}
 		c.blockSvc = blocks.NewService(
 			c.blockDefinitionRepo,
 			c.blockRepo,
 			c.blockTranslationRepo,
+			blockOpts...,
 		)
 	}
 
@@ -259,6 +267,7 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
 		}
+		pageOpts = append(pageOpts, pages.WithMediaService(c.mediaSvc))
 		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
 	}
 
@@ -316,6 +325,7 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		if c.themeSvc != nil {
 			pageOpts = append(pageOpts, pages.WithThemeService(c.themeSvc))
 		}
+		pageOpts = append(pageOpts, pages.WithMediaService(c.mediaSvc))
 		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
 	}
 
@@ -418,6 +428,18 @@ func (c *Container) configureNavigation() {
 	c.menuURLResolver = resolver
 }
 
+func (c *Container) configureMediaService() {
+	if !c.Config.Features.MediaLibrary || c.media == nil {
+		c.mediaSvc = media.NewNoOpService()
+		return
+	}
+	options := []media.ServiceOption{}
+	if c.cache != nil && c.cacheTTL > 0 {
+		options = append(options, media.WithCache(c.cache, c.cacheTTL))
+	}
+	c.mediaSvc = media.NewService(c.media, options...)
+}
+
 // API constructs the top-level CMS API façade.
 func (c *Container) API() *cms.API {
 	return cms.Module()
@@ -485,6 +507,11 @@ func (c *Container) WidgetService() widgets.Service {
 
 func (c *Container) ThemeService() themes.Service {
 	return c.themeSvc
+}
+
+// MediaService returns the configured media helper service.
+func (c *Container) MediaService() media.Service {
+	return c.mediaSvc
 }
 
 // I18nService returns the configured i18n service (lazy).
