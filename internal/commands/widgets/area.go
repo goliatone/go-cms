@@ -87,7 +87,7 @@ func NewRefreshWidgetAreaHandler(service widgets.Service, logger interfaces.Logg
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &RefreshWidgetAreaHandler{
-		inner: commands.NewHandler[RefreshWidgetAreaCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

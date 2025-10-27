@@ -56,7 +56,7 @@ func NewReplayAuditHandler(worker Worker, logger interfaces.Logger, opts ...comm
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &ReplayAuditHandler{
-		inner: commands.NewHandler[ReplayAuditCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

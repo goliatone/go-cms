@@ -58,7 +58,7 @@ func NewSyncWidgetRegistryHandler(service widgets.Service, logger interfaces.Log
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &SyncWidgetRegistryHandler{
-		inner: commands.NewHandler[SyncWidgetRegistryCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

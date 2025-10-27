@@ -67,7 +67,7 @@ func NewRestoreContentVersionHandler(service content.Service, logger interfaces.
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &RestoreContentVersionHandler{
-		inner: commands.NewHandler[RestoreContentVersionCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

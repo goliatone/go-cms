@@ -70,7 +70,7 @@ func NewScheduleContentHandler(service content.Service, logger interfaces.Logger
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &ScheduleContentHandler{
-		inner: commands.NewHandler[ScheduleContentCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

@@ -96,7 +96,7 @@ func NewPublishPageHandler(service pages.Service, logger interfaces.Logger, gate
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &PublishPageHandler{
-		inner: commands.NewHandler[PublishPageCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

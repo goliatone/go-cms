@@ -70,7 +70,7 @@ func NewInvalidateMenuCacheHandler(service menus.Service, logger interfaces.Logg
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &InvalidateMenuCacheHandler{
-		inner: commands.NewHandler[InvalidateMenuCacheCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

@@ -70,7 +70,7 @@ func NewSyncBlockRegistryHandler(service blocks.Service, logger interfaces.Logge
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &SyncBlockRegistryHandler{
-		inner: commands.NewHandler[SyncBlockRegistryCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

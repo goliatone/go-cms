@@ -73,7 +73,7 @@ func NewCleanupAssetsHandler(service media.Service, logger interfaces.Logger, ga
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &CleanupAssetsHandler{
-		inner: commands.NewHandler[CleanupAssetsCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

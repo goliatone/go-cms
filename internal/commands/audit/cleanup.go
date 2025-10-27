@@ -72,7 +72,7 @@ func NewCleanupAuditHandler(cleaner AuditCleaner, logger interfaces.Logger, opts
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &CleanupAuditHandler{
-		inner: commands.NewHandler[CleanupAuditCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

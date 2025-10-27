@@ -93,7 +93,7 @@ func NewImportAssetsHandler(service media.Service, logger interfaces.Logger, gat
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &ImportAssetsHandler{
-		inner: commands.NewHandler[ImportAssetsCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 

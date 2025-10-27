@@ -89,7 +89,7 @@ func NewExportAuditHandler(log AuditLog, logger interfaces.Logger, opts ...comma
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &ExportAuditHandler{
-		inner: commands.NewHandler[ExportAuditCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 
