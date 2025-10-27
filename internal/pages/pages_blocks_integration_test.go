@@ -16,7 +16,10 @@ func TestIntegrationListIncludesBlocks(t *testing.T) {
 	ctx := context.Background()
 
 	cfg := cms.DefaultConfig()
-	container := di.NewContainer(cfg)
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
 
 	contentSvc := container.ContentService()
 	localeRepo := container.LocaleRepository()

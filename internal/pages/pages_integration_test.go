@@ -21,7 +21,10 @@ func TestPagesIntegration_CreateAndFetchPage(t *testing.T) {
 	cfg.I18N.Locales = []string{"en", "es"}
 	cfg.Cache.Enabled = false
 
-	container := di.NewContainer(cfg)
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
 
 	typeRepo := container.ContentTypeRepository()
 	for _, ct := range contentFx.ContentTypes {

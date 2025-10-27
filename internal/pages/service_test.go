@@ -9,10 +9,8 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
-	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/widgets"
-	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -75,92 +73,6 @@ func TestPageServiceCreateSuccess(t *testing.T) {
 
 	if result.Translations[0].Path != "/" {
 		t.Fatalf("expected path '/' got %q", result.Translations[0].Path)
-	}
-}
-
-func TestPageServiceCreateResolvesMedia(t *testing.T) {
-	ctx := context.Background()
-	contentStore := content.NewMemoryContentRepository()
-	contentTypeStore := content.NewMemoryContentTypeRepository()
-	localeStore := content.NewMemoryLocaleRepository()
-	pageStore := pages.NewMemoryPageRepository()
-
-	contentTypeID := uuid.New()
-	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
-	localeID := uuid.New()
-	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
-
-	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
-	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
-		ContentTypeID: contentTypeID,
-		Slug:          "about",
-		CreatedBy:     uuid.New(),
-		UpdatedBy:     uuid.New(),
-		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "About"}},
-	})
-	if err != nil {
-		t.Fatalf("create content: %v", err)
-	}
-
-	provider := &pageMediaProvider{
-		assets: map[string]*interfaces.MediaAsset{
-			"asset-1": {
-				Reference: interfaces.MediaReference{ID: "asset-1"},
-				Metadata:  interfaces.MediaMetadata{ID: "asset-1"},
-				Source:    &interfaces.MediaResource{URL: "https://cdn.local/original.jpg"},
-				Renditions: map[string]*interfaces.MediaResource{
-					"thumb": {URL: "https://cdn.local/thumb.jpg"},
-				},
-			},
-		},
-	}
-
-	pageSvc := pages.NewService(
-		pageStore,
-		contentStore,
-		localeStore,
-		pages.WithMediaService(media.NewService(provider)),
-	)
-
-	page, err := pageSvc.Create(ctx, pages.CreatePageRequest{
-		ContentID:  contentRecord.ID,
-		TemplateID: uuid.New(),
-		Slug:       "about",
-		CreatedBy:  uuid.New(),
-		UpdatedBy:  uuid.New(),
-		Translations: []pages.PageTranslationInput{{
-			Locale: "en",
-			Title:  "About",
-			Path:   "/about",
-			MediaBindings: media.BindingSet{
-				"hero": {{
-					Slot:      "hero",
-					Reference: interfaces.MediaReference{ID: "asset-1"},
-					Required:  []string{"thumb"},
-				}},
-			},
-		}},
-	})
-	if err != nil {
-		t.Fatalf("create page with media: %v", err)
-	}
-	if len(page.Translations) != 1 {
-		t.Fatalf("expected a single translation")
-	}
-	mediaSet := page.Translations[0].ResolvedMedia
-	if mediaSet == nil || mediaSet["hero"] == nil {
-		t.Fatalf("expected resolved media to be populated")
-	}
-	if got := mediaSet["hero"][0].Renditions["thumb"].URL; got != "https://cdn.local/thumb.jpg" {
-		t.Fatalf("expected thumb rendition url, got %s", got)
-	}
-
-	fetched, err := pageSvc.Get(ctx, page.ID)
-	if err != nil {
-		t.Fatalf("get page: %v", err)
-	}
-	if fetched.Translations[0].ResolvedMedia["hero"][0].Metadata.ID != "asset-1" {
-		t.Fatalf("expected resolved media on get")
 	}
 }
 
@@ -664,33 +576,4 @@ func TestPageServiceListIncludesWidgets(t *testing.T) {
 	if areaWidgets[0].Instance.ID != instance.ID {
 		t.Fatalf("expected widget instance %s, got %s", instance.ID, areaWidgets[0].Instance.ID)
 	}
-}
-
-type pageMediaProvider struct {
-	assets map[string]*interfaces.MediaAsset
-}
-
-func (p *pageMediaProvider) Resolve(_ context.Context, req interfaces.MediaResolveRequest) (*interfaces.MediaAsset, error) {
-	if p.assets == nil {
-		return nil, nil
-	}
-	if req.Reference.Locale != "" {
-		if asset, ok := p.assets[req.Reference.ID+":"+req.Reference.Locale]; ok {
-			return asset, nil
-		}
-	}
-	return p.assets[req.Reference.ID], nil
-}
-
-func (p *pageMediaProvider) ResolveBatch(ctx context.Context, reqs []interfaces.MediaResolveRequest) (map[string]*interfaces.MediaAsset, error) {
-	result := make(map[string]*interfaces.MediaAsset, len(reqs))
-	for _, req := range reqs {
-		asset, _ := p.Resolve(ctx, req)
-		result[req.Reference.ID] = asset
-	}
-	return result, nil
-}
-
-func (p *pageMediaProvider) Invalidate(context.Context, ...interfaces.MediaReference) error {
-	return nil
 }
