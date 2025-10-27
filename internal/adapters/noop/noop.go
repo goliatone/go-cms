@@ -66,12 +66,33 @@ func Media() interfaces.MediaProvider {
 
 type mediaAdapter struct{}
 
-func (mediaAdapter) GetURL(context.Context, string) (string, error) {
-	return "", nil
+func (mediaAdapter) Resolve(_ context.Context, req interfaces.MediaResolveRequest) (*interfaces.MediaAsset, error) {
+	return &interfaces.MediaAsset{
+		Reference:  req.Reference,
+		Source:     nil,
+		Renditions: map[string]*interfaces.MediaResource{},
+		Metadata: interfaces.MediaMetadata{
+			ID: req.Reference.ID,
+		},
+	}, nil
 }
 
-func (mediaAdapter) GetMetadata(context.Context, string) (interfaces.MediaMetadata, error) {
-	return interfaces.MediaMetadata{}, nil
+func (mediaAdapter) ResolveBatch(ctx context.Context, reqs []interfaces.MediaResolveRequest) (map[string]*interfaces.MediaAsset, error) {
+	result := make(map[string]*interfaces.MediaAsset, len(reqs))
+	for _, req := range reqs {
+		ref := req.Reference
+		asset, _ := (mediaAdapter{}).Resolve(ctx, req)
+		key := ref.ID
+		if key == "" {
+			key = ref.Path
+		}
+		result[key] = asset
+	}
+	return result, nil
+}
+
+func (mediaAdapter) Invalidate(context.Context, ...interfaces.MediaReference) error {
+	return nil
 }
 
 // Auth returns a no-op auth service compatible with go-auth interfaces.

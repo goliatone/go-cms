@@ -270,3 +270,16 @@ func unionRenditions(binding Binding) []string {
 	sort.Strings(result)
 	return result
 }
+
+type noopService struct{}
+
+// NewNoOpService returns a media service that acts as a passthrough for disabled configurations.
+func NewNoOpService() Service { return noopService{} }
+
+func (noopService) ResolveBindings(context.Context, BindingSet, ResolveOptions) (map[string][]*Attachment, error) {
+	return map[string][]*Attachment{}, nil
+}
+
+func (noopService) Invalidate(context.Context, BindingSet) error {
+	return nil
+}
