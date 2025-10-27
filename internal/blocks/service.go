@@ -17,6 +17,7 @@ type Service interface {
 	RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error)
 	ListDefinitions(ctx context.Context) ([]*Definition, error)
+	SyncRegistry(ctx context.Context) error
 
 	CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error)
 	ListPageInstances(ctx context.Context, pageID uuid.UUID) ([]*Instance, error)
@@ -577,6 +578,14 @@ func (s *service) hydrateTranslation(ctx context.Context, translation *Translati
 	}
 	clone.ResolvedMedia = resolved
 	return &clone, nil
+}
+
+func (s *service) SyncRegistry(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.applyRegistry(ctx)
+	return nil
 }
 
 func (s *service) applyRegistry(ctx context.Context) {
