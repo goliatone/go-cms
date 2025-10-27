@@ -78,12 +78,15 @@ All external dependencies are defined as interfaces, allowing the host applicati
 9. **Soft Deletes**: All entities support `deleted_at` for data recovery and audit trails.
 
 10. **Scheduled Publishing**: Content and widgets support `publish_on` for future publishing.
+    - Jobs are enqueued through the shared scheduler interface (`pkg/interfaces.Scheduler`) and processed by the `internal/jobs.Worker`, which toggles publish state for content and pages and records audit entries. Hosts wiring their own scheduler must provide unique job keys and idempotent completion semantics so missed jobs can be retried safely.
 
 11. **Translation-First**: Every user-facing string is translatable from day one.
 
 12. **Minimal Dependencies**: The module keeps external dependencies to a minimum; internationalization delegates to `github.com/goliatone/go-i18n` behind a thin wrapper, persistence contracts are satisfied by adapters backed by `github.com/goliatone/go-persistence-bun` and `github.com/goliatone/go-repository-bun`, and caching decorators are provided by `github.com/goliatone/go-repository-cache`, while all other integrations flow through host-provided interfaces.
 
-13. **Isolated Modules**: Each content type module (pages, blocks, menus, widgets) is independent with no direct dependencies on others.
+13. **Pluggable Logging**: The runtime only depends on the leveled logging contracts declared in `pkg/interfaces/logger.go`. A thin console logger is used for tests and bootstrapping, while production deployments can drop in `github.com/goliatone/go-logger` (or any compatible provider) without introducing a mandatory module dependency.
+
+14. **Isolated Modules**: Each content type module (pages, blocks, menus, widgets) is independent with no direct dependencies on others.
 
 ## Entity Descriptions
 
@@ -199,6 +202,12 @@ Theme management:
 - Widget area definitions
 - Menu location definitions
 - Repository integration through go-repository-bun
+
+### Logging (cross-cutting)
+
+- Runtime diagnostics flow through the `pkg/interfaces.Logger` contract.
+- Default development/testing builds rely on a lightweight console logger that satisfies the interface without additional dependencies.
+- Production deployments can plug in `github.com/goliatone/go-logger` (or other compatible packages) by wiring a `LoggerProvider` through the DI container.
 
 ## Data Model
 
@@ -320,6 +329,12 @@ Following ARCH_DESIGN.md, we rely on fixture-driven tests, golden files, and rep
 - Content versioning
 - Scheduled publishing
 - Media library integration
+
+**Phase 7: Observability**
+- Logger interface promotion (`pkg/interfaces/logger.go`)
+- Console logger fallback for local/testing builds
+- go-logger adapter wiring via DI (`go-logger` alignment and examples)
+- Structured audit/worker logs using the new contract
 
 ## Usage Examples
 
