@@ -6,9 +6,18 @@
       "description": "Feature card block",
       "schema": {
         "fields": [
-          {"name": "title", "type": "text"},
-          {"name": "description", "type": "richtext"},
-          {"name": "cta_label", "type": "text"}
+          {
+            "name": "title",
+            "type": "text"
+          },
+          {
+            "name": "description",
+            "type": "richtext"
+          },
+          {
+            "name": "cta_label",
+            "type": "text"
+          }
         ]
       }
     }
@@ -44,11 +53,43 @@
                   "title": "Archived Feature",
                   "description": "Archived description",
                   "cta_label": "Learn more"
+                },
+                "media_bindings": {
+                  "image": [
+                    {
+                      "slot": "image",
+                      "reference": {
+                        "id": "asset-hero-v1"
+                      },
+                      "required": [
+                        "thumb"
+                      ],
+                      "renditions": [
+                        "thumb"
+                      ]
+                    }
+                  ]
                 }
               }
             ],
             "metadata": {
               "notes": "Initial layout"
+            },
+            "media": {
+              "image": [
+                {
+                  "slot": "image",
+                  "reference": {
+                    "id": "asset-hero-v1"
+                  },
+                  "required": [
+                    "thumb"
+                  ],
+                  "renditions": [
+                    "thumb"
+                  ]
+                }
+              ]
             }
           },
           "created_by": "00000000-0000-0000-0000-000000000300",
@@ -70,19 +111,67 @@
                   "title": "Live Feature",
                   "description": "Published description",
                   "cta_label": "Download"
+                },
+                "media_bindings": {
+                  "image": [
+                    {
+                      "slot": "image",
+                      "reference": {
+                        "id": "asset-hero-v2"
+                      },
+                      "required": [
+                        "thumb"
+                      ],
+                      "renditions": [
+                        "thumb"
+                      ]
+                    }
+                  ]
                 }
               },
               {
                 "locale": "fr",
                 "content": {
-                  "title": "Fonctionnalité",
-                  "description": "Description publiée",
-                  "cta_label": "Télécharger"
+                  "title": "Fonctionnalit\u00e9",
+                  "description": "Description publi\u00e9e",
+                  "cta_label": "T\u00e9l\u00e9charger"
+                },
+                "media_bindings": {
+                  "image": [
+                    {
+                      "slot": "image",
+                      "reference": {
+                        "id": "asset-hero-v2"
+                      },
+                      "required": [
+                        "thumb"
+                      ],
+                      "renditions": [
+                        "thumb"
+                      ]
+                    }
+                  ]
                 }
               }
             ],
             "metadata": {
               "notes": "Localized variant"
+            },
+            "media": {
+              "image": [
+                {
+                  "slot": "image",
+                  "reference": {
+                    "id": "asset-hero-v2"
+                  },
+                  "required": [
+                    "thumb"
+                  ],
+                  "renditions": [
+                    "thumb"
+                  ]
+                }
+              ]
             }
           },
           "created_by": "00000000-0000-0000-0000-000000000300",
@@ -109,11 +198,43 @@
                 },
                 "attribute_overrides": {
                   "cta_style": "primary"
+                },
+                "media_bindings": {
+                  "image": [
+                    {
+                      "slot": "image",
+                      "reference": {
+                        "id": "asset-hero-v3"
+                      },
+                      "required": [
+                        "thumb"
+                      ],
+                      "renditions": [
+                        "thumb"
+                      ]
+                    }
+                  ]
                 }
               }
             ],
             "metadata": {
               "notes": "Pending approval"
+            },
+            "media": {
+              "image": [
+                {
+                  "slot": "image",
+                  "reference": {
+                    "id": "asset-hero-v3"
+                  },
+                  "required": [
+                    "thumb"
+                  ],
+                  "renditions": [
+                    "thumb"
+                  ]
+                }
+              ]
             }
           },
           "created_by": "00000000-0000-0000-0000-000000000301",

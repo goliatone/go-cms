@@ -18,7 +18,23 @@
       "page_id": "00000000-0000-0000-0000-000000000610",
       "locale_id": "00000000-0000-0000-0000-000000000001",
       "title": "Press Release Landing",
-      "path": "/en/news/press-release"
+      "path": "/en/news/press-release",
+      "media_bindings": {
+        "hero_image": [
+          {
+            "slot": "hero_image",
+            "reference": {
+              "id": "page-hero-asset"
+            },
+            "required": [
+              "thumb"
+            ],
+            "renditions": [
+              "thumb"
+            ]
+          }
+        ]
+      }
     }
   ],
   "versions": [
@@ -63,6 +79,22 @@
         },
         "metadata": {
           "notes": "Initial layout for preview"
+        },
+        "media": {
+          "hero_image": [
+            {
+              "slot": "hero_image",
+              "reference": {
+                "id": "page-hero-v1"
+              },
+              "required": [
+                "thumb"
+              ],
+              "renditions": [
+                "thumb"
+              ]
+            }
+          ]
         }
       },
       "created_by": "00000000-0000-0000-0000-000000000300",
@@ -128,6 +160,22 @@
         },
         "metadata": {
           "notes": "Live layout"
+        },
+        "media": {
+          "hero_image": [
+            {
+              "slot": "hero_image",
+              "reference": {
+                "id": "page-hero-v2"
+              },
+              "required": [
+                "thumb"
+              ],
+              "renditions": [
+                "thumb"
+              ]
+            }
+          ]
         }
       },
       "created_by": "00000000-0000-0000-0000-000000000300",
@@ -223,6 +271,22 @@
         },
         "metadata": {
           "notes": "Draft update for next campaign"
+        },
+        "media": {
+          "hero_image": [
+            {
+              "slot": "hero_image",
+              "reference": {
+                "id": "page-hero-v3"
+              },
+              "required": [
+                "thumb"
+              ],
+              "renditions": [
+                "thumb"
+              ]
+            }
+          ]
         }
       },
       "created_by": "00000000-0000-0000-0000-000000000301",
