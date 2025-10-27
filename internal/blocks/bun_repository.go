@@ -109,6 +109,24 @@ func (r *BunInstanceRepository) ListGlobal(ctx context.Context) ([]*Instance, er
 	return records, err
 }
 
+func (r *BunInstanceRepository) Update(ctx context.Context, instance *Instance) (*Instance, error) {
+	updated, err := r.repo.Update(ctx, instance,
+		repository.UpdateByID(instance.ID.String()),
+		repository.UpdateColumns(
+			"current_version",
+			"published_version",
+			"published_at",
+			"published_by",
+			"updated_by",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
 // BunInstanceVersionRepository implements InstanceVersionRepository with optional caching.
 type BunInstanceVersionRepository struct {
 	repo repository.Repository[*InstanceVersion]
@@ -181,6 +199,21 @@ func (r *BunInstanceVersionRepository) GetLatest(ctx context.Context, instanceID
 		return nil, &NotFoundError{Resource: "block_version", Key: instanceID.String()}
 	}
 	return records[0], nil
+}
+
+func (r *BunInstanceVersionRepository) Update(ctx context.Context, version *InstanceVersion) (*InstanceVersion, error) {
+	updated, err := r.repo.Update(ctx, version,
+		repository.UpdateByID(version.ID.String()),
+		repository.UpdateColumns(
+			"status",
+			"published_at",
+			"published_by",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // BunTranslationRepository implements TranslationRepository with optional caching.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"maps"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -135,6 +136,27 @@ func (m *memoryInstanceRepository) ListGlobal(_ context.Context) ([]*Instance, e
 	return instances, nil
 }
 
+func (m *memoryInstanceRepository) Update(_ context.Context, instance *Instance) (*Instance, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current, ok := m.byID[instance.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_instance", Key: instance.ID.String()}
+	}
+
+	updated := cloneInstance(current)
+	updated.CurrentVersion = instance.CurrentVersion
+	updated.PublishedVersion = cloneIntPointer(instance.PublishedVersion)
+	updated.PublishedAt = cloneTimePointer(instance.PublishedAt)
+	updated.PublishedBy = cloneUUIDPointer(instance.PublishedBy)
+	updated.UpdatedAt = instance.UpdatedAt
+	updated.UpdatedBy = instance.UpdatedBy
+
+	m.byID[instance.ID] = updated
+	return cloneInstance(updated), nil
+}
+
 // NewMemoryInstanceVersionRepository constructs an "in memory" instance version repository.
 func NewMemoryInstanceVersionRepository() InstanceVersionRepository {
 	return &memoryInstanceVersionRepository{
@@ -186,6 +208,24 @@ func (m *memoryInstanceVersionRepository) GetLatest(_ context.Context, instanceI
 		return nil, &NotFoundError{Resource: "block_version", Key: instanceID.String()}
 	}
 	return cloneInstanceVersion(queue[len(queue)-1]), nil
+}
+
+func (m *memoryInstanceVersionRepository) Update(_ context.Context, version *InstanceVersion) (*InstanceVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	queue := m.byInstance[version.BlockInstanceID]
+	for idx, existing := range queue {
+		if existing == nil {
+			continue
+		}
+		if existing.ID == version.ID {
+			queue[idx] = cloneInstanceVersion(version)
+			m.byInstance[version.BlockInstanceID] = queue
+			return cloneInstanceVersion(queue[idx]), nil
+		}
+	}
+	return nil, &NotFoundError{Resource: "block_version", Key: versionKey(version.BlockInstanceID, version.Version)}
 }
 
 // NewMemoryTranslationRepository constructs an "in memory" translation repository.
@@ -258,6 +298,9 @@ func cloneInstance(src *Instance) *Instance {
 		return nil
 	}
 	cloned := *src
+	cloned.PublishedVersion = cloneIntPointer(src.PublishedVersion)
+	cloned.PublishedAt = cloneTimePointer(src.PublishedAt)
+	cloned.PublishedBy = cloneUUIDPointer(src.PublishedBy)
 	if src.Configuration != nil {
 		cloned.Configuration = maps.Clone(src.Configuration)
 	}
@@ -308,6 +351,8 @@ func cloneInstanceVersion(src *InstanceVersion) *InstanceVersion {
 	}
 	cloned := *src
 	cloned.Snapshot = cloneBlockVersionSnapshot(src.Snapshot)
+	cloned.PublishedAt = cloneTimePointer(src.PublishedAt)
+	cloned.PublishedBy = cloneUUIDPointer(src.PublishedBy)
 	return &cloned
 }
 
@@ -327,4 +372,28 @@ func cloneBlockVersionSnapshot(src BlockVersionSnapshot) BlockVersionSnapshot {
 		}
 	}
 	return target
+}
+
+func cloneIntPointer(src *int) *int {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneTimePointer(src *time.Time) *time.Time {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneUUIDPointer(src *uuid.UUID) *uuid.UUID {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
 }

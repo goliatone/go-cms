@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +22,10 @@ type Service interface {
 
 	AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error)
 	GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error)
+	CreateDraft(ctx context.Context, req CreateInstanceDraftRequest) (*InstanceVersion, error)
+	PublishDraft(ctx context.Context, req PublishInstanceDraftRequest) (*InstanceVersion, error)
+	ListVersions(ctx context.Context, instanceID uuid.UUID) ([]*InstanceVersion, error)
+	RestoreVersion(ctx context.Context, req RestoreInstanceVersionRequest) (*InstanceVersion, error)
 }
 
 type RegisterDefinitionInput struct {
@@ -51,6 +56,30 @@ type AddTranslationInput struct {
 	AttributeOverrides map[string]any
 }
 
+// CreateInstanceDraftRequest captures the payload required to create a block instance draft snapshot.
+type CreateInstanceDraftRequest struct {
+	InstanceID  uuid.UUID
+	Snapshot    BlockVersionSnapshot
+	CreatedBy   uuid.UUID
+	UpdatedBy   uuid.UUID
+	BaseVersion *int
+}
+
+// PublishInstanceDraftRequest captures details required to publish a block instance draft.
+type PublishInstanceDraftRequest struct {
+	InstanceID  uuid.UUID
+	Version     int
+	PublishedBy uuid.UUID
+	PublishedAt *time.Time
+}
+
+// RestoreInstanceVersionRequest captures the request to restore a previously recorded version.
+type RestoreInstanceVersionRequest struct {
+	InstanceID uuid.UUID
+	Version    int
+	RestoredBy uuid.UUID
+}
+
 var (
 	ErrDefinitionNameRequired   = errors.New("blocks: definition name required")
 	ErrDefinitionSchemaRequired = errors.New("blocks: definition schema required")
@@ -60,8 +89,14 @@ var (
 	ErrInstanceRegionRequired     = errors.New("blocks: region required")
 	ErrInstancePositionInvalid    = errors.New("blocks: position cannot be negative")
 
-	ErrTranslationContentRequired = errors.New("blocks: translation content required")
-	ErrTranslationExists          = errors.New("blocks: translation already exists for locale")
+	ErrTranslationContentRequired       = errors.New("blocks: translation content required")
+	ErrTranslationExists                = errors.New("blocks: translation already exists for locale")
+	ErrInstanceIDRequired               = errors.New("blocks: instance id required")
+	ErrVersioningDisabled               = errors.New("blocks: versioning feature disabled")
+	ErrInstanceVersionRequired          = errors.New("blocks: version identifier required")
+	ErrInstanceVersionConflict          = errors.New("blocks: base version mismatch")
+	ErrInstanceVersionAlreadyPublished  = errors.New("blocks: version already published")
+	ErrInstanceVersionRetentionExceeded = errors.New("blocks: version retention limit reached")
 )
 
 type IDGenerator func() uuid.UUID
@@ -92,13 +127,40 @@ func WithRegistry(reg *Registry) ServiceOption {
 	}
 }
 
+// WithInstanceVersionRepository wires the repository used for instance version persistence.
+func WithInstanceVersionRepository(repo InstanceVersionRepository) ServiceOption {
+	return func(s *service) {
+		s.versions = repo
+	}
+}
+
+// WithVersioningEnabled toggles versioning workflows for block instances.
+func WithVersioningEnabled(enabled bool) ServiceOption {
+	return func(s *service) {
+		s.versioningEnabled = enabled
+	}
+}
+
+// WithVersionRetentionLimit constrains how many versions are retained per instance.
+func WithVersionRetentionLimit(limit int) ServiceOption {
+	return func(s *service) {
+		if limit < 0 {
+			limit = 0
+		}
+		s.versionRetentionLimit = limit
+	}
+}
+
 type service struct {
-	definitions  DefinitionRepository
-	instances    InstanceRepository
-	translations TranslationRepository
-	now          func() time.Time
-	id           IDGenerator
-	registry     *Registry
+	definitions           DefinitionRepository
+	instances             InstanceRepository
+	translations          TranslationRepository
+	versions              InstanceVersionRepository
+	now                   func() time.Time
+	id                    IDGenerator
+	registry              *Registry
+	versioningEnabled     bool
+	versionRetentionLimit int
 }
 
 func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRepo TranslationRepository, opts ...ServiceOption) Service {
@@ -244,6 +306,187 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 
 func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error) {
 	return s.translations.GetByInstanceAndLocale(ctx, instanceID, localeID)
+}
+
+func (s *service) CreateDraft(ctx context.Context, req CreateInstanceDraftRequest) (*InstanceVersion, error) {
+	if !s.versioningEnabled || s.versions == nil {
+		return nil, ErrVersioningDisabled
+	}
+	if req.InstanceID == uuid.Nil {
+		return nil, ErrInstanceIDRequired
+	}
+
+	instance, err := s.instances.GetByID(ctx, req.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	versions, err := s.versions.ListByInstance(ctx, req.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.versionRetentionLimit > 0 && len(versions) >= s.versionRetentionLimit {
+		return nil, ErrInstanceVersionRetentionExceeded
+	}
+
+	next := nextInstanceVersionNumber(versions)
+	if req.BaseVersion != nil && *req.BaseVersion != next-1 {
+		return nil, ErrInstanceVersionConflict
+	}
+
+	now := s.now()
+	version := &InstanceVersion{
+		ID:              s.id(),
+		BlockInstanceID: req.InstanceID,
+		Version:         next,
+		Status:          domain.StatusDraft,
+		Snapshot:        cloneBlockVersionSnapshot(req.Snapshot),
+		CreatedBy:       req.CreatedBy,
+		CreatedAt:       now,
+	}
+
+	created, err := s.versions.Create(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+
+	instance.CurrentVersion = created.Version
+	instance.UpdatedAt = now
+	switch {
+	case req.UpdatedBy != uuid.Nil:
+		instance.UpdatedBy = req.UpdatedBy
+	case req.CreatedBy != uuid.Nil:
+		instance.UpdatedBy = req.CreatedBy
+	}
+
+	if _, err := s.instances.Update(ctx, instance); err != nil {
+		return nil, err
+	}
+
+	return cloneInstanceVersion(created), nil
+}
+
+func (s *service) PublishDraft(ctx context.Context, req PublishInstanceDraftRequest) (*InstanceVersion, error) {
+	if !s.versioningEnabled || s.versions == nil {
+		return nil, ErrVersioningDisabled
+	}
+	if req.InstanceID == uuid.Nil {
+		return nil, ErrInstanceIDRequired
+	}
+	if req.Version <= 0 {
+		return nil, ErrInstanceVersionRequired
+	}
+
+	instance, err := s.instances.GetByID(ctx, req.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	version, err := s.versions.GetVersion(ctx, req.InstanceID, req.Version)
+	if err != nil {
+		return nil, err
+	}
+	if version.Status == domain.StatusPublished {
+		return nil, ErrInstanceVersionAlreadyPublished
+	}
+
+	publishedAt := s.now()
+	if req.PublishedAt != nil && !req.PublishedAt.IsZero() {
+		publishedAt = *req.PublishedAt
+	}
+
+	version.Status = domain.StatusPublished
+	version.PublishedAt = &publishedAt
+	if req.PublishedBy != uuid.Nil {
+		version.PublishedBy = &req.PublishedBy
+	}
+
+	updatedVersion, err := s.versions.Update(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+
+	if instance.PublishedVersion != nil && *instance.PublishedVersion != updatedVersion.Version {
+		previous, prevErr := s.versions.GetVersion(ctx, req.InstanceID, *instance.PublishedVersion)
+		if prevErr == nil && previous.Status == domain.StatusPublished {
+			previous.Status = domain.StatusArchived
+			if _, archiveErr := s.versions.Update(ctx, previous); archiveErr != nil {
+				return nil, archiveErr
+			}
+		}
+	}
+
+	instance.PublishedVersion = &updatedVersion.Version
+	instance.PublishedAt = &publishedAt
+	if req.PublishedBy != uuid.Nil {
+		instance.PublishedBy = &req.PublishedBy
+	}
+	if updatedVersion.Version > instance.CurrentVersion {
+		instance.CurrentVersion = updatedVersion.Version
+	}
+	instance.UpdatedAt = s.now()
+	if req.PublishedBy != uuid.Nil {
+		instance.UpdatedBy = req.PublishedBy
+	}
+
+	if _, err := s.instances.Update(ctx, instance); err != nil {
+		return nil, err
+	}
+
+	return cloneInstanceVersion(updatedVersion), nil
+}
+
+func (s *service) ListVersions(ctx context.Context, instanceID uuid.UUID) ([]*InstanceVersion, error) {
+	if !s.versioningEnabled || s.versions == nil {
+		return nil, ErrVersioningDisabled
+	}
+	if instanceID == uuid.Nil {
+		return nil, ErrInstanceIDRequired
+	}
+
+	versions, err := s.versions.ListByInstance(ctx, instanceID)
+	if err != nil {
+		return nil, err
+	}
+	return cloneInstanceVersions(versions), nil
+}
+
+func (s *service) RestoreVersion(ctx context.Context, req RestoreInstanceVersionRequest) (*InstanceVersion, error) {
+	if !s.versioningEnabled || s.versions == nil {
+		return nil, ErrVersioningDisabled
+	}
+	if req.InstanceID == uuid.Nil {
+		return nil, ErrInstanceIDRequired
+	}
+	if req.Version <= 0 {
+		return nil, ErrInstanceVersionRequired
+	}
+
+	version, err := s.versions.GetVersion(ctx, req.InstanceID, req.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.CreateDraft(ctx, CreateInstanceDraftRequest{
+		InstanceID: req.InstanceID,
+		Snapshot:   cloneBlockVersionSnapshot(version.Snapshot),
+		CreatedBy:  req.RestoredBy,
+		UpdatedBy:  req.RestoredBy,
+	})
+}
+
+func nextInstanceVersionNumber(records []*InstanceVersion) int {
+	max := 0
+	for _, version := range records {
+		if version == nil {
+			continue
+		}
+		if version.Version > max {
+			max = version.Version
+		}
+	}
+	return max + 1
 }
 
 func (s *service) attachTranslations(ctx context.Context, instances []*Instance) ([]*Instance, error) {
