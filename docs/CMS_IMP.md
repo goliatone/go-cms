@@ -79,6 +79,7 @@ cms/
     ├── interfaces/             # External dependency interfaces
     │   ├── storage.go
     │   ├── cache.go
+    │   ├── logger.go
     │   ├── template.go
     │   ├── media.go
     │   └── auth.go
@@ -179,6 +180,35 @@ type CacheProvider interface {
 ```
 
 `github.com/goliatone/go-repository-cache` provides ready-made decorators that implement this interface and can be plugged into the CMS container, ensuring cached repositories stay stampede-safe without leaking implementation details into services.
+
+### Logger
+
+```go
+// pkg/interfaces/logger.go
+package interfaces
+
+import "context"
+
+type Logger interface {
+    Trace(msg string, args ...any)
+    Debug(msg string, args ...any)
+    Info(msg string, args ...any)
+    Warn(msg string, args ...any)
+    Error(msg string, args ...any)
+    Fatal(msg string, args ...any)
+    WithContext(ctx context.Context) Logger
+}
+
+type LoggerProvider interface {
+    GetLogger(name string) Logger
+}
+
+type FieldsLogger interface {
+    WithFields(fields map[string]any) Logger
+}
+```
+
+The CMS uses this contract for all runtime diagnostics. Because it mirrors `github.com/goliatone/go-logger`, host applications can inject that package directly (or provide any compatible implementation) without adding a hard dependency to the module. The example bootstrap can wire a simple console logger for development, while production systems usually pass a configured go-logger provider through the DI container.
 
 ### Template Renderer
 
@@ -841,6 +871,26 @@ Widgets follow the same dependency structure as the other slices: the container 
 - **Area support** – area repositories are optional. When the container can provide `widgetAreaRepo` and `widgetPlacementRepo` (memory or Bun) it includes `widgets.WithAreaDefinitionRepository` and `widgets.WithAreaPlacementRepository`. If neither repository is configured, area APIs return `ErrAreaFeatureDisabled`, making it safe to ship applications that do not need placements yet.
 - **Visibility** – the service enforces `publish_on`/`unpublish_on` windows, rule-based scheduling, audience/segment filters, and locale allowlists through `EvaluateVisibility`. `ResolveArea` walks the primary locale, fallbacks, and finally the default locale to return the first visible widgets, cloning placement metadata for presentation.
 - **Bootstrap helpers** – `widgets.Bootstrap` wraps `EnsureDefinitions`/`EnsureAreaDefinitions`, allowing hosts to seed types and areas idempotently at startup even when the module is running in no-op mode or when definitions already exist.
+
+### Scheduling Worker
+
+Scheduled publishing relies on the `pkg/interfaces.Scheduler` contract. The interface exposes idempotent operations for enqueuing and cancelling jobs, introspecting their status, and marking the outcome once processed. The repository ships with both a no-op implementation (for feature-disabled configurations) and a deterministic in-memory implementation that powers fixture-driven tests.
+
+The `internal/jobs.Worker` coordinates with the scheduler to process due jobs. It currently understands four job types:
+
+- `cms.content.publish`
+- `cms.content.unpublish`
+- `cms.page.publish`
+- `cms.page.unpublish`
+
+For each job, the worker:
+
+1. Fetches the target record through the content or page repositories.
+2. Applies the appropriate state transition (publish clears `publish_at`, stamps `published_at`, and marks the record as `published`; unpublish drops `unpublish_at` and marks the record as `archived`).
+3. Records an audit event through the pluggable `jobs.AuditRecorder` interface so host applications can persist scheduling activity.
+4. Marks the job as completed or failed on the scheduler to unlock retries.
+
+Host applications that provide their own scheduler must guarantee unique job keys (the worker relies on the `content:`/`page:` scoped keys exposed in `internal/scheduler/jobs.go`) and eventual delivery semantics. The worker is idempotent: it inspects the current publish state before mutating, making it safe to rerun missed jobs or to requeue after transient failures.
 
 Example wiring with Bun storage and a custom registry addition:
 
