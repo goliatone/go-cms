@@ -329,6 +329,7 @@ func cloneTranslation(src *Translation) *Translation {
 		cloned.AttributeOverride = maps.Clone(src.AttributeOverride)
 	}
 	cloned.MediaBindings = media.CloneBindingSet(src.MediaBindings)
+	cloned.ResolvedMedia = media.CloneAttachments(src.ResolvedMedia)
 	return &cloned
 }
 

@@ -56,15 +56,16 @@ type Instance struct {
 type Translation struct {
 	bun.BaseModel `bun:"table:block_translations,alias:bt"`
 
-	ID                uuid.UUID        `bun:",pk,type:uuid" json:"id"`
-	BlockInstanceID   uuid.UUID        `bun:"block_instance_id,notnull,type:uuid" json:"block_instance_id"`
-	LocaleID          uuid.UUID        `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
-	Content           map[string]any   `bun:"content,type:jsonb,notnull" json:"content"`
-	AttributeOverride map[string]any   `bun:"attribute_overrides,type:jsonb" json:"attribute_overrides,omitempty"`
-	MediaBindings     media.BindingSet `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
-	DeletedAt         *time.Time       `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
-	CreatedAt         time.Time        `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt         time.Time        `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	ID                uuid.UUID                      `bun:",pk,type:uuid" json:"id"`
+	BlockInstanceID   uuid.UUID                      `bun:"block_instance_id,notnull,type:uuid" json:"block_instance_id"`
+	LocaleID          uuid.UUID                      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	Content           map[string]any                 `bun:"content,type:jsonb,notnull" json:"content"`
+	AttributeOverride map[string]any                 `bun:"attribute_overrides,type:jsonb" json:"attribute_overrides,omitempty"`
+	MediaBindings     media.BindingSet               `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
+	ResolvedMedia     map[string][]*media.Attachment `bun:"-" json:"media,omitempty"`
+	DeletedAt         *time.Time                     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt         time.Time                      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt         time.Time                      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
 
 // InstanceVersion captures a snapshot of a block instance's configuration and translations.

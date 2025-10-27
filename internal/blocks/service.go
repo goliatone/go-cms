@@ -3,11 +3,13 @@ package blocks
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/google/uuid"
 )
 
@@ -54,6 +56,7 @@ type AddTranslationInput struct {
 	LocaleID           uuid.UUID
 	Content            map[string]any
 	AttributeOverrides map[string]any
+	MediaBindings      media.BindingSet
 }
 
 // CreateInstanceDraftRequest captures the payload required to create a block instance draft snapshot.
@@ -97,6 +100,7 @@ var (
 	ErrInstanceVersionConflict          = errors.New("blocks: base version mismatch")
 	ErrInstanceVersionAlreadyPublished  = errors.New("blocks: version already published")
 	ErrInstanceVersionRetentionExceeded = errors.New("blocks: version retention limit reached")
+	ErrMediaReferenceRequired           = errors.New("blocks: media reference requires id or path")
 )
 
 type IDGenerator func() uuid.UUID
@@ -123,6 +127,15 @@ func WithRegistry(reg *Registry) ServiceOption {
 	return func(s *service) {
 		if reg != nil {
 			s.registry = reg
+		}
+	}
+}
+
+// WithMediaService wires the media resolution helper used to enrich translations.
+func WithMediaService(mediaSvc media.Service) ServiceOption {
+	return func(s *service) {
+		if mediaSvc != nil {
+			s.media = mediaSvc
 		}
 	}
 }
@@ -159,6 +172,7 @@ type service struct {
 	now                   func() time.Time
 	id                    IDGenerator
 	registry              *Registry
+	media                 media.Service
 	versioningEnabled     bool
 	versionRetentionLimit int
 }
@@ -170,6 +184,7 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 		translations: trRepo,
 		now:          time.Now,
 		id:           uuid.New,
+		media:        media.NewNoOpService(),
 	}
 
 	for _, opt := range opts {
@@ -277,6 +292,9 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	if input.Content == nil {
 		return nil, ErrTranslationContentRequired
 	}
+	if err := validateMediaBindings(input.MediaBindings); err != nil {
+		return nil, err
+	}
 
 	if _, err := s.instances.GetByID(ctx, input.BlockInstanceID); err != nil {
 		return nil, err
@@ -297,15 +315,24 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 		LocaleID:          input.LocaleID,
 		Content:           maps.Clone(input.Content),
 		AttributeOverride: maps.Clone(input.AttributeOverrides),
+		MediaBindings:     media.CloneBindingSet(input.MediaBindings),
 		CreatedAt:         s.now(),
 		UpdatedAt:         s.now(),
 	}
 
-	return s.translations.Create(ctx, translation)
+	created, err := s.translations.Create(ctx, translation)
+	if err != nil {
+		return nil, err
+	}
+	return s.hydrateTranslation(ctx, created)
 }
 
 func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error) {
-	return s.translations.GetByInstanceAndLocale(ctx, instanceID, localeID)
+	record, err := s.translations.GetByInstanceAndLocale(ctx, instanceID, localeID)
+	if err != nil {
+		return nil, err
+	}
+	return s.hydrateTranslation(ctx, record)
 }
 
 func (s *service) CreateDraft(ctx context.Context, req CreateInstanceDraftRequest) (*InstanceVersion, error) {
@@ -493,17 +520,63 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 	enriched := make([]*Instance, 0, len(instances))
 	for _, inst := range instances {
 		clone := *inst
-		translations, err := s.translations.ListByInstance(ctx, inst.ID)
+		records, err := s.translations.ListByInstance(ctx, inst.ID)
 		if err != nil {
 			var nf *NotFoundError
 			if !errors.As(err, &nf) {
 				return nil, err
 			}
 		}
-		clone.Translations = translations
+		if len(records) > 0 {
+			hydrated := make([]*Translation, 0, len(records))
+			for _, record := range records {
+				translation, err := s.hydrateTranslation(ctx, record)
+				if err != nil {
+					return nil, err
+				}
+				hydrated = append(hydrated, translation)
+			}
+			clone.Translations = hydrated
+		}
 		enriched = append(enriched, &clone)
 	}
 	return enriched, nil
+}
+
+func validateMediaBindings(bindings media.BindingSet) error {
+	for slot, entries := range bindings {
+		for _, binding := range entries {
+			reference := binding.Reference
+			if strings.TrimSpace(reference.ID) == "" && strings.TrimSpace(reference.Path) == "" {
+				return fmt.Errorf("%w: %s", ErrMediaReferenceRequired, slot)
+			}
+		}
+	}
+	return nil
+}
+
+func (s *service) hydrateTranslation(ctx context.Context, translation *Translation) (*Translation, error) {
+	if translation == nil {
+		return nil, nil
+	}
+	clone := *translation
+	if translation.Content != nil {
+		clone.Content = maps.Clone(translation.Content)
+	}
+	if translation.AttributeOverride != nil {
+		clone.AttributeOverride = maps.Clone(translation.AttributeOverride)
+	}
+	clone.MediaBindings = media.CloneBindingSet(translation.MediaBindings)
+	if len(clone.MediaBindings) == 0 {
+		clone.ResolvedMedia = nil
+		return &clone, nil
+	}
+	resolved, err := s.media.ResolveBindings(ctx, clone.MediaBindings, media.ResolveOptions{})
+	if err != nil {
+		return nil, err
+	}
+	clone.ResolvedMedia = resolved
+	return &clone, nil
 }
 
 func (s *service) applyRegistry(ctx context.Context) {
