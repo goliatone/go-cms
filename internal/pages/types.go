@@ -6,6 +6,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
@@ -62,17 +63,19 @@ type PageVersion struct {
 type PageTranslation struct {
 	bun.BaseModel `bun:"table:page_translations,alias:pt"`
 
-	ID             uuid.UUID  `bun:",pk,type:uuid" json:"id"`
-	PageID         uuid.UUID  `bun:"page_id,notnull,type:uuid" json:"page_id"`
-	LocaleID       uuid.UUID  `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
-	Title          string     `bun:"title,notnull" json:"title"`
-	Path           string     `bun:"path,notnull" json:"path"`
-	SEOTitle       *string    `bun:"seo_title" json:"seo_title,omitempty"`
-	SEODescription *string    `bun:"seo_description" json:"seo_description,omitempty"`
-	Summary        *string    `bun:"summary" json:"summary,omitempty"`
-	DeletedAt      *time.Time `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
-	CreatedAt      time.Time  `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt      time.Time  `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	ID             uuid.UUID                      `bun:",pk,type:uuid" json:"id"`
+	PageID         uuid.UUID                      `bun:"page_id,notnull,type:uuid" json:"page_id"`
+	LocaleID       uuid.UUID                      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	Title          string                         `bun:"title,notnull" json:"title"`
+	Path           string                         `bun:"path,notnull" json:"path"`
+	SEOTitle       *string                        `bun:"seo_title" json:"seo_title,omitempty"`
+	SEODescription *string                        `bun:"seo_description" json:"seo_description,omitempty"`
+	Summary        *string                        `bun:"summary" json:"summary,omitempty"`
+	MediaBindings  media.BindingSet               `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
+	ResolvedMedia  map[string][]*media.Attachment `bun:"-" json:"media,omitempty"`
+	DeletedAt      *time.Time                     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt      time.Time                      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time                      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
 
 // PageVersionSnapshot captures layout, block, and widget placements at publish time.
@@ -81,6 +84,7 @@ type PageVersionSnapshot struct {
 	Blocks   []PageBlockPlacement                 `json:"blocks,omitempty"`
 	Widgets  map[string][]WidgetPlacementSnapshot `json:"widgets,omitempty"`
 	Metadata map[string]any                       `json:"metadata,omitempty"`
+	Media    media.BindingSet                     `json:"media,omitempty"`
 }
 
 // PageBlockPlacement describes a block instance captured in a snapshot.
@@ -129,6 +133,13 @@ var PageVersionSnapshotSchema = map[string]any{
 			"type":                 "object",
 			"additionalProperties": true,
 		},
+		"media": map[string]any{
+			"type": "object",
+			"additionalProperties": map[string]any{
+				"type":  "array",
+				"items": map[string]any{"$ref": "#/$defs/mediaBinding"},
+			},
+		},
 	},
 	"$defs": map[string]any{
 		"blockPlacement": map[string]any{
@@ -159,6 +170,47 @@ var PageVersionSnapshotSchema = map[string]any{
 				"widget_id":   map[string]any{"type": "string", "format": "uuid"},
 				"instance_id": map[string]any{"type": "string", "format": "uuid"},
 				"configuration": map[string]any{
+					"type":                 "object",
+					"additionalProperties": true,
+				},
+			},
+		},
+		"mediaBinding": map[string]any{
+			"type":     "object",
+			"required": []string{"slot", "reference"},
+			"properties": map[string]any{
+				"slot": map[string]any{"type": "string"},
+				"reference": map[string]any{
+					"type":                 "object",
+					"additionalProperties": true,
+					"properties": map[string]any{
+						"id":         map[string]any{"type": "string"},
+						"path":       map[string]any{"type": "string"},
+						"collection": map[string]any{"type": "string"},
+						"locale":     map[string]any{"type": "string"},
+						"variant":    map[string]any{"type": "string"},
+						"attributes": map[string]any{
+							"type":                 "object",
+							"additionalProperties": true,
+						},
+					},
+				},
+				"renditions": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"required": map[string]any{
+					"type":  "array",
+					"items": map[string]any{"type": "string"},
+				},
+				"locale":          map[string]any{"type": "string"},
+				"fallback_locale": map[string]any{"type": "string"},
+				"gallery":         map[string]any{"type": "boolean"},
+				"position": map[string]any{
+					"type":    "integer",
+					"minimum": 0,
+				},
+				"metadata": map[string]any{
 					"type":                 "object",
 					"additionalProperties": true,
 				},
