@@ -14,8 +14,12 @@ import (
 
 // BunMenuRepository implements MenuRepository with optional caching.
 type BunMenuRepository struct {
-	repo repository.Repository[*Menu]
+	repo         repository.Repository[*Menu]
+	cacheService cache.CacheService
+	cachePrefix  string
 }
+
+const menuNamespace = "menu"
 
 // NewBunMenuRepository creates a menu repository without caching.
 func NewBunMenuRepository(db *bun.DB) *BunMenuRepository {
@@ -25,10 +29,20 @@ func NewBunMenuRepository(db *bun.DB) *BunMenuRepository {
 // NewBunMenuRepositoryWithCache creates a menu repository with caching services.
 func NewBunMenuRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, serializer cache.KeySerializer) *BunMenuRepository {
 	base := NewMenuRepository(db)
+	var svc cache.CacheService
 	if cacheService != nil && serializer != nil {
 		base = repositorycache.New(base, cacheService, serializer)
+		svc = cacheService
 	}
-	return &BunMenuRepository{repo: base}
+	prefix := ""
+	if svc != nil {
+		prefix = cachePrefix(menuNamespace)
+	}
+	return &BunMenuRepository{
+		repo:         base,
+		cacheService: svc,
+		cachePrefix:  prefix,
+	}
 }
 
 func (r *BunMenuRepository) Create(ctx context.Context, menu *Menu) (*Menu, error) {
@@ -68,10 +82,21 @@ func (r *BunMenuRepository) Update(ctx context.Context, menu *Menu) (*Menu, erro
 	return record, nil
 }
 
+func (r *BunMenuRepository) InvalidateCache(ctx context.Context) error {
+	if r.cacheService == nil || r.cachePrefix == "" {
+		return nil
+	}
+	return r.cacheService.DeleteByPrefix(ctx, r.cachePrefix)
+}
+
 // BunMenuItemRepository implements MenuItemRepository with optional caching.
 type BunMenuItemRepository struct {
-	repo repository.Repository[*MenuItem]
+	repo         repository.Repository[*MenuItem]
+	cacheService cache.CacheService
+	cachePrefix  string
 }
+
+const menuItemNamespace = "menu_item"
 
 // NewBunMenuItemRepository creates a menu item repository without caching.
 func NewBunMenuItemRepository(db *bun.DB) *BunMenuItemRepository {
@@ -81,10 +106,16 @@ func NewBunMenuItemRepository(db *bun.DB) *BunMenuItemRepository {
 // NewBunMenuItemRepositoryWithCache creates a menu item repository with caching services.
 func NewBunMenuItemRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, serializer cache.KeySerializer) *BunMenuItemRepository {
 	base := NewMenuItemRepository(db)
+	var svc cache.CacheService
 	if cacheService != nil && serializer != nil {
 		base = repositorycache.New(base, cacheService, serializer)
+		svc = cacheService
 	}
-	return &BunMenuItemRepository{repo: base}
+	prefix := ""
+	if svc != nil {
+		prefix = cachePrefix(menuItemNamespace)
+	}
+	return &BunMenuItemRepository{repo: base, cacheService: svc, cachePrefix: prefix}
 }
 
 func (r *BunMenuItemRepository) Create(ctx context.Context, item *MenuItem) (*MenuItem, error) {
@@ -131,10 +162,21 @@ func (r *BunMenuItemRepository) Update(ctx context.Context, item *MenuItem) (*Me
 	return record, nil
 }
 
+func (r *BunMenuItemRepository) InvalidateCache(ctx context.Context) error {
+	if r.cacheService == nil || r.cachePrefix == "" {
+		return nil
+	}
+	return r.cacheService.DeleteByPrefix(ctx, r.cachePrefix)
+}
+
 // BunMenuItemTranslationRepository implements MenuItemTranslationRepository with optional caching.
 type BunMenuItemTranslationRepository struct {
-	repo repository.Repository[*MenuItemTranslation]
+	repo         repository.Repository[*MenuItemTranslation]
+	cacheService cache.CacheService
+	cachePrefix  string
 }
+
+const menuItemTranslationNamespace = "menu_item_translation"
 
 // NewBunMenuItemTranslationRepository creates a translation repository without caching.
 func NewBunMenuItemTranslationRepository(db *bun.DB) *BunMenuItemTranslationRepository {
@@ -144,10 +186,16 @@ func NewBunMenuItemTranslationRepository(db *bun.DB) *BunMenuItemTranslationRepo
 // NewBunMenuItemTranslationRepositoryWithCache creates a translation repository with caching services.
 func NewBunMenuItemTranslationRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, serializer cache.KeySerializer) *BunMenuItemTranslationRepository {
 	base := NewMenuItemTranslationRepository(db)
+	var svc cache.CacheService
 	if cacheService != nil && serializer != nil {
 		base = repositorycache.New(base, cacheService, serializer)
+		svc = cacheService
 	}
-	return &BunMenuItemTranslationRepository{repo: base}
+	prefix := ""
+	if svc != nil {
+		prefix = cachePrefix(menuItemTranslationNamespace)
+	}
+	return &BunMenuItemTranslationRepository{repo: base, cacheService: svc, cachePrefix: prefix}
 }
 
 func (r *BunMenuItemTranslationRepository) Create(ctx context.Context, translation *MenuItemTranslation) (*MenuItemTranslation, error) {
@@ -194,6 +242,13 @@ func (r *BunMenuItemTranslationRepository) Update(ctx context.Context, translati
 	return record, nil
 }
 
+func (r *BunMenuItemTranslationRepository) InvalidateCache(ctx context.Context) error {
+	if r.cacheService == nil || r.cachePrefix == "" {
+		return nil
+	}
+	return r.cacheService.DeleteByPrefix(ctx, r.cachePrefix)
+}
+
 func mapRepositoryError(err error, resource, key string) error {
 	if err == nil {
 		return nil
@@ -204,4 +259,11 @@ func mapRepositoryError(err error, resource, key string) error {
 	}
 
 	return fmt.Errorf("%s repository error: %w", resource, err)
+}
+
+func cachePrefix(namespace string) string {
+	if namespace == "" {
+		return ""
+	}
+	return namespace + cache.KeySeparator
 }
