@@ -67,8 +67,9 @@ type URLKitResolverConfig struct {
 
 // Features toggles module functionality
 type Features struct {
-	Widgets bool
-	Themes  bool
+	Widgets      bool
+	Themes       bool
+	MediaLibrary bool
 }
 
 func DefaultConfig() Config {
