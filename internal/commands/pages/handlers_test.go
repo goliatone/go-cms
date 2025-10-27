@@ -1,4 +1,4 @@
-package contentcmd
+package pagescmd
 
 import (
 	"context"
@@ -7,81 +7,84 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/commands"
-	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/logging"
+	"github.com/goliatone/go-cms/internal/pages"
 	goerrors "github.com/goliatone/go-errors"
 	"github.com/google/uuid"
 )
 
-type stubContentService struct {
-	publishRequests  []content.PublishContentDraftRequest
-	scheduleRequests []content.ScheduleContentRequest
-	restoreRequests  []content.RestoreContentVersionRequest
+type stubPageService struct {
+	publishRequests  []pages.PublishPagePublishRequest
+	scheduleRequests []pages.SchedulePageRequest
+	restoreRequests  []pages.RestorePageVersionRequest
 
 	publishErr  error
 	scheduleErr error
 	restoreErr  error
 }
 
-func (s *stubContentService) Create(context.Context, content.CreateContentRequest) (*content.Content, error) {
+func (s *stubPageService) Create(context.Context, pages.CreatePageRequest) (*pages.Page, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubContentService) Get(context.Context, uuid.UUID) (*content.Content, error) {
+func (s *stubPageService) Get(context.Context, uuid.UUID) (*pages.Page, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubContentService) List(context.Context) ([]*content.Content, error) {
+func (s *stubPageService) List(context.Context) ([]*pages.Page, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubContentService) Schedule(ctx context.Context, req content.ScheduleContentRequest) (*content.Content, error) {
+func (s *stubPageService) Schedule(ctx context.Context, req pages.SchedulePageRequest) (*pages.Page, error) {
 	s.scheduleRequests = append(s.scheduleRequests, req)
 	if s.scheduleErr != nil {
 		return nil, s.scheduleErr
 	}
-	return &content.Content{ID: req.ContentID}, nil
+	return &pages.Page{ID: req.PageID}, nil
 }
 
-func (s *stubContentService) CreateDraft(context.Context, content.CreateContentDraftRequest) (*content.ContentVersion, error) {
+func (s *stubPageService) CreateDraft(context.Context, pages.CreatePageDraftRequest) (*pages.PageVersion, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubContentService) PublishDraft(ctx context.Context, req content.PublishContentDraftRequest) (*content.ContentVersion, error) {
+func (s *stubPageService) PublishDraft(ctx context.Context, req pages.PublishPagePublishRequest) (*pages.PageVersion, error) {
 	s.publishRequests = append(s.publishRequests, req)
 	if s.publishErr != nil {
 		return nil, s.publishErr
 	}
-	return &content.ContentVersion{Version: req.Version}, nil
+	return &pages.PageVersion{Version: req.Version}, nil
 }
 
-func (s *stubContentService) ListVersions(context.Context, uuid.UUID) ([]*content.ContentVersion, error) {
+func (s *stubPageService) ListVersions(context.Context, uuid.UUID) ([]*pages.PageVersion, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubContentService) RestoreVersion(ctx context.Context, req content.RestoreContentVersionRequest) (*content.ContentVersion, error) {
+func (s *stubPageService) RestoreVersion(ctx context.Context, req pages.RestorePageVersionRequest) (*pages.PageVersion, error) {
 	s.restoreRequests = append(s.restoreRequests, req)
 	if s.restoreErr != nil {
 		return nil, s.restoreErr
 	}
-	return &content.ContentVersion{Version: req.Version}, nil
+	return &pages.PageVersion{Version: req.Version}, nil
 }
 
-func TestPublishContentHandlerExecutesService(t *testing.T) {
-	service := &stubContentService{}
-	logger := commands.CommandLogger(nil, "content")
-	handler := NewPublishContentHandler(service, logger, FeatureGates{
+func TestPublishPageHandlerExecutesService(t *testing.T) {
+	service := &stubPageService{}
+	logger := commands.CommandLogger(nil, "pages")
+	handler := NewPublishPageHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
 
-	contentID := uuid.New()
+	pageID := uuid.New()
+	templateID := uuid.New()
 	publishedBy := uuid.New()
-	timestamp := time.Now().UTC()
-	msg := PublishContentCommand{
-		ContentID:   contentID,
-		Version:     3,
+	publishedAt := time.Now().UTC()
+	msg := PublishPageCommand{
+		PageID:      pageID,
+		Version:     4,
+		Locale:      "en",
+		TemplateID:  &templateID,
 		PublishedBy: &publishedBy,
-		PublishedAt: &timestamp,
+		PublishedAt: &publishedAt,
 	}
 
 	if err := handler.Execute(context.Background(), msg); err != nil {
@@ -91,28 +94,28 @@ func TestPublishContentHandlerExecutesService(t *testing.T) {
 		t.Fatalf("expected one publish request, got %d", len(service.publishRequests))
 	}
 	req := service.publishRequests[0]
-	if req.ContentID != contentID {
-		t.Fatalf("expected content id %s, got %s", contentID, req.ContentID)
+	if req.PageID != pageID {
+		t.Fatalf("expected page id %s, got %s", pageID, req.PageID)
 	}
-	if req.Version != 3 {
-		t.Fatalf("expected version 3, got %d", req.Version)
+	if req.Version != 4 {
+		t.Fatalf("expected version 4, got %d", req.Version)
 	}
-	if req.PublishedBy != publishedBy {
+	if req.PublishedBy == uuid.Nil || req.PublishedBy != publishedBy {
 		t.Fatalf("expected published_by %s, got %s", publishedBy, req.PublishedBy)
 	}
-	if req.PublishedAt == nil || !req.PublishedAt.Equal(timestamp) {
-		t.Fatalf("expected published_at %v, got %v", timestamp, req.PublishedAt)
+	if req.PublishedAt == nil || !req.PublishedAt.Equal(publishedAt) {
+		t.Fatalf("expected published_at %v, got %v", publishedAt, req.PublishedAt)
 	}
 }
 
-func TestPublishContentHandlerValidationError(t *testing.T) {
-	service := &stubContentService{}
+func TestPublishPageHandlerValidationError(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewPublishContentHandler(service, logger, FeatureGates{
+	handler := NewPublishPageHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
 
-	err := handler.Execute(context.Background(), PublishContentCommand{})
+	err := handler.Execute(context.Background(), PublishPageCommand{})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -124,16 +127,17 @@ func TestPublishContentHandlerValidationError(t *testing.T) {
 	}
 }
 
-func TestPublishContentHandlerFeatureDisabled(t *testing.T) {
-	service := &stubContentService{}
+func TestPublishPageHandlerFeatureDisabled(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewPublishContentHandler(service, logger, FeatureGates{
+	handler := NewPublishPageHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return false },
 	})
 
-	msg := PublishContentCommand{
-		ContentID: uuid.New(),
-		Version:   1,
+	msg := PublishPageCommand{
+		PageID:  uuid.New(),
+		Version: 1,
+		Locale:  "en",
 	}
 
 	err := handler.Execute(context.Background(), msg)
@@ -148,16 +152,17 @@ func TestPublishContentHandlerFeatureDisabled(t *testing.T) {
 	}
 }
 
-func TestPublishContentHandlerContextCancellation(t *testing.T) {
-	service := &stubContentService{}
+func TestPublishPageHandlerContextCancellation(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewPublishContentHandler(service, logger, FeatureGates{
+	handler := NewPublishPageHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
 
-	msg := PublishContentCommand{
-		ContentID: uuid.New(),
-		Version:   2,
+	msg := PublishPageCommand{
+		PageID:  uuid.New(),
+		Version: 2,
+		Locale:  "en",
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -174,20 +179,20 @@ func TestPublishContentHandlerContextCancellation(t *testing.T) {
 	}
 }
 
-func TestScheduleContentHandlerExecutesService(t *testing.T) {
-	service := &stubContentService{}
-	logger := commands.CommandLogger(nil, "content")
-	handler := NewScheduleContentHandler(service, logger, FeatureGates{
+func TestSchedulePageHandlerExecutesService(t *testing.T) {
+	service := &stubPageService{}
+	logger := commands.CommandLogger(nil, "pages")
+	handler := NewSchedulePageHandler(service, logger, FeatureGates{
 		SchedulingEnabled: func() bool { return true },
 	})
 
-	contentID := uuid.New()
-	publishAt := time.Now().UTC().Add(time.Hour)
-	unpublishAt := publishAt.Add(2 * time.Hour)
+	pageID := uuid.New()
+	publishAt := time.Now().UTC().Add(2 * time.Hour)
+	unpublishAt := publishAt.Add(6 * time.Hour)
 	scheduledBy := uuid.New()
-
-	msg := ScheduleContentCommand{
-		ContentID:   contentID,
+	msg := SchedulePageCommand{
+		PageID:      pageID,
+		Locale:      "en",
 		PublishAt:   &publishAt,
 		UnpublishAt: &unpublishAt,
 		ScheduledBy: scheduledBy,
@@ -200,8 +205,8 @@ func TestScheduleContentHandlerExecutesService(t *testing.T) {
 		t.Fatalf("expected one schedule request, got %d", len(service.scheduleRequests))
 	}
 	req := service.scheduleRequests[0]
-	if req.ContentID != contentID {
-		t.Fatalf("expected content id %s, got %s", contentID, req.ContentID)
+	if req.PageID != pageID {
+		t.Fatalf("expected page id %s, got %s", pageID, req.PageID)
 	}
 	if req.PublishAt == nil || !req.PublishAt.Equal(publishAt) {
 		t.Fatalf("expected publish_at %v, got %v", publishAt, req.PublishAt)
@@ -214,14 +219,14 @@ func TestScheduleContentHandlerExecutesService(t *testing.T) {
 	}
 }
 
-func TestScheduleContentHandlerValidationError(t *testing.T) {
-	service := &stubContentService{}
+func TestSchedulePageHandlerValidationError(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewScheduleContentHandler(service, logger, FeatureGates{
+	handler := NewSchedulePageHandler(service, logger, FeatureGates{
 		SchedulingEnabled: func() bool { return true },
 	})
 
-	err := handler.Execute(context.Background(), ScheduleContentCommand{})
+	err := handler.Execute(context.Background(), SchedulePageCommand{})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -233,15 +238,16 @@ func TestScheduleContentHandlerValidationError(t *testing.T) {
 	}
 }
 
-func TestScheduleContentHandlerFeatureDisabled(t *testing.T) {
-	service := &stubContentService{}
+func TestSchedulePageHandlerFeatureDisabled(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewScheduleContentHandler(service, logger, FeatureGates{
+	handler := NewSchedulePageHandler(service, logger, FeatureGates{
 		SchedulingEnabled: func() bool { return false },
 	})
 
-	msg := ScheduleContentCommand{
-		ContentID: uuid.New(),
+	msg := SchedulePageCommand{
+		PageID: uuid.New(),
+		Locale: "en",
 	}
 
 	err := handler.Execute(context.Background(), msg)
@@ -256,15 +262,16 @@ func TestScheduleContentHandlerFeatureDisabled(t *testing.T) {
 	}
 }
 
-func TestScheduleContentHandlerContextCancellation(t *testing.T) {
-	service := &stubContentService{}
+func TestSchedulePageHandlerContextCancellation(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewScheduleContentHandler(service, logger, FeatureGates{
+	handler := NewSchedulePageHandler(service, logger, FeatureGates{
 		SchedulingEnabled: func() bool { return true },
 	})
 
-	msg := ScheduleContentCommand{
-		ContentID: uuid.New(),
+	msg := SchedulePageCommand{
+		PageID: uuid.New(),
+		Locale: "en",
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -281,19 +288,21 @@ func TestScheduleContentHandlerContextCancellation(t *testing.T) {
 	}
 }
 
-func TestRestoreContentVersionHandlerExecutesService(t *testing.T) {
-	service := &stubContentService{}
-	logger := commands.CommandLogger(nil, "content")
-	handler := NewRestoreContentVersionHandler(service, logger, FeatureGates{
+func TestRestorePageVersionHandlerExecutesService(t *testing.T) {
+	service := &stubPageService{}
+	logger := commands.CommandLogger(nil, "pages")
+	handler := NewRestorePageVersionHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
 
-	contentID := uuid.New()
+	pageID := uuid.New()
+	templateID := uuid.New()
 	restoredBy := uuid.New()
-
-	msg := RestoreContentVersionCommand{
-		ContentID:  contentID,
-		Version:    5,
+	msg := RestorePageVersionCommand{
+		PageID:     pageID,
+		Version:    3,
+		Locale:     "en",
+		TemplateID: &templateID,
 		RestoredBy: restoredBy,
 	}
 
@@ -304,25 +313,25 @@ func TestRestoreContentVersionHandlerExecutesService(t *testing.T) {
 		t.Fatalf("expected one restore request, got %d", len(service.restoreRequests))
 	}
 	req := service.restoreRequests[0]
-	if req.ContentID != contentID {
-		t.Fatalf("expected content id %s, got %s", contentID, req.ContentID)
+	if req.PageID != pageID {
+		t.Fatalf("expected page id %s, got %s", pageID, req.PageID)
 	}
-	if req.Version != 5 {
-		t.Fatalf("expected version 5, got %d", req.Version)
+	if req.Version != 3 {
+		t.Fatalf("expected version 3, got %d", req.Version)
 	}
 	if req.RestoredBy != restoredBy {
 		t.Fatalf("expected restored_by %s, got %s", restoredBy, req.RestoredBy)
 	}
 }
 
-func TestRestoreContentVersionHandlerValidationError(t *testing.T) {
-	service := &stubContentService{}
+func TestRestorePageVersionHandlerValidationError(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewRestoreContentVersionHandler(service, logger, FeatureGates{
+	handler := NewRestorePageVersionHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
 
-	err := handler.Execute(context.Background(), RestoreContentVersionCommand{})
+	err := handler.Execute(context.Background(), RestorePageVersionCommand{})
 	if err == nil {
 		t.Fatal("expected validation error")
 	}
@@ -334,16 +343,17 @@ func TestRestoreContentVersionHandlerValidationError(t *testing.T) {
 	}
 }
 
-func TestRestoreContentVersionHandlerFeatureDisabled(t *testing.T) {
-	service := &stubContentService{}
+func TestRestorePageVersionHandlerFeatureDisabled(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewRestoreContentVersionHandler(service, logger, FeatureGates{
+	handler := NewRestorePageVersionHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return false },
 	})
 
-	msg := RestoreContentVersionCommand{
-		ContentID:  uuid.New(),
+	msg := RestorePageVersionCommand{
+		PageID:     uuid.New(),
 		Version:    2,
+		Locale:     "en",
 		RestoredBy: uuid.New(),
 	}
 
@@ -359,16 +369,17 @@ func TestRestoreContentVersionHandlerFeatureDisabled(t *testing.T) {
 	}
 }
 
-func TestRestoreContentVersionHandlerContextCancellation(t *testing.T) {
-	service := &stubContentService{}
+func TestRestorePageVersionHandlerContextCancellation(t *testing.T) {
+	service := &stubPageService{}
 	logger := logging.NoOp()
-	handler := NewRestoreContentVersionHandler(service, logger, FeatureGates{
+	handler := NewRestorePageVersionHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
 
-	msg := RestoreContentVersionCommand{
-		ContentID:  uuid.New(),
-		Version:    3,
+	msg := RestorePageVersionCommand{
+		PageID:     uuid.New(),
+		Version:    5,
+		Locale:     "en",
 		RestoredBy: uuid.New(),
 	}
 	ctx, cancel := context.WithCancel(context.Background())

@@ -45,8 +45,11 @@ type PublishContentHandler struct {
 }
 
 // NewPublishContentHandler constructs a handler wired to the provided content service.
-func NewPublishContentHandler(service content.Service, logger interfaces.Logger, opts ...commands.HandlerOption[PublishContentCommand]) *PublishContentHandler {
+func NewPublishContentHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[PublishContentCommand]) *PublishContentHandler {
 	exec := func(ctx context.Context, msg PublishContentCommand) error {
+		if !gates.versioningEnabled() {
+			return content.ErrVersioningDisabled
+		}
 		req := content.PublishContentDraftRequest{
 			ContentID:   msg.ContentID,
 			Version:     msg.Version,
