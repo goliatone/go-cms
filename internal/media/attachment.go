@@ -95,3 +95,53 @@ func cloneMetadata(meta interfaces.MediaMetadata) interfaces.MediaMetadata {
 	}
 	return cloned
 }
+
+// CloneAttachments performs a deep copy of a resolved media attachment map.
+func CloneAttachments(src map[string][]*Attachment) map[string][]*Attachment {
+	if len(src) == 0 {
+		return nil
+	}
+	cloned := make(map[string][]*Attachment, len(src))
+	for key, list := range src {
+		if len(list) == 0 {
+			cloned[key] = nil
+			continue
+		}
+		copyList := make([]*Attachment, len(list))
+		for i, att := range list {
+			copyList[i] = CloneAttachment(att)
+		}
+		cloned[key] = copyList
+	}
+	return cloned
+}
+
+// CloneAttachment copies an attachment and its nested resources.
+func CloneAttachment(att *Attachment) *Attachment {
+	if att == nil {
+		return nil
+	}
+	clone := *att
+	clone.Metadata = cloneMetadata(att.Metadata)
+	if att.Source != nil {
+		clone.Source = cloneResource(att.Source)
+	}
+	if len(att.Renditions) > 0 {
+		clone.Renditions = make(map[string]*Resource, len(att.Renditions))
+		for name, res := range att.Renditions {
+			clone.Renditions[name] = cloneResource(res)
+		}
+	}
+	return &clone
+}
+
+func cloneResource(res *Resource) *Resource {
+	if res == nil {
+		return nil
+	}
+	clone := *res
+	if res.Metadata != nil {
+		clone.Metadata = maps.Clone(res.Metadata)
+	}
+	return &clone
+}
