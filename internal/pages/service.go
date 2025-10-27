@@ -192,6 +192,7 @@ type pageService struct {
 	versionRetentionLimit int
 	scheduler             interfaces.Scheduler
 	schedulingEnabled     bool
+	logger                interfaces.Logger
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -236,6 +237,14 @@ func WithSchedulingEnabled(enabled bool) ServiceOption {
 	}
 }
 
+func WithLogger(logger interfaces.Logger) ServiceOption {
+	return func(ps *pageService) {
+		if logger != nil {
+			ps.logger = logger
+		}
+	}
+}
+
 // WithPageVersioningEnabled toggles versioning specific capabilities.
 func WithPageVersioningEnabled(enabled bool) ServiceOption {
 	return func(s *pageService) {
@@ -263,6 +272,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		id:        uuid.New,
 		media:     media.NewNoOpService(),
 		scheduler: cmsscheduler.NewNoOp(),
+		logger:    logging.PagesLogger(nil),
 	}
 
 	for _, opt := range opts {
@@ -270,6 +280,21 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 	}
 
 	return s
+}
+
+func (s *pageService) log(ctx context.Context) interfaces.Logger {
+	if ctx == nil {
+		return s.logger
+	}
+	return s.logger.WithContext(ctx)
+}
+
+func (s *pageService) opLogger(ctx context.Context, operation string, extra map[string]any) interfaces.Logger {
+	fields := map[string]any{"operation": operation}
+	for key, value := range extra {
+		fields[key] = value
+	}
+	return s.log(ctx).WithFields(fields)
 }
 
 // Create registers a new page with translations and hierarchy rules.
@@ -283,6 +308,15 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 	}
 
 	slug := strings.TrimSpace(req.Slug)
+	extra := map[string]any{
+		"content_id":  req.ContentID,
+		"template_id": req.TemplateID,
+		"slug":        slug,
+	}
+	if req.ParentID != nil {
+		extra["parent_id"] = *req.ParentID
+	}
+	logger := s.opLogger(ctx, "pages.create", extra)
 	if slug == "" {
 		return nil, ErrSlugRequired
 	}
@@ -295,6 +329,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 	}
 
 	if _, err := s.content.GetByID(ctx, req.ContentID); err != nil {
+		logger.Error("page content lookup failed", "error", err)
 		return nil, ErrContentRequired
 	}
 
@@ -303,18 +338,22 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 			if errors.Is(err, themes.ErrFeatureDisabled) {
 				// feature disabled, skip template validation
 			} else if errors.Is(err, themes.ErrTemplateNotFound) {
+				logger.Warn("page template not found", "template_id", req.TemplateID)
 				return nil, ErrTemplateUnknown
 			} else {
+				logger.Error("page template lookup failed", "error", err)
 				return nil, err
 			}
 		}
 	}
 
 	if existing, err := s.pages.GetBySlug(ctx, slug); err == nil && existing != nil {
+		logger.Warn("page slug already exists", "existing_page_id", existing.ID)
 		return nil, ErrSlugExists
 	} else if err != nil {
 		var notFound *PageNotFoundError
 		if !errors.As(err, &notFound) {
+			logger.Error("page slug lookup failed", "error", err)
 			return nil, err
 		}
 	}
@@ -336,12 +375,14 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	if req.ParentID != nil {
 		if _, err := s.pages.GetByID(ctx, *req.ParentID); err != nil {
+			logger.Error("parent page lookup failed", "error", err)
 			return nil, ErrParentNotFound
 		}
 	}
 
 	existingPages, err := s.pages.List(ctx)
 	if err != nil {
+		logger.Error("page list for conflict check failed", "error", err)
 		return nil, err
 	}
 
@@ -357,18 +398,22 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 		locale, err := s.locales.GetByCode(ctx, code)
 		if err != nil {
+			logger.Error("page locale lookup failed", "error", err, "locale", code)
 			return nil, ErrUnknownLocale
-		}
-		if err := validatePageMediaBindings(tr.MediaBindings); err != nil {
-			return nil, err
 		}
 
 		path := sanitizePath(tr.Path)
 		if path == "" {
+			logger.Warn("page path empty", "locale_id", locale.ID)
 			return nil, ErrPathExists
 		}
 		if pathExists(existingPages, locale.ID, path) {
+			logger.Warn("page path already exists", "locale_id", locale.ID, "path", path)
 			return nil, ErrPathExists
+		}
+		if err := validatePageMediaBindings(tr.MediaBindings); err != nil {
+			logger.Error("page media binding validation failed", "error", err)
+			return nil, err
 		}
 
 		translation := &PageTranslation{
@@ -389,38 +434,53 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	created, err := s.pages.Create(ctx, page)
 	if err != nil {
+		logger.Error("page repository create failed", "error", err)
 		return nil, err
 	}
+	logger = logger.WithFields(map[string]any{"page_id": created.ID})
 
 	enriched, err := s.enrichPages(ctx, []*Page{created})
 	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
 		return nil, err
 	}
+	logger.Info("page created")
 	return enriched[0], nil
 }
 
 // Get fetches a page by identifier.
 func (s *pageService) Get(ctx context.Context, id uuid.UUID) (*Page, error) {
+	logger := s.opLogger(ctx, "pages.get", map[string]any{"page_id": id})
 	page, err := s.pages.GetByID(ctx, id)
 	if err != nil {
+		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
 
 	enriched, err := s.enrichPages(ctx, []*Page{page})
 	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
 		return nil, err
 	}
-
+	logger.Debug("page retrieved")
 	return enriched[0], nil
 }
 
 // List returns all pages.
 func (s *pageService) List(ctx context.Context) ([]*Page, error) {
+	logger := s.opLogger(ctx, "pages.list", nil)
 	pages, err := s.pages.List(ctx)
 	if err != nil {
+		logger.Error("page list failed", "error", err)
 		return nil, err
 	}
-	return s.enrichPages(ctx, pages)
+	enriched, err := s.enrichPages(ctx, pages)
+	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
+		return nil, err
+	}
+	logger.Debug("pages listed", "count", len(enriched))
+	return enriched, nil
 }
 
 // Schedule registers publish/unpublish windows for a page and enqueues scheduler jobs.
@@ -441,8 +501,11 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 		return nil, ErrScheduleTimestampInvalid
 	}
 
+	logger := s.opLogger(ctx, "pages.schedule", map[string]any{"page_id": req.PageID})
+
 	record, err := s.pages.GetByID(ctx, req.PageID)
 	if err != nil {
+		logger.Error("page schedule lookup failed", "error", err)
 		return nil, err
 	}
 
@@ -474,10 +537,19 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 				RunAt:   *record.PublishAt,
 				Payload: payload,
 			}); err != nil {
+				logger.Error("page publish job enqueue failed", "error", err)
 				return nil, err
 			}
-		} else if cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.PagePublishJobKey(record.ID)); cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
-			return nil, cancelErr
+			logger.Debug("page publish job enqueued", "job_key", cmsscheduler.PagePublishJobKey(record.ID))
+		} else {
+			cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.PagePublishJobKey(record.ID))
+			if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+				logger.Error("page publish job cancel failed", "error", cancelErr)
+				return nil, cancelErr
+			}
+			if cancelErr == nil {
+				logger.Debug("page publish job cancelled", "job_key", cmsscheduler.PagePublishJobKey(record.ID))
+			}
 		}
 
 		if record.UnpublishAt != nil {
@@ -491,21 +563,37 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 				RunAt:   *record.UnpublishAt,
 				Payload: payload,
 			}); err != nil {
+				logger.Error("page unpublish job enqueue failed", "error", err)
 				return nil, err
 			}
-		} else if cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.PageUnpublishJobKey(record.ID)); cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
-			return nil, cancelErr
+			logger.Debug("page unpublish job enqueued", "job_key", cmsscheduler.PageUnpublishJobKey(record.ID))
+		} else {
+			cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.PageUnpublishJobKey(record.ID))
+			if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+				logger.Error("page unpublish job cancel failed", "error", cancelErr)
+				return nil, cancelErr
+			}
+			if cancelErr == nil {
+				logger.Debug("page unpublish job cancelled", "job_key", cmsscheduler.PageUnpublishJobKey(record.ID))
+			}
 		}
 	}
 
 	updated, err := s.pages.Update(ctx, record)
 	if err != nil {
+		logger.Error("page schedule update failed", "error", err)
 		return nil, err
 	}
 	enriched, err := s.enrichPages(ctx, []*Page{updated})
 	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
 		return nil, err
 	}
+	logger.Info("page schedule updated",
+		"publish_at", record.PublishAt,
+		"unpublish_at", record.UnpublishAt,
+		"status", record.Status,
+	)
 	return enriched[0], nil
 }
 
@@ -517,22 +605,35 @@ func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftReques
 		return nil, ErrPageRequired
 	}
 
+	extra := map[string]any{
+		"page_id": req.PageID,
+	}
+	if req.BaseVersion != nil {
+		extra["base_version"] = *req.BaseVersion
+	}
+	logger := s.opLogger(ctx, "pages.version.create_draft", extra)
+
 	page, err := s.pages.GetByID(ctx, req.PageID)
 	if err != nil {
+		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
 
 	existing, err := s.pages.ListVersions(ctx, req.PageID)
 	if err != nil {
+		logger.Error("page version list failed", "error", err)
 		return nil, err
 	}
+	logger.Debug("page versions loaded", "count", len(existing))
 
 	if s.versionRetentionLimit > 0 && len(existing) >= s.versionRetentionLimit {
+		logger.Warn("page version retention limit reached", "limit", s.versionRetentionLimit)
 		return nil, ErrVersionRetentionExceeded
 	}
 
 	next := nextVersionNumber(existing)
 	if req.BaseVersion != nil && *req.BaseVersion != next-1 {
+		logger.Warn("page version conflict detected", "expected_base", next-1, "provided_base", *req.BaseVersion)
 		return nil, ErrVersionConflict
 	}
 
@@ -549,6 +650,7 @@ func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftReques
 
 	created, err := s.pages.CreateVersion(ctx, version)
 	if err != nil {
+		logger.Error("page version create failed", "error", err)
 		return nil, err
 	}
 
@@ -565,8 +667,12 @@ func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftReques
 	}
 
 	if _, err := s.pages.Update(ctx, page); err != nil {
+		logger.Error("page record update failed", "error", err)
 		return nil, err
 	}
+
+	logger = logger.WithFields(map[string]any{"version": created.Version})
+	logger.Info("page draft created")
 
 	return clonePageVersion(created), nil
 }
@@ -582,16 +688,24 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 		return nil, ErrPageVersionRequired
 	}
 
+	logger := s.opLogger(ctx, "pages.version.publish", map[string]any{
+		"page_id": req.PageID,
+		"version": req.Version,
+	})
+
 	page, err := s.pages.GetByID(ctx, req.PageID)
 	if err != nil {
+		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
 
 	version, err := s.pages.GetVersion(ctx, req.PageID, req.Version)
 	if err != nil {
+		logger.Error("page version lookup failed", "error", err)
 		return nil, err
 	}
 	if version.Status == domain.StatusPublished {
+		logger.Warn("page version already published")
 		return nil, ErrVersionAlreadyPublished
 	}
 
@@ -607,6 +721,7 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 
 	updatedVersion, err := s.pages.UpdateVersion(ctx, version)
 	if err != nil {
+		logger.Error("page version update failed", "error", err)
 		return nil, err
 	}
 
@@ -615,8 +730,12 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 		if prevErr == nil && previous.Status == domain.StatusPublished {
 			previous.Status = domain.StatusArchived
 			if _, archiveErr := s.pages.UpdateVersion(ctx, previous); archiveErr != nil {
+				logger.Error("page previous version archive failed", "error", archiveErr, "previous_version", previous.Version)
 				return nil, archiveErr
 			}
+			logger.Debug("page previous version archived", "previous_version", previous.Version)
+		} else if prevErr != nil {
+			logger.Error("page previous version lookup failed", "error", prevErr, "previous_version", *page.PublishedVersion)
 		}
 	}
 
@@ -635,8 +754,11 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 	}
 
 	if _, err := s.pages.Update(ctx, page); err != nil {
+		logger.Error("page publish update failed", "error", err)
 		return nil, err
 	}
+
+	logger.Info("page version published", "published_at", publishedAt)
 
 	return clonePageVersion(updatedVersion), nil
 }
@@ -649,11 +771,16 @@ func (s *pageService) ListVersions(ctx context.Context, pageID uuid.UUID) ([]*Pa
 		return nil, ErrPageRequired
 	}
 
+	logger := s.opLogger(ctx, "pages.version.list", map[string]any{"page_id": pageID})
+
 	versions, err := s.pages.ListVersions(ctx, pageID)
 	if err != nil {
+		logger.Error("page version list failed", "error", err)
 		return nil, err
 	}
-	return clonePageVersions(versions), nil
+	results := clonePageVersions(versions)
+	logger.Debug("page versions returned", "count", len(results))
+	return results, nil
 }
 
 func (s *pageService) RestoreVersion(ctx context.Context, req RestorePageVersionRequest) (*PageVersion, error) {
@@ -667,8 +794,14 @@ func (s *pageService) RestoreVersion(ctx context.Context, req RestorePageVersion
 		return nil, ErrPageVersionRequired
 	}
 
+	logger := s.opLogger(ctx, "pages.version.restore", map[string]any{
+		"page_id": req.PageID,
+		"version": req.Version,
+	})
+
 	version, err := s.pages.GetVersion(ctx, req.PageID, req.Version)
 	if err != nil {
+		logger.Error("page version lookup failed", "error", err)
 		return nil, err
 	}
 

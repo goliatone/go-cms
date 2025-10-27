@@ -4,7 +4,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	"github.com/goliatone/go-cms/internal/adapters/storage"
 	"github.com/goliatone/go-cms/internal/blocks"
@@ -13,6 +12,8 @@ import (
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/runtimeconfig"
+	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -24,13 +25,14 @@ import (
 
 // Container wires module dependencies. Phase 1 only returns no-op services.
 type Container struct {
-	Config cms.Config
+	Config runtimeconfig.Config
 
-	storage  interfaces.StorageProvider
-	cache    interfaces.CacheProvider
-	template interfaces.TemplateRenderer
-	media    interfaces.MediaProvider
-	auth     interfaces.AuthService
+	storage   interfaces.StorageProvider
+	cache     interfaces.CacheProvider
+	template  interfaces.TemplateRenderer
+	media     interfaces.MediaProvider
+	auth      interfaces.AuthService
+	scheduler interfaces.Scheduler
 
 	bunDB         *bun.DB
 	cacheTTL      time.Duration
@@ -93,6 +95,12 @@ func WithCache(service repocache.CacheService, serializer repocache.KeySerialize
 	}
 }
 
+func WithCacheProvider(provider interfaces.CacheProvider) Option {
+	return func(c *Container) {
+		c.cache = provider
+	}
+}
+
 // WithTemplate overrides the default template renderer.
 func WithTemplate(tr interfaces.TemplateRenderer) Option {
 	return func(c *Container) {
@@ -104,6 +112,12 @@ func WithTemplate(tr interfaces.TemplateRenderer) Option {
 func WithMedia(mp interfaces.MediaProvider) Option {
 	return func(c *Container) {
 		c.media = mp
+	}
+}
+
+func WithScheduler(s interfaces.Scheduler) Option {
+	return func(c *Container) {
+		c.scheduler = s
 	}
 }
 
@@ -167,9 +181,9 @@ func WithI18nService(svc i18n.Service) Option {
 }
 
 // NewContainer creates a container with the provided configuration.
-func NewContainer(cfg cms.Config, opts ...Option) *Container {
+func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) {
 	if err := cfg.Validate(); err != nil {
-		panic(err)
+		return nil, err
 	}
 
 	cacheTTL := cfg.Cache.DefaultTTL
@@ -205,6 +219,7 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		template:              noop.Template(),
 		media:                 noop.Media(),
 		auth:                  noop.Auth(),
+		cache:                 noop.Cache(),
 		cacheTTL:              cacheTTL,
 		contentRepo:           memoryContentRepo,
 		contentTypeRepo:       memoryContentTypeRepo,
@@ -236,15 +251,22 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 	c.configureCacheDefaults()
 	c.configureRepositories()
 	c.configureNavigation()
+	c.configureScheduler()
 	c.configureMediaService()
 
 	if c.contentSvc == nil {
-		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo)
+		contentOpts := []content.ServiceOption{
+			content.WithVersioningEnabled(c.Config.Features.Versioning),
+			content.WithScheduler(c.scheduler),
+			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
+		}
+		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
 	}
 
 	if c.blockSvc == nil {
 		blockOpts := []blocks.ServiceOption{
 			blocks.WithMediaService(c.mediaSvc),
+			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
 		}
 		c.blockSvc = blocks.NewService(
 			c.blockDefinitionRepo,
@@ -268,6 +290,11 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
 		}
 		pageOpts = append(pageOpts, pages.WithMediaService(c.mediaSvc))
+		pageOpts = append(pageOpts,
+			pages.WithPageVersioningEnabled(c.Config.Features.Versioning),
+			pages.WithSchedulingEnabled(c.Config.Features.Scheduling),
+			pages.WithScheduler(c.scheduler),
+		)
 		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
 	}
 
@@ -346,11 +373,13 @@ func NewContainer(cfg cms.Config, opts ...Option) *Container {
 		)
 	}
 
-	return c
+	return c, nil
 }
 
 func (c *Container) configureCacheDefaults() {
-	if !c.Config.Cache.Enabled {
+	if !c.Config.Cache.Enabled || !c.Config.Features.AdvancedCache {
+		c.cacheService = nil
+		c.keySerializer = nil
 		return
 	}
 
@@ -428,21 +457,26 @@ func (c *Container) configureNavigation() {
 	c.menuURLResolver = resolver
 }
 
+func (c *Container) configureScheduler() {
+	if !c.Config.Features.Scheduling {
+		c.scheduler = cmsscheduler.NewNoOp()
+		return
+	}
+	if c.scheduler == nil {
+		c.scheduler = cmsscheduler.NewInMemory()
+	}
+}
+
 func (c *Container) configureMediaService() {
 	if !c.Config.Features.MediaLibrary || c.media == nil {
 		c.mediaSvc = media.NewNoOpService()
 		return
 	}
 	options := []media.ServiceOption{}
-	if c.cache != nil && c.cacheTTL > 0 {
+	if c.Config.Features.AdvancedCache && c.cache != nil && c.cacheTTL > 0 {
 		options = append(options, media.WithCache(c.cache, c.cacheTTL))
 	}
 	c.mediaSvc = media.NewService(c.media, options...)
-}
-
-// API constructs the top-level CMS API façade.
-func (c *Container) API() *cms.API {
-	return cms.Module()
 }
 
 // StorageProvider exposes the configured storage implementation.
@@ -480,6 +514,10 @@ func (c *Container) LocaleRepository() content.LocaleRepository {
 	return c.localeRepo
 }
 
+func (c *Container) PageRepository() pages.PageRepository {
+	return c.pageRepo
+}
+
 // ContentService returns the configured content service.
 func (c *Container) ContentService() content.Service {
 	return c.contentSvc
@@ -512,6 +550,10 @@ func (c *Container) ThemeService() themes.Service {
 // MediaService returns the configured media helper service.
 func (c *Container) MediaService() media.Service {
 	return c.mediaSvc
+}
+
+func (c *Container) Scheduler() interfaces.Scheduler {
+	return c.scheduler
 }
 
 // I18nService returns the configured i18n service (lazy).

@@ -13,7 +13,10 @@ import (
 
 func TestContainerWidgetServiceDisabled(t *testing.T) {
 	cfg := cms.DefaultConfig()
-	container := di.NewContainer(cfg)
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
 
 	svc := container.WidgetService()
 	if svc == nil {
@@ -31,7 +34,10 @@ func TestContainerWidgetServiceEnabled(t *testing.T) {
 	cfg := cms.DefaultConfig()
 	cfg.Features.Widgets = true
 
-	container := di.NewContainer(cfg)
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
 	svc := container.WidgetService()
 
 	if svc == nil {
@@ -60,7 +66,10 @@ func TestContainerWidgetServiceEnabled(t *testing.T) {
 
 func TestContainerThemeServiceDisabled(t *testing.T) {
 	cfg := cms.DefaultConfig()
-	container := di.NewContainer(cfg)
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
 
 	svc := container.ThemeService()
 	if svc == nil {
@@ -76,7 +85,10 @@ func TestContainerThemeServiceEnabled(t *testing.T) {
 	cfg := cms.DefaultConfig()
 	cfg.Features.Themes = true
 
-	container := di.NewContainer(cfg)
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
 	svc := container.ThemeService()
 
 	theme, err := svc.RegisterTheme(context.Background(), themes.RegisterThemeInput{

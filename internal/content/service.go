@@ -9,12 +9,13 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
-// Service exposes content management use-cases.
+// Service exposes content management use cases.
 type Service interface {
 	Create(ctx context.Context, req CreateContentRequest) (*Content, error)
 	Get(ctx context.Context, id uuid.UUID) (*Content, error)
@@ -142,8 +143,10 @@ func WithClock(clock func() time.Time) ServiceOption {
 	}
 }
 
+// IDGenerator returns the identifier used for newly created records.
 type IDGenerator func() uuid.UUID
 
+// WithIDGenerator overrides the generator used to create identifiers.
 func WithIDGenerator(generator IDGenerator) ServiceOption {
 	return func(s *service) {
 		if generator != nil {
@@ -185,6 +188,15 @@ func WithSchedulingEnabled(enabled bool) ServiceOption {
 	}
 }
 
+// WithLogger assigns the logger used by the service. When omitted, a no-op logger is used.
+func WithLogger(logger interfaces.Logger) ServiceOption {
+	return func(svc *service) {
+		if logger != nil {
+			svc.logger = logger
+		}
+	}
+}
+
 // service implements Service.
 type service struct {
 	contents              ContentRepository
@@ -196,6 +208,7 @@ type service struct {
 	versionRetentionLimit int
 	scheduler             interfaces.Scheduler
 	schedulingEnabled     bool
+	logger                interfaces.Logger
 }
 
 // NewService constructs a content service with the required dependencies.
@@ -207,6 +220,7 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 		now:          time.Now,
 		id:           uuid.New,
 		scheduler:    cmsscheduler.NewNoOp(),
+		logger:       logging.ContentLogger(nil),
 	}
 
 	for _, opt := range opts {
@@ -216,6 +230,21 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 	return s
 }
 
+func (s *service) log(ctx context.Context) interfaces.Logger {
+	if ctx == nil {
+		return s.logger
+	}
+	return s.logger.WithContext(ctx)
+}
+
+func (s *service) opLogger(ctx context.Context, operation string, extra map[string]any) interfaces.Logger {
+	fields := map[string]any{"operation": operation}
+	for key, value := range extra {
+		fields[key] = value
+	}
+	return logging.WithFields(s.log(ctx), fields)
+}
+
 // Create orchestrates creation of a new content entry with translations.
 func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Content, error) {
 	if (req.ContentTypeID == uuid.UUID{}) {
@@ -223,6 +252,11 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	}
 
 	slug := strings.TrimSpace(req.Slug)
+	logger := s.opLogger(ctx, "content.create", map[string]any{
+		"content_type_id": req.ContentTypeID,
+		"slug":            slug,
+	})
+
 	if slug == "" {
 		return nil, ErrSlugRequired
 	}
@@ -235,6 +269,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	}
 
 	if _, err := s.contentTypes.GetByID(ctx, req.ContentTypeID); err != nil {
+		logger.Debug("content type lookup failed", "error", err)
 		return nil, ErrContentTypeRequired
 	}
 
@@ -243,6 +278,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	} else if err != nil {
 		var notFound *NotFoundError
 		if !errors.As(err, &notFound) {
+			logger.Error("content slug lookup failed", "error", err)
 			return nil, err
 		}
 	}
@@ -294,30 +330,44 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 
 	created, err := s.contents.Create(ctx, record)
 	if err != nil {
+		logger.Error("content repository create failed", "error", err)
 		return nil, err
 	}
+
+	logger = logging.WithFields(logger, map[string]any{
+		"content_id": created.ID,
+	})
+	logger.Info("content created")
 
 	return s.decorateContent(created), nil
 }
 
 // Get fetches content by identifier.
 func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
+	logger := s.opLogger(ctx, "content.get", map[string]any{
+		"content_id": id,
+	})
 	record, err := s.contents.GetByID(ctx, id)
 	if err != nil {
+		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
+	logger.Debug("content retrieved")
 	return s.decorateContent(record), nil
 }
 
 // List returns all content entries.
 func (s *service) List(ctx context.Context) ([]*Content, error) {
+	logger := s.opLogger(ctx, "content.list", nil)
 	records, err := s.contents.List(ctx)
 	if err != nil {
+		logger.Error("content list failed", "error", err)
 		return nil, err
 	}
 	for _, record := range records {
 		s.decorateContent(record)
 	}
+	logger.Debug("content list returned records", "count", len(records))
 	return records, nil
 }
 
@@ -339,8 +389,13 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 		return nil, ErrScheduleTimestampInvalid
 	}
 
+	logger := s.opLogger(ctx, "content.schedule", map[string]any{
+		"content_id": req.ContentID,
+	})
+
 	record, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
+		logger.Error("content schedule lookup failed", "error", err)
 		return nil, err
 	}
 
@@ -373,10 +428,19 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 				RunAt:   *record.PublishAt,
 				Payload: payload,
 			}); err != nil {
+				logger.Error("content publish job enqueue failed", "error", err)
 				return nil, err
 			}
-		} else if cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentPublishJobKey(record.ID)); cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
-			return nil, cancelErr
+			logger.Debug("content publish job enqueued", "job_key", cmsscheduler.ContentPublishJobKey(record.ID))
+		} else {
+			cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentPublishJobKey(record.ID))
+			if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+				logger.Error("content publish job cancel failed", "error", cancelErr)
+				return nil, cancelErr
+			}
+			if cancelErr == nil {
+				logger.Debug("content publish job cancelled", "job_key", cmsscheduler.ContentPublishJobKey(record.ID))
+			}
 		}
 
 		if record.UnpublishAt != nil {
@@ -390,17 +454,33 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 				RunAt:   *record.UnpublishAt,
 				Payload: payload,
 			}); err != nil {
+				logger.Error("content unpublish job enqueue failed", "error", err)
 				return nil, err
 			}
-		} else if cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentUnpublishJobKey(record.ID)); cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
-			return nil, cancelErr
+			logger.Debug("content unpublish job enqueued", "job_key", cmsscheduler.ContentUnpublishJobKey(record.ID))
+		} else {
+			cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentUnpublishJobKey(record.ID))
+			if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+				logger.Error("content unpublish job cancel failed", "error", cancelErr)
+				return nil, cancelErr
+			}
+			if cancelErr == nil {
+				logger.Debug("content unpublish job cancelled", "job_key", cmsscheduler.ContentUnpublishJobKey(record.ID))
+			}
 		}
 	}
 
 	updated, err := s.contents.Update(ctx, record)
 	if err != nil {
+		logger.Error("content schedule update failed", "error", err)
 		return nil, err
 	}
+
+	logger.Info("content schedule updated",
+		"publish_at", record.PublishAt,
+		"unpublish_at", record.UnpublishAt,
+		"status", record.Status,
+	)
 
 	return s.decorateContent(updated), nil
 }
@@ -413,22 +493,35 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 		return nil, ErrContentIDRequired
 	}
 
+	extra := map[string]any{
+		"content_id": req.ContentID,
+	}
+	if req.BaseVersion != nil {
+		extra["base_version"] = *req.BaseVersion
+	}
+	logger := s.opLogger(ctx, "content.version.create_draft", extra)
+
 	contentRecord, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
+		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
 
 	versions, err := s.contents.ListVersions(ctx, req.ContentID)
 	if err != nil {
+		logger.Error("content version list failed", "error", err)
 		return nil, err
 	}
+	logger.Debug("content versions loaded", "count", len(versions))
 
 	if s.versionRetentionLimit > 0 && len(versions) >= s.versionRetentionLimit {
+		logger.Warn("content version retention limit reached", "limit", s.versionRetentionLimit)
 		return nil, ErrContentVersionRetentionExceeded
 	}
 
 	next := nextContentVersionNumber(versions)
 	if req.BaseVersion != nil && *req.BaseVersion != next-1 {
+		logger.Warn("content version conflict detected", "expected_base", next-1, "provided_base", *req.BaseVersion)
 		return nil, ErrContentVersionConflict
 	}
 
@@ -445,6 +538,7 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 
 	created, err := s.contents.CreateVersion(ctx, version)
 	if err != nil {
+		logger.Error("content version create failed", "error", err)
 		return nil, err
 	}
 
@@ -461,8 +555,14 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 	}
 
 	if _, err := s.contents.Update(ctx, contentRecord); err != nil {
+		logger.Error("content record update failed", "error", err)
 		return nil, err
 	}
+
+	logger = logging.WithFields(logger, map[string]any{
+		"version": created.Version,
+	})
+	logger.Info("content draft created")
 
 	return cloneContentVersion(created), nil
 }
@@ -478,16 +578,24 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		return nil, ErrContentVersionRequired
 	}
 
+	logger := s.opLogger(ctx, "content.version.publish", map[string]any{
+		"content_id": req.ContentID,
+		"version":    req.Version,
+	})
+
 	contentRecord, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
+		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
 
 	version, err := s.contents.GetVersion(ctx, req.ContentID, req.Version)
 	if err != nil {
+		logger.Error("content version lookup failed", "error", err)
 		return nil, err
 	}
 	if version.Status == domain.StatusPublished {
+		logger.Warn("content version already published")
 		return nil, ErrContentVersionAlreadyPublished
 	}
 
@@ -504,6 +612,7 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 
 	updatedVersion, err := s.contents.UpdateVersion(ctx, version)
 	if err != nil {
+		logger.Error("content version update failed", "error", err)
 		return nil, err
 	}
 
@@ -512,8 +621,12 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		if prevErr == nil && prev.Status == domain.StatusPublished {
 			prev.Status = domain.StatusArchived
 			if _, archiveErr := s.contents.UpdateVersion(ctx, prev); archiveErr != nil {
+				logger.Error("content previous version archive failed", "error", archiveErr, "previous_version", prev.Version)
 				return nil, archiveErr
 			}
+			logger.Debug("content previous version archived", "previous_version", prev.Version)
+		} else if prevErr != nil {
+			logger.Error("content previous version lookup failed", "error", prevErr, "previous_version", *contentRecord.PublishedVersion)
 		}
 	}
 
@@ -533,8 +646,11 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	}
 
 	if _, err := s.contents.Update(ctx, contentRecord); err != nil {
+		logger.Error("content record publish update failed", "error", err)
 		return nil, err
 	}
+
+	logger.Info("content version published", "published_at", publishedAt)
 
 	return cloneContentVersion(updatedVersion), nil
 }
@@ -547,11 +663,18 @@ func (s *service) ListVersions(ctx context.Context, contentID uuid.UUID) ([]*Con
 		return nil, ErrContentIDRequired
 	}
 
+	logger := s.opLogger(ctx, "content.version.list", map[string]any{
+		"content_id": contentID,
+	})
+
 	versions, err := s.contents.ListVersions(ctx, contentID)
 	if err != nil {
+		logger.Error("content version list failed", "error", err)
 		return nil, err
 	}
-	return cloneContentVersions(versions), nil
+	results := cloneContentVersions(versions)
+	logger.Debug("content versions returned", "count", len(results))
+	return results, nil
 }
 
 func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionRequest) (*ContentVersion, error) {
@@ -565,8 +688,14 @@ func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionR
 		return nil, ErrContentVersionRequired
 	}
 
+	logger := s.opLogger(ctx, "content.version.restore", map[string]any{
+		"content_id": req.ContentID,
+		"version":    req.Version,
+	})
+
 	version, err := s.contents.GetVersion(ctx, req.ContentID, req.Version)
 	if err != nil {
+		logger.Error("content version lookup failed", "error", err)
 		return nil, err
 	}
 
@@ -575,7 +704,7 @@ func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionR
 		Snapshot:    cloneContentVersionSnapshot(version.Snapshot),
 		CreatedBy:   req.RestoredBy,
 		UpdatedBy:   req.RestoredBy,
-		BaseVersion: nil,
+		BaseVersion: &version.Version,
 	})
 }
 
