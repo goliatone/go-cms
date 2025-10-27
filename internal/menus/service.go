@@ -26,6 +26,7 @@ type Service interface {
 
 	AddMenuItemTranslation(ctx context.Context, input AddMenuItemTranslationInput) (*MenuItemTranslation, error)
 	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
+	InvalidateCache(ctx context.Context) error
 }
 
 // CreateMenuInput captures the information required to register a menu.
@@ -164,6 +165,10 @@ type service struct {
 	now          func() time.Time
 	id           IDGenerator
 	urlResolver  URLResolver
+}
+
+type cacheInvalidator interface {
+	InvalidateCache(ctx context.Context) error
 }
 
 // NewService constructs a menu service instance.
@@ -571,6 +576,27 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 		nodes = append(nodes, node)
 	}
 	return nodes, nil
+}
+
+func (s *service) InvalidateCache(ctx context.Context) error {
+	var errs []error
+
+	if invalidator, ok := s.menus.(cacheInvalidator); ok {
+		if err := invalidator.InvalidateCache(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if invalidator, ok := s.items.(cacheInvalidator); ok {
+		if err := invalidator.InvalidateCache(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if invalidator, ok := s.translations.(cacheInvalidator); ok {
+		if err := invalidator.InvalidateCache(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
 }
 
 func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) (NavigationNode, error) {
