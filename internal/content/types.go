@@ -59,6 +59,8 @@ type Content struct {
 	Type             *ContentType          `bun:"rel:belongs-to,join:content_type_id=id" json:"content_type,omitempty"`
 	Translations     []*ContentTranslation `bun:"rel:has-many,join:id=content_id"        json:"translations,omitempty"`
 	Versions         []*ContentVersion     `bun:"rel:has-many,join:id=content_id"        json:"versions,omitempty"`
+	EffectiveStatus  domain.Status         `bun:"-" json:"effective_status"`
+	IsVisible        bool                  `bun:"-" json:"is_visible"`
 }
 
 // ContentTranslation stores localized variants of a content entry.

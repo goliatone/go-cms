@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/google/uuid"
 )
 
@@ -131,5 +132,178 @@ func TestServiceCreateUnknownLocale(t *testing.T) {
 	})
 	if !errors.Is(err, content.ErrUnknownLocale) {
 		t.Fatalf("expected ErrUnknownLocale got %v", err)
+	}
+}
+
+func TestServiceVersionLifecycle(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "article"})
+
+	enLocale := uuid.New()
+	esLocale := uuid.New()
+	localeStore.Put(&content.Locale{ID: enLocale, Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: esLocale, Code: "es", Display: "Spanish"})
+
+	fixedNow := time.Date(2024, 5, 1, 8, 0, 0, 0, time.UTC)
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithClock(func() time.Time { return fixedNow }),
+		content.WithVersioningEnabled(true),
+		content.WithVersionRetentionLimit(5),
+	)
+
+	ctx := context.Background()
+	authorID := uuid.New()
+	baseContent, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "versioned-article",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Versioned Article"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	snapshot := content.ContentVersionSnapshot{
+		Fields: map[string]any{"category": "news"},
+		Translations: []content.ContentVersionTranslationSnapshot{
+			{Locale: "en", Title: "Draft EN", Content: map[string]any{"body": "Hello"}},
+			{Locale: "es", Title: "Borrador ES", Content: map[string]any{"body": "Hola"}},
+		},
+	}
+
+	draft, err := svc.CreateDraft(ctx, content.CreateContentDraftRequest{
+		ContentID: baseContent.ID,
+		Snapshot:  snapshot,
+		CreatedBy: authorID,
+	})
+	if err != nil {
+		t.Fatalf("create draft: %v", err)
+	}
+
+	if draft.Version != 1 {
+		t.Fatalf("expected version 1 got %d", draft.Version)
+	}
+	if draft.Status != domain.StatusDraft {
+		t.Fatalf("expected draft status got %s", draft.Status)
+	}
+
+	publisherID := uuid.New()
+	publishAt := time.Date(2024, 5, 2, 9, 0, 0, 0, time.UTC)
+	published, err := svc.PublishDraft(ctx, content.PublishContentDraftRequest{
+		ContentID:   baseContent.ID,
+		Version:     draft.Version,
+		PublishedBy: publisherID,
+		PublishedAt: &publishAt,
+	})
+	if err != nil {
+		t.Fatalf("publish draft: %v", err)
+	}
+
+	if published.Status != domain.StatusPublished {
+		t.Fatalf("expected published status got %s", published.Status)
+	}
+	if published.PublishedAt == nil || !published.PublishedAt.Equal(publishAt) {
+		t.Fatalf("expected published_at %v got %v", publishAt, published.PublishedAt)
+	}
+	if published.PublishedBy == nil || *published.PublishedBy != publisherID {
+		t.Fatalf("expected published_by %s", publisherID)
+	}
+
+	base := published.Version
+	secondSnapshot := content.ContentVersionSnapshot{
+		Fields:       map[string]any{"category": "news", "priority": "high"},
+		Translations: []content.ContentVersionTranslationSnapshot{{Locale: "en", Title: "Draft EN v2", Content: map[string]any{"body": "Updated"}}},
+	}
+
+	draftTwo, err := svc.CreateDraft(ctx, content.CreateContentDraftRequest{
+		ContentID:   baseContent.ID,
+		Snapshot:    secondSnapshot,
+		CreatedBy:   authorID,
+		UpdatedBy:   authorID,
+		BaseVersion: &base,
+	})
+	if err != nil {
+		t.Fatalf("create second draft: %v", err)
+	}
+	if draftTwo.Version != 2 {
+		t.Fatalf("expected version 2 got %d", draftTwo.Version)
+	}
+
+	secondPublisher := uuid.New()
+	secondPublished, err := svc.PublishDraft(ctx, content.PublishContentDraftRequest{
+		ContentID:   baseContent.ID,
+		Version:     draftTwo.Version,
+		PublishedBy: secondPublisher,
+	})
+	if err != nil {
+		t.Fatalf("publish second draft: %v", err)
+	}
+	if secondPublished.Status != domain.StatusPublished {
+		t.Fatalf("expected published status for second version got %s", secondPublished.Status)
+	}
+
+	versions, err := svc.ListVersions(ctx, baseContent.ID)
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) != 2 {
+		t.Fatalf("expected 2 versions got %d", len(versions))
+	}
+	if versions[0].Status != domain.StatusArchived {
+		t.Fatalf("expected first version archived got %s", versions[0].Status)
+	}
+	if versions[1].Status != domain.StatusPublished {
+		t.Fatalf("expected second version published got %s", versions[1].Status)
+	}
+	if len(versions[0].Snapshot.Translations) != 2 {
+		t.Fatalf("expected 2 translations in snapshot got %d", len(versions[0].Snapshot.Translations))
+	}
+
+	restorer := uuid.New()
+	restored, err := svc.RestoreVersion(ctx, content.RestoreContentVersionRequest{
+		ContentID:  baseContent.ID,
+		Version:    1,
+		RestoredBy: restorer,
+	})
+	if err != nil {
+		t.Fatalf("restore version: %v", err)
+	}
+	if restored.Version != 3 {
+		t.Fatalf("expected restored version 3 got %d", restored.Version)
+	}
+	if restored.Status != domain.StatusDraft {
+		t.Fatalf("expected restored version draft got %s", restored.Status)
+	}
+
+	allVersions, err := svc.ListVersions(ctx, baseContent.ID)
+	if err != nil {
+		t.Fatalf("list versions after restore: %v", err)
+	}
+	if len(allVersions) != 3 {
+		t.Fatalf("expected 3 versions got %d", len(allVersions))
+	}
+	if allVersions[2].Status != domain.StatusDraft {
+		t.Fatalf("expected newest version draft got %s", allVersions[2].Status)
+	}
+
+	updatedContent, err := svc.Get(ctx, baseContent.ID)
+	if err != nil {
+		t.Fatalf("get content: %v", err)
+	}
+	if updatedContent.PublishedVersion == nil || *updatedContent.PublishedVersion != 2 {
+		t.Fatalf("expected published version pointer to 2 got %v", updatedContent.PublishedVersion)
+	}
+	if updatedContent.CurrentVersion != 3 {
+		t.Fatalf("expected current version 3 got %d", updatedContent.CurrentVersion)
 	}
 }

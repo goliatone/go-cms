@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -77,6 +78,31 @@ func (m *MemoryContentRepository) List(_ context.Context) ([]*Content, error) {
 	return out, nil
 }
 
+// Update persists metadata changes for content records.
+func (m *MemoryContentRepository) Update(_ context.Context, record *Content) (*Content, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current, ok := m.contents[record.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "content", Key: record.ID.String()}
+	}
+
+	updated := cloneContent(current)
+	updated.CurrentVersion = record.CurrentVersion
+	updated.PublishedVersion = cloneIntPointer(record.PublishedVersion)
+	updated.PublishAt = cloneTimePointer(record.PublishAt)
+	updated.UnpublishAt = cloneTimePointer(record.UnpublishAt)
+	updated.PublishedAt = cloneTimePointer(record.PublishedAt)
+	updated.PublishedBy = cloneUUIDPointer(record.PublishedBy)
+	updated.Status = record.Status
+	updated.UpdatedAt = record.UpdatedAt
+	updated.UpdatedBy = record.UpdatedBy
+
+	m.contents[record.ID] = updated
+	return m.attachVersions(cloneContent(updated)), nil
+}
+
 // CreateVersion appends a new version snapshot for the supplied content entity.
 func (m *MemoryContentRepository) CreateVersion(_ context.Context, version *ContentVersion) (*ContentVersion, error) {
 	m.mu.Lock()
@@ -122,6 +148,25 @@ func (m *MemoryContentRepository) GetLatestVersion(_ context.Context, contentID 
 	}
 	last := queue[len(queue)-1]
 	return cloneContentVersion(last), nil
+}
+
+// UpdateVersion mutates metadata for a stored content version.
+func (m *MemoryContentRepository) UpdateVersion(_ context.Context, version *ContentVersion) (*ContentVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	queue := m.versions[version.ContentID]
+	for idx, existing := range queue {
+		if existing == nil {
+			continue
+		}
+		if existing.ID == version.ID {
+			queue[idx] = cloneContentVersion(version)
+			m.versions[version.ContentID] = queue
+			return cloneContentVersion(queue[idx]), nil
+		}
+	}
+	return nil, &NotFoundError{Resource: "content_version", Key: version.ContentID.String()}
 }
 
 func cloneContent(src *Content) *Content {
@@ -172,6 +217,8 @@ func cloneContentVersion(src *ContentVersion) *ContentVersion {
 	}
 	cloned := *src
 	cloned.Snapshot = cloneContentVersionSnapshot(src.Snapshot)
+	cloned.PublishedAt = cloneTimePointer(src.PublishedAt)
+	cloned.PublishedBy = cloneUUIDPointer(src.PublishedBy)
 	return &cloned
 }
 
@@ -192,6 +239,30 @@ func cloneContentVersionSnapshot(src ContentVersionSnapshot) ContentVersionSnaps
 		}
 	}
 	return target
+}
+
+func cloneIntPointer(src *int) *int {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneTimePointer(src *time.Time) *time.Time {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneUUIDPointer(src *uuid.UUID) *uuid.UUID {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
 }
 
 // MemoryContentTypeRepository stores content types "in memory".

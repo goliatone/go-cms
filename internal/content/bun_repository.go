@@ -59,6 +59,27 @@ func (r *BunContentRepository) List(ctx context.Context) ([]*Content, error) {
 	return records, err
 }
 
+func (r *BunContentRepository) Update(ctx context.Context, record *Content) (*Content, error) {
+	updated, err := r.repo.Update(ctx, record,
+		repository.UpdateByID(record.ID.String()),
+		repository.UpdateColumns(
+			"current_version",
+			"published_version",
+			"status",
+			"publish_at",
+			"unpublish_at",
+			"published_at",
+			"published_by",
+			"updated_by",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
 func (r *BunContentRepository) CreateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error) {
 	created, err := r.versions.Create(ctx, version)
 	if err != nil {
@@ -121,6 +142,21 @@ func (r *BunContentRepository) GetLatestVersion(ctx context.Context, contentID u
 		}
 	}
 	return records[0], nil
+}
+
+func (r *BunContentRepository) UpdateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error) {
+	updated, err := r.versions.Update(ctx, version,
+		repository.UpdateByID(version.ID.String()),
+		repository.UpdateColumns(
+			"status",
+			"published_at",
+			"published_by",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 type BunContentTypeRepository struct {
