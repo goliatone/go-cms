@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/media"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
@@ -294,7 +295,7 @@ func (s *pageService) opLogger(ctx context.Context, operation string, extra map[
 	for key, value := range extra {
 		fields[key] = value
 	}
-	return s.log(ctx).WithFields(fields)
+	return logging.WithFields(s.log(ctx), fields)
 }
 
 // Create registers a new page with translations and hierarchy rules.
@@ -437,7 +438,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		logger.Error("page repository create failed", "error", err)
 		return nil, err
 	}
-	logger = logger.WithFields(map[string]any{"page_id": created.ID})
+	logger = logging.WithFields(logger, map[string]any{"page_id": created.ID})
 
 	enriched, err := s.enrichPages(ctx, []*Page{created})
 	if err != nil {
@@ -671,7 +672,7 @@ func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftReques
 		return nil, err
 	}
 
-	logger = logger.WithFields(map[string]any{"version": created.Version})
+	logger = logging.WithFields(logger, map[string]any{"version": created.Version})
 	logger.Info("page draft created")
 
 	return clonePageVersion(created), nil

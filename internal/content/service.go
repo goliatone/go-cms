@@ -704,7 +704,7 @@ func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionR
 		Snapshot:    cloneContentVersionSnapshot(version.Snapshot),
 		CreatedBy:   req.RestoredBy,
 		UpdatedBy:   req.RestoredBy,
-		BaseVersion: &version.Version,
+		BaseVersion: nil,
 	})
 }
 

@@ -69,7 +69,7 @@ func NewPublishContentHandler(service content.Service, logger interfaces.Logger,
 	handlerOpts = append(handlerOpts, opts...)
 
 	return &PublishContentHandler{
-		inner: commands.NewHandler[PublishContentCommand](exec, handlerOpts...),
+		inner: commands.NewHandler(exec, handlerOpts...),
 	}
 }
 
