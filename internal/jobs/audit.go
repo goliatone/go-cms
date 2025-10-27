@@ -18,6 +18,8 @@ type AuditEvent struct {
 // AuditRecorder persists audit events.
 type AuditRecorder interface {
 	Record(ctx context.Context, event AuditEvent) error
+	List(ctx context.Context) ([]AuditEvent, error)
+	Clear(ctx context.Context) error
 }
 
 // InMemoryAuditRecorder accumulates audit events in-memory for tests.
@@ -53,11 +55,8 @@ func (r *InMemoryAuditRecorder) Record(_ context.Context, event AuditEvent) erro
 
 // Events returns a snapshot of recorded audit entries.
 func (r *InMemoryAuditRecorder) Events() []AuditEvent {
-	r.mu.Lock()
-	defer r.mu.Unlock()
-	out := make([]AuditEvent, len(r.events))
-	copy(out, r.events)
-	return out
+	events, _ := r.List(context.Background())
+	return events
 }
 
 // Fail configures the recorder to return the supplied error on subsequent Record calls.
@@ -65,4 +64,21 @@ func (r *InMemoryAuditRecorder) Fail(err error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.err = err
+}
+
+// List returns the audit events recorded so far.
+func (r *InMemoryAuditRecorder) List(context.Context) ([]AuditEvent, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := make([]AuditEvent, len(r.events))
+	copy(out, r.events)
+	return out, nil
+}
+
+// Clear removes all recorded events.
+func (r *InMemoryAuditRecorder) Clear(context.Context) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.events = nil
+	return nil
 }
