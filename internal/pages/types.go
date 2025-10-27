@@ -15,29 +15,30 @@ import (
 type Page struct {
 	bun.BaseModel `bun:"table:pages,alias:p"`
 
-	ID               uuid.UUID          `bun:",pk,type:uuid" json:"id"`
-	ContentID        uuid.UUID          `bun:"content_id,notnull,type:uuid" json:"content_id"`
-	CurrentVersion   int                `bun:"current_version,notnull,default:1" json:"current_version"`
-	PublishedVersion *int               `bun:"published_version" json:"published_version,omitempty"`
-	ParentID         *uuid.UUID         `bun:"parent_id,type:uuid" json:"parent_id,omitempty"`
-	TemplateID       uuid.UUID          `bun:"template_id,notnull,type:uuid" json:"template_id"`
-	Slug             string             `bun:"slug,notnull" json:"slug"`
-	Status           string             `bun:"status,notnull,default:'draft'" json:"status"`
-	PublishAt        *time.Time         `bun:"publish_at,nullzero" json:"publish_at,omitempty"`
-	UnpublishAt      *time.Time         `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`
-	PublishedAt      *time.Time         `bun:"published_at,nullzero" json:"published_at,omitempty"`
-	PublishedBy      *uuid.UUID         `bun:"published_by,type:uuid" json:"published_by,omitempty"`
-	CreatedBy        uuid.UUID          `bun:"created_by,notnull,type:uuid" json:"created_by"`
-	UpdatedBy        uuid.UUID          `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
-	DeletedAt        *time.Time         `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
-	CreatedAt        time.Time          `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt        time.Time          `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
-	Content          *content.Content   `bun:"rel:belongs-to,join:content_id=id" json:"content,omitempty"`
-	Translations     []*PageTranslation `bun:"rel:has-many,join:id=page_id" json:"translations,omitempty"`
-	Versions         []*PageVersion     `bun:"rel:has-many,join:id=page_id" json:"versions,omitempty"`
-	Blocks           []*blocks.Instance `bun:"-" json:"blocks,omitempty"`
-
-	Widgets map[string][]*widgets.ResolvedWidget `bun:"-" json:"widgets,omitempty"`
+	ID               uuid.UUID                            `bun:",pk,type:uuid" json:"id"`
+	ContentID        uuid.UUID                            `bun:"content_id,notnull,type:uuid" json:"content_id"`
+	CurrentVersion   int                                  `bun:"current_version,notnull,default:1" json:"current_version"`
+	PublishedVersion *int                                 `bun:"published_version" json:"published_version,omitempty"`
+	ParentID         *uuid.UUID                           `bun:"parent_id,type:uuid" json:"parent_id,omitempty"`
+	TemplateID       uuid.UUID                            `bun:"template_id,notnull,type:uuid" json:"template_id"`
+	Slug             string                               `bun:"slug,notnull" json:"slug"`
+	Status           string                               `bun:"status,notnull,default:'draft'" json:"status"`
+	PublishAt        *time.Time                           `bun:"publish_at,nullzero" json:"publish_at,omitempty"`
+	UnpublishAt      *time.Time                           `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`
+	PublishedAt      *time.Time                           `bun:"published_at,nullzero" json:"published_at,omitempty"`
+	PublishedBy      *uuid.UUID                           `bun:"published_by,type:uuid" json:"published_by,omitempty"`
+	CreatedBy        uuid.UUID                            `bun:"created_by,notnull,type:uuid" json:"created_by"`
+	UpdatedBy        uuid.UUID                            `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
+	DeletedAt        *time.Time                           `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt        time.Time                            `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt        time.Time                            `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	Content          *content.Content                     `bun:"rel:belongs-to,join:content_id=id" json:"content,omitempty"`
+	Translations     []*PageTranslation                   `bun:"rel:has-many,join:id=page_id" json:"translations,omitempty"`
+	Versions         []*PageVersion                       `bun:"rel:has-many,join:id=page_id" json:"versions,omitempty"`
+	Blocks           []*blocks.Instance                   `bun:"-" json:"blocks,omitempty"`
+	Widgets          map[string][]*widgets.ResolvedWidget `bun:"-" json:"widgets,omitempty"`
+	EffectiveStatus  domain.Status                        `bun:"-" json:"effective_status"`
+	IsVisible        bool                                 `bun:"-" json:"is_visible"`
 }
 
 // PageVersion snapshots structural layout for history/versioning.

@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 )
@@ -72,6 +73,31 @@ func (m *MemoryPageRepository) List(_ context.Context) ([]*Page, error) {
 	return out, nil
 }
 
+// Update persists metadata changes for a page.
+func (m *MemoryPageRepository) Update(_ context.Context, record *Page) (*Page, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	current, ok := m.pages[record.ID]
+	if !ok {
+		return nil, &PageNotFoundError{Key: record.ID.String()}
+	}
+
+	updated := clonePage(current)
+	updated.CurrentVersion = record.CurrentVersion
+	updated.PublishedVersion = cloneIntPointer(record.PublishedVersion)
+	updated.PublishAt = cloneTimePointer(record.PublishAt)
+	updated.UnpublishAt = cloneTimePointer(record.UnpublishAt)
+	updated.PublishedAt = cloneTimePointer(record.PublishedAt)
+	updated.PublishedBy = cloneUUIDPointer(record.PublishedBy)
+	updated.Status = record.Status
+	updated.UpdatedAt = record.UpdatedAt
+	updated.UpdatedBy = record.UpdatedBy
+
+	m.pages[record.ID] = updated
+	return m.attachVersions(clonePage(updated)), nil
+}
+
 // CreateVersion appends a version to the supplied page.
 func (m *MemoryPageRepository) CreateVersion(_ context.Context, version *PageVersion) (*PageVersion, error) {
 	m.mu.Lock()
@@ -116,6 +142,25 @@ func (m *MemoryPageRepository) GetLatestVersion(_ context.Context, pageID uuid.U
 		return nil, &PageVersionNotFoundError{PageID: pageID}
 	}
 	return clonePageVersion(versions[len(versions)-1]), nil
+}
+
+// UpdateVersion mutates stored metadata for a page version.
+func (m *MemoryPageRepository) UpdateVersion(_ context.Context, version *PageVersion) (*PageVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	queue := m.versions[version.PageID]
+	for idx, existing := range queue {
+		if existing == nil {
+			continue
+		}
+		if existing.ID == version.ID {
+			queue[idx] = clonePageVersion(version)
+			m.versions[version.PageID] = queue
+			return clonePageVersion(queue[idx]), nil
+		}
+	}
+	return nil, &PageVersionNotFoundError{PageID: version.PageID, Version: version.Version}
 }
 
 func clonePage(src *Page) *Page {
@@ -175,6 +220,8 @@ func clonePageVersion(src *PageVersion) *PageVersion {
 	}
 	cloned := *src
 	cloned.Snapshot = clonePageVersionSnapshot(src.Snapshot)
+	cloned.PublishedAt = cloneTimePointer(src.PublishedAt)
+	cloned.PublishedBy = cloneUUIDPointer(src.PublishedBy)
 	return &cloned
 }
 
@@ -198,6 +245,30 @@ func clonePageVersionSnapshot(src PageVersionSnapshot) PageVersionSnapshot {
 		}
 	}
 	return target
+}
+
+func cloneIntPointer(src *int) *int {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneTimePointer(src *time.Time) *time.Time {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
+}
+
+func cloneUUIDPointer(src *uuid.UUID) *uuid.UUID {
+	if src == nil {
+		return nil
+	}
+	value := *src
+	return &value
 }
 
 func cloneBlockPlacements(src []PageBlockPlacement) []PageBlockPlacement {

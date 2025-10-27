@@ -11,8 +11,11 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/domain"
+	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -21,6 +24,11 @@ type Service interface {
 	Create(ctx context.Context, req CreatePageRequest) (*Page, error)
 	Get(ctx context.Context, id uuid.UUID) (*Page, error)
 	List(ctx context.Context) ([]*Page, error)
+	Schedule(ctx context.Context, req SchedulePageRequest) (*Page, error)
+	CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error)
+	PublishDraft(ctx context.Context, req PublishPagePublishRequest) (*PageVersion, error)
+	ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error)
+	RestoreVersion(ctx context.Context, req RestorePageVersionRequest) (*PageVersion, error)
 }
 
 // CreatePageRequest captures the payload required to create a page.
@@ -43,18 +51,59 @@ type PageTranslationInput struct {
 	Summary *string
 }
 
+// CreatePageDraftRequest captures the data required to create a page version draft.
+type CreatePageDraftRequest struct {
+	PageID      uuid.UUID
+	Snapshot    PageVersionSnapshot
+	CreatedBy   uuid.UUID
+	UpdatedBy   uuid.UUID
+	BaseVersion *int
+}
+
+// PublishPagePublishRequest captures the inputs required to publish a draft version.
+type PublishPagePublishRequest struct {
+	PageID      uuid.UUID
+	Version     int
+	PublishedBy uuid.UUID
+	PublishedAt *time.Time
+}
+
+// RestorePageVersionRequest captures the request to restore a historical version as a draft.
+type RestorePageVersionRequest struct {
+	PageID     uuid.UUID
+	Version    int
+	RestoredBy uuid.UUID
+}
+
+// SchedulePageRequest captures scheduling input for page publish/unpublish windows.
+type SchedulePageRequest struct {
+	PageID      uuid.UUID
+	PublishAt   *time.Time
+	UnpublishAt *time.Time
+	ScheduledBy uuid.UUID
+}
+
 var (
-	ErrContentRequired    = errors.New("pages: content does not exist")
-	ErrTemplateRequired   = errors.New("pages: template is required")
-	ErrSlugRequired       = errors.New("pages: slug is required")
-	ErrSlugInvalid        = errors.New("pages: slug contains invalid characters")
-	ErrSlugExists         = errors.New("pages: slug already exists")
-	ErrPathExists         = errors.New("pages: translation path already exists")
-	ErrUnknownLocale      = errors.New("pages: unknown locale")
-	ErrDuplicateLocale    = errors.New("pages: duplicate locale provided")
-	ErrParentNotFound     = errors.New("pages: parent page not found")
-	ErrNoPageTranslations = errors.New("pages: at least one translation is required")
-	ErrTemplateUnknown    = errors.New("pages: template not found")
+	ErrContentRequired          = errors.New("pages: content does not exist")
+	ErrTemplateRequired         = errors.New("pages: template is required")
+	ErrSlugRequired             = errors.New("pages: slug is required")
+	ErrSlugInvalid              = errors.New("pages: slug contains invalid characters")
+	ErrSlugExists               = errors.New("pages: slug already exists")
+	ErrPathExists               = errors.New("pages: translation path already exists")
+	ErrUnknownLocale            = errors.New("pages: unknown locale")
+	ErrDuplicateLocale          = errors.New("pages: duplicate locale provided")
+	ErrParentNotFound           = errors.New("pages: parent page not found")
+	ErrNoPageTranslations       = errors.New("pages: at least one translation is required")
+	ErrTemplateUnknown          = errors.New("pages: template not found")
+	ErrPageRequired             = errors.New("pages: page id required")
+	ErrVersioningDisabled       = errors.New("pages: versioning feature disabled")
+	ErrPageVersionRequired      = errors.New("pages: version identifier required")
+	ErrVersionAlreadyPublished  = errors.New("pages: version already published")
+	ErrVersionRetentionExceeded = errors.New("pages: version retention limit reached")
+	ErrVersionConflict          = errors.New("pages: base version mismatch")
+	ErrSchedulingDisabled       = errors.New("pages: scheduling feature disabled")
+	ErrScheduleWindowInvalid    = errors.New("pages: publish_at must be before unpublish_at")
+	ErrScheduleTimestampInvalid = errors.New("pages: schedule timestamp is invalid")
 )
 
 // PageRepository abstracts storage operations for pages.
@@ -63,10 +112,12 @@ type PageRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*Page, error)
 	GetBySlug(ctx context.Context, slug string) (*Page, error)
 	List(ctx context.Context) ([]*Page, error)
+	Update(ctx context.Context, record *Page) (*Page, error)
 	CreateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error)
 	ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error)
 	GetVersion(ctx context.Context, pageID uuid.UUID, number int) (*PageVersion, error)
 	GetLatestVersion(ctx context.Context, pageID uuid.UUID) (*PageVersion, error)
+	UpdateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error)
 }
 
 // LocaleRepository resolves locales.
@@ -125,14 +176,18 @@ func WithIDGenerator(generator IDGenerator) ServiceOption {
 }
 
 type pageService struct {
-	pages   PageRepository
-	content ContentRepository
-	locales LocaleRepository
-	blocks  blocks.Service
-	widgets widgets.Service
-	themes  themes.Service
-	now     func() time.Time
-	id      IDGenerator
+	pages                 PageRepository
+	content               ContentRepository
+	locales               LocaleRepository
+	blocks                blocks.Service
+	widgets               widgets.Service
+	themes                themes.Service
+	now                   func() time.Time
+	id                    IDGenerator
+	versioningEnabled     bool
+	versionRetentionLimit int
+	scheduler             interfaces.Scheduler
+	schedulingEnabled     bool
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -153,14 +208,48 @@ func WithThemeService(svc themes.Service) ServiceOption {
 	}
 }
 
+// WithScheduler wires the scheduler used to enqueue publish/unpublish jobs.
+func WithScheduler(scheduler interfaces.Scheduler) ServiceOption {
+	return func(s *pageService) {
+		if scheduler != nil {
+			s.scheduler = scheduler
+		}
+	}
+}
+
+// WithSchedulingEnabled toggles scheduling workflows.
+func WithSchedulingEnabled(enabled bool) ServiceOption {
+	return func(s *pageService) {
+		s.schedulingEnabled = enabled
+	}
+}
+
+// WithPageVersioningEnabled toggles versioning specific capabilities.
+func WithPageVersioningEnabled(enabled bool) ServiceOption {
+	return func(s *pageService) {
+		s.versioningEnabled = enabled
+	}
+}
+
+// WithPageVersionRetentionLimit constrains how many versions are retained per page.
+func WithPageVersionRetentionLimit(limit int) ServiceOption {
+	return func(s *pageService) {
+		if limit < 0 {
+			limit = 0
+		}
+		s.versionRetentionLimit = limit
+	}
+}
+
 // NewService constructs a page service with the required dependencies.
 func NewService(pages PageRepository, contentRepo ContentRepository, locales LocaleRepository, opts ...ServiceOption) Service {
 	s := &pageService{
-		pages:   pages,
-		content: contentRepo,
-		locales: locales,
-		now:     time.Now,
-		id:      uuid.New,
+		pages:     pages,
+		content:   contentRepo,
+		locales:   locales,
+		now:       time.Now,
+		id:        uuid.New,
+		scheduler: cmsscheduler.NewNoOp(),
 	}
 
 	for _, opt := range opts {
@@ -286,7 +375,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		return nil, err
 	}
 
-	return created, nil
+	return s.decoratePage(created), nil
 }
 
 // Get fetches a page by identifier.
@@ -300,6 +389,7 @@ func (s *pageService) Get(ctx context.Context, id uuid.UUID) (*Page, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return enriched[0], nil
 }
 
@@ -312,12 +402,273 @@ func (s *pageService) List(ctx context.Context) ([]*Page, error) {
 	return s.enrichPages(ctx, pages)
 }
 
+// Schedule registers publish/unpublish windows for a page and enqueues scheduler jobs.
+func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*Page, error) {
+	if !s.schedulingEnabled {
+		return nil, ErrSchedulingDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+	if req.PublishAt != nil && req.UnpublishAt != nil && req.UnpublishAt.Before(*req.PublishAt) {
+		return nil, ErrScheduleWindowInvalid
+	}
+	if req.PublishAt != nil && req.PublishAt.IsZero() {
+		return nil, ErrScheduleTimestampInvalid
+	}
+	if req.UnpublishAt != nil && req.UnpublishAt.IsZero() {
+		return nil, ErrScheduleTimestampInvalid
+	}
+
+	record, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now()
+	record.PublishAt = cloneTimePtr(req.PublishAt)
+	record.UnpublishAt = cloneTimePtr(req.UnpublishAt)
+	record.UpdatedAt = now
+	if req.ScheduledBy != uuid.Nil {
+		record.UpdatedBy = req.ScheduledBy
+	}
+
+	if record.PublishAt != nil {
+		record.Status = string(domain.StatusScheduled)
+	} else if record.PublishedVersion != nil {
+		record.Status = string(domain.StatusPublished)
+	} else {
+		record.Status = string(domain.StatusDraft)
+	}
+
+	if s.scheduler != nil {
+		if record.PublishAt != nil {
+			payload := map[string]any{"page_id": record.ID.String()}
+			if req.ScheduledBy != uuid.Nil {
+				payload["scheduled_by"] = req.ScheduledBy.String()
+			}
+			if _, err := s.scheduler.Enqueue(ctx, interfaces.JobSpec{
+				Key:     cmsscheduler.PagePublishJobKey(record.ID),
+				Type:    cmsscheduler.JobTypePagePublish,
+				RunAt:   *record.PublishAt,
+				Payload: payload,
+			}); err != nil {
+				return nil, err
+			}
+		} else if cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.PagePublishJobKey(record.ID)); cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+			return nil, cancelErr
+		}
+
+		if record.UnpublishAt != nil {
+			payload := map[string]any{"page_id": record.ID.String()}
+			if req.ScheduledBy != uuid.Nil {
+				payload["scheduled_by"] = req.ScheduledBy.String()
+			}
+			if _, err := s.scheduler.Enqueue(ctx, interfaces.JobSpec{
+				Key:     cmsscheduler.PageUnpublishJobKey(record.ID),
+				Type:    cmsscheduler.JobTypePageUnpublish,
+				RunAt:   *record.UnpublishAt,
+				Payload: payload,
+			}); err != nil {
+				return nil, err
+			}
+		} else if cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.PageUnpublishJobKey(record.ID)); cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+			return nil, cancelErr
+		}
+	}
+
+	updated, err := s.pages.Update(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.decoratePage(updated), nil
+}
+
+func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error) {
+	if !s.versioningEnabled {
+		return nil, ErrVersioningDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+
+	page, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		return nil, err
+	}
+
+	existing, err := s.pages.ListVersions(ctx, req.PageID)
+	if err != nil {
+		return nil, err
+	}
+
+	if s.versionRetentionLimit > 0 && len(existing) >= s.versionRetentionLimit {
+		return nil, ErrVersionRetentionExceeded
+	}
+
+	next := nextVersionNumber(existing)
+	if req.BaseVersion != nil && *req.BaseVersion != next-1 {
+		return nil, ErrVersionConflict
+	}
+
+	now := s.now()
+	version := &PageVersion{
+		ID:        s.id(),
+		PageID:    req.PageID,
+		Version:   next,
+		Status:    domain.StatusDraft,
+		Snapshot:  clonePageVersionSnapshot(req.Snapshot),
+		CreatedBy: req.CreatedBy,
+		CreatedAt: now,
+	}
+
+	created, err := s.pages.CreateVersion(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+
+	page.CurrentVersion = created.Version
+	page.UpdatedAt = now
+	switch {
+	case req.UpdatedBy != uuid.Nil:
+		page.UpdatedBy = req.UpdatedBy
+	case req.CreatedBy != uuid.Nil:
+		page.UpdatedBy = req.CreatedBy
+	}
+	if page.PublishedVersion == nil {
+		page.Status = string(domain.StatusDraft)
+	}
+
+	if _, err := s.pages.Update(ctx, page); err != nil {
+		return nil, err
+	}
+
+	return clonePageVersion(created), nil
+}
+
+func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRequest) (*PageVersion, error) {
+	if !s.versioningEnabled {
+		return nil, ErrVersioningDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+	if req.Version <= 0 {
+		return nil, ErrPageVersionRequired
+	}
+
+	page, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		return nil, err
+	}
+
+	version, err := s.pages.GetVersion(ctx, req.PageID, req.Version)
+	if err != nil {
+		return nil, err
+	}
+	if version.Status == domain.StatusPublished {
+		return nil, ErrVersionAlreadyPublished
+	}
+
+	publishedAt := s.now()
+	if req.PublishedAt != nil && !req.PublishedAt.IsZero() {
+		publishedAt = *req.PublishedAt
+	}
+	version.Status = domain.StatusPublished
+	version.PublishedAt = &publishedAt
+	if req.PublishedBy != uuid.Nil {
+		version.PublishedBy = &req.PublishedBy
+	}
+
+	updatedVersion, err := s.pages.UpdateVersion(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+
+	if page.PublishedVersion != nil && *page.PublishedVersion != updatedVersion.Version {
+		previous, prevErr := s.pages.GetVersion(ctx, req.PageID, *page.PublishedVersion)
+		if prevErr == nil && previous.Status == domain.StatusPublished {
+			previous.Status = domain.StatusArchived
+			if _, archiveErr := s.pages.UpdateVersion(ctx, previous); archiveErr != nil {
+				return nil, archiveErr
+			}
+		}
+	}
+
+	page.PublishedVersion = &updatedVersion.Version
+	page.PublishedAt = &publishedAt
+	if req.PublishedBy != uuid.Nil {
+		page.PublishedBy = &req.PublishedBy
+	}
+	page.Status = string(domain.StatusPublished)
+	if updatedVersion.Version > page.CurrentVersion {
+		page.CurrentVersion = updatedVersion.Version
+	}
+	page.UpdatedAt = s.now()
+	if req.PublishedBy != uuid.Nil {
+		page.UpdatedBy = req.PublishedBy
+	}
+
+	if _, err := s.pages.Update(ctx, page); err != nil {
+		return nil, err
+	}
+
+	return clonePageVersion(updatedVersion), nil
+}
+
+func (s *pageService) ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error) {
+	if !s.versioningEnabled {
+		return nil, ErrVersioningDisabled
+	}
+	if pageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+
+	versions, err := s.pages.ListVersions(ctx, pageID)
+	if err != nil {
+		return nil, err
+	}
+	return clonePageVersions(versions), nil
+}
+
+func (s *pageService) RestoreVersion(ctx context.Context, req RestorePageVersionRequest) (*PageVersion, error) {
+	if !s.versioningEnabled {
+		return nil, ErrVersioningDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+	if req.Version <= 0 {
+		return nil, ErrPageVersionRequired
+	}
+
+	version, err := s.pages.GetVersion(ctx, req.PageID, req.Version)
+	if err != nil {
+		return nil, err
+	}
+
+	return s.CreateDraft(ctx, CreatePageDraftRequest{
+		PageID:    req.PageID,
+		Snapshot:  clonePageVersionSnapshot(version.Snapshot),
+		CreatedBy: req.RestoredBy,
+		UpdatedBy: req.RestoredBy,
+	})
+}
+
 func (s *pageService) enrichPages(ctx context.Context, pages []*Page) ([]*Page, error) {
 	withBlocks, err := s.attachBlocks(ctx, pages)
 	if err != nil {
 		return nil, err
 	}
-	return s.attachWidgets(ctx, withBlocks)
+	withWidgets, err := s.attachWidgets(ctx, withBlocks)
+	if err != nil {
+		return nil, err
+	}
+	for _, page := range withWidgets {
+		s.decoratePage(page)
+	}
+	return withWidgets, nil
 }
 
 func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page, error) {
@@ -350,10 +701,12 @@ func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page,
 			}
 			pageBlocks = nil
 		}
+
 		combined := append(cloneBlockInstances(pageBlocks), cloneBlockInstances(global)...)
 		clone.Blocks = combined
 		enriched = append(enriched, &clone)
 	}
+
 	return enriched, nil
 }
 
@@ -507,6 +860,51 @@ func areaDefinitionApplies(definition *widgets.AreaDefinition, template *themes.
 	}
 }
 
+func (s *pageService) decoratePage(page *Page) *Page {
+	if page == nil {
+		return nil
+	}
+	status := effectivePageStatus(page, s.now())
+	page.EffectiveStatus = status
+	page.IsVisible = status == domain.StatusPublished
+	return page
+}
+
+func effectivePageStatus(page *Page, now time.Time) domain.Status {
+	if page == nil {
+		return domain.StatusDraft
+	}
+	status := domain.Status(page.Status)
+	if status == "" {
+		status = domain.StatusDraft
+	}
+
+	if page.UnpublishAt != nil && !page.UnpublishAt.After(now) {
+		return domain.StatusArchived
+	}
+
+	if page.PublishAt != nil {
+		if page.PublishAt.After(now) {
+			return domain.StatusScheduled
+		}
+		return domain.StatusPublished
+	}
+
+	if page.PublishedAt != nil && !page.PublishedAt.After(now) {
+		return domain.StatusPublished
+	}
+
+	return status
+}
+
+func cloneTimePtr(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	cloned := *value
+	return &cloned
+}
+
 func cloneBlockInstances(instances []*blocks.Instance) []*blocks.Instance {
 	if len(instances) == 0 {
 		return nil
@@ -579,4 +977,18 @@ func isValidSlug(slug string) bool {
 	const pattern = "^[a-z0-9\\-]+$"
 	matched, _ := regexp.MatchString(pattern, slug)
 	return matched
+}
+
+func nextVersionNumber(records []*PageVersion) int {
+	max := 0
+	for _, version := range records {
+		if version == nil {
+			continue
+		}
+		if version.Version > max {
+			max = version.Version
+		}
+	}
+
+	return max + 1
 }
