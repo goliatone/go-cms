@@ -29,6 +29,10 @@ func (noOpService) ListDefinitions(context.Context) ([]*Definition, error) {
 	return nil, ErrFeatureDisabled
 }
 
+func (noOpService) SyncRegistry(context.Context) error {
+	return ErrFeatureDisabled
+}
+
 func (noOpService) CreateInstance(context.Context, CreateInstanceInput) (*Instance, error) {
 	return nil, ErrFeatureDisabled
 }
