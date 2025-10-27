@@ -7,13 +7,6 @@ import (
 	"github.com/google/uuid"
 )
 
-type Logger interface {
-	Debug(format string, args ...any)
-	Info(format string, args ...any)
-	Warn(format string, args ...any)
-	Error(format string, args ...any)
-}
-
 // AuthClaims matches go-auth AuthClaims behaviour.
 type AuthClaims interface {
 	Subject() string
