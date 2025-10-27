@@ -16,6 +16,7 @@ type Service interface {
 	RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error)
 	ListDefinitions(ctx context.Context) ([]*Definition, error)
+	SyncRegistry(ctx context.Context) error
 
 	CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error)
 	UpdateInstance(ctx context.Context, input UpdateInstanceInput) (*Instance, error)
@@ -925,6 +926,14 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 		enriched = append(enriched, &clone)
 	}
 	return enriched, nil
+}
+
+func (s *service) SyncRegistry(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.applyRegistry(ctx)
+	return nil
 }
 
 func (s *service) applyRegistry(ctx context.Context) {
