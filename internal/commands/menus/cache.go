@@ -57,15 +57,13 @@ func NewInvalidateMenuCacheHandler(service menus.Service, logger interfaces.Logg
 		if err := service.InvalidateCache(ctx); err != nil {
 			return err
 		}
-		logging.WithFields(baseLogger, map[string]any{
-			"operation": "invalidate",
-		}).Info("menus.command.cache.invalidated")
 		return nil
 	}
 
 	handlerOpts := []commands.HandlerOption[InvalidateMenuCacheCommand]{
 		commands.WithLogger[InvalidateMenuCacheCommand](baseLogger),
 		commands.WithOperation[InvalidateMenuCacheCommand]("menus.cache.invalidate"),
+		commands.WithTelemetry(commands.DefaultTelemetry[InvalidateMenuCacheCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 
