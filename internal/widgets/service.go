@@ -141,8 +141,8 @@ type ResolveAreaInput struct {
 
 // ResolvedWidget pairs a widget instance with its placement metadata.
 type ResolvedWidget struct {
-	Instance  *Instance
-	Placement *AreaPlacement
+	Instance  *Instance      `json:"instance"`
+	Placement *AreaPlacement `json:"placement"`
 }
 
 // VisibilityContext provides ambient information for visibility evaluation.

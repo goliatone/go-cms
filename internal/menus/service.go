@@ -118,11 +118,11 @@ type PageRepository interface {
 
 // NavigationNode represents a localized menu item ready for presentation.
 type NavigationNode struct {
-	ID       uuid.UUID
-	Label    string
-	URL      string
-	Target   map[string]any
-	Children []NavigationNode
+	ID       uuid.UUID        `json:"id"`
+	Label    string           `json:"label"`
+	URL      string           `json:"url"`
+	Target   map[string]any   `json:"target,omitempty"`
+	Children []NavigationNode `json:"children,omitempty"`
 }
 
 // IDGenerator produces unique identifiers.

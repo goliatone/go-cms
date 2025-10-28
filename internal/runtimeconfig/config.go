@@ -17,6 +17,9 @@ var ErrSchedulingFeatureRequiresVersioning = errors.New("cms config: scheduling 
 // ErrAdvancedCacheRequiresEnabledCache ensures advanced cache builds only when cache is enabled.
 var ErrAdvancedCacheRequiresEnabledCache = errors.New("cms config: advanced cache feature requires cache to be enabled")
 
+// ErrCommandsCronRequiresScheduling ensures automatic cron wiring only runs when scheduling is enabled.
+var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron auto-registration requires scheduling to be enabled")
+
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
 type Config struct {
@@ -29,6 +32,7 @@ type Config struct {
 	Navigation    NavigationConfig
 	Themes        ThemeConfig
 	Features      Features
+	Commands      CommandsConfig
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -88,6 +92,13 @@ type Features struct {
 	AdvancedCache bool
 }
 
+// CommandsConfig captures optional command-layer behaviour.
+type CommandsConfig struct {
+	Enabled                bool
+	AutoRegisterDispatcher bool
+	AutoRegisterCron       bool
+}
+
 // DefaultConfig returns opinionated defaults matching Phase 1 expectations.
 func DefaultConfig() Config {
 	return Config{
@@ -112,6 +123,7 @@ func DefaultConfig() Config {
 			BasePath: "themes",
 		},
 		Features: Features{},
+		Commands: CommandsConfig{},
 	}
 }
 
@@ -127,6 +139,9 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.Features.AdvancedCache && !cfg.Cache.Enabled {
 		return ErrAdvancedCacheRequiresEnabledCache
+	}
+	if cfg.Commands.AutoRegisterCron && !cfg.Features.Scheduling {
+		return ErrCommandsCronRequiresScheduling
 	}
 	return nil
 }
