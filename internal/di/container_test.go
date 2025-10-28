@@ -6,6 +6,9 @@ import (
 	"testing"
 
 	"github.com/goliatone/go-cms"
+	contentcmd "github.com/goliatone/go-cms/internal/commands/content"
+	fixtures "github.com/goliatone/go-cms/internal/commands/fixtures"
+	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -126,5 +129,109 @@ func TestContainerThemeServiceEnabled(t *testing.T) {
 	}
 	if len(summaries) != 1 {
 		t.Fatalf("expected 1 active theme, got %d", len(summaries))
+	}
+}
+
+func TestContainerRegistersCommandsWhenEnabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Features.Scheduling = true
+	cfg.Features.MediaLibrary = true
+	cfg.Features.Widgets = true
+	cfg.Commands.Enabled = true
+	cfg.Commands.AutoRegisterDispatcher = true
+
+	registry := fixtures.NewRecordingRegistry()
+	dispatcher := fixtures.NewRecordingDispatcher()
+	cronRecorder := fixtures.NewCronRecorder()
+
+	container, err := di.NewContainer(
+		cfg,
+		di.WithCommandRegistry(registry),
+		di.WithCommandDispatcher(dispatcher),
+		di.WithCronRegistrar(cronRecorder.Registrar()),
+	)
+	if err != nil {
+		t.Fatalf("new container with commands: %v", err)
+	}
+
+	handlers := container.CommandHandlers()
+	const expectedHandlers = 14
+	if got := len(handlers); got != expectedHandlers {
+		t.Fatalf("expected %d command handlers, got %d", expectedHandlers, got)
+	}
+	if len(registry.Handlers) != expectedHandlers {
+		t.Fatalf("expected registry to record %d handlers, got %d", expectedHandlers, len(registry.Handlers))
+	}
+	if len(dispatcher.Handlers) != expectedHandlers {
+		t.Fatalf("expected dispatcher to receive %d handlers, got %d", expectedHandlers, len(dispatcher.Handlers))
+	}
+	if len(cronRecorder.Registrations) != 0 {
+		t.Fatalf("expected no cron registrations, got %d", len(cronRecorder.Registrations))
+	}
+
+	var foundSchedule bool
+	for _, handler := range handlers {
+		if _, ok := handler.(*contentcmd.ScheduleContentHandler); ok {
+			foundSchedule = true
+			break
+		}
+	}
+	if !foundSchedule {
+		t.Fatal("expected content schedule handler to be registered")
+	}
+}
+
+func TestContainerCommandRegistrationRespectsFeatureGates(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Commands.Enabled = true
+
+	registry := fixtures.NewRecordingRegistry()
+	container, err := di.NewContainer(cfg, di.WithCommandRegistry(registry))
+	if err != nil {
+		t.Fatalf("new container with gated commands: %v", err)
+	}
+
+	handlers := container.CommandHandlers()
+	const expected = 6
+	if len(handlers) != expected {
+		t.Fatalf("expected %d handlers when scheduling/media disabled, got %d", expected, len(handlers))
+	}
+
+	for _, handler := range handlers {
+		switch handler.(type) {
+		case *contentcmd.ScheduleContentHandler:
+			t.Fatal("did not expect content schedule handler when scheduling disabled")
+		case *pagescmd.SchedulePageHandler:
+			t.Fatal("did not expect page schedule handler when scheduling disabled")
+		}
+	}
+}
+
+func TestContainerCommandsDisabledSkipsRegistration(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Commands.Enabled = false
+
+	registry := fixtures.NewRecordingRegistry()
+	dispatcher := fixtures.NewRecordingDispatcher()
+
+	container, err := di.NewContainer(cfg,
+		di.WithCommandRegistry(registry),
+		di.WithCommandDispatcher(dispatcher),
+	)
+	if err != nil {
+		t.Fatalf("new container with commands disabled: %v", err)
+	}
+
+	if len(container.CommandHandlers()) != 0 {
+		t.Fatalf("expected no command handlers when commands disabled")
+	}
+	if len(registry.Handlers) != 0 {
+		t.Fatalf("expected registry to remain empty when commands disabled")
+	}
+	if len(dispatcher.Handlers) != 0 {
+		t.Fatalf("expected dispatcher to remain empty when commands disabled")
 	}
 }
