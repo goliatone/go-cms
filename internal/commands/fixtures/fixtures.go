@@ -26,7 +26,7 @@ func (r *RecordingRegistry) RegisterCommand(handler any) error {
 // CronRegistration captures a single cron wiring invocation.
 type CronRegistration struct {
 	Config  command.HandlerConfig
-	Handler any
+	Handler func() error
 }
 
 // CronRecorder records calls to a CronRegistrar function.
@@ -53,9 +53,13 @@ func (c *CronRecorder) Registrar() di.CronRegistrar {
 		if c.err != nil {
 			return c.err
 		}
+		var fn func() error
+		if h, ok := handler.(func() error); ok {
+			fn = h
+		}
 		c.Registrations = append(c.Registrations, CronRegistration{
 			Config:  cfg,
-			Handler: handler,
+			Handler: fn,
 		})
 		return nil
 	}
