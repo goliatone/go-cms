@@ -20,6 +20,8 @@ type (
 	URLKitResolverConfig = runtimeconfig.URLKitResolverConfig
 	Features             = runtimeconfig.Features
 	CommandsConfig       = runtimeconfig.CommandsConfig
+	MarkdownConfig       = runtimeconfig.MarkdownConfig
+	MarkdownParserConfig = runtimeconfig.MarkdownParserConfig
 )
 
 func DefaultConfig() Config {
