@@ -142,6 +142,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 	menuSvc := module.Menus()
 	widgetSvc := module.Widgets()
 	contentSvc := module.Content()
+	container := module.Container()
 
 	// Home page
 	r.Get("/", func(ctx router.Context) error {
@@ -159,12 +160,22 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			return err
 		}
 
-		// Render template - convert to maps for template access
+		// Transform pages to locale-specific display format
+		pagesDisplay := make([]map[string]any, 0, len(pagesList))
+		for _, page := range pagesList {
+			pagesDisplay = append(pagesDisplay, map[string]any{
+				"slug":   page.Slug,
+				"status": page.Status,
+				"title":  getPageTitle(page, locale, container),
+			})
+		}
+
+		// Render template
 		return ctx.Render("index", map[string]any{
 			"title":      "Welcome to go-cms",
 			"locale":     locale,
-			"menu":       toMap(navigation),
-			"pages":      toMap(pagesList),
+			"menu":       navigation,
+			"pages":      pagesDisplay,
 			"currentURL": "/",
 		})
 	})
@@ -220,24 +231,45 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 		// Get widgets for sidebar if feature enabled
 		var sidebarWidgets []*widgets.ResolvedWidget
 		if cfg.Features.Widgets {
-			sidebarWidgets, err = widgetSvc.ResolveArea(ctx.Context(), widgets.ResolveAreaInput{
+			localeID := getLocaleIDByCode(container, locale)
+			resolveInput := widgets.ResolveAreaInput{
 				AreaCode: "sidebar.primary",
 				Audience: []string{"guest"},
 				Now:      time.Now().UTC(),
-			})
+			}
+			if localeID != uuid.Nil {
+				resolveInput.LocaleID = &localeID
+			}
+			sidebarWidgets, err = widgetSvc.ResolveArea(ctx.Context(), resolveInput)
 			if err != nil {
 				log.Printf("Could not resolve widgets: %v", err)
+			} else {
+				log.Printf("Resolved %d widgets for sidebar.primary (locale: %s, ID: %s)", len(sidebarWidgets), locale, localeID)
+				for i, w := range sidebarWidgets {
+					log.Printf("  Widget %d: ID=%s, Config=%+v", i, w.Instance.ID, w.Instance.Configuration)
+				}
 			}
+		} else {
+			log.Printf("Widgets feature is disabled")
 		}
 
-		// Render template - convert to maps for template access
+		// Prepare locale-specific data for template
+		contentTranslation := getContentTranslation(contentData, locale, container)
+		pageTranslation := getPageTranslation(page, locale, container)
+		blockTranslations := getBlockTranslations(page.Blocks, locale, container)
+
+		log.Printf("Widgets count for template: %d", len(sidebarWidgets))
+
+		// Render template
 		return ctx.Render("page", map[string]any{
-			"title":   getPageTitle(page, locale),
-			"locale":  locale,
-			"menu":    toMap(navigation),
-			"page":    toMap(page),
-			"content": toMap(contentData),
-			"widgets": toMap(sidebarWidgets),
+			"title":       getPageTitle(page, locale, container),
+			"locale":      locale,
+			"menu":        navigation,
+			"page":        toMap(page),
+			"translation": toMap(pageTranslation),
+			"content":     toMap(contentTranslation),
+			"blocks":      blockTranslations,
+			"widgets":     sidebarWidgets,
 		})
 	})
 
@@ -560,12 +592,24 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 			return fmt.Errorf("create widget: %w", err)
 		}
 
-		if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
-			AreaCode:   "sidebar.primary",
-			InstanceID: guestWidget.ID,
-			Position:   intPtr(0),
-		}); err != nil {
-			return fmt.Errorf("assign widget: %w", err)
+		// Assign widget to area for each configured locale
+		for _, localeCode := range cfg.I18N.Locales {
+			locale, err := container.LocaleRepository().GetByCode(ctx, localeCode)
+			if err != nil {
+				log.Printf("Warning: could not get locale %s: %v", localeCode, err)
+				continue
+			}
+
+			placement, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+				AreaCode:   "sidebar.primary",
+				LocaleID:   &locale.ID,
+				InstanceID: guestWidget.ID,
+				Position:   intPtr(0),
+			})
+			if err != nil {
+				return fmt.Errorf("assign widget to area for locale %s: %w", localeCode, err)
+			}
+			log.Printf("Widget assigned to area for locale %s: %d placements", localeCode, len(placement))
 		}
 	}
 
@@ -573,13 +617,81 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 	return nil
 }
 
-func getPageTitle(page *pages.Page, locale string) string {
+func getPageTitle(page *pages.Page, localeCode string, container *di.Container) string {
+	localeID := getLocaleIDByCode(container, localeCode)
+	for _, tr := range page.Translations {
+		if tr.LocaleID == localeID && tr.Title != "" {
+			return tr.Title
+		}
+	}
+	// Fallback to first available translation
 	for _, tr := range page.Translations {
 		if tr.Title != "" {
 			return tr.Title
 		}
 	}
 	return "Page"
+}
+
+// getPageTranslation returns the translation for the given locale
+func getPageTranslation(page *pages.Page, localeCode string, container *di.Container) *pages.PageTranslation {
+	localeID := getLocaleIDByCode(container, localeCode)
+	for _, tr := range page.Translations {
+		if tr.LocaleID == localeID {
+			return tr
+		}
+	}
+	// Fallback to first translation
+	if len(page.Translations) > 0 {
+		return page.Translations[0]
+	}
+	return nil
+}
+
+// getContentTranslation returns the translation for the given locale
+func getContentTranslation(contentData *content.Content, localeCode string, container *di.Container) *content.ContentTranslation {
+	if contentData == nil {
+		return nil
+	}
+	localeID := getLocaleIDByCode(container, localeCode)
+	for _, tr := range contentData.Translations {
+		if tr.LocaleID == localeID {
+			return tr
+		}
+	}
+	// Fallback to first translation
+	if len(contentData.Translations) > 0 {
+		return contentData.Translations[0]
+	}
+	return nil
+}
+
+// getBlockTranslations returns translations for the given locale
+func getBlockTranslations(blockInstances []*blocks.Instance, localeCode string, container *di.Container) []map[string]any {
+	localeID := getLocaleIDByCode(container, localeCode)
+	var result []map[string]any
+	for _, block := range blockInstances {
+		for _, tr := range block.Translations {
+			if tr.LocaleID == localeID {
+				result = append(result, map[string]any{
+					"region":  block.Region,
+					"content": tr.Content,
+				})
+				break
+			}
+		}
+	}
+	return result
+}
+
+// getLocaleIDByCode looks up a locale UUID by its code
+func getLocaleIDByCode(container *di.Container, code string) uuid.UUID {
+	ctx := context.Background()
+	locale, err := container.LocaleRepository().GetByCode(ctx, code)
+	if err != nil || locale == nil {
+		return uuid.Nil
+	}
+	return locale.ID
 }
 
 func intPtr(v int) *int {

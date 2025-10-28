@@ -8,41 +8,33 @@
         <h1 class="page-title">{{ title }}</h1>
 
         {% if content %}
-            {% if content.translations %}
-                {% for translation in content.translations %}
-                    {% if translation.summary %}
-                    <p class="page-summary">{{ translation.summary }}</p>
-                    {% endif %}
+            {% if content.summary %}
+            <p class="page-summary">{{ content.summary }}</p>
+            {% endif %}
 
-                    {% if translation.content %}
-                        {% if translation.content.body %}
-                        <div class="page-body">
-                            {{ translation.content.body|safe }}
-                        </div>
-                        {% endif %}
-                    {% endif %}
-                {% endfor %}
+            {% if content.content %}
+                {% if content.content.body %}
+                <div class="page-body">
+                    {{ content.content.body|safe }}
+                </div>
+                {% endif %}
             {% endif %}
         {% endif %}
 
-        {% if page.blocks %}
+        {% if blocks %}
         <section class="page-blocks">
             <h2>Page Blocks</h2>
-            {% for block in page.blocks %}
+            {% for block in blocks %}
             <div class="block">
                 <h3>{{ block.region }}</h3>
-                {% if block.translations %}
-                    {% for translation in block.translations %}
-                    <div class="block-content">
-                        {% if translation.content.title %}
-                        <h4>{{ translation.content.title }}</h4>
-                        {% endif %}
-                        {% if translation.content.body %}
-                        <p>{{ translation.content.body }}</p>
-                        {% endif %}
-                    </div>
-                    {% endfor %}
-                {% endif %}
+                <div class="block-content">
+                    {% if block.content.title %}
+                    <h4>{{ block.content.title }}</h4>
+                    {% endif %}
+                    {% if block.content.body %}
+                    <p>{{ block.content.body }}</p>
+                    {% endif %}
+                </div>
             </div>
             {% endfor %}
         </section>
@@ -55,15 +47,21 @@
             <h3>Sidebar Widgets</h3>
             {% for widget in widgets %}
             <div class="widget">
-                {% if widget.instance.configuration.headline %}
-                <h4>{{ widget.instance.configuration.headline }}</h4>
-                {% endif %}
-                {% if widget.instance.configuration.cta_text %}
-                <a href="#" class="widget-cta">{{ widget.instance.configuration.cta_text }}</a>
+                {% if widget.instance %}
+                    {% if widget.instance.configuration %}
+                        {% if widget.instance.configuration.headline %}
+                        <h4>{{ widget.instance.configuration.headline }}</h4>
+                        {% endif %}
+                        {% if widget.instance.configuration.cta_text %}
+                        <a href="#" class="widget-cta">{{ widget.instance.configuration.cta_text }}</a>
+                        {% endif %}
+                    {% endif %}
                 {% endif %}
             </div>
             {% endfor %}
         </section>
+        {% else %}
+        <p>No widgets available for this area.</p>
         {% endif %}
 
         <section class="sidebar-info">
@@ -73,13 +71,11 @@
                 <dd><code>{{ page.slug }}</code></dd>
                 <dt>Status:</dt>
                 <dd><span class="status {{ page.status }}">{{ page.status }}</span></dd>
-                {% if page.translations %}
-                    <dt>Translations:</dt>
-                    <dd>
-                        {% for translation in page.translations %}
-                        <span class="locale-badge">{{ translation.locale }}</span>
-                        {% endfor %}
-                    </dd>
+                <dt>Locale:</dt>
+                <dd><span class="locale-badge">{{ locale }}</span></dd>
+                {% if translation.path %}
+                    <dt>Path:</dt>
+                    <dd><code>{{ translation.path }}</code></dd>
                 {% endif %}
             </dl>
         </section>

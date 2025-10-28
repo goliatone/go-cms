@@ -37,13 +37,7 @@
         {% for page in pages %}
         <li class="page-item">
             <a href="/pages/{{ page.slug }}?locale={{ locale }}" class="page-link">
-                {% if page.translations %}
-                    {% for translation in page.translations %}
-                        {{ translation.title }}
-                    {% endfor %}
-                {% else %}
-                    {{ page.slug }}
-                {% endif %}
+                {{ page.title }}
             </a>
             <span class="page-status {{ page.status }}">{{ page.status }}</span>
         </li>

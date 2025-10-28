@@ -12,6 +12,7 @@ require (
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
+	github.com/alecthomas/kong v1.11.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
@@ -26,6 +27,7 @@ require (
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/template/django/v3 v3.1.13 // indirect
 	github.com/gofiber/utils v1.1.0 // indirect
+	github.com/goliatone/go-command v0.6.0 // indirect
 	github.com/goliatone/go-composite-fs v0.0.1 // indirect
 	github.com/goliatone/go-errors v0.9.0 // indirect
 	github.com/goliatone/go-repository-bun v0.7.0 // indirect
