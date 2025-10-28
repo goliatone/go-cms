@@ -63,6 +63,23 @@ func NewRestoreContentVersionHandler(service content.Service, logger interfaces.
 	handlerOpts := []commands.HandlerOption[RestoreContentVersionCommand]{
 		commands.WithLogger[RestoreContentVersionCommand](logger),
 		commands.WithOperation[RestoreContentVersionCommand]("content.version.restore"),
+		commands.WithMessageFields(func(msg RestoreContentVersionCommand) map[string]any {
+			fields := map[string]any{}
+			if msg.ContentID != uuid.Nil {
+				fields["content_id"] = msg.ContentID
+			}
+			if msg.Version > 0 {
+				fields["version"] = msg.Version
+			}
+			if msg.RestoredBy != uuid.Nil {
+				fields["restored_by"] = msg.RestoredBy
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[RestoreContentVersionCommand](logger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

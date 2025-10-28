@@ -65,6 +65,26 @@ func NewPublishContentHandler(service content.Service, logger interfaces.Logger,
 	handlerOpts := []commands.HandlerOption[PublishContentCommand]{
 		commands.WithLogger[PublishContentCommand](logger),
 		commands.WithOperation[PublishContentCommand]("content.publish"),
+		commands.WithMessageFields(func(msg PublishContentCommand) map[string]any {
+			fields := map[string]any{}
+			if msg.ContentID != uuid.Nil {
+				fields["content_id"] = msg.ContentID
+			}
+			if msg.Version > 0 {
+				fields["version"] = msg.Version
+			}
+			if msg.PublishedBy != nil && *msg.PublishedBy != uuid.Nil {
+				fields["published_by"] = *msg.PublishedBy
+			}
+			if msg.PublishedAt != nil && !msg.PublishedAt.IsZero() {
+				fields["published_at"] = msg.PublishedAt
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[PublishContentCommand](logger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

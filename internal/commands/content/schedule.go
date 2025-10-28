@@ -66,6 +66,26 @@ func NewScheduleContentHandler(service content.Service, logger interfaces.Logger
 	handlerOpts := []commands.HandlerOption[ScheduleContentCommand]{
 		commands.WithLogger[ScheduleContentCommand](logger),
 		commands.WithOperation[ScheduleContentCommand]("content.schedule"),
+		commands.WithMessageFields(func(msg ScheduleContentCommand) map[string]any {
+			fields := map[string]any{}
+			if msg.ContentID != uuid.Nil {
+				fields["content_id"] = msg.ContentID
+			}
+			if msg.PublishAt != nil && !msg.PublishAt.IsZero() {
+				fields["publish_at"] = msg.PublishAt
+			}
+			if msg.UnpublishAt != nil && !msg.UnpublishAt.IsZero() {
+				fields["unpublish_at"] = msg.UnpublishAt
+			}
+			if msg.ScheduledBy != uuid.Nil {
+				fields["scheduled_by"] = msg.ScheduledBy
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[ScheduleContentCommand](logger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 
