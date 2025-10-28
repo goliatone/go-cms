@@ -52,23 +52,27 @@ func NewCleanupAssetsHandler(service media.Service, logger interfaces.Logger, ga
 			return media.ErrProviderUnavailable
 		}
 		if msg.DryRun {
-			logging.WithFields(baseLogger, map[string]any{
-				"binding_sets": len(msg.Bindings),
-			}).Info("media.command.cleanup.dry_run")
 			return nil
 		}
 		if err := service.Invalidate(ctx, msg.Bindings); err != nil {
 			return err
 		}
-		logging.WithFields(baseLogger, map[string]any{
-			"binding_sets": len(msg.Bindings),
-		}).Info("media.command.cleanup.completed")
 		return nil
 	}
 
 	handlerOpts := []commands.HandlerOption[CleanupAssetsCommand]{
 		commands.WithLogger[CleanupAssetsCommand](baseLogger),
 		commands.WithOperation[CleanupAssetsCommand]("media.asset.cleanup"),
+		commands.WithMessageFields(func(msg CleanupAssetsCommand) map[string]any {
+			fields := map[string]any{
+				"binding_groups": len(msg.Bindings),
+			}
+			if msg.DryRun {
+				fields["dry_run"] = true
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[CleanupAssetsCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

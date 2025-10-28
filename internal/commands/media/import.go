@@ -89,6 +89,22 @@ func NewImportAssetsHandler(service media.Service, logger interfaces.Logger, gat
 	handlerOpts := []commands.HandlerOption[ImportAssetsCommand]{
 		commands.WithLogger[ImportAssetsCommand](baseLogger),
 		commands.WithOperation[ImportAssetsCommand]("media.asset.import"),
+		commands.WithMessageFields(func(msg ImportAssetsCommand) map[string]any {
+			fields := map[string]any{
+				"binding_groups": len(msg.Bindings),
+			}
+			if msg.IncludeSignedURLs {
+				fields["include_signed_urls"] = true
+			}
+			if msg.SignedURLTTLSeconds != nil && *msg.SignedURLTTLSeconds >= 0 {
+				fields["signed_url_ttl_seconds"] = *msg.SignedURLTTLSeconds
+			}
+			if msg.CacheTTLSeconds != nil && *msg.CacheTTLSeconds >= 0 {
+				fields["cache_ttl_seconds"] = *msg.CacheTTLSeconds
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[ImportAssetsCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 
