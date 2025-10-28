@@ -6,6 +6,7 @@ var (
 	ErrThemesFeatureRequired               = runtimeconfig.ErrThemesFeatureRequired
 	ErrSchedulingFeatureRequiresVersioning = runtimeconfig.ErrSchedulingFeatureRequiresVersioning
 	ErrAdvancedCacheRequiresEnabledCache   = runtimeconfig.ErrAdvancedCacheRequiresEnabledCache
+	ErrCommandsCronRequiresScheduling      = runtimeconfig.ErrCommandsCronRequiresScheduling
 )
 
 type (
@@ -18,6 +19,7 @@ type (
 	ThemeConfig          = runtimeconfig.ThemeConfig
 	URLKitResolverConfig = runtimeconfig.URLKitResolverConfig
 	Features             = runtimeconfig.Features
+	CommandsConfig       = runtimeconfig.CommandsConfig
 )
 
 func DefaultConfig() Config {
