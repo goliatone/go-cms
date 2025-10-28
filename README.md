@@ -19,6 +19,174 @@ go get github.com/goliatone/go-cms
 - **Caching**: Optional caching layer for repository operations
 - **Flexible Storage**: Memory-based or SQL-backed (via Bun ORM) repositories
 
+## Core Entities
+
+### Content Types
+
+Content types define the structure and fields for your content. They act as schemas that determine what data can be stored in content items.
+
+**Use case**: Define custom content structures like Articles, Products, Events, or any domain-specific entity.
+
+**Example**:
+```go
+contentType, _ := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
+    Name: "Article",
+    Slug: "article",
+    Schema: map[string]any{
+        "fields": []map[string]any{
+            {"name": "title", "type": "string", "required": true},
+            {"name": "body", "type": "text", "required": true},
+            {"name": "tags", "type": "array"},
+        },
+    },
+    CreatedBy: authorID,
+    UpdatedBy: authorID,
+})
+```
+
+### Blocks
+
+Blocks are reusable content fragments with schema definitions. They can be placed in different regions of pages and support translations.
+
+**Use case**: Create reusable UI components like Hero sections, Call-to-Action boxes, Feature lists, or any content that appears across multiple pages.
+
+**Example**:
+```go
+// Define block schema
+definition, _ := blockSvc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+    Name: "call_to_action",
+    Schema: map[string]any{
+        "fields": []string{"headline", "description", "button_text", "button_url"},
+    },
+})
+
+// Create block instance for a page
+instance, _ := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
+    DefinitionID: definition.ID,
+    PageID:       &pageID,
+    Region:       "main",
+    Position:     1,
+    CreatedBy:    authorID,
+    UpdatedBy:    authorID,
+})
+
+// Add translations
+blockSvc.UpdateInstanceTranslation(ctx, blocks.UpdateInstanceTranslationInput{
+    InstanceID: instance.ID,
+    Locale:     "en",
+    Data: map[string]any{
+        "headline":    "Get Started Today",
+        "description": "Join thousands of happy customers",
+        "button_text": "Sign Up Now",
+        "button_url":  "/signup",
+    },
+})
+```
+
+### Widgets
+
+Widgets are dynamic behavioral components that can be placed in predefined areas across your site. They support visibility rules, scheduling, and audience targeting.
+
+**Use case**: Display dynamic content like Recent Posts, Newsletter signup forms, Social media feeds, or Promotional banners that appear conditionally based on rules.
+
+**Example**:
+```go
+// Define widget area
+widgetSvc.RegisterAreaDefinition(ctx, widgets.RegisterAreaDefinitionInput{
+    Code:  "sidebar.primary",
+    Name:  "Primary Sidebar",
+    Scope: widgets.AreaScopeGlobal,
+})
+
+// Create widget instance
+widget, _ := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
+    DefinitionID: newsletterWidgetDefID,
+    Configuration: map[string]any{
+        "headline": "Stay Updated",
+        "api_key":  "...",
+    },
+    VisibilityRules: map[string]any{
+        "audience": []string{"guest"},  // Only show to non-logged-in users
+    },
+    ScheduleStart: timePtr(time.Now()),
+    ScheduleEnd:   timePtr(time.Now().Add(30 * 24 * time.Hour)),
+    CreatedBy:     authorID,
+    UpdatedBy:     authorID,
+})
+
+// Assign widget to area
+widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+    AreaCode:   "sidebar.primary",
+    InstanceID: widget.ID,
+    Position:   intPtr(0),
+})
+
+// Resolve widgets for an area (respects visibility rules)
+resolved, _ := widgetSvc.ResolveArea(ctx, widgets.ResolveAreaInput{
+    AreaCode: "sidebar.primary",
+    Audience: []string{"guest"},
+    Now:      time.Now().UTC(),
+})
+```
+
+### Pages
+
+Pages represent individual web pages with hierarchical relationships, routing paths, SEO metadata, and support for blocks and content.
+
+**Use case**: Build site structure with nested pages, manage routing, and compose page layouts using blocks.
+
+**Example**:
+```go
+page, _ := pageSvc.Create(ctx, pages.CreatePageRequest{
+    ContentID:  articleContentID,
+    TemplateID: articleTemplateID,
+    Slug:       "getting-started",
+    Status:     "published",
+    ParentID:   &docsPageID,  // Nested under /docs
+    CreatedBy:  authorID,
+    UpdatedBy:  authorID,
+    Translations: []pages.PageTranslationInput{
+        {
+            Locale: "en",
+            Title:  "Getting Started",
+            Path:   "/docs/getting-started",
+            MetaDescription: "Learn how to get started",
+        },
+    },
+})
+```
+
+### Menus
+
+Menus define navigation structures with multi-level items, URL resolution, and internationalization support.
+
+**Use case**: Create site navigation, footer links, breadcrumbs, or any hierarchical menu structure with automatic URL generation.
+
+**Example**:
+```go
+menu, _ := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+    Code:      "primary",
+    CreatedBy: authorID,
+    UpdatedBy: authorID,
+})
+
+menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+    MenuID:   menu.ID,
+    Position: 0,
+    Target: map[string]any{
+        "type": "page",
+        "slug": "about",
+    },
+    Translations: []menus.MenuItemTranslationInput{
+        {Locale: "en", Label: "About Us"},
+        {Locale: "es", Label: "Acerca de"},
+    },
+})
+
+// Resolve navigation with localized URLs
+nav, _ := menuSvc.ResolveNavigation(ctx, "primary", "en")
+```
+
 ## Quick Start
 
 ```go
