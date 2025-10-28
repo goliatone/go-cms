@@ -90,6 +90,26 @@ func NewRestorePageVersionHandler(service pages.Service, logger interfaces.Logge
 	handlerOpts := []commands.HandlerOption[RestorePageVersionCommand]{
 		commands.WithLogger[RestorePageVersionCommand](baseLogger),
 		commands.WithOperation[RestorePageVersionCommand]("pages.version.restore"),
+		commands.WithMessageFields(func(msg RestorePageVersionCommand) map[string]any {
+			fields := map[string]any{}
+			if msg.PageID != uuid.Nil {
+				fields["page_id"] = msg.PageID
+			}
+			if msg.Version > 0 {
+				fields["version"] = msg.Version
+			}
+			if msg.Locale != "" {
+				fields["locale"] = msg.Locale
+			}
+			if msg.RestoredBy != uuid.Nil {
+				fields["restored_by"] = msg.RestoredBy
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[RestorePageVersionCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

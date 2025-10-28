@@ -69,22 +69,6 @@ func NewSchedulePageHandler(service pages.Service, logger interfaces.Logger, gat
 			return pages.ErrSchedulingDisabled
 		}
 
-		fields := map[string]any{
-			"page_id": msg.PageID,
-			"locale":  strings.TrimSpace(msg.Locale),
-		}
-		if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
-			fields["template_id"] = *msg.TemplateID
-		}
-		if msg.PublishAt != nil {
-			fields["publish_at"] = msg.PublishAt
-		}
-		if msg.UnpublishAt != nil {
-			fields["unpublish_at"] = msg.UnpublishAt
-		}
-		operationLogger := logging.WithFields(baseLogger, fields)
-		operationLogger.Debug("pages.command.schedule.dispatch")
-
 		req := pages.SchedulePageRequest{
 			PageID:      msg.PageID,
 			PublishAt:   msg.PublishAt,
@@ -98,6 +82,32 @@ func NewSchedulePageHandler(service pages.Service, logger interfaces.Logger, gat
 	handlerOpts := []commands.HandlerOption[SchedulePageCommand]{
 		commands.WithLogger[SchedulePageCommand](baseLogger),
 		commands.WithOperation[SchedulePageCommand]("pages.schedule"),
+		commands.WithMessageFields(func(msg SchedulePageCommand) map[string]any {
+			fields := map[string]any{}
+			if msg.PageID != uuid.Nil {
+				fields["page_id"] = msg.PageID
+			}
+			if trimmed := strings.TrimSpace(msg.Locale); trimmed != "" {
+				fields["locale"] = trimmed
+			}
+			if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
+				fields["template_id"] = *msg.TemplateID
+			}
+			if msg.PublishAt != nil && !msg.PublishAt.IsZero() {
+				fields["publish_at"] = msg.PublishAt
+			}
+			if msg.UnpublishAt != nil && !msg.UnpublishAt.IsZero() {
+				fields["unpublish_at"] = msg.UnpublishAt
+			}
+			if msg.ScheduledBy != uuid.Nil {
+				fields["scheduled_by"] = msg.ScheduledBy
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[SchedulePageCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

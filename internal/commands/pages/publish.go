@@ -67,16 +67,6 @@ func NewPublishPageHandler(service pages.Service, logger interfaces.Logger, gate
 			return pages.ErrVersioningDisabled
 		}
 
-		fields := map[string]any{
-			"page_id": msg.PageID,
-			"locale":  strings.TrimSpace(msg.Locale),
-		}
-		if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
-			fields["template_id"] = *msg.TemplateID
-		}
-		operationLogger := logging.WithFields(baseLogger, fields)
-		operationLogger.Debug("pages.command.publish.dispatch")
-
 		req := pages.PublishPagePublishRequest{
 			PageID:      msg.PageID,
 			Version:     msg.Version,
@@ -92,6 +82,32 @@ func NewPublishPageHandler(service pages.Service, logger interfaces.Logger, gate
 	handlerOpts := []commands.HandlerOption[PublishPageCommand]{
 		commands.WithLogger[PublishPageCommand](baseLogger),
 		commands.WithOperation[PublishPageCommand]("pages.publish"),
+		commands.WithMessageFields(func(msg PublishPageCommand) map[string]any {
+			fields := map[string]any{}
+			if msg.PageID != uuid.Nil {
+				fields["page_id"] = msg.PageID
+			}
+			if msg.Version > 0 {
+				fields["version"] = msg.Version
+			}
+			if trimmed := strings.TrimSpace(msg.Locale); trimmed != "" {
+				fields["locale"] = trimmed
+			}
+			if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
+				fields["template_id"] = *msg.TemplateID
+			}
+			if msg.PublishedBy != nil && *msg.PublishedBy != uuid.Nil {
+				fields["published_by"] = *msg.PublishedBy
+			}
+			if msg.PublishedAt != nil && !msg.PublishedAt.IsZero() {
+				fields["published_at"] = msg.PublishedAt
+			}
+			if len(fields) == 0 {
+				return nil
+			}
+			return fields
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[PublishPageCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 
