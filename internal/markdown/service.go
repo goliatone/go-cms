@@ -26,14 +26,42 @@ type Config struct {
 
 // Service implements interfaces.MarkdownService for filesystem-backed documents.
 type Service struct {
-	cfg    Config
-	parser interfaces.MarkdownParser
-	loader *Loader
+	cfg      Config
+	parser   interfaces.MarkdownParser
+	loader   *Loader
+	content  interfaces.ContentService
+	pages    interfaces.PageService
+	logger   interfaces.Logger
+	importer *Importer
+}
+
+// ServiceOption configures optional dependencies for the markdown service.
+type ServiceOption func(*Service)
+
+// WithContentService wires the content service used during import/sync.
+func WithContentService(svc interfaces.ContentService) ServiceOption {
+	return func(s *Service) {
+		s.content = svc
+	}
+}
+
+// WithPageService wires the page service used to create or update pages during import.
+func WithPageService(svc interfaces.PageService) ServiceOption {
+	return func(s *Service) {
+		s.pages = svc
+	}
+}
+
+// WithLogger attaches a logger for importer diagnostics.
+func WithLogger(logger interfaces.Logger) ServiceOption {
+	return func(s *Service) {
+		s.logger = logger
+	}
 }
 
 // NewService constructs a Markdown service using an underlying loader. When parser
 // is nil, a Goldmark parser with the provided default options is created.
-func NewService(cfg Config, parser interfaces.MarkdownParser) (*Service, error) {
+func NewService(cfg Config, parser interfaces.MarkdownParser, opts ...ServiceOption) (*Service, error) {
 	filesystem, err := prepareFilesystem(cfg.BasePath)
 	if err != nil {
 		return nil, err
@@ -52,11 +80,23 @@ func NewService(cfg Config, parser interfaces.MarkdownParser) (*Service, error) 
 		Recursive:      cfg.Recursive,
 	})
 
-	return &Service{
+	svc := &Service{
 		cfg:    cfg,
 		parser: parser,
 		loader: loader,
-	}, nil
+	}
+
+	for _, opt := range opts {
+		opt(svc)
+	}
+
+	svc.importer = NewImporter(ImporterConfig{
+		Content: svc.content,
+		Pages:   svc.pages,
+		Logger:  svc.logger,
+	})
+
+	return svc, nil
 }
 
 // Load reads a single Markdown document relative to the configured base path.
@@ -116,15 +156,37 @@ func (s *Service) RenderDocument(ctx context.Context, doc *interfaces.Document, 
 }
 
 func (s *Service) Import(ctx context.Context, doc *interfaces.Document, opts interfaces.ImportOptions) (*interfaces.ImportResult, error) {
-	return nil, errors.New("markdown service: Import not implemented (see Phase 3)")
+	if s.importer == nil {
+		return nil, errors.New("markdown service: importer not configured")
+	}
+	if doc == nil {
+		return nil, errors.New("markdown service: document is nil")
+	}
+	return s.importer.ImportDocument(ctx, doc, opts)
 }
 
 func (s *Service) ImportDirectory(ctx context.Context, dir string, opts interfaces.ImportOptions) (*interfaces.ImportResult, error) {
-	return nil, errors.New("markdown service: ImportDirectory not implemented (see Phase 3)")
+	if s.importer == nil {
+		return nil, errors.New("markdown service: importer not configured")
+	}
+
+	docs, err := s.LoadDirectory(ctx, dir, interfaces.LoadOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return s.importer.ImportDocuments(ctx, docs, opts)
 }
 
 func (s *Service) Sync(ctx context.Context, dir string, opts interfaces.SyncOptions) (*interfaces.SyncResult, error) {
-	return nil, errors.New("markdown service: Sync not implemented (see Phase 3)")
+	if s.importer == nil {
+		return nil, errors.New("markdown service: importer not configured")
+	}
+
+	docs, err := s.LoadDirectory(ctx, dir, interfaces.LoadOptions{})
+	if err != nil {
+		return nil, err
+	}
+	return s.importer.SyncDocuments(ctx, docs, opts)
 }
 
 func (s *Service) renderDocument(ctx context.Context, doc *interfaces.Document, overrides interfaces.ParseOptions) error {
