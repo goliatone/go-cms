@@ -85,6 +85,18 @@ func NewExportAuditHandler(log AuditLog, logger interfaces.Logger, opts ...comma
 	handlerOpts := []commands.HandlerOption[ExportAuditCommand]{
 		commands.WithLogger[ExportAuditCommand](baseLogger),
 		commands.WithOperation[ExportAuditCommand]("audit.export"),
+		commands.WithMessageFields(func(msg ExportAuditCommand) map[string]any {
+			if msg.MaxRecords == nil {
+				return nil
+			}
+			if *msg.MaxRecords < 0 {
+				return nil
+			}
+			return map[string]any{
+				"max_records": *msg.MaxRecords,
+			}
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[ExportAuditCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

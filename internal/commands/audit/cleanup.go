@@ -49,25 +49,30 @@ func NewCleanupAuditHandler(cleaner AuditCleaner, logger interfaces.Logger, opts
 		}
 		if msg.DryRun {
 			logging.WithFields(baseLogger, map[string]any{
-				"operation": "cleanup",
-				"dry_run":   true,
-				"count":     len(events),
-			}).Info("audit.command.cleanup.dry_run")
+				"dry_run":        true,
+				"existing_count": len(events),
+			}).Debug("audit.command.cleanup.dry_run")
 			return nil
 		}
 		if err := cleaner.Clear(ctx); err != nil {
 			return err
 		}
 		logging.WithFields(baseLogger, map[string]any{
-			"operation": "cleanup",
-			"removed":   len(events),
-		}).Info("audit.command.cleanup.completed")
+			"removed": len(events),
+		}).Debug("audit.command.cleanup.removed")
 		return nil
 	}
 
 	handlerOpts := []commands.HandlerOption[CleanupAuditCommand]{
 		commands.WithLogger[CleanupAuditCommand](baseLogger),
 		commands.WithOperation[CleanupAuditCommand]("audit.cleanup"),
+		commands.WithMessageFields(func(msg CleanupAuditCommand) map[string]any {
+			if !msg.DryRun {
+				return nil
+			}
+			return map[string]any{"dry_run": true}
+		}),
+		commands.WithTelemetry(commands.DefaultTelemetry[CleanupAuditCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

@@ -43,15 +43,13 @@ func NewReplayAuditHandler(worker Worker, logger interfaces.Logger, opts ...comm
 		if err := worker.Process(ctx); err != nil {
 			return err
 		}
-		logging.WithFields(baseLogger, map[string]any{
-			"operation": "replay",
-		}).Info("audit.command.replay.completed")
 		return nil
 	}
 
 	handlerOpts := []commands.HandlerOption[ReplayAuditCommand]{
 		commands.WithLogger[ReplayAuditCommand](baseLogger),
 		commands.WithOperation[ReplayAuditCommand]("audit.replay"),
+		commands.WithTelemetry(commands.DefaultTelemetry[ReplayAuditCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 
