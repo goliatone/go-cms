@@ -19,8 +19,6 @@ func (dispatcherTestCommand) Type() string { return "cms.test.dispatcher" }
 func (dispatcherTestCommand) Validate() error { return nil }
 
 func TestDispatcherRetriesUntilSuccess(t *testing.T) {
-	t.Parallel()
-
 	var attempts int
 	handler := NewHandler(func(ctx context.Context, _ dispatcherTestCommand) error {
 		attempts++
@@ -42,8 +40,6 @@ func TestDispatcherRetriesUntilSuccess(t *testing.T) {
 }
 
 func TestDispatcherRetryExhaustionPropagatesError(t *testing.T) {
-	t.Parallel()
-
 	var attempts int
 	handler := NewHandler(func(ctx context.Context, _ dispatcherTestCommand) error {
 		attempts++

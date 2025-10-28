@@ -182,6 +182,79 @@ func TestContainerRegistersCommandsWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestContainerCronRegistrationUsesConfig(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Features.Scheduling = true
+	cfg.Features.MediaLibrary = true
+	cfg.Commands.Enabled = true
+	cfg.Commands.AutoRegisterDispatcher = true
+	cfg.Commands.AutoRegisterCron = true
+	cfg.Commands.CleanupAuditCron = "0 3 * * *"
+
+	registry := fixtures.NewRecordingRegistry()
+	dispatcher := fixtures.NewRecordingDispatcher()
+	cronRecorder := fixtures.NewCronRecorder()
+
+	container, err := di.NewContainer(
+		cfg,
+		di.WithCommandRegistry(registry),
+		di.WithCommandDispatcher(dispatcher),
+		di.WithCronRegistrar(cronRecorder.Registrar()),
+	)
+	if err != nil {
+		t.Fatalf("new container with cron commands: %v", err)
+	}
+
+	if len(cronRecorder.Registrations) != 1 {
+		t.Fatalf("expected 1 cron registration, got %d", len(cronRecorder.Registrations))
+	}
+	if cronRecorder.Registrations[0].Config.Expression != "0 3 * * *" {
+		t.Fatalf("expected cron expression 0 3 * * *, got %q", cronRecorder.Registrations[0].Config.Expression)
+	}
+	fn := cronRecorder.Registrations[0].Handler
+	if fn == nil {
+		t.Fatal("expected cron handler function to be registered")
+	}
+
+	// Ensure cron handler executes successfully.
+	if err := fn(); err != nil {
+		t.Fatalf("cron handler execution failed: %v", err)
+	}
+
+	if len(container.CommandHandlers()) == 0 {
+		t.Fatal("expected command handlers when commands enabled")
+	}
+}
+
+func TestContainerCronRegistrationDisabledWhenCommandsDisabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Features.Scheduling = true
+	cfg.Commands.Enabled = false
+	cfg.Commands.AutoRegisterCron = true
+
+	registry := fixtures.NewRecordingRegistry()
+	dispatcher := fixtures.NewRecordingDispatcher()
+	cronRecorder := fixtures.NewCronRecorder()
+
+	container, err := di.NewContainer(cfg,
+		di.WithCommandRegistry(registry),
+		di.WithCommandDispatcher(dispatcher),
+		di.WithCronRegistrar(cronRecorder.Registrar()),
+	)
+	if err != nil {
+		t.Fatalf("new container with commands disabled: %v", err)
+	}
+
+	if len(cronRecorder.Registrations) != 0 {
+		t.Fatalf("expected no cron registrations when commands disabled, got %d", len(cronRecorder.Registrations))
+	}
+	if len(container.CommandHandlers()) != 0 {
+		t.Fatalf("expected no command handlers when commands disabled")
+	}
+}
+
 func TestContainerCommandRegistrationRespectsFeatureGates(t *testing.T) {
 	cfg := cms.DefaultConfig()
 	cfg.Features.Versioning = true

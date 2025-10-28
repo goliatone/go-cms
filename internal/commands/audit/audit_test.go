@@ -8,6 +8,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/logging"
+	command "github.com/goliatone/go-command"
 )
 
 type stubWorker struct {
@@ -153,5 +154,41 @@ func TestCleanupAuditHandlerPropagatesErrors(t *testing.T) {
 	}
 	if !errors.Is(err, log.clearErr) {
 		t.Fatalf("expected clear error, got %v", err)
+	}
+}
+
+func TestCleanupAuditHandlerCronDefaults(t *testing.T) {
+	log := &stubAuditLog{
+		events: []jobs.AuditEvent{{EntityType: "content", EntityID: "1"}},
+	}
+	handler := NewCleanupAuditHandler(log, logging.NoOp())
+
+	if handler.CronOptions().Expression != "@daily" {
+		t.Fatalf("expected default cron expression @daily, got %q", handler.CronOptions().Expression)
+	}
+
+	if err := handler.CronHandler()(); err != nil {
+		t.Fatalf("cron handler execute: %v", err)
+	}
+	if log.clearCalls != 1 {
+		t.Fatalf("expected cron handler to clear events, got %d calls", log.clearCalls)
+	}
+}
+
+func TestCleanupAuditHandlerCronOverride(t *testing.T) {
+	log := &stubAuditLog{}
+	cfg := command.HandlerConfig{Expression: "0 2 * * *", MaxRetries: 1}
+	handler := NewCleanupAuditHandler(
+		log,
+		logging.NoOp(),
+		CleanupWithCronConfig(cfg),
+	)
+
+	got := handler.CronOptions()
+	if got.Expression != cfg.Expression {
+		t.Fatalf("expected cron expression %q, got %q", cfg.Expression, got.Expression)
+	}
+	if got.MaxRetries != cfg.MaxRetries {
+		t.Fatalf("expected cron max retries %d, got %d", cfg.MaxRetries, got.MaxRetries)
 	}
 }
