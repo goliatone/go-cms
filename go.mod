@@ -18,6 +18,8 @@ require (
 )
 
 require (
+	github.com/BurntSushi/toml v0.3.1 // indirect
+	github.com/adrg/frontmatter v0.2.0 // indirect
 	github.com/alecthomas/kong v1.11.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
@@ -30,7 +32,9 @@ require (
 	github.com/viccon/sturdyc v1.1.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/yuin/goldmark v1.6.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
+	gopkg.in/yaml.v2 v2.3.0 // indirect
 )
 
 replace github.com/goliatone/go-urlkit => ../go-urlkit
