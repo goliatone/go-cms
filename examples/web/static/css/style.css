@@ -301,32 +301,82 @@ body {
 }
 
 .widget {
-    padding: 1rem;
-    background-color: #f8f9fa;
-    border-radius: 4px;
-    border-left: 4px solid #3498db;
-    margin-bottom: 1rem;
+    padding: 1.5rem;
+    background-color: white;
+    border-radius: 8px;
+    border: 2px solid #ecf0f1;
+    margin-bottom: 1.5rem;
+    transition: border-color 0.3s, box-shadow 0.3s;
+}
+
+.widget:hover {
+    border-color: #3498db;
+    box-shadow: 0 2px 8px rgba(52, 152, 219, 0.1);
 }
 
 .widget:last-child {
     margin-bottom: 0;
 }
 
-.widget h4 {
+.widget-content {
+    position: relative;
+}
+
+.widget-badge {
+    display: inline-block;
+    background-color: #e74c3c;
+    color: white;
+    font-size: 0.75rem;
+    font-weight: bold;
+    padding: 0.25rem 0.5rem;
+    border-radius: 4px;
+    margin-bottom: 0.75rem;
+    text-transform: uppercase;
+}
+
+.widget-headline {
     color: #2c3e50;
-    margin-bottom: 0.5rem;
+    font-size: 1.25rem;
+    margin-bottom: 0.75rem;
+}
+
+.widget-description {
+    color: #7f8c8d;
+    font-size: 0.95rem;
+    margin-bottom: 1rem;
+    line-height: 1.6;
+}
+
+.widget-offer {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 1rem;
+    border-radius: 6px;
+    font-weight: 500;
+    margin-bottom: 1rem;
+    text-align: center;
 }
 
 .widget-cta {
-    display: inline-block;
-    margin-top: 0.5rem;
-    color: #3498db;
-    text-decoration: none;
-    font-weight: 500;
+    display: block;
+    margin-top: 1rem;
+    text-align: center;
 }
 
-.widget-cta:hover {
-    text-decoration: underline;
+.widget-newsletter .widget-content {
+    background: linear-gradient(135deg, #667eea15 0%, #764ba215 100%);
+    padding: 1rem;
+    border-radius: 6px;
+}
+
+.widget-promo_banner {
+    background: linear-gradient(135deg, #ffeaa715 0%, #ffcd0015 100%);
+}
+
+.no-widgets {
+    text-align: center;
+    color: #7f8c8d;
+    padding: 2rem;
 }
 
 .info-list {
@@ -384,34 +434,101 @@ body {
 /* Blocks */
 .page-blocks {
     margin-top: 2rem;
-    padding-top: 2rem;
-    border-top: 2px solid #ecf0f1;
-}
-
-.page-blocks h2 {
-    font-size: 1.75rem;
-    color: #2c3e50;
-    margin-bottom: 1.5rem;
 }
 
 .block {
-    background-color: #f8f9fa;
-    padding: 1.5rem;
-    border-radius: 4px;
-    margin-bottom: 1rem;
-    border-left: 4px solid #9b59b6;
+    background-color: white;
+    padding: 2rem;
+    border-radius: 8px;
+    margin-bottom: 2rem;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
 }
 
-.block h3 {
-    color: #9b59b6;
-    font-size: 0.875rem;
-    text-transform: uppercase;
-    margin-bottom: 1rem;
+.block-header {
+    margin-bottom: 1.5rem;
 }
 
-.block-content h4 {
+.block-header h2 {
+    font-size: 2rem;
     color: #2c3e50;
     margin-bottom: 0.5rem;
+}
+
+.block-subtitle {
+    font-size: 1.25rem;
+    color: #7f8c8d;
+}
+
+.block-description {
+    font-size: 1.125rem;
+    color: #555;
+    margin-bottom: 1.5rem;
+}
+
+.block-body {
+    line-height: 1.8;
+    color: #333;
+    margin-bottom: 1.5rem;
+}
+
+/* Features Grid Block */
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1.5rem;
+    margin: 1.5rem 0;
+}
+
+.feature-icon {
+    font-size: 3rem;
+    margin-bottom: 0.5rem;
+}
+
+.feature-title {
+    font-size: 1.25rem;
+    color: #2c3e50;
+    margin-bottom: 0.5rem;
+}
+
+.feature-description {
+    color: #7f8c8d;
+    font-size: 0.95rem;
+}
+
+/* Block Actions */
+.block-actions {
+    margin-top: 1.5rem;
+}
+
+.btn {
+    display: inline-block;
+    padding: 0.75rem 1.5rem;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 500;
+    transition: all 0.3s;
+    border: none;
+    cursor: pointer;
+}
+
+.btn-primary {
+    background-color: #3498db;
+    color: white;
+}
+
+.btn-primary:hover {
+    background-color: #2980b9;
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(52, 152, 219, 0.3);
+}
+
+.btn-secondary {
+    background-color: #95a5a6;
+    color: white;
+}
+
+.btn-secondary:hover {
+    background-color: #7f8c8d;
 }
 
 /* Footer */

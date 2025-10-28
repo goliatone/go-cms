@@ -6,9 +6,24 @@ The example uses the Django template engine (via gofiber/template/django) for HT
 
 ## Features Demonstrated
 
+This example showcases real-world usage of go-cms entities:
+
+### Content Types
+- **Page**: Basic pages with rich text body
+- **Blog Post**: Posts with author, excerpt, tags, and featured image
+- **Product**: Products with description, price, features, and specs
+
+### Blocks (Reusable Page Components)
+- **Hero Block**: Eye-catching banner with title, subtitle, CTA, and background image
+- **Features Grid**: Showcases key features with icons and descriptions
+- **Call-to-Action**: Compelling CTAs with headline, description, and button
+
+### Widgets (Dynamic Sidebar Components)
+- **Newsletter Widget**: Subscription form with headline and description (guest-only)
+- **Promo Banner**: Time-limited promotional offers with badges and scheduling
+
+### Other Features
 - **Pages**: Hierarchical page management with content
-- **Blocks**: Reusable content blocks attached to pages
-- **Widgets**: Dynamic widgets with area-based placement
 - **Menus**: Navigation structures with internationalization
 - **Themes**: Template system with regions
 - **i18n**: Multi-language support (English and Spanish)
@@ -89,13 +104,28 @@ Templates use Django/Jinja2 syntax with `{% %}` for logic and `{{ }}` for variab
 
 ## Demo Data
 
-The example automatically creates demo data including:
+The example automatically creates comprehensive demo data including:
 
-- A "Default" theme with regions
-- A sample "About" page in English and Spanish
-- A hero block with translations
-- A primary navigation menu
-- Promotional widgets for the sidebar
+### Content Types
+- **page**: Basic page content type with rich text body
+- **blog_post**: Blog posts with excerpt, author, tags, and featured image
+- **product**: Product content type with price, features, and specifications
+
+### Pages with Blocks
+- **About Page**: Demonstrates hero and features grid blocks
+  - Hero block with title, subtitle, and CTA
+  - Features grid showcasing 4 key features with icons
+- **Blog Post**: "Getting Started with go-cms"
+  - Call-to-action block encouraging users to view documentation
+  - Full i18n support with Spanish translations
+
+### Widgets
+- **Newsletter Widget**: Subscription form (visible to guests only)
+- **Promo Banner**: Limited-time offer with badge and 30-day expiration
+
+### Navigation
+- Primary menu with Home, About, and Blog links
+- Full internationalization support (English and Spanish)
 
 ## Internationalization
 

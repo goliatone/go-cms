@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -229,7 +230,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 		}
 
 		// Get widgets for sidebar if feature enabled
-		var sidebarWidgets []*widgets.ResolvedWidget
+		var sidebarWidgets []map[string]any
 		if cfg.Features.Widgets {
 			localeID := getLocaleIDByCode(container, locale)
 			resolveInput := widgets.ResolveAreaInput{
@@ -240,14 +241,12 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			if localeID != uuid.Nil {
 				resolveInput.LocaleID = &localeID
 			}
-			sidebarWidgets, err = widgetSvc.ResolveArea(ctx.Context(), resolveInput)
+			resolvedWidgets, err := widgetSvc.ResolveArea(ctx.Context(), resolveInput)
 			if err != nil {
 				log.Printf("Could not resolve widgets: %v", err)
 			} else {
-				log.Printf("Resolved %d widgets for sidebar.primary (locale: %s, ID: %s)", len(sidebarWidgets), locale, localeID)
-				for i, w := range sidebarWidgets {
-					log.Printf("  Widget %d: ID=%s, Config=%+v", i, w.Instance.ID, w.Instance.Configuration)
-				}
+				log.Printf("Resolved %d widgets for sidebar.primary (locale: %s, ID: %s)", len(resolvedWidgets), locale, localeID)
+				sidebarWidgets = prepareWidgetsForTemplate(resolvedWidgets, localeID, widgetSvc, ctx.Context())
 			}
 		} else {
 			log.Printf("Widgets feature is disabled")
@@ -280,7 +279,20 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 		if referer == "" {
 			referer = "/"
 		}
-		return ctx.Redirect(referer + "?locale=" + locale)
+
+		// Parse the referer URL to properly handle existing query parameters
+		parsedURL, err := url.Parse(referer)
+		if err != nil {
+			// If parsing fails, fall back to simple path
+			return ctx.Redirect("/?locale=" + locale)
+		}
+
+		// Get the path without query parameters and add the new locale
+		redirectURL := parsedURL.Path
+		if redirectURL == "" {
+			redirectURL = "/"
+		}
+		return ctx.Redirect(redirectURL + "?locale=" + locale)
 	})
 
 	// API: List all pages
@@ -382,27 +394,86 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 		templateID = uuid.MustParse("22222222-2222-2222-2222-222222222222")
 	}
 
-	// Create content type
-	typeID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
+	// Create content types
+	pageTypeID := uuid.MustParse("11111111-1111-1111-1111-111111111111")
 	maybeSeedContentType(ctx, container, &content.ContentType{
-		ID:   typeID,
+		ID:   pageTypeID,
 		Name: "page",
 		Schema: map[string]any{
 			"fields": []map[string]any{
-				{
-					"name": "body",
-					"type": "richtext",
-				},
+				{"name": "body", "type": "richtext", "required": true},
 			},
 		},
 	})
 
-	// Create sample content
-	enSummary := "Learn about our CMS"
-	esSummary := "Conozca nuestro CMS"
+	// Blog post content type
+	blogTypeID := uuid.MustParse("22222222-2222-2222-2222-222222222222")
+	maybeSeedContentType(ctx, container, &content.ContentType{
+		ID:   blogTypeID,
+		Name: "blog_post",
+		Schema: map[string]any{
+			"fields": []map[string]any{
+				{"name": "body", "type": "richtext", "required": true},
+				{"name": "excerpt", "type": "text", "required": false},
+				{"name": "author", "type": "string", "required": true},
+				{"name": "tags", "type": "array", "required": false},
+				{"name": "featured_image", "type": "string", "required": false},
+			},
+		},
+	})
 
-	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
-		ContentTypeID: typeID,
+	// Product content type
+	productTypeID := uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	maybeSeedContentType(ctx, container, &content.ContentType{
+		ID:   productTypeID,
+		Name: "product",
+		Schema: map[string]any{
+			"fields": []map[string]any{
+				{"name": "description", "type": "richtext", "required": true},
+				{"name": "price", "type": "number", "required": true},
+				{"name": "features", "type": "array", "required": false},
+				{"name": "specs", "type": "object", "required": false},
+			},
+		},
+	})
+
+	// Register block definitions
+	heroBlockDef, err := ensureBlockDefinition(ctx, blockSvc, blocks.RegisterDefinitionInput{
+		Name: "hero",
+		Schema: map[string]any{
+			"fields": []any{"title", "subtitle", "cta_text", "cta_url", "background_image"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("register hero block: %w", err)
+	}
+
+	featuresBlockDef, err := ensureBlockDefinition(ctx, blockSvc, blocks.RegisterDefinitionInput{
+		Name: "features_grid",
+		Schema: map[string]any{
+			"fields": []any{"title", "features"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("register features block: %w", err)
+	}
+
+	ctaBlockDef, err := ensureBlockDefinition(ctx, blockSvc, blocks.RegisterDefinitionInput{
+		Name: "call_to_action",
+		Schema: map[string]any{
+			"fields": []any{"headline", "description", "button_text", "button_url"},
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("register cta block: %w", err)
+	}
+
+	// Create About page with content type
+	enAboutSummary := "Learn about our CMS"
+	esAboutSummary := "Conozca nuestro CMS"
+
+	aboutContent, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: pageTypeID,
 		Slug:          "about",
 		Status:        "published",
 		CreatedBy:     authorID,
@@ -411,7 +482,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 			{
 				Locale:  "en",
 				Title:   "About go-cms",
-				Summary: &enSummary,
+				Summary: &enAboutSummary,
 				Content: map[string]any{
 					"body": "<p>go-cms is a modular headless CMS library written in Go.</p><p>It provides content management capabilities including pages, blocks, widgets, menus, and internationalization.</p>",
 				},
@@ -419,7 +490,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 			{
 				Locale:  "es",
 				Title:   "Acerca de go-cms",
-				Summary: &esSummary,
+				Summary: &esAboutSummary,
 				Content: map[string]any{
 					"body": "<p>go-cms es una biblioteca CMS modular sin cabeza escrita en Go.</p><p>Proporciona capacidades de gestión de contenido que incluyen páginas, bloques, widgets, menús e internacionalización.</p>",
 				},
@@ -427,12 +498,11 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create content: %w", err)
+		return fmt.Errorf("create about content: %w", err)
 	}
 
-	// Create page
-	pageRecord, err := pageSvc.Create(ctx, pages.CreatePageRequest{
-		ContentID:  contentRecord.ID,
+	aboutPage, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+		ContentID:  aboutContent.ID,
 		TemplateID: templateID,
 		Slug:       "about",
 		Status:     "published",
@@ -452,52 +522,134 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 		},
 	})
 	if err != nil {
-		return fmt.Errorf("create page: %w", err)
+		return fmt.Errorf("create about page: %w", err)
 	}
 
-	// Register block definition
-	definition, err := blockSvc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
-		Name: "hero",
-		Schema: map[string]any{
-			"fields": []any{"title", "body"},
+	// Add hero block to about page
+	if err := createLocalizedBlock(ctx, blockSvc, container, heroBlockDef, &aboutPage.ID, "content", 0, map[string]map[string]any{
+		"en": {
+			"title":            "Welcome to go-cms",
+			"subtitle":         "A modular, headless CMS library for Go applications",
+			"cta_text":         "Get Started",
+			"cta_url":          "/docs",
+			"background_image": "/static/images/hero-bg.jpg",
+		},
+		"es": {
+			"title":            "Bienvenido a go-cms",
+			"subtitle":         "Una biblioteca CMS modular sin cabeza para aplicaciones Go",
+			"cta_text":         "Comenzar",
+			"cta_url":          "/docs",
+			"background_image": "/static/images/hero-bg.jpg",
+		},
+	}); err != nil {
+		return fmt.Errorf("create hero block: %w", err)
+	}
+
+	// Add features block to about page
+	if err := createLocalizedBlock(ctx, blockSvc, container, featuresBlockDef, &aboutPage.ID, "content", 1, map[string]map[string]any{
+		"en": {
+			"title": "Key Features",
+			"features": []map[string]any{
+				{"icon": "📄", "title": "Pages", "description": "Hierarchical page management"},
+				{"icon": "🧩", "title": "Blocks", "description": "Reusable content components"},
+				{"icon": "🎨", "title": "Widgets", "description": "Dynamic behavioral components"},
+				{"icon": "🗂️", "title": "Content Types", "description": "Flexible content schemas"},
+			},
+		},
+		"es": {
+			"title": "Características Principales",
+			"features": []map[string]any{
+				{"icon": "📄", "title": "Páginas", "description": "Gestión jerárquica de páginas"},
+				{"icon": "🧩", "title": "Bloques", "description": "Componentes de contenido reutilizables"},
+				{"icon": "🎨", "title": "Widgets", "description": "Componentes dinámicos de comportamiento"},
+				{"icon": "🗂️", "title": "Tipos de Contenido", "description": "Esquemas de contenido flexibles"},
+			},
+		},
+	}); err != nil {
+		return fmt.Errorf("create features block: %w", err)
+	}
+
+	// Create blog posts
+	enExcerpt1 := "Discover the core concepts of go-cms"
+	esExcerpt1 := "Descubre los conceptos básicos de go-cms"
+
+	blogPost1, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: blogTypeID,
+		Slug:          "getting-started",
+		Status:        "published",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Getting Started with go-cms",
+				Summary: &enExcerpt1,
+				Content: map[string]any{
+					"body":           "<p>This guide will walk you through the basics of using go-cms in your Go application.</p><p>You'll learn about content types, pages, blocks, and widgets.</p>",
+					"excerpt":        "Discover the core concepts of go-cms",
+					"author":         "John Doe",
+					"tags":           []string{"tutorial", "getting-started", "go"},
+					"featured_image": "/static/images/blog1.jpg",
+				},
+			},
+			{
+				Locale:  "es",
+				Title:   "Comenzando con go-cms",
+				Summary: &esExcerpt1,
+				Content: map[string]any{
+					"body":           "<p>Esta guía le mostrará los conceptos básicos del uso de go-cms en su aplicación Go.</p><p>Aprenderá sobre tipos de contenido, páginas, bloques y widgets.</p>",
+					"excerpt":        "Descubre los conceptos básicos de go-cms",
+					"author":         "Juan Pérez",
+					"tags":           []string{"tutorial", "primeros-pasos", "go"},
+					"featured_image": "/static/images/blog1.jpg",
+				},
+			},
 		},
 	})
-	if err != nil && !errors.Is(err, blocks.ErrDefinitionExists) {
-		return fmt.Errorf("register block definition: %w", err)
+	if err != nil {
+		return fmt.Errorf("create blog post 1: %w", err)
 	}
 
-	// Create block instance
-	if definition != nil {
-		locale, err := container.LocaleRepository().GetByCode(ctx, "en")
-		if err != nil {
-			return fmt.Errorf("get locale: %w", err)
-		}
-
-		blockInstance, err := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
-			DefinitionID: definition.ID,
-			PageID:       &pageRecord.ID,
-			Region:       "content",
-			Position:     0,
-			Configuration: map[string]any{
-				"layout": "full",
+	blogPage1, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+		ContentID:  blogPost1.ID,
+		TemplateID: templateID,
+		Slug:       "getting-started",
+		Status:     "published",
+		CreatedBy:  authorID,
+		UpdatedBy:  authorID,
+		Translations: []pages.PageTranslationInput{
+			{
+				Locale: "en",
+				Title:  "Getting Started with go-cms",
+				Path:   "/blog/getting-started",
 			},
-			CreatedBy: authorID,
-			UpdatedBy: authorID,
-		})
-		if err != nil {
-			return fmt.Errorf("create block instance: %w", err)
-		}
-
-		if _, err := blockSvc.AddTranslation(ctx, blocks.AddTranslationInput{
-			BlockInstanceID: blockInstance.ID,
-			LocaleID:        locale.ID,
-			Content: map[string]any{
-				"title": "Welcome to go-cms",
-				"body":  "A modular, headless CMS library for Go applications",
+			{
+				Locale: "es",
+				Title:  "Comenzando con go-cms",
+				Path:   "/es/blog/comenzando",
 			},
-		}); err != nil {
-			return fmt.Errorf("add block translation: %w", err)
-		}
+		},
+	})
+	if err != nil {
+		return fmt.Errorf("create blog page 1: %w", err)
+	}
+
+	// Add CTA block to blog post
+	if err := createLocalizedBlock(ctx, blockSvc, container, ctaBlockDef, &blogPage1.ID, "content", 0, map[string]map[string]any{
+		"en": {
+			"headline":    "Ready to Build?",
+			"description": "Start using go-cms in your next project today.",
+			"button_text": "View Documentation",
+			"button_url":  "/docs",
+		},
+		"es": {
+			"headline":    "¿Listo para Construir?",
+			"description": "Comience a usar go-cms en su próximo proyecto hoy.",
+			"button_text": "Ver Documentación",
+			"button_url":  "/docs",
+		},
+	}); err != nil {
+		return fmt.Errorf("create cta block: %w", err)
 	}
 
 	// Create menu
@@ -533,7 +685,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 		Position: 1,
 		Target: map[string]any{
 			"type": "page",
-			"slug": pageRecord.Slug,
+			"slug": aboutPage.Slug,
 		},
 		CreatedBy: authorID,
 		UpdatedBy: authorID,
@@ -543,6 +695,23 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 		},
 	}); err != nil {
 		return fmt.Errorf("add about menu item: %w", err)
+	}
+
+	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menuRecord.ID,
+		Position: 2,
+		Target: map[string]any{
+			"type": "page",
+			"slug": blogPage1.Slug,
+		},
+		CreatedBy: authorID,
+		UpdatedBy: authorID,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Blog"},
+			{Locale: "es", Label: "Blog"},
+		},
+	}); err != nil {
+		return fmt.Errorf("add blog menu item: %w", err)
 	}
 
 	// Setup widgets if enabled
@@ -559,27 +728,30 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 			return fmt.Errorf("bootstrap widgets: %w", err)
 		}
 
-		promoDefinition, err := ensureWidgetDefinition(ctx, widgetSvc, widgets.RegisterDefinitionInput{
-			Name: "promo_banner",
+		// Newsletter widget
+		newsletterDef, err := ensureWidgetDefinition(ctx, widgetSvc, widgets.RegisterDefinitionInput{
+			Name: "newsletter",
 			Schema: map[string]any{
 				"fields": []any{
 					map[string]any{"name": "headline"},
-					map[string]any{"name": "cta_text"},
+					map[string]any{"name": "description"},
+					map[string]any{"name": "button_text"},
 				},
 			},
 			Defaults: map[string]any{
-				"cta_text": "Learn more",
+				"button_text": "Subscribe",
 			},
 		})
 		if err != nil {
-			return fmt.Errorf("ensure widget definition: %w", err)
+			return fmt.Errorf("ensure newsletter widget definition: %w", err)
 		}
 
-		guestWidget, err := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
-			DefinitionID: promoDefinition.ID,
+		newsletterWidget, err := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
+			DefinitionID: newsletterDef.ID,
 			Configuration: map[string]any{
-				"headline": "Explore go-cms Features",
-				"cta_text": "Get Started",
+				"headline":    "Stay Updated",
+				"description": "Get the latest news and updates delivered to your inbox.",
+				"button_text": "Subscribe Now",
 			},
 			VisibilityRules: map[string]any{
 				"audience": []any{"guest"},
@@ -589,10 +761,10 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 			UpdatedBy: authorID,
 		})
 		if err != nil {
-			return fmt.Errorf("create widget: %w", err)
+			return fmt.Errorf("create newsletter widget: %w", err)
 		}
 
-		// Assign widget to area for each configured locale
+		// Add translations for newsletter widget
 		for _, localeCode := range cfg.I18N.Locales {
 			locale, err := container.LocaleRepository().GetByCode(ctx, localeCode)
 			if err != nil {
@@ -600,20 +772,140 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) err
 				continue
 			}
 
-			placement, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+			var content map[string]any
+			if localeCode == "es" {
+				content = map[string]any{
+					"headline":    "Mantente Actualizado",
+					"description": "Recibe las últimas noticias y actualizaciones en tu bandeja de entrada.",
+					"button_text": "Suscríbete Ahora",
+				}
+			} else {
+				content = map[string]any{
+					"headline":    "Stay Updated",
+					"description": "Get the latest news and updates delivered to your inbox.",
+					"button_text": "Subscribe Now",
+				}
+			}
+
+			if _, err := widgetSvc.AddTranslation(ctx, widgets.AddTranslationInput{
+				InstanceID: newsletterWidget.ID,
+				LocaleID:   locale.ID,
+				Content:    content,
+			}); err != nil {
+				return fmt.Errorf("add newsletter widget translation for locale %s: %w", localeCode, err)
+			}
+		}
+
+		// Promo widget
+		promoDef, err := ensureWidgetDefinition(ctx, widgetSvc, widgets.RegisterDefinitionInput{
+			Name: "promo_banner",
+			Schema: map[string]any{
+				"fields": []any{
+					map[string]any{"name": "headline"},
+					map[string]any{"name": "offer"},
+					map[string]any{"name": "cta_text"},
+					map[string]any{"name": "badge"},
+				},
+			},
+			Defaults: map[string]any{
+				"cta_text": "Learn more",
+			},
+		})
+		if err != nil {
+			return fmt.Errorf("ensure promo widget definition: %w", err)
+		}
+
+		promoWidget, err := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
+			DefinitionID: promoDef.ID,
+			Configuration: map[string]any{
+				"headline": "Limited Time Offer",
+				"offer":    "Get 50% off your first project",
+				"cta_text": "Claim Offer",
+				"badge":    "NEW",
+			},
+			VisibilityRules: map[string]any{
+				"audience": []any{"guest", "user"},
+			},
+			UnpublishOn: timePtr(time.Now().Add(30 * 24 * time.Hour)),
+			Position:    1,
+			CreatedBy:   authorID,
+			UpdatedBy:   authorID,
+		})
+		if err != nil {
+			return fmt.Errorf("create promo widget: %w", err)
+		}
+
+		// Add translations for promo widget
+		for _, localeCode := range cfg.I18N.Locales {
+			locale, err := container.LocaleRepository().GetByCode(ctx, localeCode)
+			if err != nil {
+				log.Printf("Warning: could not get locale %s: %v", localeCode, err)
+				continue
+			}
+
+			var content map[string]any
+			if localeCode == "es" {
+				content = map[string]any{
+					"headline": "Oferta por Tiempo Limitado",
+					"offer":    "Obtén 50% de descuento en tu primer proyecto",
+					"cta_text": "Reclamar Oferta",
+					"badge":    "NUEVO",
+				}
+			} else {
+				content = map[string]any{
+					"headline": "Limited Time Offer",
+					"offer":    "Get 50% off your first project",
+					"cta_text": "Claim Offer",
+					"badge":    "NEW",
+				}
+			}
+
+			if _, err := widgetSvc.AddTranslation(ctx, widgets.AddTranslationInput{
+				InstanceID: promoWidget.ID,
+				LocaleID:   locale.ID,
+				Content:    content,
+			}); err != nil {
+				return fmt.Errorf("add promo widget translation for locale %s: %w", localeCode, err)
+			}
+		}
+
+		// Assign widgets to area for each configured locale
+		for _, localeCode := range cfg.I18N.Locales {
+			locale, err := container.LocaleRepository().GetByCode(ctx, localeCode)
+			if err != nil {
+				log.Printf("Warning: could not get locale %s: %v", localeCode, err)
+				continue
+			}
+
+			// Assign newsletter widget
+			if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
 				AreaCode:   "sidebar.primary",
 				LocaleID:   &locale.ID,
-				InstanceID: guestWidget.ID,
+				InstanceID: newsletterWidget.ID,
 				Position:   intPtr(0),
-			})
-			if err != nil {
-				return fmt.Errorf("assign widget to area for locale %s: %w", localeCode, err)
+			}); err != nil {
+				return fmt.Errorf("assign newsletter widget for locale %s: %w", localeCode, err)
 			}
-			log.Printf("Widget assigned to area for locale %s: %d placements", localeCode, len(placement))
+
+			// Assign promo widget
+			if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+				AreaCode:   "sidebar.primary",
+				LocaleID:   &locale.ID,
+				InstanceID: promoWidget.ID,
+				Position:   intPtr(1),
+			}); err != nil {
+				return fmt.Errorf("assign promo widget for locale %s: %w", localeCode, err)
+			}
+
+			log.Printf("Widgets assigned to area for locale %s", localeCode)
 		}
 	}
 
 	log.Println("Demo data setup complete")
+	log.Printf("  - Content Types: 3 (page, blog_post, product)")
+	log.Printf("  - Block Definitions: 3 (hero, features_grid, call_to_action)")
+	log.Printf("  - Pages: 2 (about, getting-started blog)")
+	log.Printf("  - Widgets: 2 (newsletter, promo_banner)")
 	return nil
 }
 
@@ -698,6 +990,10 @@ func intPtr(v int) *int {
 	return &v
 }
 
+func timePtr(t time.Time) *time.Time {
+	return &t
+}
+
 func ensureWidgetDefinition(ctx context.Context, svc widgets.Service, input widgets.RegisterDefinitionInput) (*widgets.Definition, error) {
 	definition, err := svc.RegisterDefinition(ctx, input)
 	if err == nil {
@@ -718,6 +1014,69 @@ func ensureWidgetDefinition(ctx context.Context, svc widgets.Service, input widg
 	return nil, err
 }
 
+func ensureBlockDefinition(ctx context.Context, svc blocks.Service, input blocks.RegisterDefinitionInput) (*blocks.Definition, error) {
+	definition, err := svc.RegisterDefinition(ctx, input)
+	if err == nil {
+		return definition, nil
+	}
+	if errors.Is(err, blocks.ErrDefinitionExists) {
+		definitions, listErr := svc.ListDefinitions(ctx)
+		if listErr != nil {
+			return nil, listErr
+		}
+		for _, existing := range definitions {
+			if existing != nil && existing.Name == input.Name {
+				return existing, nil
+			}
+		}
+		return nil, fmt.Errorf("block definition %q not found after conflict", input.Name)
+	}
+	return nil, err
+}
+
+// createLocalizedBlock creates a block instance with translations for multiple locales
+func createLocalizedBlock(
+	ctx context.Context,
+	blockSvc blocks.Service,
+	container *di.Container,
+	definition *blocks.Definition,
+	pageID *uuid.UUID,
+	region string,
+	position int,
+	translations map[string]map[string]any,
+) error {
+	authorID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	blockInstance, err := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: definition.ID,
+		PageID:       pageID,
+		Region:       region,
+		Position:     position,
+		CreatedBy:    authorID,
+		UpdatedBy:    authorID,
+	})
+	if err != nil {
+		return fmt.Errorf("create block instance: %w", err)
+	}
+
+	for localeCode, content := range translations {
+		locale, err := container.LocaleRepository().GetByCode(ctx, localeCode)
+		if err != nil {
+			return fmt.Errorf("get locale %s: %w", localeCode, err)
+		}
+
+		if _, err := blockSvc.AddTranslation(ctx, blocks.AddTranslationInput{
+			BlockInstanceID: blockInstance.ID,
+			LocaleID:        locale.ID,
+			Content:         content,
+		}); err != nil {
+			return fmt.Errorf("add block translation for locale %s: %w", localeCode, err)
+		}
+	}
+
+	return nil
+}
+
 func maybeSeedContentType(_ context.Context, container *di.Container, ct *content.ContentType) {
 	repo := container.ContentTypeRepository()
 	if repo == nil {
@@ -727,6 +1086,65 @@ func maybeSeedContentType(_ context.Context, container *di.Container, ct *conten
 	if seeder, ok := repo.(interface{ Put(*content.ContentType) }); ok {
 		seeder.Put(ct)
 	}
+}
+
+// prepareWidgetsForTemplate prepares widgets with their translations merged into configuration
+func prepareWidgetsForTemplate(
+	resolvedWidgets []*widgets.ResolvedWidget,
+	localeID uuid.UUID,
+	widgetSvc widgets.Service,
+	ctx context.Context,
+) []map[string]any {
+	result := make([]map[string]any, 0, len(resolvedWidgets))
+
+	for _, resolved := range resolvedWidgets {
+		if resolved.Instance == nil {
+			continue
+		}
+
+		// Start with the base configuration
+		mergedConfig := make(map[string]any)
+		for k, v := range resolved.Instance.Configuration {
+			mergedConfig[k] = v
+		}
+
+		// Look for translation in the instance's Translations that were already loaded
+		if localeID != uuid.Nil && resolved.Instance.Translations != nil {
+			for _, translation := range resolved.Instance.Translations {
+				if translation.LocaleID == localeID {
+					// Translation content overrides base configuration
+					for k, v := range translation.Content {
+						mergedConfig[k] = v
+					}
+					break
+				}
+			}
+		}
+
+		// Load definition name
+		definitionName := ""
+		if resolved.Instance.DefinitionID != uuid.Nil {
+			definition, err := widgetSvc.GetDefinition(ctx, resolved.Instance.DefinitionID)
+			if err == nil && definition != nil {
+				definitionName = definition.Name
+			}
+		}
+
+		widgetData := map[string]any{
+			"definition": map[string]any{
+				"name": definitionName,
+			},
+			"instance": map[string]any{
+				"id":            resolved.Instance.ID,
+				"configuration": mergedConfig,
+			},
+			"placement": resolved.Placement,
+		}
+
+		result = append(result, widgetData)
+	}
+
+	return result
 }
 
 // toMap converts a struct or slice to a template-friendly format via JSON marshaling

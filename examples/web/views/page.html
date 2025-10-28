@@ -23,16 +23,55 @@
 
         {% if blocks %}
         <section class="page-blocks">
-            <h2>Page Blocks</h2>
             {% for block in blocks %}
-            <div class="block">
-                <h3>{{ block.region }}</h3>
-                <div class="block-content">
+            <div class="block block-{{ block.region }}">
+                {% if block.content.title or block.content.headline %}
+                <div class="block-header">
                     {% if block.content.title %}
-                    <h4>{{ block.content.title }}</h4>
+                    <h2>{{ block.content.title }}</h2>
                     {% endif %}
+                    {% if block.content.headline %}
+                    <h2>{{ block.content.headline }}</h2>
+                    {% endif %}
+                    {% if block.content.subtitle %}
+                    <p class="block-subtitle">{{ block.content.subtitle }}</p>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <div class="block-content">
                     {% if block.content.body %}
-                    <p>{{ block.content.body }}</p>
+                    <div class="block-body">{{ block.content.body }}</div>
+                    {% endif %}
+
+                    {% if block.content.description %}
+                    <p class="block-description">{{ block.content.description }}</p>
+                    {% endif %}
+
+                    {% if block.content.features %}
+                    <div class="features-grid">
+                        {% for feature in block.content.features %}
+                        <div class="feature-card">
+                            {% if feature.icon %}
+                            <div class="feature-icon">{{ feature.icon }}</div>
+                            {% endif %}
+                            {% if feature.title %}
+                            <h3 class="feature-title">{{ feature.title }}</h3>
+                            {% endif %}
+                            {% if feature.description %}
+                            <p class="feature-description">{{ feature.description }}</p>
+                            {% endif %}
+                        </div>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+
+                    {% if block.content.button_text or block.content.cta_text %}
+                    <div class="block-actions">
+                        <a href="{{ block.content.button_url|default:block.content.cta_url|default:'#' }}" class="btn btn-primary">
+                            {{ block.content.button_text|default:block.content.cta_text }}
+                        </a>
+                    </div>
                     {% endif %}
                 </div>
             </div>
@@ -44,24 +83,42 @@
     <aside class="sidebar">
         {% if widgets %}
         <section class="sidebar-widgets">
-            <h3>Sidebar Widgets</h3>
             {% for widget in widgets %}
-            <div class="widget">
+            <div class="widget widget-{{ widget.definition.name }}">
                 {% if widget.instance %}
                     {% if widget.instance.configuration %}
-                        {% if widget.instance.configuration.headline %}
-                        <h4>{{ widget.instance.configuration.headline }}</h4>
-                        {% endif %}
-                        {% if widget.instance.configuration.cta_text %}
-                        <a href="#" class="widget-cta">{{ widget.instance.configuration.cta_text }}</a>
-                        {% endif %}
+                        <div class="widget-content">
+                            {% if widget.instance.configuration.badge %}
+                            <span class="widget-badge">{{ widget.instance.configuration.badge }}</span>
+                            {% endif %}
+
+                            {% if widget.instance.configuration.headline %}
+                            <h3 class="widget-headline">{{ widget.instance.configuration.headline }}</h3>
+                            {% endif %}
+
+                            {% if widget.instance.configuration.description %}
+                            <p class="widget-description">{{ widget.instance.configuration.description }}</p>
+                            {% endif %}
+
+                            {% if widget.instance.configuration.offer %}
+                            <p class="widget-offer">{{ widget.instance.configuration.offer }}</p>
+                            {% endif %}
+
+                            {% if widget.instance.configuration.cta_text or widget.instance.configuration.button_text %}
+                            <a href="#" class="widget-cta btn btn-secondary">
+                                {{ widget.instance.configuration.cta_text|default:widget.instance.configuration.button_text }}
+                            </a>
+                            {% endif %}
+                        </div>
                     {% endif %}
                 {% endif %}
             </div>
             {% endfor %}
         </section>
         {% else %}
-        <p>No widgets available for this area.</p>
+        <div class="no-widgets">
+            <p>No widgets available for this area.</p>
+        </div>
         {% endif %}
 
         <section class="sidebar-info">
