@@ -57,15 +57,13 @@ func NewSyncBlockRegistryHandler(service blocks.Service, logger interfaces.Logge
 		if err := service.SyncRegistry(ctx); err != nil {
 			return err
 		}
-		logging.WithFields(baseLogger, map[string]any{
-			"operation": "sync",
-		}).Info("blocks.command.registry.completed")
 		return nil
 	}
 
 	handlerOpts := []commands.HandlerOption[SyncBlockRegistryCommand]{
 		commands.WithLogger[SyncBlockRegistryCommand](baseLogger),
 		commands.WithOperation[SyncBlockRegistryCommand]("blocks.registry.sync"),
+		commands.WithTelemetry(commands.DefaultTelemetry[SyncBlockRegistryCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 
