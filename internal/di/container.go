@@ -867,7 +867,11 @@ func (c *Container) registerCommandHandlers() error {
 			register(auditcmd.NewReplayAuditHandler(c.jobWorker, auditLogger))
 		}
 		register(auditcmd.NewExportAuditHandler(c.auditRecorder, auditLogger))
-		register(auditcmd.NewCleanupAuditHandler(c.auditRecorder, auditLogger))
+		cleanupOpts := []auditcmd.CleanupHandlerOption{}
+		if expr := strings.TrimSpace(c.Config.Commands.CleanupAuditCron); expr != "" {
+			cleanupOpts = append(cleanupOpts, auditcmd.CleanupWithCronExpression(expr))
+		}
+		register(auditcmd.NewCleanupAuditHandler(c.auditRecorder, auditLogger, cleanupOpts...))
 	}
 
 	return errs
