@@ -19,6 +19,8 @@ var ErrAdvancedCacheRequiresEnabledCache = errors.New("cms config: advanced cach
 
 // ErrCommandsCronRequiresScheduling ensures automatic cron wiring only runs when scheduling is enabled.
 var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron auto-registration requires scheduling to be enabled")
+var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must be enabled to configure markdown")
+var ErrMarkdownContentDirRequired = errors.New("cms config: markdown content directory is required when markdown is enabled")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -33,6 +35,7 @@ type Config struct {
 	Themes        ThemeConfig
 	Features      Features
 	Commands      CommandsConfig
+	Markdown      MarkdownConfig
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -90,6 +93,7 @@ type Features struct {
 	Scheduling    bool
 	MediaLibrary  bool
 	AdvancedCache bool
+	Markdown      bool
 }
 
 // CommandsConfig captures optional command-layer behaviour.
@@ -97,6 +101,27 @@ type CommandsConfig struct {
 	Enabled                bool
 	AutoRegisterDispatcher bool
 	AutoRegisterCron       bool
+	CleanupAuditCron       string
+}
+
+// MarkdownConfig captures filesystem and parser behaviour for Markdown ingestion.
+type MarkdownConfig struct {
+	Enabled        bool
+	ContentDir     string
+	Pattern        string
+	Recursive      bool
+	LocalePatterns map[string]string
+	DefaultLocale  string
+	Locales        []string
+	Parser         MarkdownParserConfig
+}
+
+// MarkdownParserConfig mirrors interfaces.ParseOptions for runtime configuration.
+type MarkdownParserConfig struct {
+	Extensions []string
+	Sanitize   bool
+	HardWraps  bool
+	SafeMode   bool
 }
 
 // DefaultConfig returns opinionated defaults matching Phase 1 expectations.
@@ -124,6 +149,12 @@ func DefaultConfig() Config {
 		},
 		Features: Features{},
 		Commands: CommandsConfig{},
+		Markdown: MarkdownConfig{
+			ContentDir:     "content",
+			Pattern:        "*.md",
+			Recursive:      true,
+			LocalePatterns: map[string]string{},
+		},
 	}
 }
 
@@ -142,6 +173,14 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.Commands.AutoRegisterCron && !cfg.Features.Scheduling {
 		return ErrCommandsCronRequiresScheduling
+	}
+	if cfg.Markdown.Enabled {
+		if !cfg.Features.Markdown {
+			return ErrMarkdownFeatureRequired
+		}
+		if strings.TrimSpace(cfg.Markdown.ContentDir) == "" {
+			return ErrMarkdownContentDirRequired
+		}
 	}
 	return nil
 }
