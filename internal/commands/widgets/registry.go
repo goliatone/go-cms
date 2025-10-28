@@ -45,15 +45,13 @@ func NewSyncWidgetRegistryHandler(service widgets.Service, logger interfaces.Log
 		if err := service.SyncRegistry(ctx); err != nil {
 			return err
 		}
-		logging.WithFields(baseLogger, map[string]any{
-			"operation": "sync",
-		}).Info("widgets.command.registry.completed")
 		return nil
 	}
 
 	handlerOpts := []commands.HandlerOption[SyncWidgetRegistryCommand]{
 		commands.WithLogger[SyncWidgetRegistryCommand](baseLogger),
 		commands.WithOperation[SyncWidgetRegistryCommand]("widgets.registry.sync"),
+		commands.WithTelemetry(commands.DefaultTelemetry[SyncWidgetRegistryCommand](baseLogger)),
 	}
 	handlerOpts = append(handlerOpts, opts...)
 

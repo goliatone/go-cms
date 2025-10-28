@@ -16,10 +16,12 @@ type HandlerOption[T command.Message] func(*Handler[T])
 
 // Handler wraps command execution with shared CMS concerns (context, logging, error tagging).
 type Handler[T command.Message] struct {
-	exec      command.CommandFunc[T]
-	logger    interfaces.Logger
-	timeout   time.Duration
-	operation string
+	exec           command.CommandFunc[T]
+	logger         interfaces.Logger
+	timeout        time.Duration
+	operation      string
+	fieldExtractor func(T) map[string]any
+	telemetry      Telemetry[T]
 }
 
 // NewHandler creates a handler that satisfies go-command's Commander interface while applying
@@ -61,20 +63,59 @@ func (h *Handler[T]) Execute(ctx context.Context, msg T) error {
 	if h.operation != "" {
 		fields["operation"] = h.operation
 	}
+	if h.fieldExtractor != nil {
+		for key, value := range h.fieldExtractor(msg) {
+			if value == nil {
+				continue
+			}
+			fields[key] = value
+		}
+	}
 	logger := logging.WithFields(h.logger, fields)
 	logger.Debug("command.execute.start")
 
+	start := time.Now()
+
 	if err := h.exec(ctx, msg); err != nil {
-		logger.Error("command.execute.failed", "error", err)
+		h.dispatchTelemetry(ctx, msg, TelemetryInfo{
+			Command:   messageType,
+			Operation: h.operation,
+			Fields:    copyFields(fields),
+			Duration:  time.Since(start),
+			Error:     err,
+			Status:    TelemetryStatusFailed,
+			Logger:    logger,
+		}, func(info TelemetryInfo) {
+			logger.Error("command.execute.failed", "error", info.Error)
+		})
 		return wrapExecuteError(err)
 	}
 
 	if err := ctx.Err(); err != nil {
-		logger.Error("command.execute.context_error", "error", err)
+		h.dispatchTelemetry(ctx, msg, TelemetryInfo{
+			Command:   messageType,
+			Operation: h.operation,
+			Fields:    copyFields(fields),
+			Duration:  time.Since(start),
+			Error:     err,
+			Status:    TelemetryStatusContextError,
+			Logger:    logger,
+		}, func(info TelemetryInfo) {
+			logger.Error("command.execute.context_error", "error", info.Error)
+		})
 		return wrapContextError(err)
 	}
 
-	logger.Info("command.execute.success")
+	h.dispatchTelemetry(ctx, msg, TelemetryInfo{
+		Command:   messageType,
+		Operation: h.operation,
+		Fields:    copyFields(fields),
+		Duration:  time.Since(start),
+		Status:    TelemetryStatusSuccess,
+		Logger:    logger,
+	}, func(info TelemetryInfo) {
+		logger.Info("command.execute.success")
+	})
 	return nil
 }
 
@@ -107,6 +148,20 @@ func WithOperation[T command.Message](operation string) HandlerOption[T] {
 	}
 }
 
+// WithMessageFields attaches message-derived fields to every log entry for the command.
+func WithMessageFields[T command.Message](extractor func(T) map[string]any) HandlerOption[T] {
+	return func(h *Handler[T]) {
+		h.fieldExtractor = extractor
+	}
+}
+
+// WithTelemetry registers an optional telemetry callback invoked after execution completes.
+func WithTelemetry[T command.Message](telemetry Telemetry[T]) HandlerOption[T] {
+	return func(h *Handler[T]) {
+		h.telemetry = telemetry
+	}
+}
+
 func (h *Handler[T]) withTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
 	if h.timeout <= 0 {
 		return ctx, func() {}
@@ -119,4 +174,23 @@ func ensureContext(ctx context.Context) context.Context {
 		return context.Background()
 	}
 	return ctx
+}
+
+func (h *Handler[T]) dispatchTelemetry(ctx context.Context, msg T, info TelemetryInfo, fallback func(TelemetryInfo)) {
+	if h.telemetry != nil {
+		h.telemetry(ctx, msg, info)
+		return
+	}
+	fallback(info)
+}
+
+func copyFields(fields map[string]any) map[string]any {
+	if len(fields) == 0 {
+		return nil
+	}
+	clone := make(map[string]any, len(fields))
+	for key, value := range fields {
+		clone[key] = value
+	}
+	return clone
 }
