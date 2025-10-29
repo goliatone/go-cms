@@ -4,6 +4,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
+	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
@@ -32,6 +33,9 @@ type ThemeService = themes.Service
 
 // MediaService exports the media helper contract.
 type MediaService = media.Service
+
+// GeneratorService exports the static site generator contract.
+type GeneratorService = generator.Service
 
 // Module represents the top level CMS runtime façade.
 type Module struct {
@@ -85,6 +89,11 @@ func (m *Module) Themes() ThemeService {
 // Media returns the media helper used by the module.
 func (m *Module) Media() MediaService {
 	return m.container.MediaService()
+}
+
+// Generator returns the configured generator service.
+func (m *Module) Generator() GeneratorService {
+	return m.container.GeneratorService()
 }
 
 // Markdown returns the markdown service when configured.
