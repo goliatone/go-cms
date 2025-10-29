@@ -98,8 +98,9 @@ type Container struct {
 	commandSubscriptions []CommandSubscription
 	commandHandlers      []any
 
-	generatorSvc     generator.Service
-	generatorStorage interfaces.StorageProvider
+	generatorSvc           generator.Service
+	generatorStorage       interfaces.StorageProvider
+	generatorAssetResolver generator.AssetResolver
 
 	auditRecorder jobs.AuditRecorder
 	jobWorker     *jobs.Worker
@@ -184,6 +185,13 @@ func WithGeneratorOutput(output string) Option {
 func WithGeneratorStorage(sp interfaces.StorageProvider) Option {
 	return func(c *Container) {
 		c.generatorStorage = sp
+	}
+}
+
+// WithGeneratorAssetResolver overrides the asset resolver used during static builds.
+func WithGeneratorAssetResolver(resolver generator.AssetResolver) Option {
+	return func(c *Container) {
+		c.generatorAssetResolver = resolver
 	}
 }
 
@@ -524,6 +532,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				Renderer: c.template,
 				Storage:  c.generatorStorage,
 				Locales:  c.localeRepo,
+				Assets:   c.generatorAssetResolver,
 			}
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}

@@ -357,8 +357,18 @@ func TestContainerGeneratorServiceEnabled(t *testing.T) {
 		t.Fatal("expected generator service")
 	}
 
-	if _, err := svc.Build(context.Background(), generator.BuildOptions{}); !errors.Is(err, generator.ErrNotImplemented) {
-		t.Fatalf("expected ErrNotImplemented, got %v", err)
+	result, err := svc.Build(context.Background(), generator.BuildOptions{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if result == nil {
+		t.Fatal("expected build result")
+	}
+	if result.PagesBuilt != 0 {
+		t.Fatalf("expected zero pages built with empty repositories, got %d", result.PagesBuilt)
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no build errors, got %d", len(result.Errors))
 	}
 }
 
