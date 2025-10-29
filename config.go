@@ -22,6 +22,7 @@ type (
 	CommandsConfig       = runtimeconfig.CommandsConfig
 	MarkdownConfig       = runtimeconfig.MarkdownConfig
 	MarkdownParserConfig = runtimeconfig.MarkdownParserConfig
+	GeneratorConfig      = runtimeconfig.GeneratorConfig
 )
 
 func DefaultConfig() Config {
