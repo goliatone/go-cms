@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"strings"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
 )
@@ -11,6 +12,13 @@ const (
 	contentModule   = "cms.content"
 	pagesModule     = "cms.pages"
 	schedulerModule = "cms.scheduler"
+	markdownModule  = "cms.markdown"
+)
+
+const (
+	fieldMarkdownPath   = "markdown_path"
+	fieldMarkdownLocale = "locale"
+	fieldMarkdownAction = "sync_action"
 )
 
 // ModuleLogger returns a module-scoped logger, defaulting to a no-op
@@ -53,6 +61,27 @@ func PagesLogger(provider interfaces.LoggerProvider) interfaces.Logger {
 // SchedulerLogger returns the logger namespace reserved for scheduler workers.
 func SchedulerLogger(provider interfaces.LoggerProvider) interfaces.Logger {
 	return ModuleLogger(provider, schedulerModule)
+}
+
+// MarkdownLogger returns the logger namespace reserved for markdown workflows.
+func MarkdownLogger(provider interfaces.LoggerProvider) interfaces.Logger {
+	return ModuleLogger(provider, markdownModule)
+}
+
+// WithMarkdownContext enriches the provided logger with common markdown fields such as
+// file path, locale, and sync action. Empty values are ignored.
+func WithMarkdownContext(logger interfaces.Logger, path, locale, action string) interfaces.Logger {
+	fields := map[string]any{}
+	if trimmed := strings.TrimSpace(path); trimmed != "" {
+		fields[fieldMarkdownPath] = trimmed
+	}
+	if trimmed := strings.TrimSpace(locale); trimmed != "" {
+		fields[fieldMarkdownLocale] = trimmed
+	}
+	if trimmed := strings.TrimSpace(action); trimmed != "" {
+		fields[fieldMarkdownAction] = trimmed
+	}
+	return WithFields(logger, fields)
 }
 
 // NoOp returns a logger that drops every log entry. It satisfies the Logger
