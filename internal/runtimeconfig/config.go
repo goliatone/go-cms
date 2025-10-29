@@ -139,6 +139,8 @@ type GeneratorConfig struct {
 	GenerateFeeds   bool
 	Workers         int
 	Menus           map[string]string
+	RenderTimeout   time.Duration
+	AssetCopyTimeout time.Duration
 }
 
 // DefaultConfig returns opinionated defaults matching Phase 1 expectations.
@@ -182,6 +184,8 @@ func DefaultConfig() Config {
 			GenerateFeeds:   false,
 			Workers:         0,
 			Menus:           map[string]string{},
+			RenderTimeout:   0,
+			AssetCopyTimeout: 0,
 		},
 	}
 }
