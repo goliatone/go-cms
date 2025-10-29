@@ -12,6 +12,7 @@ import (
 	auditcmd "github.com/goliatone/go-cms/internal/commands/audit"
 	blockscmd "github.com/goliatone/go-cms/internal/commands/blocks"
 	contentcmd "github.com/goliatone/go-cms/internal/commands/content"
+	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	mediacmd "github.com/goliatone/go-cms/internal/commands/media"
 	menuscmd "github.com/goliatone/go-cms/internal/commands/menus"
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
@@ -86,6 +87,7 @@ type Container struct {
 	widgetSvg      widgets.Service
 	themeSvc       themes.Service
 	mediaSvc       media.Service
+	markdownSvc    interfaces.MarkdownService
 	loggerProvider interfaces.LoggerProvider
 
 	commandRegistry      CommandRegistry
@@ -151,6 +153,12 @@ func WithTemplate(tr interfaces.TemplateRenderer) Option {
 func WithMedia(mp interfaces.MediaProvider) Option {
 	return func(c *Container) {
 		c.media = mp
+	}
+}
+
+func WithMarkdownService(svc interfaces.MarkdownService) Option {
+	return func(c *Container) {
+		c.markdownSvc = svc
 	}
 }
 
@@ -646,6 +654,11 @@ func (c *Container) MediaService() media.Service {
 	return c.mediaSvc
 }
 
+// MarkdownService returns the configured markdown service.
+func (c *Container) MarkdownService() interfaces.MarkdownService {
+	return c.markdownSvc
+}
+
 func (c *Container) Scheduler() interfaces.Scheduler {
 	return c.scheduler
 }
@@ -834,6 +847,20 @@ func (c *Container) registerCommandHandlers() error {
 		mediaLogger := loggerFor("media")
 		register(mediacmd.NewImportAssetsHandler(c.mediaSvc, mediaLogger, gates))
 		register(mediacmd.NewCleanupAssetsHandler(c.mediaSvc, mediaLogger, gates))
+	}
+
+	// Markdown commands.
+	if c.markdownSvc != nil && c.Config.Features.Markdown {
+		gates := markdowncmd.FeatureGates{
+			MarkdownEnabled: func() bool { return c.Config.Features.Markdown },
+		}
+		handlerSet, err := markdowncmd.RegisterMarkdownCommands(nil, c.markdownSvc, c.loggerProvider, gates)
+		if err != nil {
+			errs = errors.Join(errs, err)
+		} else if handlerSet != nil {
+			register(handlerSet.Import)
+			register(handlerSet.Sync)
+		}
 	}
 
 	// Menu commands.
