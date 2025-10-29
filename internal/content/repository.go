@@ -70,10 +70,13 @@ func NewContentTranslationRepository(db *bun.DB) repository.Repository[*ContentT
 			ct.ID = id
 		},
 		GetIdentifier: func() string {
-			return ""
+			return "id"
 		},
-		GetIdentifierValue: func(*ContentTranslation) string {
-			return ""
+		GetIdentifierValue: func(ct *ContentTranslation) string {
+			if ct == nil {
+				return ""
+			}
+			return ct.ID.String()
 		},
 	})
 }
