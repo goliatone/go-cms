@@ -134,8 +134,9 @@ func (s *service) resolveLocales(ctx context.Context, opts BuildOptions) (locale
 		defaultLocale = "en"
 	}
 
+	requestedFromOpts := len(opts.Locales) > 0
 	var baseRequested []string
-	if len(opts.Locales) > 0 {
+	if requestedFromOpts {
 		baseRequested = append([]string{}, opts.Locales...)
 	} else if len(s.cfg.Locales) > 0 {
 		baseRequested = append([]string{}, s.cfg.Locales...)
@@ -144,7 +145,7 @@ func (s *service) resolveLocales(ctx context.Context, opts BuildOptions) (locale
 	seen := map[string]struct{}{}
 	var codes []string
 
-	includeDefault := len(baseRequested) == 0
+	includeDefault := !requestedFromOpts
 
 	if includeDefault {
 		defaultLower := strings.ToLower(defaultLocale)
@@ -194,21 +195,55 @@ func (s *service) resolveLocales(ctx context.Context, opts BuildOptions) (locale
 	}
 
 	if set.defaultID == uuid.Nil {
+		if !includeDefault {
+			record, err := s.deps.Locales.GetByCode(ctx, defaultLocale)
+			if err != nil {
+				return localeSet{}, err
+			}
+			set.defaultID = record.ID
+			return set, nil
+		}
 		record, err := s.deps.Locales.GetByCode(ctx, defaultLocale)
 		if err != nil {
 			return localeSet{}, err
 		}
 		set.defaultID = record.ID
-		if _, ok := set.byID[record.ID]; !ok && !includeDefault {
-			set.byID[record.ID] = LocaleSpec{
-				Code:      record.Code,
-				LocaleID:  record.ID,
-				IsDefault: true,
-			}
+		defaultSpec := LocaleSpec{
+			Code:      record.Code,
+			LocaleID:  record.ID,
+			IsDefault: true,
 		}
+		if _, ok := set.byID[record.ID]; !ok {
+			set.byID[record.ID] = defaultSpec
+			set.ordered = append([]LocaleSpec{defaultSpec}, set.ordered...)
+		} else if len(set.ordered) > 0 && set.ordered[0].LocaleID != record.ID {
+			set.ordered = reorderWithDefaultFirst(set.ordered, record.ID)
+		}
+	} else if includeDefault && len(set.ordered) > 0 && set.ordered[0].LocaleID != set.defaultID {
+		set.ordered = reorderWithDefaultFirst(set.ordered, set.defaultID)
 	}
 
 	return set, nil
+}
+
+func reorderWithDefaultFirst(locales []LocaleSpec, defaultID uuid.UUID) []LocaleSpec {
+	index := -1
+	for i, spec := range locales {
+		if spec.LocaleID == defaultID {
+			index = i
+			break
+		}
+	}
+	if index <= 0 {
+		return locales
+	}
+	defaultSpec := locales[index]
+	remaining := append([]LocaleSpec{}, locales[:index]...)
+	remaining = append(remaining, locales[index+1:]...)
+	result := make([]LocaleSpec, 0, len(locales))
+	result = append(result, defaultSpec)
+	result = append(result, remaining...)
+	return result
 }
 
 func (s *service) loadPages(ctx context.Context, ids []uuid.UUID) ([]*pages.Page, error) {

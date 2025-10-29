@@ -1,9 +1,12 @@
 package generator
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
+	"path"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -14,6 +17,7 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -24,6 +28,7 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 	fixtures := newRenderFixtures(now)
 
 	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
 	svc := NewService(fixtures.Config, Dependencies{
 		Pages:    fixtures.Pages,
 		Content:  fixtures.Content,
@@ -31,6 +36,7 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 		Themes:   fixtures.Themes,
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
+		Storage:  storage,
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -51,6 +57,26 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 	}
 	if len(result.Errors) != 0 {
 		t.Fatalf("expected no errors, got %d", len(result.Errors))
+	}
+
+	calls := storage.ExecCalls()
+	if len(calls) == 0 {
+		t.Fatal("expected storage writes")
+	}
+	var pageOutputs []string
+	for _, page := range result.Rendered {
+		if page.Output == "" {
+			t.Fatalf("expected output path for page %s", page.PageID)
+		}
+		if page.Checksum == "" {
+			t.Fatalf("expected checksum for page %s", page.PageID)
+		}
+		pageOutputs = append(pageOutputs, page.Output)
+	}
+	for _, output := range pageOutputs {
+		if !strings.HasSuffix(output, "index.html") {
+			t.Fatalf("expected output to end with index.html, got %s", output)
+		}
 	}
 
 	renderer.assertCalls(t, expectedLocalized)
@@ -89,6 +115,7 @@ func TestBuildUsesWorkerPool(t *testing.T) {
 		recordingRenderer: recordingRenderer{},
 		delay:             2 * time.Millisecond,
 	}
+	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
 		Pages:    fixtures.Pages,
@@ -97,6 +124,7 @@ func TestBuildUsesWorkerPool(t *testing.T) {
 		Themes:   fixtures.Themes,
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
+		Storage:  storage,
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -124,6 +152,7 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 	fixtures := newRenderFixtures(now)
 
 	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
 	svc := NewService(fixtures.Config, Dependencies{
 		Pages:    fixtures.Pages,
 		Content:  fixtures.Content,
@@ -131,6 +160,7 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 		Themes:   fixtures.Themes,
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
+		Storage:  storage,
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -164,6 +194,119 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 	if len(result.Errors) != 0 {
 		t.Fatalf("expected no errors, got %d", len(result.Errors))
 	}
+	if len(storage.ExecCalls()) != 0 {
+		t.Fatalf("expected no storage writes for dry-run, got %d", len(storage.ExecCalls()))
+	}
+}
+
+func TestBuildGeneratesSitemapAndRobots(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.GenerateSitemap = true
+	fixtures.Config.GenerateRobots = true
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	var sitemapWritten, robotsWritten bool
+	expectedSitemap := path.Join(fixtures.Config.OutputDir, "sitemap.xml")
+	expectedRobots := path.Join(fixtures.Config.OutputDir, "robots.txt")
+	for _, call := range storage.ExecCalls() {
+		if call.Query != storageOpWrite {
+			continue
+		}
+		if len(call.Args) == 0 {
+			continue
+		}
+		target, ok := call.Args[0].(string)
+		if !ok {
+			continue
+		}
+		switch target {
+		case expectedSitemap:
+			sitemapWritten = true
+		case expectedRobots:
+			robotsWritten = true
+		}
+	}
+	if !sitemapWritten {
+		t.Fatalf("expected sitemap write to %s", expectedSitemap)
+	}
+	if !robotsWritten {
+		t.Fatalf("expected robots write to %s", expectedRobots)
+	}
+}
+
+func TestBuildCopiesThemeAssets(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 6, 10, 11, 30, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+	assetResolver := newStubAssetResolver()
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Assets:   assetResolver,
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if result.AssetsBuilt != 2 {
+		t.Fatalf("expected 2 assets copied, got %d", result.AssetsBuilt)
+	}
+	expectedAssets := map[string]struct{}{
+		path.Join(fixtures.Config.OutputDir, "assets/public/css/site.css"): {},
+		path.Join(fixtures.Config.OutputDir, "assets/public/js/app.js"):    {},
+	}
+	for _, call := range storage.ExecCalls() {
+		if call.Query != storageOpWrite {
+			continue
+		}
+		if len(call.Args) < 4 {
+			continue
+		}
+		target, ok := call.Args[0].(string)
+		if !ok {
+			continue
+		}
+		category, _ := call.Args[3].(string)
+		if _, exists := expectedAssets[target]; exists {
+			if category != string(categoryAsset) {
+				t.Fatalf("expected asset category for %s, got %s", target, category)
+			}
+			delete(expectedAssets, target)
+		}
+	}
+	if len(expectedAssets) != 0 {
+		t.Fatalf("missing asset writes: %v", expectedAssets)
+	}
 }
 
 type renderFixtures struct {
@@ -175,6 +318,111 @@ type renderFixtures struct {
 	Locales  *stubLocaleLookup
 	Template *themes.Template
 	PageIDs  []uuid.UUID
+}
+
+type storageCall struct {
+	Query string
+	Args  []any
+}
+
+type recordingStorage struct {
+	mu    sync.Mutex
+	execs []storageCall
+}
+
+func (s *recordingStorage) Exec(_ context.Context, query string, args ...any) (interfaces.Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copied := append([]any(nil), args...)
+	s.execs = append(s.execs, storageCall{
+		Query: query,
+		Args:  copied,
+	})
+	return noopResult{}, nil
+}
+
+func (s *recordingStorage) Query(_ context.Context, query string, args ...any) (interfaces.Rows, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	copied := append([]any(nil), args...)
+	s.execs = append(s.execs, storageCall{
+		Query: query,
+		Args:  copied,
+	})
+	return noopRows{}, nil
+}
+
+func (s *recordingStorage) Transaction(_ context.Context, fn func(tx interfaces.Transaction) error) error {
+	if fn == nil {
+		return nil
+	}
+	return fn(&recordingTx{storage: s})
+}
+
+func (s *recordingStorage) ExecCalls() []storageCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	calls := make([]storageCall, len(s.execs))
+	copy(calls, s.execs)
+	return calls
+}
+
+type recordingTx struct {
+	storage *recordingStorage
+}
+
+func (tx *recordingTx) Exec(ctx context.Context, query string, args ...any) (interfaces.Result, error) {
+	return tx.storage.Exec(ctx, query, args...)
+}
+
+func (tx *recordingTx) Query(ctx context.Context, query string, args ...any) (interfaces.Rows, error) {
+	return tx.storage.Query(ctx, query, args...)
+}
+
+func (recordingTx) Transaction(context.Context, func(interfaces.Transaction) error) error {
+	return fmt.Errorf("nested transactions not supported")
+}
+
+func (recordingTx) Commit() error   { return nil }
+func (recordingTx) Rollback() error { return nil }
+
+type noopResult struct{}
+
+func (noopResult) RowsAffected() (int64, error) { return 0, nil }
+func (noopResult) LastInsertId() (int64, error) { return 0, nil }
+
+type noopRows struct{}
+
+func (noopRows) Next() bool        { return false }
+func (noopRows) Scan(...any) error { return fmt.Errorf("no rows") }
+func (noopRows) Close() error      { return nil }
+
+type stubAssetResolver struct {
+	assets map[string][]byte
+}
+
+func newStubAssetResolver() *stubAssetResolver {
+	return &stubAssetResolver{
+		assets: map[string][]byte{
+			"public/css/site.css": []byte("body {}"),
+			"public/js/app.js":    []byte("console.log('ok')"),
+		},
+	}
+}
+
+func (r *stubAssetResolver) Open(_ context.Context, _ *themes.Theme, asset string) (io.ReadCloser, error) {
+	data, ok := r.assets[asset]
+	if !ok {
+		return nil, fmt.Errorf("asset %s not found", asset)
+	}
+	return io.NopCloser(bytes.NewReader(data)), nil
+}
+
+func (r *stubAssetResolver) ResolvePath(_ *themes.Theme, asset string) (string, error) {
+	if _, ok := r.assets[asset]; !ok {
+		return "", fmt.Errorf("asset %s not found", asset)
+	}
+	return asset, nil
 }
 
 func newRenderFixtures(now time.Time) renderFixtures {
@@ -249,12 +497,20 @@ func newRenderFixtures(now time.Time) renderFixtures {
 		TemplatePath: "themes/detail.html",
 	}
 
+	basePath := "public"
 	themeRecord := &themes.Theme{
 		ID:        themeID,
 		Name:      "aurora",
 		Version:   "1.0.0",
 		ThemePath: "themes/aurora",
 		Templates: []*themes.Template{templateRecord},
+		Config: themes.ThemeConfig{
+			Assets: &themes.ThemeAssets{
+				BasePath: &basePath,
+				Styles:   []string{"css/site.css"},
+				Scripts:  []string{"js/app.js"},
+			},
+		},
 	}
 
 	contentSvc := &stubContentService{

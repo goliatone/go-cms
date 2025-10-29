@@ -116,18 +116,20 @@ func (h TemplateHelpers) LocalePrefix() string {
 type RenderedPage struct {
 	PageID   uuid.UUID
 	Locale   string
-	Path     string
+	Route    string
+	Output   string
 	Template string
 	HTML     string
 	Metadata DependencyMetadata
 	Duration time.Duration
+	Checksum string
 }
 
 // RenderDiagnostic records rendering timing and errors for individual pages.
 type RenderDiagnostic struct {
 	PageID   uuid.UUID
 	Locale   string
-	Path     string
+	Route    string
 	Template string
 	Duration time.Duration
 	Err      error

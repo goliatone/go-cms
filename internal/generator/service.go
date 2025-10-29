@@ -1,10 +1,15 @@
 package generator
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
+	"path"
 	"runtime"
 	"strings"
 	"sync"
@@ -87,6 +92,7 @@ type Dependencies struct {
 	Renderer interfaces.TemplateRenderer
 	Storage  interfaces.StorageProvider
 	Locales  LocaleLookup
+	Assets   AssetResolver
 }
 
 // LocaleLookup resolves locales from configured repositories.
@@ -182,7 +188,7 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 					diagnostic: RenderDiagnostic{
 						PageID: page.Page.ID,
 						Locale: page.Locale.Code,
-						Path:   safeTranslationPath(page.Translation),
+						Route:  safeTranslationPath(page.Translation),
 						Err:    ctx.Err(),
 					},
 					err: ctx.Err(),
@@ -195,6 +201,40 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		}
 	} else {
 		if err := s.renderConcurrently(ctx, siteMeta, buildCtx, workerCount, collect); err != nil {
+			errorsSlice = append(errorsSlice, err)
+		}
+	}
+
+	if opts.DryRun {
+		result.Rendered = rendered
+		result.Duration = time.Since(start)
+		if len(errorsSlice) > 0 {
+			result.Errors = append(result.Errors, errorsSlice...)
+			return result, errors.Join(errorsSlice...)
+		}
+		return result, nil
+	}
+
+	writer := newArtifactWriter(s.deps.Storage)
+	if err := s.persistPages(ctx, writer, buildCtx, rendered); err != nil {
+		errorsSlice = append(errorsSlice, err)
+	}
+
+	assetsBuilt, err := s.copyAssets(ctx, writer, buildCtx)
+	if err != nil {
+		errorsSlice = append(errorsSlice, err)
+	} else {
+		result.AssetsBuilt += assetsBuilt
+	}
+
+	if s.cfg.GenerateSitemap {
+		if err := s.writeSitemap(ctx, writer, siteMeta, buildCtx, rendered); err != nil {
+			errorsSlice = append(errorsSlice, err)
+		}
+	}
+
+	if s.cfg.GenerateRobots {
+		if err := s.writeRobots(ctx, writer, siteMeta); err != nil {
 			errorsSlice = append(errorsSlice, err)
 		}
 	}
@@ -234,7 +274,7 @@ func (s *service) renderConcurrently(
 							diagnostic: RenderDiagnostic{
 								PageID: page.Page.ID,
 								Locale: page.Locale.Code,
-								Path:   safeTranslationPath(page.Translation),
+								Route:  safeTranslationPath(page.Translation),
 								Err:    ctx.Err(),
 							},
 							err: ctx.Err(),
@@ -273,7 +313,7 @@ func (s *service) renderPage(
 		diagnostic: RenderDiagnostic{
 			PageID: data.Page.ID,
 			Locale: data.Locale.Code,
-			Path:   safeTranslationPath(data.Translation),
+			Route:  safeTranslationPath(data.Translation),
 		},
 	}
 
@@ -340,13 +380,201 @@ func (s *service) renderPage(
 	outcome.page = RenderedPage{
 		PageID:   data.Page.ID,
 		Locale:   data.Locale.Code,
-		Path:     safeTranslationPath(data.Translation),
+		Route:    safeTranslationPath(data.Translation),
 		Template: templateName,
 		HTML:     rendered,
 		Metadata: data.Metadata,
 		Duration: duration,
 	}
 	return outcome
+}
+
+func (s *service) persistPages(
+	ctx context.Context,
+	writer artifactWriter,
+	buildCtx *BuildContext,
+	pages []RenderedPage,
+) error {
+	if len(pages) == 0 {
+		return nil
+	}
+	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	dirCache := map[string]struct{}{}
+	if baseDir != "" {
+		dirCache[baseDir] = struct{}{}
+		if err := writer.EnsureDir(ctx, baseDir); err != nil {
+			return err
+		}
+	}
+	for i := range pages {
+		route := pages[i].Route
+		destRel := buildOutputPath(route, pages[i].Locale, buildCtx.DefaultLocale)
+		if strings.TrimSpace(destRel) == "" {
+			destRel = "index.html"
+		}
+		fullPath := joinOutputPath(baseDir, destRel)
+		if err := ensureDir(ctx, writer, dirCache, path.Dir(fullPath)); err != nil {
+			return err
+		}
+		checksum := computeHashFromString(pages[i].HTML)
+		pages[i].Output = fullPath
+		pages[i].Checksum = checksum
+
+		metadata := map[string]string{
+			"page_id":  pages[i].PageID.String(),
+			"route":    route,
+			"template": pages[i].Template,
+		}
+		if s.cfg.Incremental {
+			metadata["incremental"] = "true"
+		}
+		req := writeFileRequest{
+			Path:        fullPath,
+			Content:     strings.NewReader(pages[i].HTML),
+			Size:        int64(len(pages[i].HTML)),
+			Locale:      pages[i].Locale,
+			Category:    categoryPage,
+			ContentType: "text/html; charset=utf-8",
+			Checksum:    checksum,
+			Metadata:    metadata,
+		}
+		if err := writer.WriteFile(ctx, req); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *service) copyAssets(
+	ctx context.Context,
+	writer artifactWriter,
+	buildCtx *BuildContext,
+) (int, error) {
+	if s.deps.Assets == nil {
+		return 0, nil
+	}
+	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	dirCache := map[string]struct{}{}
+	if baseDir != "" {
+		dirCache[baseDir] = struct{}{}
+		if err := writer.EnsureDir(ctx, baseDir); err != nil {
+			return 0, err
+		}
+	}
+	written := 0
+	seen := map[string]struct{}{}
+	for _, page := range buildCtx.Pages {
+		theme := page.Theme
+		if theme == nil {
+			continue
+		}
+		assets := collectThemeAssets(theme)
+		for _, asset := range assets {
+			key := theme.ID.String() + "::" + asset
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+			reader, err := s.deps.Assets.Open(ctx, theme, asset)
+			if err != nil {
+				return written, err
+			}
+			data, err := io.ReadAll(reader)
+			_ = reader.Close()
+			if err != nil {
+				return written, err
+			}
+			resolved, err := s.deps.Assets.ResolvePath(theme, asset)
+			if err != nil {
+				return written, err
+			}
+			resolved = strings.TrimLeft(strings.TrimSpace(resolved), "/")
+			if resolved == "" {
+				resolved = strings.TrimLeft(strings.TrimSpace(asset), "/")
+			}
+			destRel := path.Join("assets", resolved)
+			fullPath := joinOutputPath(baseDir, destRel)
+			if err := ensureDir(ctx, writer, dirCache, path.Dir(fullPath)); err != nil {
+				return written, err
+			}
+			checksum := computeHash(data)
+			metadata := map[string]string{
+				"theme_id": theme.ID.String(),
+				"asset":    asset,
+			}
+			req := writeFileRequest{
+				Path:        fullPath,
+				Content:     bytes.NewReader(data),
+				Size:        int64(len(data)),
+				Locale:      "",
+				Category:    categoryAsset,
+				ContentType: detectAssetContentType(destRel),
+				Checksum:    checksum,
+				Metadata:    metadata,
+			}
+			if err := writer.WriteFile(ctx, req); err != nil {
+				return written, err
+			}
+			written++
+		}
+	}
+	return written, nil
+}
+
+func (s *service) writeSitemap(
+	ctx context.Context,
+	writer artifactWriter,
+	siteMeta SiteMetadata,
+	buildCtx *BuildContext,
+	pages []RenderedPage,
+) error {
+	content := buildSitemap(siteMeta.BaseURL, pages, buildCtx.GeneratedAt)
+	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	destRel := "sitemap.xml"
+	fullPath := joinOutputPath(baseDir, destRel)
+	if err := ensureDir(ctx, writer, map[string]struct{}{}, path.Dir(fullPath)); err != nil {
+		return err
+	}
+	checksum := computeHashFromString(content)
+	req := writeFileRequest{
+		Path:        fullPath,
+		Content:     strings.NewReader(content),
+		Size:        int64(len(content)),
+		Category:    categorySitemap,
+		ContentType: "application/xml",
+		Checksum:    checksum,
+		Metadata: map[string]string{
+			"generated_at": buildCtx.GeneratedAt.UTC().Format(time.RFC3339),
+		},
+	}
+	return writer.WriteFile(ctx, req)
+}
+
+func (s *service) writeRobots(
+	ctx context.Context,
+	writer artifactWriter,
+	siteMeta SiteMetadata,
+) error {
+	content := buildRobots(siteMeta.BaseURL, s.cfg.GenerateSitemap)
+	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	destRel := "robots.txt"
+	fullPath := joinOutputPath(baseDir, destRel)
+	if err := ensureDir(ctx, writer, map[string]struct{}{}, path.Dir(fullPath)); err != nil {
+		return err
+	}
+	checksum := computeHashFromString(content)
+	req := writeFileRequest{
+		Path:        fullPath,
+		Content:     strings.NewReader(content),
+		Size:        int64(len(content)),
+		Category:    categoryRobots,
+		ContentType: "text/plain; charset=utf-8",
+		Checksum:    checksum,
+		Metadata: map[string]string{
+			"generated_at": s.now().UTC().Format(time.RFC3339),
+		},
+	}
+	return writer.WriteFile(ctx, req)
 }
 
 func (s *service) effectiveWorkerCount(localeCount int) int {
@@ -380,6 +608,36 @@ func safeTranslationPath(translation *pages.PageTranslation) string {
 		return ""
 	}
 	return translation.Path
+}
+
+func ensureDir(ctx context.Context, writer artifactWriter, cache map[string]struct{}, dir string) error {
+	dir = strings.Trim(dir, " ")
+	if dir == "" || dir == "." {
+		return nil
+	}
+	if cache != nil {
+		if _, ok := cache[dir]; ok {
+			return nil
+		}
+		cache[dir] = struct{}{}
+	}
+	return writer.EnsureDir(ctx, dir)
+}
+
+func joinOutputPath(base string, rel string) string {
+	if strings.TrimSpace(base) == "" {
+		return strings.TrimLeft(rel, "/")
+	}
+	return path.Join(strings.Trim(base, "/"), rel)
+}
+
+func computeHash(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
+}
+
+func computeHashFromString(content string) string {
+	return computeHash([]byte(content))
 }
 
 func (service) BuildPage(context.Context, uuid.UUID, string) error {
