@@ -2,6 +2,7 @@ package di
 
 import (
 	"errors"
+	"maps"
 	"strings"
 	"time"
 
@@ -510,6 +511,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				Workers:         c.Config.Generator.Workers,
 				DefaultLocale:   c.Config.DefaultLocale,
 				Locales:         append([]string{}, c.Config.I18N.Locales...),
+				Menus:           maps.Clone(c.Config.Generator.Menus),
 			}
 			genDeps := generator.Dependencies{
 				Pages:    c.PageService(),
@@ -521,6 +523,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				I18N:     c.I18nService(),
 				Renderer: c.template,
 				Storage:  c.generatorStorage,
+				Locales:  c.localeRepo,
 			}
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}

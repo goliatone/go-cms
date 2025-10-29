@@ -126,8 +126,6 @@ type localeSet struct {
 }
 
 func (s *service) resolveLocales(ctx context.Context, opts BuildOptions) (localeSet, error) {
-	var requested []string
-
 	defaultLocale := strings.TrimSpace(s.cfg.DefaultLocale)
 	if defaultLocale == "" && s.deps.I18N != nil {
 		defaultLocale = strings.TrimSpace(s.deps.I18N.DefaultLocale())
@@ -136,23 +134,27 @@ func (s *service) resolveLocales(ctx context.Context, opts BuildOptions) (locale
 		defaultLocale = "en"
 	}
 
+	var baseRequested []string
 	if len(opts.Locales) > 0 {
-		requested = append(requested, opts.Locales...)
+		baseRequested = append([]string{}, opts.Locales...)
 	} else if len(s.cfg.Locales) > 0 {
-		requested = append(requested, s.cfg.Locales...)
+		baseRequested = append([]string{}, s.cfg.Locales...)
 	}
 
 	seen := map[string]struct{}{}
 	var codes []string
 
-	// Ensure default locale is first.
-	defaultLower := strings.ToLower(defaultLocale)
-	if strings.TrimSpace(defaultLocale) != "" {
-		seen[defaultLower] = struct{}{}
-		codes = append(codes, defaultLocale)
+	includeDefault := len(baseRequested) == 0
+
+	if includeDefault {
+		defaultLower := strings.ToLower(defaultLocale)
+		if strings.TrimSpace(defaultLocale) != "" {
+			seen[defaultLower] = struct{}{}
+			codes = append(codes, defaultLocale)
+		}
 	}
 
-	for _, candidate := range requested {
+	for _, candidate := range baseRequested {
 		normalized := strings.TrimSpace(candidate)
 		if normalized == "" {
 			continue
@@ -190,6 +192,22 @@ func (s *service) resolveLocales(ctx context.Context, opts BuildOptions) (locale
 		set.ordered = append(set.ordered, spec)
 		set.byID[record.ID] = spec
 	}
+
+	if set.defaultID == uuid.Nil {
+		record, err := s.deps.Locales.GetByCode(ctx, defaultLocale)
+		if err != nil {
+			return localeSet{}, err
+		}
+		set.defaultID = record.ID
+		if _, ok := set.byID[record.ID]; !ok && !includeDefault {
+			set.byID[record.ID] = LocaleSpec{
+				Code:      record.Code,
+				LocaleID:  record.ID,
+				IsDefault: true,
+			}
+		}
+	}
+
 	return set, nil
 }
 
@@ -319,7 +337,7 @@ func (c *buildCaches) template(ctx context.Context, service themes.Service, id u
 			return nil, nil
 		}
 		return nil, err
-}
+	}
 	c.templates[id] = template
 	return template, nil
 }
