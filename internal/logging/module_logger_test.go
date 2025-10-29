@@ -119,7 +119,7 @@ func TestMarkdownLoggerRequestsMarkdownModule(t *testing.T) {
 
 func TestWithMarkdownContextAddsFields(t *testing.T) {
 	rec := &recordingLogger{}
-	logger := WithMarkdownContext(rec, "content/en/about.md", "en", "import")
+	_ = WithMarkdownContext(rec, "content/en/about.md", "en", "import")
 	if len(rec.fields) != 1 {
 		t.Fatalf("expected markdown context to append fields, got %d entries", len(rec.fields))
 	}

@@ -1,0 +1,15 @@
+[
+  {
+    "level": "info",
+    "message": "markdown.service.import.completed",
+    "fields": {
+      "markdown_path": "en/about.md",
+      "locale": "en",
+      "sync_action": "import",
+      "created": 1,
+      "updated": 0,
+      "skipped": 0,
+      "dry_run": false
+    }
+  }
+]

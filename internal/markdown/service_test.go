@@ -2,10 +2,14 @@ package markdown
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"path/filepath"
+	"reflect"
 	"testing"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
 )
 
@@ -103,10 +107,10 @@ func newTestService(tb testing.TB, recursive bool) *Service {
 	return svc
 }
 
-func TestServiceImportLogsResult(t *testing.T) {
+func TestServiceImportLogsGolden(t *testing.T) {
 	contentStub := newStubContentService()
 	pageStub := newStubPageService()
-	logger := &recordingLogger{}
+	logger := newGoldenLogger()
 
 	svc := newImportService(t, contentStub, pageStub, WithLogger(logger))
 
@@ -124,30 +128,13 @@ func TestServiceImportLogsResult(t *testing.T) {
 		t.Fatalf("Import: %v", err)
 	}
 
-	var foundContext, foundSummary bool
-	for _, fields := range logger.fields {
-		if path, ok := fields["markdown_path"]; ok && path == "en/about.md" {
-			if action, ok := fields["sync_action"]; ok && action == "import" {
-				foundContext = true
-			}
-		}
-		if _, ok := fields["created"]; ok {
-			foundSummary = true
-		}
-	}
-
-	if !foundContext {
-		t.Fatalf("expected markdown context fields recorded, got %#v", logger.fields)
-	}
-	if !foundSummary {
-		t.Fatalf("expected import summary fields recorded, got %#v", logger.fields)
-	}
+	assertGoldenLogs(t, logger.entries(), filepath.Join("testdata", "logs", "import_success.golden.json"))
 }
 
-func TestServiceImportLogsError(t *testing.T) {
+func TestServiceImportLogsErrorGolden(t *testing.T) {
 	contentStub := newStubContentService()
 	pageStub := newStubPageService()
-	logger := &recordingLogger{}
+	logger := newGoldenLogger()
 
 	svc := newImportService(t, contentStub, pageStub, WithLogger(logger))
 
@@ -155,46 +142,119 @@ func TestServiceImportLogsError(t *testing.T) {
 		t.Fatal("expected error when document is nil")
 	}
 
-	var foundAction, foundError bool
-	for _, fields := range logger.fields {
-		if action, ok := fields["sync_action"]; ok && action == "import" {
-			foundAction = true
-		}
-		if reason, ok := fields["error"]; ok && reason == "document_nil" {
-			foundError = true
-		}
-	}
-	if !foundAction {
-		t.Fatalf("expected sync_action field recorded, got %#v", logger.fields)
-	}
-	if !foundError {
-		t.Fatalf("expected error field recorded, got %#v", logger.fields)
+	assertGoldenLogs(t, logger.entries(), filepath.Join("testdata", "logs", "import_failure.golden.json"))
+}
+
+type logEntry struct {
+	Level   string                 `json:"level"`
+	Message string                 `json:"message"`
+	Fields  map[string]any         `json:"fields,omitempty"`
+}
+
+type goldenLogger struct {
+	ctx     map[string]any
+	entries *[]logEntry
+}
+
+func newGoldenLogger() *goldenLogger {
+	entrySlice := make([]logEntry, 0)
+	return &goldenLogger{
+		ctx:     map[string]any{},
+		entries: &entrySlice,
 	}
 }
 
-type recordingLogger struct {
-	fields []map[string]any
+func (l *goldenLogger) Trace(msg string, args ...any) { l.record("trace", msg, args...) }
+func (l *goldenLogger) Debug(msg string, args ...any) { l.record("debug", msg, args...) }
+func (l *goldenLogger) Info(msg string, args ...any)  { l.record("info", msg, args...) }
+func (l *goldenLogger) Warn(msg string, args ...any)  { l.record("warn", msg, args...) }
+func (l *goldenLogger) Error(msg string, args ...any) { l.record("error", msg, args...) }
+func (l *goldenLogger) Fatal(msg string, args ...any) { l.record("fatal", msg, args...) }
+
+func (l *goldenLogger) WithFields(fields map[string]any) interfaces.Logger {
+	merged := cloneFields(l.ctx)
+	for key, value := range fields {
+		merged[key] = normaliseLogValue(value)
+	}
+	return &goldenLogger{
+		ctx:     merged,
+		entries: l.entries,
+	}
 }
 
-func (r *recordingLogger) Trace(string, ...any) {}
-func (r *recordingLogger) Debug(string, ...any) {}
-func (r *recordingLogger) Info(string, ...any)  {}
-func (r *recordingLogger) Warn(string, ...any)  {}
-func (r *recordingLogger) Error(string, ...any) {}
-func (r *recordingLogger) Fatal(string, ...any) {}
-
-func (r *recordingLogger) WithFields(fields map[string]any) interfaces.Logger {
-	if fields == nil {
-		return r
+func (l *goldenLogger) WithContext(context.Context) interfaces.Logger {
+	return &goldenLogger{
+		ctx:     cloneFields(l.ctx),
+		entries: l.entries,
 	}
-	copied := make(map[string]any, len(fields))
-	for k, v := range fields {
-		copied[k] = v
-	}
-	r.fields = append(r.fields, copied)
-	return r
 }
 
-func (r *recordingLogger) WithContext(context.Context) interfaces.Logger {
-	return r
+func (l *goldenLogger) entries() []logEntry {
+	if l.entries == nil {
+		return nil
+	}
+	return append([]logEntry(nil), (*l.entries)...)
+}
+
+func (l *goldenLogger) record(level, msg string, args ...any) {
+	if l.entries == nil {
+		return
+	}
+	message := msg
+	if len(args) > 0 {
+		message = fmt.Sprintf(msg, args...)
+	}
+	fields := cloneFields(l.ctx)
+	entry := logEntry{
+		Level:   level,
+		Message: message,
+	}
+	if len(fields) > 0 {
+		entry.Fields = fields
+	}
+	*l.entries = append(*l.entries, entry)
+}
+
+func assertGoldenLogs(t *testing.T, entries []logEntry, goldenPath string) {
+	t.Helper()
+
+	var want []logEntry
+	if err := testsupport.LoadGolden(goldenPath, &want); err != nil {
+		t.Fatalf("load golden %s: %v", goldenPath, err)
+	}
+
+	if reflect.DeepEqual(entries, want) {
+		return
+	}
+
+	gotJSON, err := json.MarshalIndent(entries, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal got logs: %v", err)
+	}
+	wantJSON, err := json.MarshalIndent(want, "", "  ")
+	if err != nil {
+		t.Fatalf("marshal want logs: %v", err)
+	}
+
+	t.Fatalf("markdown logs mismatch\nwant:\n%s\n\ngot:\n%s", string(wantJSON), string(gotJSON))
+}
+
+func cloneFields(fields map[string]any) map[string]any {
+	if len(fields) == 0 {
+		return map[string]any{}
+	}
+	out := make(map[string]any, len(fields))
+	for key, value := range fields {
+		out[key] = normaliseLogValue(value)
+	}
+	return out
+}
+
+func normaliseLogValue(value any) any {
+	switch v := value.(type) {
+	case error:
+		return v.Error()
+	default:
+		return v
+	}
 }
