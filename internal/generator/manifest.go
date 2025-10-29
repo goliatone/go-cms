@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"path"
-	"sort"
 	"strings"
 	"time"
 
@@ -97,41 +96,7 @@ func (m *buildManifest) marshal() ([]byte, error) {
 	if cloned.Metadata == nil {
 		cloned.Metadata = map[string]json.RawMessage{}
 	}
-	// Stable ordering for deterministic output.
-	type orderedManifest struct {
-		Version     int                        `json:"version"`
-		GeneratedAt time.Time                  `json:"generated_at"`
-		Pages       []manifestPage             `json:"pages"`
-		Assets      []manifestAsset            `json:"assets"`
-		Metadata    map[string]json.RawMessage `json:"metadata,omitempty"`
-	}
-	ordered := orderedManifest{
-		Version:     cloned.Version,
-		GeneratedAt: cloned.GeneratedAt,
-		Metadata:    cloned.Metadata,
-	}
-	if len(cloned.Pages) > 0 {
-		ordered.Pages = make([]manifestPage, 0, len(cloned.Pages))
-		for _, entry := range cloned.Pages {
-			ordered.Pages = append(ordered.Pages, entry)
-		}
-		sort.Slice(ordered.Pages, func(i, j int) bool {
-			if ordered.Pages[i].PageID == ordered.Pages[j].PageID {
-				return ordered.Pages[i].Locale < ordered.Pages[j].Locale
-			}
-			return ordered.Pages[i].PageID < ordered.Pages[j].PageID
-		})
-	}
-	if len(cloned.Assets) > 0 {
-		ordered.Assets = make([]manifestAsset, 0, len(cloned.Assets))
-		for _, entry := range cloned.Assets {
-			ordered.Assets = append(ordered.Assets, entry)
-		}
-		sort.Slice(ordered.Assets, func(i, j int) bool {
-			return ordered.Assets[i].Key < ordered.Assets[j].Key
-		})
-	}
-	return json.MarshalIndent(ordered, "", "  ")
+	return json.MarshalIndent(cloned, "", "  ")
 }
 
 func (m *buildManifest) pageKey(pageID uuid.UUID, locale string) string {
