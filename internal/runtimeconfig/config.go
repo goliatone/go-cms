@@ -21,6 +21,7 @@ var ErrAdvancedCacheRequiresEnabledCache = errors.New("cms config: advanced cach
 var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron auto-registration requires scheduling to be enabled")
 var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must be enabled to configure markdown")
 var ErrMarkdownContentDirRequired = errors.New("cms config: markdown content directory is required when markdown is enabled")
+var ErrGeneratorOutputDirRequired = errors.New("cms config: generator output directory is required when generator is enabled")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -36,6 +37,7 @@ type Config struct {
 	Features      Features
 	Commands      CommandsConfig
 	Markdown      MarkdownConfig
+	Generator     GeneratorConfig
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -124,6 +126,21 @@ type MarkdownParserConfig struct {
 	SafeMode   bool
 }
 
+// GeneratorConfig captures behaviour for the static site generator.
+type GeneratorConfig struct {
+	Enabled         bool
+	OutputDir       string
+	BaseURL         string
+	CleanBuild      bool
+	Incremental     bool
+	CopyAssets      bool
+	GenerateSitemap bool
+	GenerateRobots  bool
+	GenerateFeeds   bool
+	Workers         int
+	Menus           map[string]string
+}
+
 // DefaultConfig returns opinionated defaults matching Phase 1 expectations.
 func DefaultConfig() Config {
 	return Config{
@@ -155,6 +172,17 @@ func DefaultConfig() Config {
 			Recursive:      true,
 			LocalePatterns: map[string]string{},
 		},
+		Generator: GeneratorConfig{
+			OutputDir:       "dist",
+			CleanBuild:      true,
+			Incremental:     false,
+			CopyAssets:      true,
+			GenerateSitemap: true,
+			GenerateRobots:  false,
+			GenerateFeeds:   false,
+			Workers:         0,
+			Menus:           map[string]string{},
+		},
 	}
 }
 
@@ -180,6 +208,11 @@ func (cfg Config) Validate() error {
 		}
 		if strings.TrimSpace(cfg.Markdown.ContentDir) == "" {
 			return ErrMarkdownContentDirRequired
+		}
+	}
+	if cfg.Generator.Enabled {
+		if strings.TrimSpace(cfg.Generator.OutputDir) == "" {
+			return ErrGeneratorOutputDirRequired
 		}
 	}
 	return nil
