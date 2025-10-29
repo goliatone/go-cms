@@ -13,7 +13,7 @@ type ContentService interface {
 	Update(ctx context.Context, req ContentUpdateRequest) (*ContentRecord, error)
 	GetBySlug(ctx context.Context, slug string) (*ContentRecord, error)
 	List(ctx context.Context) ([]*ContentRecord, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, req ContentDeleteRequest) error
 }
 
 // ContentCreateRequest captures the details required to create a content record.
@@ -34,6 +34,14 @@ type ContentUpdateRequest struct {
 	UpdatedBy    uuid.UUID
 	Translations []ContentTranslationInput
 	Metadata     map[string]any
+}
+
+// ContentDeleteRequest captures the information required to remove content. When
+// HardDelete is false, implementations may opt for soft-deletion where supported.
+type ContentDeleteRequest struct {
+	ID         uuid.UUID
+	DeletedBy  uuid.UUID
+	HardDelete bool
 }
 
 // ContentTranslationInput represents localized fields provided during create/update.
