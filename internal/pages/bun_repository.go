@@ -3,6 +3,7 @@ package pages
 import (
 	"context"
 	"fmt"
+	"time"
 
 	goerrors "github.com/goliatone/go-errors"
 	repository "github.com/goliatone/go-repository-bun"
@@ -13,6 +14,7 @@ import (
 )
 
 type BunPageRepository struct {
+	db       *bun.DB
 	repo     repository.Repository[*Page]
 	versions repository.Repository[*PageVersion]
 }
@@ -26,6 +28,7 @@ func NewBunPageRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, 
 	base := NewPageRepository(db)
 	versionBase := NewPageVersionRepository(db)
 	return &BunPageRepository{
+		db:       db,
 		repo:     wrapWithCache(base, cacheService, keySerializer),
 		versions: wrapWithCache(versionBase, cacheService, keySerializer),
 	}
@@ -64,6 +67,8 @@ func (r *BunPageRepository) Update(ctx context.Context, record *Page) (*Page, er
 	updated, err := r.repo.Update(ctx, record,
 		repository.UpdateByID(record.ID.String()),
 		repository.UpdateColumns(
+			"template_id",
+			"parent_id",
 			"current_version",
 			"published_version",
 			"status",
@@ -79,6 +84,54 @@ func (r *BunPageRepository) Update(ctx context.Context, record *Page) (*Page, er
 		return nil, err
 	}
 	return updated, nil
+}
+
+func (r *BunPageRepository) ReplaceTranslations(ctx context.Context, pageID uuid.UUID, translations []*PageTranslation) error {
+	if r.db == nil {
+		return fmt.Errorf("page repository: database not configured")
+	}
+
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().
+			Model((*PageTranslation)(nil)).
+			Where("?TableAlias.page_id = ?", pageID).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("delete page translations: %w", err)
+		}
+
+		if len(translations) == 0 {
+			return nil
+		}
+
+		now := time.Now().UTC()
+		toInsert := make([]*PageTranslation, 0, len(translations))
+		for _, tr := range translations {
+			if tr == nil {
+				continue
+			}
+			cloned := *tr
+			cloned.PageID = pageID
+			if cloned.ID == uuid.Nil {
+				cloned.ID = uuid.New()
+			}
+			if cloned.CreatedAt.IsZero() {
+				cloned.CreatedAt = now
+			}
+			if cloned.UpdatedAt.IsZero() {
+				cloned.UpdatedAt = now
+			}
+			toInsert = append(toInsert, &cloned)
+		}
+
+		if len(toInsert) == 0 {
+			return nil
+		}
+
+		if _, err := tx.NewInsert().Model(&toInsert).Exec(ctx); err != nil {
+			return fmt.Errorf("insert page translations: %w", err)
+		}
+		return nil
+	})
 }
 
 func (r *BunPageRepository) CreateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error) {
@@ -152,6 +205,47 @@ func (r *BunPageRepository) UpdateVersion(ctx context.Context, version *PageVers
 		return nil, err
 	}
 	return updated, nil
+}
+
+func (r *BunPageRepository) Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error {
+	if !hardDelete {
+		return fmt.Errorf("page repository: soft delete not supported")
+	}
+	if r.db == nil {
+		return fmt.Errorf("page repository: database not configured")
+	}
+
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().
+			Model((*PageTranslation)(nil)).
+			Where("?TableAlias.page_id = ?", id).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("delete page translations: %w", err)
+		}
+
+		if _, err := tx.NewDelete().
+			Model((*PageVersion)(nil)).
+			Where("?TableAlias.page_id = ?", id).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("delete page versions: %w", err)
+		}
+
+		result, err := tx.NewDelete().
+			Model((*Page)(nil)).
+			Where("?TableAlias.id = ?", id).
+			Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("delete page: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("page delete rows affected: %w", err)
+		}
+		if affected == 0 {
+			return &PageNotFoundError{Key: id.String()}
+		}
+		return nil
+	})
 }
 
 func mapRepositoryError(err error, resource, key string) error {

@@ -94,9 +94,49 @@ func (m *MemoryPageRepository) Update(_ context.Context, record *Page) (*Page, e
 	updated.Status = record.Status
 	updated.UpdatedAt = record.UpdatedAt
 	updated.UpdatedBy = record.UpdatedBy
+	updated.TemplateID = record.TemplateID
+	updated.ParentID = record.ParentID
+	if len(record.Translations) > 0 {
+		updated.Translations = clonePageTranslations(record.Translations)
+	}
 
 	m.pages[record.ID] = updated
 	return m.attachVersions(clonePage(updated)), nil
+}
+
+// ReplaceTranslations swaps the translations associated with a page.
+func (m *MemoryPageRepository) ReplaceTranslations(_ context.Context, pageID uuid.UUID, translations []*PageTranslation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.pages[pageID]
+	if !ok {
+		return &PageNotFoundError{Key: pageID.String()}
+	}
+	record.Translations = clonePageTranslations(translations)
+	return nil
+}
+
+// Delete removes the page and associated versions when hard delete is requested.
+func (m *MemoryPageRepository) Delete(_ context.Context, id uuid.UUID, hardDelete bool) error {
+	if !hardDelete {
+		return ErrPageSoftDeleteUnsupported
+	}
+
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.pages[id]
+	if !ok {
+		return &PageNotFoundError{Key: id.String()}
+	}
+
+	delete(m.pages, id)
+	if slug := record.Slug; slug != "" {
+		delete(m.slugIndex, slug)
+	}
+	delete(m.versions, id)
+	return nil
 }
 
 // CreateVersion appends a version to the supplied page.
@@ -169,22 +209,28 @@ func clonePage(src *Page) *Page {
 		return nil
 	}
 	copied := *src
-	if len(src.Translations) > 0 {
-		copied.Translations = make([]*PageTranslation, len(src.Translations))
-		for i, tr := range src.Translations {
-			if tr == nil {
-				continue
-			}
-			local := *tr
-			local.MediaBindings = media.CloneBindingSet(tr.MediaBindings)
-			local.ResolvedMedia = media.CloneAttachments(tr.ResolvedMedia)
-			copied.Translations[i] = &local
-		}
-	}
+	copied.Translations = clonePageTranslations(src.Translations)
 	if len(src.Versions) > 0 {
 		copied.Versions = clonePageVersions(src.Versions)
 	}
 	return &copied
+}
+
+func clonePageTranslations(src []*PageTranslation) []*PageTranslation {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]*PageTranslation, len(src))
+	for i, tr := range src {
+		if tr == nil {
+			continue
+		}
+		local := *tr
+		local.MediaBindings = media.CloneBindingSet(tr.MediaBindings)
+		local.ResolvedMedia = media.CloneAttachments(tr.ResolvedMedia)
+		out[i] = &local
+	}
+	return out
 }
 
 func cloneMap(src map[string]any) map[string]any {

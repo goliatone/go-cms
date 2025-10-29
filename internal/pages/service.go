@@ -26,6 +26,8 @@ type Service interface {
 	Create(ctx context.Context, req CreatePageRequest) (*Page, error)
 	Get(ctx context.Context, id uuid.UUID) (*Page, error)
 	List(ctx context.Context) ([]*Page, error)
+	Update(ctx context.Context, req UpdatePageRequest) (*Page, error)
+	Delete(ctx context.Context, req DeletePageRequest) error
 	Schedule(ctx context.Context, req SchedulePageRequest) (*Page, error)
 	CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error)
 	PublishDraft(ctx context.Context, req PublishPagePublishRequest) (*PageVersion, error)
@@ -52,6 +54,22 @@ type PageTranslationInput struct {
 	Path          string
 	Summary       *string
 	MediaBindings media.BindingSet
+}
+
+// UpdatePageRequest captures the mutable fields for an existing page.
+type UpdatePageRequest struct {
+	ID           uuid.UUID
+	TemplateID   *uuid.UUID
+	Status       string
+	UpdatedBy    uuid.UUID
+	Translations []PageTranslationInput
+}
+
+// DeletePageRequest captures the information required to delete a page.
+type DeletePageRequest struct {
+	ID         uuid.UUID
+	DeletedBy  uuid.UUID
+	HardDelete bool
 }
 
 // CreatePageDraftRequest captures the data required to create a page version draft.
@@ -108,6 +126,7 @@ var (
 	ErrScheduleWindowInvalid      = errors.New("pages: publish_at must be before unpublish_at")
 	ErrScheduleTimestampInvalid   = errors.New("pages: schedule timestamp is invalid")
 	ErrPageMediaReferenceRequired = errors.New("pages: media reference requires id or path")
+	ErrPageSoftDeleteUnsupported  = errors.New("pages: soft delete not supported")
 )
 
 // PageRepository abstracts storage operations for pages.
@@ -117,6 +136,8 @@ type PageRepository interface {
 	GetBySlug(ctx context.Context, slug string) (*Page, error)
 	List(ctx context.Context) ([]*Page, error)
 	Update(ctx context.Context, record *Page) (*Page, error)
+	ReplaceTranslations(ctx context.Context, pageID uuid.UUID, translations []*PageTranslation) error
+	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
 	CreateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error)
 	ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error)
 	GetVersion(ctx context.Context, pageID uuid.UUID, number int) (*PageVersion, error)
@@ -482,6 +503,122 @@ func (s *pageService) List(ctx context.Context) ([]*Page, error) {
 	}
 	logger.Debug("pages listed", "count", len(enriched))
 	return enriched, nil
+}
+
+// Update mutates template, status, and translations for an existing page.
+func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page, error) {
+	if req.ID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+	if len(req.Translations) == 0 {
+		return nil, ErrNoPageTranslations
+	}
+
+	logger := s.opLogger(ctx, "pages.update", map[string]any{
+		"page_id": req.ID,
+	})
+
+	existing, err := s.pages.GetByID(ctx, req.ID)
+	if err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return nil, err
+	}
+
+	if req.TemplateID != nil {
+		if *req.TemplateID == uuid.Nil {
+			return nil, ErrTemplateRequired
+		}
+		if s.themes != nil {
+			if _, err := s.themes.GetTemplate(ctx, *req.TemplateID); err != nil {
+				if errors.Is(err, themes.ErrFeatureDisabled) {
+					// Ignore when themes disabled.
+				} else if errors.Is(err, themes.ErrTemplateNotFound) {
+					logger.Warn("page template not found", "template_id", *req.TemplateID)
+					return nil, ErrTemplateUnknown
+				} else {
+					logger.Error("page template lookup failed", "error", err)
+					return nil, err
+				}
+			}
+		}
+		existing.TemplateID = *req.TemplateID
+	}
+
+	allPages, err := s.pages.List(ctx)
+	if err != nil {
+		logger.Error("page list failed", "error", err)
+		return nil, err
+	}
+
+	now := s.now()
+	translations, err := s.buildPageTranslations(ctx, existing.ID, req.Translations, allPages, existing.Translations, now)
+	if err != nil {
+		logger.Error("page translations build failed", "error", err)
+		return nil, err
+	}
+
+	existing.Status = chooseStatus(req.Status)
+	if req.UpdatedBy != uuid.Nil {
+		existing.UpdatedBy = req.UpdatedBy
+	}
+	existing.UpdatedAt = now
+	existing.Translations = translations
+
+	if err := s.pages.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
+		logger.Error("page translations replace failed", "error", err)
+		return nil, err
+	}
+
+	updated, err := s.pages.Update(ctx, existing)
+	if err != nil {
+		logger.Error("page repository update failed", "error", err)
+		return nil, err
+	}
+
+	enriched, err := s.enrichPages(ctx, []*Page{updated})
+	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
+		return nil, err
+	}
+
+	logger.Info("page updated")
+	return enriched[0], nil
+}
+
+// Delete removes a page and associated scheduled jobs.
+func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
+	if req.ID == uuid.Nil {
+		return ErrPageRequired
+	}
+	if !req.HardDelete {
+		return ErrPageSoftDeleteUnsupported
+	}
+
+	logger := s.opLogger(ctx, "pages.delete", map[string]any{
+		"page_id": req.ID,
+	})
+
+	if _, err := s.pages.GetByID(ctx, req.ID); err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return err
+	}
+
+	if s.scheduler != nil {
+		if err := s.scheduler.CancelByKey(ctx, cmsscheduler.PagePublishJobKey(req.ID)); err != nil && !errors.Is(err, interfaces.ErrJobNotFound) {
+			logger.Warn("page publish job cancel failed", "error", err)
+		}
+		if err := s.scheduler.CancelByKey(ctx, cmsscheduler.PageUnpublishJobKey(req.ID)); err != nil && !errors.Is(err, interfaces.ErrJobNotFound) {
+			logger.Warn("page unpublish job cancel failed", "error", err)
+		}
+	}
+
+	if err := s.pages.Delete(ctx, req.ID, true); err != nil {
+		logger.Error("page repository delete failed", "error", err)
+		return err
+	}
+
+	logger.Info("page deleted")
+	return nil
 }
 
 // Schedule registers publish/unpublish windows for a page and enqueues scheduler jobs.
@@ -1186,6 +1323,26 @@ func pathExists(pages []*Page, localeID uuid.UUID, path string) bool {
 	return false
 }
 
+func pathExistsExcept(pages []*Page, localeID uuid.UUID, path string, ignorePageID uuid.UUID) bool {
+	for _, p := range pages {
+		if p == nil {
+			continue
+		}
+		if ignorePageID != uuid.Nil && p.ID == ignorePageID {
+			continue
+		}
+		for _, tr := range p.Translations {
+			if tr == nil {
+				continue
+			}
+			if tr.LocaleID == localeID && strings.EqualFold(tr.Path, path) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func chooseStatus(status string) string {
 	status = strings.TrimSpace(status)
 	if status == "" {
@@ -1198,6 +1355,81 @@ func isValidSlug(slug string) bool {
 	const pattern = "^[a-z0-9\\-]+$"
 	matched, _ := regexp.MatchString(pattern, slug)
 	return matched
+}
+
+func (s *pageService) buildPageTranslations(ctx context.Context, pageID uuid.UUID, inputs []PageTranslationInput, existingPages []*Page, existing []*PageTranslation, now time.Time) ([]*PageTranslation, error) {
+	byLocale := indexPageTranslationsByLocaleID(existing)
+	seen := map[string]struct{}{}
+	result := make([]*PageTranslation, 0, len(inputs))
+
+	for _, input := range inputs {
+		code := strings.TrimSpace(input.Locale)
+		if code == "" {
+			return nil, ErrUnknownLocale
+		}
+		lower := strings.ToLower(code)
+		if _, ok := seen[lower]; ok {
+			return nil, ErrDuplicateLocale
+		}
+
+		locale, err := s.locales.GetByCode(ctx, code)
+		if err != nil {
+			return nil, ErrUnknownLocale
+		}
+
+		path := sanitizePath(input.Path)
+		if path == "" {
+			return nil, ErrPathExists
+		}
+		if pathExistsExcept(existingPages, locale.ID, path, pageID) {
+			return nil, ErrPathExists
+		}
+
+		if err := validatePageMediaBindings(input.MediaBindings); err != nil {
+			return nil, err
+		}
+
+		translation := &PageTranslation{
+			PageID:        pageID,
+			LocaleID:      locale.ID,
+			Title:         input.Title,
+			Path:          path,
+			Summary:       input.Summary,
+			MediaBindings: media.CloneBindingSet(input.MediaBindings),
+			UpdatedAt:     now,
+		}
+
+		if existingTranslation, ok := byLocale[locale.ID]; ok && existingTranslation != nil {
+			translation.ID = existingTranslation.ID
+			if !existingTranslation.CreatedAt.IsZero() {
+				translation.CreatedAt = existingTranslation.CreatedAt
+			} else {
+				translation.CreatedAt = now
+			}
+		} else {
+			translation.ID = s.id()
+			translation.CreatedAt = now
+		}
+
+		result = append(result, translation)
+		seen[lower] = struct{}{}
+	}
+
+	return result, nil
+}
+
+func indexPageTranslationsByLocaleID(translations []*PageTranslation) map[uuid.UUID]*PageTranslation {
+	if len(translations) == 0 {
+		return map[uuid.UUID]*PageTranslation{}
+	}
+	result := make(map[uuid.UUID]*PageTranslation, len(translations))
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		result[tr.LocaleID] = tr
+	}
+	return result
 }
 
 func nextVersionNumber(records []*PageVersion) int {
