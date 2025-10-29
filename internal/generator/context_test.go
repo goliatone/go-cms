@@ -460,9 +460,10 @@ func (s *stubMenusService) AddMenuItemTranslation(context.Context, menus.AddMenu
 
 func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string, locale string) ([]menus.NavigationNode, error) {
 	s.calls[locale]++
+	id := uuid.NewSHA1(uuid.NameSpaceURL, []byte(menuCode+"-"+locale))
 	return []menus.NavigationNode{
 		{
-			ID:    uuid.New(),
+			ID:    id,
 			Label: menuCode + "-" + locale,
 			URL:   "/" + locale,
 		},

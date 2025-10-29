@@ -212,8 +212,14 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 	if len(result.Errors) != 0 {
 		t.Fatalf("expected no errors, got %d", len(result.Errors))
 	}
-	if len(storage.ExecCalls()) != 0 {
-		t.Fatalf("expected no storage writes for dry-run, got %d", len(storage.ExecCalls()))
+	writeCalls := 0
+	for _, call := range storage.ExecCalls() {
+		if call.Query == storageOpWrite {
+			writeCalls++
+		}
+	}
+	if writeCalls != 0 {
+		t.Fatalf("expected no storage writes for dry-run, got %d", writeCalls)
 	}
 }
 
@@ -357,8 +363,35 @@ func TestBuildSkipsPagesWithManifest(t *testing.T) {
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
-	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+	initialResult, err := svc.Build(ctx, BuildOptions{})
+	if err != nil {
 		t.Fatalf("initial build: %v", err)
+	}
+	if len(initialResult.Rendered) != fixtures.LocalizedCount() {
+		t.Fatalf("expected %d rendered pages, got %d", fixtures.LocalizedCount(), len(initialResult.Rendered))
+	}
+	manifestTarget := joinOutputPath(strings.Trim(strings.TrimSpace(fixtures.Config.OutputDir), "/"), manifestFileName)
+	if _, ok := storage.files[manifestTarget]; !ok {
+		t.Fatalf("expected manifest written to %s", manifestTarget)
+	}
+	storedManifest, err := parseManifest(storage.files[manifestTarget])
+	if err != nil {
+		t.Fatalf("parse stored manifest: %v", err)
+	}
+	buildCtx, err := svc.loadContext(ctx, BuildOptions{})
+	if err != nil {
+		t.Fatalf("load context: %v", err)
+	}
+	if len(storedManifest.Pages) != len(buildCtx.Pages) {
+		t.Fatalf("expected manifest to contain %d pages, got %d", len(buildCtx.Pages), len(storedManifest.Pages))
+	}
+	for _, page := range buildCtx.Pages {
+		route := safeTranslationPath(page.Translation)
+		destRel := buildOutputPath(route, page.Locale.Code, buildCtx.DefaultLocale)
+		output := joinOutputPath(strings.Trim(strings.TrimSpace(fixtures.Config.OutputDir), "/"), destRel)
+		if !storedManifest.shouldSkipPage(page.Page.ID, page.Locale.Code, page.Metadata.Hash, output) {
+			t.Fatalf("manifest mismatch for %s/%s", page.Page.ID, page.Locale.Code)
+		}
 	}
 
 	expectedLocalized := fixtures.LocalizedCount()
@@ -421,6 +454,260 @@ func TestBuildSkipsPagesWithManifest(t *testing.T) {
 	}
 }
 
+func TestBuildPageForcesRender(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 8, 4, 15, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.Incremental = true
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+		t.Fatalf("initial build: %v", err)
+	}
+	renderer.assertCalls(t, fixtures.LocalizedCount())
+
+	initialExecs := len(storage.ExecCalls())
+	targetPage := fixtures.PageIDs[0]
+	locales := fixtures.Config.Locales
+
+	renderer2 := &recordingRenderer{}
+	svc2 := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer2,
+		Storage:  storage,
+	}).(*service)
+	svc2.now = func() time.Time { return now.Add(5 * time.Minute) }
+
+	if err := svc2.BuildPage(ctx, targetPage, locales[0]); err != nil {
+		t.Fatalf("build page: %v", err)
+	}
+	renderer2.assertCalls(t, 1)
+
+	newCalls := storage.ExecCalls()[initialExecs:]
+	pageWrites := 0
+	for _, call := range newCalls {
+		if call.Query != storageOpWrite {
+			continue
+		}
+		if len(call.Args) < 4 {
+			continue
+		}
+		category, _ := call.Args[3].(string)
+		if category == string(categoryPage) {
+			pageWrites++
+		}
+	}
+	if pageWrites != 1 {
+		t.Fatalf("expected 1 page rewrite, got %d", pageWrites)
+	}
+}
+
+func TestBuildAssetsForcesCopy(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 9, 10, 9, 30, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.Incremental = true
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+	assetResolver := newStubAssetResolver()
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Assets:   assetResolver,
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+		t.Fatalf("initial build: %v", err)
+	}
+	initialCalls := len(storage.ExecCalls())
+
+	renderer2 := &recordingRenderer{}
+	svc2 := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer2,
+		Storage:  storage,
+		Assets:   assetResolver,
+	}).(*service)
+	svc2.now = func() time.Time { return now.Add(10 * time.Minute) }
+
+	if err := svc2.BuildAssets(ctx); err != nil {
+		t.Fatalf("build assets: %v", err)
+	}
+	newCalls := storage.ExecCalls()[initialCalls:]
+	assetWrites := 0
+	for _, call := range newCalls {
+		if call.Query != storageOpWrite {
+			continue
+		}
+		if len(call.Args) < 4 {
+			continue
+		}
+		if category, _ := call.Args[3].(string); category == string(categoryAsset) {
+			assetWrites++
+		}
+	}
+	if assetWrites != 2 {
+		t.Fatalf("expected 2 asset rewrites, got %d", assetWrites)
+	}
+}
+
+func TestCleanInvokesStorageRemove(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 10, 1, 8, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: &recordingRenderer{},
+		Storage:  storage,
+	}).(*service)
+
+	if err := svc.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+	found := false
+	for _, call := range storage.ExecCalls() {
+		if call.Query != storageOpRemove {
+			continue
+		}
+		if len(call.Args) == 0 {
+			continue
+		}
+		if target, _ := call.Args[0].(string); target == strings.Trim(strings.TrimSpace(fixtures.Config.OutputDir), "/") {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected remove call for output directory")
+	}
+}
+
+func TestGeneratorHooksInvoked(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 11, 5, 13, 15, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	storage := &recordingStorage{}
+	assetResolver := newStubAssetResolver()
+
+	type recorder struct {
+		mu          sync.Mutex
+		beforeBuild int
+		afterBuild  int
+		afterPage   int
+		beforeClean int
+		afterClean  int
+	}
+	rec := &recorder{}
+	hooks := Hooks{
+		BeforeBuild: func(context.Context, BuildOptions) error {
+			rec.mu.Lock()
+			rec.beforeBuild++
+			rec.mu.Unlock()
+			return nil
+		},
+		AfterBuild: func(context.Context, BuildOptions, *BuildResult) error {
+			rec.mu.Lock()
+			rec.afterBuild++
+			rec.mu.Unlock()
+			return nil
+		},
+		AfterPage: func(context.Context, RenderedPage) error {
+			rec.mu.Lock()
+			rec.afterPage++
+			rec.mu.Unlock()
+			return nil
+		},
+		BeforeClean: func(context.Context, string) error {
+			rec.mu.Lock()
+			rec.beforeClean++
+			rec.mu.Unlock()
+			return nil
+		},
+		AfterClean: func(context.Context, string) error {
+			rec.mu.Lock()
+			rec.afterClean++
+			rec.mu.Unlock()
+			return nil
+		},
+	}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: &recordingRenderer{},
+		Storage:  storage,
+		Assets:   assetResolver,
+		Hooks:    hooks,
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if err := svc.BuildAssets(ctx); err != nil {
+		t.Fatalf("build assets: %v", err)
+	}
+	if err := svc.Clean(ctx); err != nil {
+		t.Fatalf("clean: %v", err)
+	}
+	if err := svc.BuildPage(ctx, fixtures.PageIDs[0], ""); err != nil {
+		t.Fatalf("build page: %v", err)
+	}
+
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	if rec.beforeBuild != 3 {
+		t.Fatalf("expected beforeBuild invoked 3 times, got %d", rec.beforeBuild)
+	}
+	if rec.afterBuild != 3 {
+		t.Fatalf("expected afterBuild invoked 3 times, got %d", rec.afterBuild)
+	}
+	if rec.afterPage == 0 {
+		t.Fatalf("expected afterPage hook to run")
+	}
+	if rec.beforeClean != 1 || rec.afterClean != 1 {
+		t.Fatalf("expected clean hooks to run once, got %d/%d", rec.beforeClean, rec.afterClean)
+	}
+}
+
 type renderFixtures struct {
 	Config   Config
 	Content  *stubContentService
@@ -444,6 +731,8 @@ type recordingStorage struct {
 }
 
 func (s *recordingStorage) Exec(_ context.Context, query string, args ...any) (interfaces.Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if query == storageOpWrite && len(args) >= 2 {
 		if target, ok := args[0].(string); ok {
 			if reader, ok := args[1].(io.Reader); ok && reader != nil {
@@ -457,8 +746,17 @@ func (s *recordingStorage) Exec(_ context.Context, query string, args ...any) (i
 			}
 		}
 	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	if query == storageOpRemove && len(args) >= 1 {
+		if target, ok := args[0].(string); ok {
+			if s.files != nil {
+				for path := range s.files {
+					if path == target || strings.HasPrefix(path, strings.TrimRight(target, "/")+"/") {
+						delete(s.files, path)
+					}
+				}
+			}
+		}
+	}
 	copied := append([]any(nil), args...)
 	s.execs = append(s.execs, storageCall{
 		Query: query,
