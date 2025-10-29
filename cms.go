@@ -87,6 +87,11 @@ func (m *Module) Media() MediaService {
 	return m.container.MediaService()
 }
 
+// Markdown returns the markdown service when configured.
+func (m *Module) Markdown() interfaces.MarkdownService {
+	return m.container.MarkdownService()
+}
+
 // Scheduler returns the scheduler used for publish automation.
 func (m *Module) Scheduler() interfaces.Scheduler {
 	return m.container.Scheduler()

@@ -7,8 +7,8 @@ import (
 
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
-	"github.com/google/uuid"
 	goerrors "github.com/goliatone/go-errors"
+	"github.com/google/uuid"
 )
 
 type importCall struct {
@@ -75,7 +75,7 @@ func (s *stubMarkdownService) Sync(ctx context.Context, directory string, opts i
 }
 
 type captureLogger struct {
-	fields      []map[string]any
+	fields       []map[string]any
 	infoMessages []string
 }
 

@@ -8,10 +8,12 @@ import (
 	"github.com/goliatone/go-cms"
 	contentcmd "github.com/goliatone/go-cms/internal/commands/content"
 	fixtures "github.com/goliatone/go-cms/internal/commands/fixtures"
+	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 )
 
 func TestContainerWidgetServiceDisabled(t *testing.T) {
@@ -182,6 +184,43 @@ func TestContainerRegistersCommandsWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestContainerRegistersMarkdownCommands(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Markdown = true
+	cfg.Commands.Enabled = true
+
+	registry := fixtures.NewRecordingRegistry()
+
+	container, err := di.NewContainer(
+		cfg,
+		di.WithCommandRegistry(registry),
+		di.WithMarkdownService(fakeMarkdownService{}),
+	)
+	if err != nil {
+		t.Fatalf("new container with markdown: %v", err)
+	}
+
+	var importFound, syncFound bool
+	for _, handler := range container.CommandHandlers() {
+		switch handler.(type) {
+		case *markdowncmd.ImportDirectoryHandler:
+			importFound = true
+		case *markdowncmd.SyncDirectoryHandler:
+			syncFound = true
+		}
+	}
+	if !importFound {
+		t.Fatal("expected markdown import handler to be registered")
+	}
+	if !syncFound {
+		t.Fatal("expected markdown sync handler to be registered")
+	}
+
+	if len(registry.Handlers) == 0 {
+		t.Fatal("expected registry to record markdown handlers")
+	}
+}
+
 func TestContainerCronRegistrationUsesConfig(t *testing.T) {
 	cfg := cms.DefaultConfig()
 	cfg.Features.Versioning = true
@@ -307,4 +346,34 @@ func TestContainerCommandsDisabledSkipsRegistration(t *testing.T) {
 	if len(dispatcher.Handlers) != 0 {
 		t.Fatalf("expected dispatcher to remain empty when commands disabled")
 	}
+}
+
+type fakeMarkdownService struct{}
+
+func (fakeMarkdownService) Load(context.Context, string, interfaces.LoadOptions) (*interfaces.Document, error) {
+	return nil, nil
+}
+
+func (fakeMarkdownService) LoadDirectory(context.Context, string, interfaces.LoadOptions) ([]*interfaces.Document, error) {
+	return nil, nil
+}
+
+func (fakeMarkdownService) Render(context.Context, []byte, interfaces.ParseOptions) ([]byte, error) {
+	return nil, nil
+}
+
+func (fakeMarkdownService) RenderDocument(context.Context, *interfaces.Document, interfaces.ParseOptions) ([]byte, error) {
+	return nil, nil
+}
+
+func (fakeMarkdownService) Import(context.Context, *interfaces.Document, interfaces.ImportOptions) (*interfaces.ImportResult, error) {
+	return nil, nil
+}
+
+func (fakeMarkdownService) ImportDirectory(context.Context, string, interfaces.ImportOptions) (*interfaces.ImportResult, error) {
+	return &interfaces.ImportResult{}, nil
+}
+
+func (fakeMarkdownService) Sync(context.Context, string, interfaces.SyncOptions) (*interfaces.SyncResult, error) {
+	return &interfaces.SyncResult{}, nil
 }
