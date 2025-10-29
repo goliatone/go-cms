@@ -17,12 +17,15 @@ import (
 	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	"github.com/goliatone/go-cms/internal/blocks"
+	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	router "github.com/goliatone/go-router"
 	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
@@ -38,6 +41,15 @@ func main() {
 	cfg.I18N.Locales = []string{"en", "es"}
 	cfg.Features.Widgets = true
 	cfg.Features.Themes = true
+	cfg.Features.Markdown = true
+	cfg.Markdown.Enabled = true
+	cfg.Markdown.ContentDir = "./content"
+	cfg.Markdown.DefaultLocale = "en"
+	cfg.Markdown.Locales = []string{"en", "es"}
+	cfg.Markdown.LocalePatterns = map[string]string{
+		"en": "en/**/*.md",
+		"es": "es/**/*.md",
+	}
 
 	// Configure URL routing for menus
 	cfg.Navigation.RouteConfig = &urlkit.Config{

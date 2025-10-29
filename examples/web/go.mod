@@ -5,6 +5,7 @@ go 1.24.0
 require (
 	github.com/gofiber/fiber/v2 v2.52.6
 	github.com/goliatone/go-cms v0.0.0
+	github.com/goliatone/go-command v0.6.0
 	github.com/goliatone/go-router v0.19.0
 	github.com/goliatone/go-urlkit v0.3.0
 	github.com/google/uuid v1.6.0
@@ -12,6 +13,8 @@ require (
 
 require (
 	dario.cat/mergo v1.0.1 // indirect
+	github.com/BurntSushi/toml v0.3.1 // indirect
+	github.com/adrg/frontmatter v0.2.0 // indirect
 	github.com/alecthomas/kong v1.11.0 // indirect
 	github.com/andybalholm/brotli v1.1.1 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
@@ -27,7 +30,6 @@ require (
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/template/django/v3 v3.1.13 // indirect
 	github.com/gofiber/utils v1.1.0 // indirect
-	github.com/goliatone/go-command v0.6.0 // indirect
 	github.com/goliatone/go-composite-fs v0.0.1 // indirect
 	github.com/goliatone/go-errors v0.9.0 // indirect
 	github.com/goliatone/go-repository-bun v0.7.0 // indirect
@@ -57,6 +59,7 @@ require (
 	github.com/viccon/sturdyc v1.1.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	github.com/yuin/goldmark v1.6.0 // indirect
 	golang.org/x/net v0.33.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	golang.org/x/time v0.8.0 // indirect
