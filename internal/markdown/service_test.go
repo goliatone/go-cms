@@ -146,9 +146,9 @@ func TestServiceImportLogsErrorGolden(t *testing.T) {
 }
 
 type logEntry struct {
-	Level   string                 `json:"level"`
-	Message string                 `json:"message"`
-	Fields  map[string]any         `json:"fields,omitempty"`
+	Level   string         `json:"level"`
+	Message string         `json:"message"`
+	Fields  map[string]any `json:"fields,omitempty"`
 }
 
 type goldenLogger struct {
