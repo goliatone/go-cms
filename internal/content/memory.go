@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"time"
@@ -98,9 +99,47 @@ func (m *MemoryContentRepository) Update(_ context.Context, record *Content) (*C
 	updated.Status = record.Status
 	updated.UpdatedAt = record.UpdatedAt
 	updated.UpdatedBy = record.UpdatedBy
+	if len(record.Translations) > 0 {
+		updated.Translations = cloneContentTranslations(record.Translations)
+	}
 
 	m.contents[record.ID] = updated
 	return m.attachVersions(cloneContent(updated)), nil
+}
+
+// ReplaceTranslations swaps the translations associated with a content record.
+func (m *MemoryContentRepository) ReplaceTranslations(_ context.Context, contentID uuid.UUID, translations []*ContentTranslation) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.contents[contentID]
+	if !ok {
+		return &NotFoundError{Resource: "content", Key: contentID.String()}
+	}
+	record.Translations = cloneContentTranslations(translations)
+	return nil
+}
+
+// Delete removes the content record and its associated versions when hard delete is requested.
+func (m *MemoryContentRepository) Delete(_ context.Context, id uuid.UUID, hardDelete bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.contents[id]
+	if !ok {
+		return &NotFoundError{Resource: "content", Key: id.String()}
+	}
+	if !hardDelete {
+		return errors.New("memory content repository: soft delete not supported")
+	}
+
+	delete(m.contents, id)
+	if slug := strings.TrimSpace(record.Slug); slug != "" {
+		delete(m.slugIndex, slug)
+	}
+	delete(m.versions, id)
+
+	return nil
 }
 
 // CreateVersion appends a new version snapshot for the supplied content entity.
@@ -175,17 +214,7 @@ func cloneContent(src *Content) *Content {
 	}
 
 	copied := *src
-	if len(src.Translations) > 0 {
-		copied.Translations = make([]*ContentTranslation, len(src.Translations))
-		for i, tr := range src.Translations {
-			if tr == nil {
-				continue
-			}
-			local := *tr
-			local.Content = cloneMap(tr.Content)
-			copied.Translations[i] = &local
-		}
-	}
+	copied.Translations = cloneContentTranslations(src.Translations)
 	if len(src.Versions) > 0 {
 		copied.Versions = cloneContentVersions(src.Versions)
 	}
@@ -207,6 +236,22 @@ func cloneContentVersions(src []*ContentVersion) []*ContentVersion {
 	out := make([]*ContentVersion, len(src))
 	for i, record := range src {
 		out[i] = cloneContentVersion(record)
+	}
+	return out
+}
+
+func cloneContentTranslations(src []*ContentTranslation) []*ContentTranslation {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make([]*ContentTranslation, len(src))
+	for i, tr := range src {
+		if tr == nil {
+			continue
+		}
+		cloned := *tr
+		cloned.Content = cloneMap(tr.Content)
+		out[i] = &cloned
 	}
 	return out
 }
