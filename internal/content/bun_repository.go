@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"fmt"
+	"time"
 
 	goerrors "github.com/goliatone/go-errors"
 	"github.com/goliatone/go-repository-bun"
@@ -13,8 +14,10 @@ import (
 )
 
 type BunContentRepository struct {
-	repo     repository.Repository[*Content]
-	versions repository.Repository[*ContentVersion]
+	db           *bun.DB
+	repo         repository.Repository[*Content]
+	translations repository.Repository[*ContentTranslation]
+	versions     repository.Repository[*ContentVersion]
 }
 
 func NewBunContentRepository(db *bun.DB) *BunContentRepository {
@@ -23,10 +26,13 @@ func NewBunContentRepository(db *bun.DB) *BunContentRepository {
 
 func NewBunContentRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, keySerializer cache.KeySerializer) *BunContentRepository {
 	base := NewContentRepository(db)
+	translationBase := NewContentTranslationRepository(db)
 	versionBase := NewContentVersionRepository(db)
 	return &BunContentRepository{
-		repo:     wrapWithCache(base, cacheService, keySerializer),
-		versions: wrapWithCache(versionBase, cacheService, keySerializer),
+		db:           db,
+		repo:         wrapWithCache(base, cacheService, keySerializer),
+		translations: wrapWithCache(translationBase, cacheService, keySerializer),
+		versions:     wrapWithCache(versionBase, cacheService, keySerializer),
 	}
 }
 
@@ -78,6 +84,93 @@ func (r *BunContentRepository) Update(ctx context.Context, record *Content) (*Co
 		return nil, err
 	}
 	return updated, nil
+}
+
+func (r *BunContentRepository) ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error {
+	if r.db == nil {
+		return fmt.Errorf("content repository: database not configured")
+	}
+
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().
+			Model((*ContentTranslation)(nil)).
+			Where("?TableAlias.content_id = ?", contentID).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("delete translations: %w", err)
+		}
+
+		if len(translations) == 0 {
+			return nil
+		}
+
+		toInsert := make([]*ContentTranslation, 0, len(translations))
+		now := time.Now().UTC()
+		for _, tr := range translations {
+			if tr == nil {
+				continue
+			}
+			cloned := *tr
+			if cloned.ID == uuid.Nil {
+				cloned.ID = uuid.New()
+			}
+			cloned.ContentID = contentID
+			if cloned.CreatedAt.IsZero() {
+				cloned.CreatedAt = now
+			}
+			cloned.UpdatedAt = now
+			toInsert = append(toInsert, &cloned)
+		}
+
+		if len(toInsert) == 0 {
+			return nil
+		}
+
+		if _, err := tx.NewInsert().Model(&toInsert).Exec(ctx); err != nil {
+			return fmt.Errorf("insert translations: %w", err)
+		}
+		return nil
+	})
+}
+
+func (r *BunContentRepository) Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error {
+	if !hardDelete {
+		return fmt.Errorf("content repository: soft delete not supported")
+	}
+	if r.db == nil {
+		return fmt.Errorf("content repository: database not configured")
+	}
+
+	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		if _, err := tx.NewDelete().
+			Model((*ContentTranslation)(nil)).
+			Where("?TableAlias.content_id = ?", id).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("delete translations: %w", err)
+		}
+
+		if _, err := tx.NewDelete().
+			Model((*ContentVersion)(nil)).
+			Where("?TableAlias.content_id = ?", id).
+			Exec(ctx); err != nil {
+			return fmt.Errorf("delete versions: %w", err)
+		}
+
+		result, err := tx.NewDelete().
+			Model((*Content)(nil)).
+			Where("?TableAlias.id = ?", id).
+			Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("delete content: %w", err)
+		}
+		affected, err := result.RowsAffected()
+		if err != nil {
+			return fmt.Errorf("delete content rows affected: %w", err)
+		}
+		if affected == 0 {
+			return &NotFoundError{Resource: "content", Key: id.String()}
+		}
+		return nil
+	})
 }
 
 func (r *BunContentRepository) CreateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error) {
