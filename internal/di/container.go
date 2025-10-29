@@ -101,6 +101,7 @@ type Container struct {
 	generatorSvc           generator.Service
 	generatorStorage       interfaces.StorageProvider
 	generatorAssetResolver generator.AssetResolver
+	generatorHooks         generator.Hooks
 
 	auditRecorder jobs.AuditRecorder
 	jobWorker     *jobs.Worker
@@ -192,6 +193,13 @@ func WithGeneratorStorage(sp interfaces.StorageProvider) Option {
 func WithGeneratorAssetResolver(resolver generator.AssetResolver) Option {
 	return func(c *Container) {
 		c.generatorAssetResolver = resolver
+	}
+}
+
+// WithGeneratorHooks registers lifecycle hooks for generator operations.
+func WithGeneratorHooks(hooks generator.Hooks) Option {
+	return func(c *Container) {
+		c.generatorHooks = hooks
 	}
 }
 
@@ -533,6 +541,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				Storage:  c.generatorStorage,
 				Locales:  c.localeRepo,
 				Assets:   c.generatorAssetResolver,
+				Hooks:    c.generatorHooks,
 			}
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}
