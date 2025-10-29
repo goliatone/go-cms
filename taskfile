@@ -93,6 +93,33 @@ function dev:test {
     go test ./...
 }
 
+function command:test {
+    go test ./internal/commands/...
+}
+
+function command:fmt:check {
+    local formatted
+    formatted=$(gofmt -l internal/commands internal/di | tr '\n' ' ')
+    if [[ -n "${formatted}" ]]; then
+        echo "gofmt required for files:${formatted}"
+        return 1
+    fi
+}
+
+function command:lint {
+    if ! command -v golangci-lint >/dev/null 2>&1; then
+        echo "golangci-lint not installed. Install it to run command:lint."
+        return 1
+    fi
+    golangci-lint run ./internal/commands/...
+}
+
+function ci:commands {
+    command:fmt:check || return $?
+    command:lint || return $?
+    command:test
+}
+
 function dev:cover {
     go test -coverprofile=coverage.out ./... && go tool cover -func coverage.out
 }
