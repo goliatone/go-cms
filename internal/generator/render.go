@@ -132,6 +132,7 @@ type RenderDiagnostic struct {
 	Route    string
 	Template string
 	Duration time.Duration
+	Skipped  bool
 	Err      error
 }
 
@@ -139,4 +140,5 @@ type renderOutcome struct {
 	page       RenderedPage
 	diagnostic RenderDiagnostic
 	err        error
+	skipped    bool
 }

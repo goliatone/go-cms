@@ -11,6 +11,7 @@ import (
 	"maps"
 	"path"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,14 +71,16 @@ type BuildOptions struct {
 
 // BuildResult reports aggregated build metadata.
 type BuildResult struct {
-	PagesBuilt  int
-	AssetsBuilt int
-	Locales     []string
-	Duration    time.Duration
-	Rendered    []RenderedPage
-	Diagnostics []RenderDiagnostic
-	Errors      []error
-	DryRun      bool
+	PagesBuilt    int
+	PagesSkipped  int
+	AssetsBuilt   int
+	AssetsSkipped int
+	Locales       []string
+	Duration      time.Duration
+	Rendered      []RenderedPage
+	Diagnostics   []RenderDiagnostic
+	Errors        []error
+	DryRun        bool
 }
 
 // Dependencies lists the services required by the generator.
@@ -163,14 +166,34 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		mu          sync.Mutex
 		rendered    = make([]RenderedPage, 0, len(buildCtx.Pages))
 		errorsSlice []error
+		baseDir     = strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+		pageKeys    = map[string]struct{}{}
 	)
+
+	manifest, manifestErr := s.loadManifest(ctx)
+	if manifestErr != nil {
+		errorsSlice = append(errorsSlice, manifestErr)
+	}
+	if manifest == nil {
+		manifest = newBuildManifest()
+	}
 
 	collect := func(outcome renderOutcome) {
 		mu.Lock()
 		defer mu.Unlock()
 		result.Diagnostics = append(result.Diagnostics, outcome.diagnostic)
+		if manifest != nil && outcome.diagnostic.PageID != uuid.Nil {
+			key := manifest.pageKey(outcome.diagnostic.PageID, outcome.diagnostic.Locale)
+			if key != "" {
+				pageKeys[key] = struct{}{}
+			}
+		}
 		if outcome.err != nil {
 			errorsSlice = append(errorsSlice, outcome.err)
+			return
+		}
+		if outcome.skipped {
+			result.PagesSkipped++
 			return
 		}
 		result.PagesBuilt++
@@ -195,12 +218,12 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 				})
 				return result, ctx.Err()
 			default:
-				outcome := s.renderPage(ctx, siteMeta, buildCtx, page)
+				outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir)
 				collect(outcome)
 			}
 		}
 	} else {
-		if err := s.renderConcurrently(ctx, siteMeta, buildCtx, workerCount, collect); err != nil {
+		if err := s.renderConcurrently(ctx, siteMeta, buildCtx, workerCount, manifest, baseDir, collect); err != nil {
 			errorsSlice = append(errorsSlice, err)
 		}
 	}
@@ -220,21 +243,47 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		errorsSlice = append(errorsSlice, err)
 	}
 
-	assetsBuilt, err := s.copyAssets(ctx, writer, buildCtx)
+	assetSummary, err := s.copyAssets(ctx, writer, buildCtx, manifest, baseDir)
 	if err != nil {
 		errorsSlice = append(errorsSlice, err)
 	} else {
-		result.AssetsBuilt += assetsBuilt
+		result.AssetsBuilt += assetSummary.Built
+		result.AssetsSkipped += assetSummary.Skipped
 	}
 
 	if s.cfg.GenerateSitemap {
-		if err := s.writeSitemap(ctx, writer, siteMeta, buildCtx, rendered); err != nil {
+		sitemapPages := s.mergeRenderedForSitemap(buildCtx, rendered, manifest)
+		if err := s.writeSitemap(ctx, writer, siteMeta, buildCtx, sitemapPages); err != nil {
 			errorsSlice = append(errorsSlice, err)
 		}
 	}
 
 	if s.cfg.GenerateRobots {
 		if err := s.writeRobots(ctx, writer, siteMeta); err != nil {
+			errorsSlice = append(errorsSlice, err)
+		}
+	}
+
+	if manifest != nil && len(errorsSlice) == 0 {
+		manifest.GeneratedAt = buildCtx.GeneratedAt
+		for _, page := range rendered {
+			if page.PageID == uuid.Nil || strings.TrimSpace(page.Checksum) == "" {
+				continue
+			}
+			entry := manifestPage{
+				PageID:       page.PageID.String(),
+				Locale:       page.Locale,
+				Route:        page.Route,
+				Output:       page.Output,
+				Template:     page.Template,
+				Hash:         page.Metadata.Hash,
+				Checksum:     page.Checksum,
+				LastModified: page.Metadata.LastModified,
+				RenderedAt:   buildCtx.GeneratedAt,
+			}
+			manifest.setPage(entry)
+		}
+		if err := s.persistManifest(ctx, writer, manifest); err != nil {
 			errorsSlice = append(errorsSlice, err)
 		}
 	}
@@ -253,6 +302,8 @@ func (s *service) renderConcurrently(
 	siteMeta SiteMetadata,
 	buildCtx *BuildContext,
 	workers int,
+	manifest *buildManifest,
+	baseDir string,
 	collect func(renderOutcome),
 ) error {
 	grouped := groupPagesByLocale(buildCtx.Pages)
@@ -281,7 +332,7 @@ func (s *service) renderConcurrently(
 						})
 						return
 					default:
-						outcome := s.renderPage(ctx, siteMeta, buildCtx, page)
+						outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir)
 						collect(outcome)
 					}
 				}
@@ -308,12 +359,15 @@ func (s *service) renderPage(
 	siteMeta SiteMetadata,
 	buildCtx *BuildContext,
 	data *PageData,
+	manifest *buildManifest,
+	baseDir string,
 ) renderOutcome {
+	route := safeTranslationPath(data.Translation)
 	outcome := renderOutcome{
 		diagnostic: RenderDiagnostic{
 			PageID: data.Page.ID,
 			Locale: data.Locale.Code,
-			Route:  safeTranslationPath(data.Translation),
+			Route:  route,
 		},
 	}
 
@@ -343,6 +397,16 @@ func (s *service) renderPage(
 		return outcome
 	}
 	outcome.diagnostic.Template = templateName
+
+	if s.cfg.Incremental && manifest != nil {
+		destRel := buildOutputPath(route, data.Locale.Code, buildCtx.DefaultLocale)
+		expectedOutput := joinOutputPath(baseDir, destRel)
+		if manifest.shouldSkipPage(data.Page.ID, data.Locale.Code, data.Metadata.Hash, expectedOutput) {
+			outcome.skipped = true
+			outcome.diagnostic.Skipped = true
+			return outcome
+		}
+	}
 
 	templateCtx := TemplateContext{
 		Site: siteMeta,
@@ -380,7 +444,7 @@ func (s *service) renderPage(
 	outcome.page = RenderedPage{
 		PageID:   data.Page.ID,
 		Locale:   data.Locale.Code,
-		Route:    safeTranslationPath(data.Translation),
+		Route:    route,
 		Template: templateName,
 		HTML:     rendered,
 		Metadata: data.Metadata,
@@ -445,23 +509,32 @@ func (s *service) persistPages(
 	return nil
 }
 
+type assetCopySummary struct {
+	Built   int
+	Skipped int
+}
+
 func (s *service) copyAssets(
 	ctx context.Context,
 	writer artifactWriter,
 	buildCtx *BuildContext,
-) (int, error) {
+	manifest *buildManifest,
+	baseDir string,
+) (assetCopySummary, error) {
+	summary := assetCopySummary{}
 	if s.deps.Assets == nil {
-		return 0, nil
+		return summary, nil
 	}
-	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	if strings.TrimSpace(baseDir) == "" {
+		baseDir = strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	}
 	dirCache := map[string]struct{}{}
 	if baseDir != "" {
 		dirCache[baseDir] = struct{}{}
 		if err := writer.EnsureDir(ctx, baseDir); err != nil {
-			return 0, err
+			return summary, err
 		}
 	}
-	written := 0
 	seen := map[string]struct{}{}
 	for _, page := range buildCtx.Pages {
 		theme := page.Theme
@@ -477,16 +550,16 @@ func (s *service) copyAssets(
 			seen[key] = struct{}{}
 			reader, err := s.deps.Assets.Open(ctx, theme, asset)
 			if err != nil {
-				return written, err
+				return summary, err
 			}
 			data, err := io.ReadAll(reader)
 			_ = reader.Close()
 			if err != nil {
-				return written, err
+				return summary, err
 			}
 			resolved, err := s.deps.Assets.ResolvePath(theme, asset)
 			if err != nil {
-				return written, err
+				return summary, err
 			}
 			resolved = strings.TrimLeft(strings.TrimSpace(resolved), "/")
 			if resolved == "" {
@@ -494,10 +567,16 @@ func (s *service) copyAssets(
 			}
 			destRel := path.Join("assets", resolved)
 			fullPath := joinOutputPath(baseDir, destRel)
-			if err := ensureDir(ctx, writer, dirCache, path.Dir(fullPath)); err != nil {
-				return written, err
-			}
 			checksum := computeHash(data)
+			if manifest != nil && s.cfg.Incremental {
+				if theme != nil && manifest.shouldSkipAsset(theme.ID, asset, checksum, fullPath) {
+					summary.Skipped++
+					continue
+				}
+			}
+			if err := ensureDir(ctx, writer, dirCache, path.Dir(fullPath)); err != nil {
+				return summary, err
+			}
 			metadata := map[string]string{
 				"theme_id": theme.ID.String(),
 				"asset":    asset,
@@ -513,12 +592,152 @@ func (s *service) copyAssets(
 				Metadata:    metadata,
 			}
 			if err := writer.WriteFile(ctx, req); err != nil {
-				return written, err
+				return summary, err
 			}
-			written++
+			summary.Built++
+			if manifest != nil && theme != nil {
+				entry := manifestAsset{
+					Key:      manifest.assetKey(theme.ID, asset),
+					ThemeID:  theme.ID.String(),
+					Source:   asset,
+					Output:   fullPath,
+					Checksum: checksum,
+					Size:     int64(len(data)),
+					CopiedAt: s.now(),
+				}
+				manifest.setAsset(entry)
+			}
 		}
 	}
-	return written, nil
+	return summary, nil
+}
+
+func (s *service) mergeRenderedForSitemap(
+	buildCtx *BuildContext,
+	rendered []RenderedPage,
+	manifest *buildManifest,
+) []RenderedPage {
+	if buildCtx == nil {
+		return append([]RenderedPage(nil), rendered...)
+	}
+	if manifest == nil {
+		return append([]RenderedPage(nil), rendered...)
+	}
+
+	renderedByKey := make(map[string]RenderedPage, len(rendered))
+	for _, page := range rendered {
+		key := manifest.pageKey(page.PageID, page.Locale)
+		renderedByKey[key] = page
+	}
+
+	sitemap := make([]RenderedPage, 0, len(buildCtx.Pages))
+	for _, data := range buildCtx.Pages {
+		key := manifest.pageKey(data.Page.ID, data.Locale.Code)
+		if page, ok := renderedByKey[key]; ok {
+			sitemap = append(sitemap, page)
+			continue
+		}
+		if entry, ok := manifest.lookupPage(data.Page.ID, data.Locale.Code); ok {
+			sitemap = append(sitemap, RenderedPage{
+				PageID:   data.Page.ID,
+				Locale:   data.Locale.Code,
+				Route:    entry.Route,
+				Output:   entry.Output,
+				Template: entry.Template,
+				Metadata: DependencyMetadata{
+					Hash:         entry.Hash,
+					LastModified: entry.LastModified,
+				},
+				Checksum: entry.Checksum,
+			})
+			continue
+		}
+
+		templateName := ""
+		if data.Template != nil {
+			templateName = strings.TrimSpace(data.Template.TemplatePath)
+			if templateName == "" {
+				templateName = strings.TrimSpace(data.Template.Slug)
+			}
+		}
+		sitemap = append(sitemap, RenderedPage{
+			PageID:   data.Page.ID,
+			Locale:   data.Locale.Code,
+			Route:    safeTranslationPath(data.Translation),
+			Template: templateName,
+			Metadata: data.Metadata,
+		})
+	}
+	return sitemap
+}
+
+func (s *service) loadManifest(ctx context.Context) (*buildManifest, error) {
+	if s.deps.Storage == nil {
+		return newBuildManifest(), nil
+	}
+	target := s.manifestTargetPath()
+	if strings.TrimSpace(target) == "" {
+		return newBuildManifest(), nil
+	}
+	rows, err := s.deps.Storage.Query(ctx, storageOpRead, target)
+	if err != nil {
+		return nil, fmt.Errorf("generator: read manifest: %w", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		return newBuildManifest(), nil
+	}
+	var data []byte
+	if err := rows.Scan(&data); err != nil {
+		return nil, fmt.Errorf("generator: scan manifest: %w", err)
+	}
+	manifest, err := parseManifest(data)
+	if err != nil {
+		return nil, err
+	}
+	return manifest, nil
+}
+
+func (s *service) manifestTargetPath() string {
+	base := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	return joinOutputPath(base, manifestFileName)
+}
+
+func (s *service) persistManifest(ctx context.Context, writer artifactWriter, manifest *buildManifest) error {
+	if manifest == nil {
+		return nil
+	}
+	data, err := manifest.marshal()
+	if err != nil {
+		return err
+	}
+	if len(data) == 0 {
+		return nil
+	}
+	target := s.manifestTargetPath()
+	if strings.TrimSpace(target) == "" {
+		return nil
+	}
+	dirCache := map[string]struct{}{}
+	if err := ensureDir(ctx, writer, dirCache, path.Dir(target)); err != nil {
+		return err
+	}
+	metadata := map[string]string{
+		"version": strconv.Itoa(manifest.Version),
+	}
+	if !manifest.GeneratedAt.IsZero() {
+		metadata["generated_at"] = manifest.GeneratedAt.UTC().Format(time.RFC3339)
+	}
+	req := writeFileRequest{
+		Path:        target,
+		Content:     bytes.NewReader(data),
+		Size:        int64(len(data)),
+		Category:    categoryManifest,
+		ContentType: "application/json",
+		Checksum:    computeHash(data),
+		Metadata:    metadata,
+	}
+	return writer.WriteFile(ctx, req)
 }
 
 func (s *service) writeSitemap(

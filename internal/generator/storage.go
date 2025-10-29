@@ -12,15 +12,18 @@ import (
 const (
 	storageOpEnsureDir = "generator.ensure_dir"
 	storageOpWrite     = "generator.write"
+	storageOpRead      = "generator.read"
+	storageOpRemove    = "generator.remove"
 )
 
 type writeCategory string
 
 const (
-	categoryPage    writeCategory = "page"
-	categoryAsset   writeCategory = "asset"
-	categorySitemap writeCategory = "sitemap"
-	categoryRobots  writeCategory = "robots"
+	categoryPage     writeCategory = "page"
+	categoryAsset    writeCategory = "asset"
+	categorySitemap  writeCategory = "sitemap"
+	categoryRobots   writeCategory = "robots"
+	categoryManifest writeCategory = "manifest"
 )
 
 // writeFileRequest describes a file write operation routed through the artifact writer.
