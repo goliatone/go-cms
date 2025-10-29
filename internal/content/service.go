@@ -20,6 +20,8 @@ type Service interface {
 	Create(ctx context.Context, req CreateContentRequest) (*Content, error)
 	Get(ctx context.Context, id uuid.UUID) (*Content, error)
 	List(ctx context.Context) ([]*Content, error)
+	Update(ctx context.Context, req UpdateContentRequest) (*Content, error)
+	Delete(ctx context.Context, req DeleteContentRequest) error
 	Schedule(ctx context.Context, req ScheduleContentRequest) (*Content, error)
 	CreateDraft(ctx context.Context, req CreateContentDraftRequest) (*ContentVersion, error)
 	PublishDraft(ctx context.Context, req PublishContentDraftRequest) (*ContentVersion, error)
@@ -43,6 +45,25 @@ type ContentTranslationInput struct {
 	Title   string
 	Summary *string
 	Content map[string]any
+}
+
+// UpdateContentRequest captures mutable fields for an existing content entry. Slug
+// and content type remain immutable and are inferred from the existing record.
+type UpdateContentRequest struct {
+	ID           uuid.UUID
+	Status       string
+	UpdatedBy    uuid.UUID
+	Translations []ContentTranslationInput
+	Metadata     map[string]any
+}
+
+// DeleteContentRequest captures the information required to remove a content entry.
+// When HardDelete is false the record should be soft-deleted if the implementation
+// supports it; otherwise the request should fail fast.
+type DeleteContentRequest struct {
+	ID         uuid.UUID
+	DeletedBy  uuid.UUID
+	HardDelete bool
 }
 
 // CreateContentDraftRequest captures the payload needed to record a draft snapshot.
@@ -85,6 +106,7 @@ var (
 	ErrNoTranslations                  = errors.New("content: at least one translation is required")
 	ErrDuplicateLocale                 = errors.New("content: duplicate locale provided")
 	ErrUnknownLocale                   = errors.New("content: unknown locale")
+	ErrContentSoftDeleteUnsupported    = errors.New("content: soft delete not supported")
 	ErrContentIDRequired               = errors.New("content: content id required")
 	ErrVersioningDisabled              = errors.New("content: versioning feature disabled")
 	ErrContentVersionRequired          = errors.New("content: version identifier required")
@@ -103,6 +125,8 @@ type ContentRepository interface {
 	GetBySlug(ctx context.Context, slug string) (*Content, error)
 	List(ctx context.Context) ([]*Content, error)
 	Update(ctx context.Context, record *Content) (*Content, error)
+	ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error
+	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
 	CreateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error)
 	ListVersions(ctx context.Context, contentID uuid.UUID) ([]*ContentVersion, error)
 	GetVersion(ctx context.Context, contentID uuid.UUID, number int) (*ContentVersion, error)
@@ -369,6 +393,90 @@ func (s *service) List(ctx context.Context) ([]*Content, error) {
 	}
 	logger.Debug("content list returned records", "count", len(records))
 	return records, nil
+}
+
+func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Content, error) {
+	if req.ID == uuid.Nil {
+		return nil, ErrContentIDRequired
+	}
+	if len(req.Translations) == 0 {
+		return nil, ErrNoTranslations
+	}
+
+	logger := s.opLogger(ctx, "content.update", map[string]any{
+		"content_id": req.ID,
+	})
+
+	existing, err := s.contents.GetByID(ctx, req.ID)
+	if err != nil {
+		logger.Error("content lookup failed", "error", err)
+		return nil, err
+	}
+
+	existingLocales := indexTranslationsByLocaleID(existing.Translations)
+	now := s.now()
+
+	translations, err := s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now)
+	if err != nil {
+		logger.Error("content translations build failed", "error", err)
+		return nil, err
+	}
+
+	existing.Status = chooseStatus(req.Status)
+	if req.UpdatedBy != uuid.Nil {
+		existing.UpdatedBy = req.UpdatedBy
+	}
+	existing.UpdatedAt = now
+	existing.Translations = translations
+
+	if err := s.contents.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
+		logger.Error("content translations replace failed", "error", err)
+		return nil, err
+	}
+
+	updated, err := s.contents.Update(ctx, existing)
+	if err != nil {
+		logger.Error("content repository update failed", "error", err)
+		return nil, err
+	}
+
+	logger.Info("content updated")
+	return s.decorateContent(updated), nil
+}
+
+func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
+	if req.ID == uuid.Nil {
+		return ErrContentIDRequired
+	}
+	if !req.HardDelete {
+		return ErrContentSoftDeleteUnsupported
+	}
+
+	logger := s.opLogger(ctx, "content.delete", map[string]any{
+		"content_id": req.ID,
+	})
+
+	if _, err := s.contents.GetByID(ctx, req.ID); err != nil {
+		logger.Error("content lookup failed", "error", err)
+		return err
+	}
+
+	if s.scheduler != nil {
+		if err := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentPublishJobKey(req.ID)); err != nil && !errors.Is(err, interfaces.ErrJobNotFound) {
+			logger.Warn("content publish job cancel failed", "error", err)
+		}
+		if err := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentUnpublishJobKey(req.ID)); err != nil && !errors.Is(err, interfaces.ErrJobNotFound) {
+			logger.Warn("content unpublish job cancel failed", "error", err)
+		}
+	}
+
+	if err := s.contents.Delete(ctx, req.ID, true); err != nil {
+		logger.Error("content repository delete failed", "error", err)
+		return err
+	}
+
+	logger.Info("content deleted")
+	return nil
 }
 
 // Schedule registers publish and unpublish windows for a content entry and dispatches scheduler jobs.
@@ -753,6 +861,73 @@ func effectiveContentStatus(record *Content, now time.Time) domain.Status {
 		return domain.StatusPublished
 	}
 	return status
+}
+
+func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time) ([]*ContentTranslation, error) {
+	seen := map[string]struct{}{}
+	result := make([]*ContentTranslation, 0, len(inputs))
+
+	for _, input := range inputs {
+		code := strings.TrimSpace(input.Locale)
+		if code == "" {
+			return nil, ErrUnknownLocale
+		}
+		lower := strings.ToLower(code)
+		if _, ok := seen[lower]; ok {
+			return nil, ErrDuplicateLocale
+		}
+
+		loc, err := s.locales.GetByCode(ctx, code)
+		if err != nil {
+			return nil, ErrUnknownLocale
+		}
+
+		var summary *string
+		if input.Summary != nil {
+			value := *input.Summary
+			summary = &value
+		}
+
+		translation := &ContentTranslation{
+			ContentID: contentID,
+			LocaleID:  loc.ID,
+			Title:     input.Title,
+			Summary:   summary,
+			Content:   cloneMap(input.Content),
+			UpdatedAt: now,
+		}
+
+		if existingTranslation, ok := existing[loc.ID]; ok && existingTranslation != nil {
+			translation.ID = existingTranslation.ID
+			if !existingTranslation.CreatedAt.IsZero() {
+				translation.CreatedAt = existingTranslation.CreatedAt
+			} else {
+				translation.CreatedAt = now
+			}
+		} else {
+			translation.ID = s.id()
+			translation.CreatedAt = now
+		}
+
+		result = append(result, translation)
+		seen[lower] = struct{}{}
+	}
+
+	return result, nil
+}
+
+func indexTranslationsByLocaleID(translations []*ContentTranslation) map[uuid.UUID]*ContentTranslation {
+	if len(translations) == 0 {
+		return map[uuid.UUID]*ContentTranslation{}
+	}
+	indexed := make(map[uuid.UUID]*ContentTranslation, len(translations))
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		indexed[tr.LocaleID] = tr
+	}
+	return indexed
 }
 
 func cloneTimePtr(value *time.Time) *time.Time {
