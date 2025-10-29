@@ -306,7 +306,12 @@ func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interf
 			acc.deleted++
 			continue
 		}
-		if err := i.content.Delete(ctx, record.ID); err != nil {
+		deleteReq := interfaces.ContentDeleteRequest{
+			ID:         record.ID,
+			DeletedBy:  opts.AuthorID,
+			HardDelete: true,
+		}
+		if err := i.content.Delete(ctx, deleteReq); err != nil {
 			return fmt.Errorf("markdown importer: delete content %s: %w", record.Slug, err)
 		}
 		acc.deleted++
@@ -328,7 +333,11 @@ func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interf
 			acc.deleted++
 			continue
 		}
-		if err := i.pages.Delete(ctx, page.ID); err != nil {
+		deleteReq := interfaces.PageDeleteRequest{
+			ID:         page.ID,
+			HardDelete: true,
+		}
+		if err := i.pages.Delete(ctx, deleteReq); err != nil {
 			return fmt.Errorf("markdown importer: delete page %s: %w", page.Slug, err)
 		}
 		acc.deleted++
