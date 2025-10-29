@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 )
 
@@ -90,6 +91,10 @@ func NewService(cfg Config, parser interfaces.MarkdownParser, opts ...ServiceOpt
 		opt(svc)
 	}
 
+	if svc.logger == nil {
+		svc.logger = logging.NoOp()
+	}
+
 	svc.importer = NewImporter(ImporterConfig{
 		Content: svc.content,
 		Pages:   svc.pages,
@@ -160,9 +165,29 @@ func (s *Service) Import(ctx context.Context, doc *interfaces.Document, opts int
 		return nil, errors.New("markdown service: importer not configured")
 	}
 	if doc == nil {
+		logging.WithFields(logging.WithMarkdownContext(s.logger, "", "", "import"), map[string]any{
+			"error": "document_nil",
+		}).Error("markdown.service.import.failed")
 		return nil, errors.New("markdown service: document is nil")
 	}
-	return s.importer.ImportDocument(ctx, doc, opts)
+	logger := logging.WithMarkdownContext(s.logger, doc.FilePath, doc.Locale, "import")
+
+	result, err := s.importer.ImportDocument(ctx, doc, opts)
+	if err != nil {
+		logging.WithFields(logger, map[string]any{
+			"error": err,
+		}).Error("markdown.service.import.failed")
+		return nil, err
+	}
+
+	logging.WithFields(logger, map[string]any{
+		"created": len(result.CreatedContentIDs),
+		"updated": len(result.UpdatedContentIDs),
+		"skipped": len(result.SkippedContentIDs),
+		"dry_run": opts.DryRun,
+	}).Info("markdown.service.import.completed")
+
+	return result, nil
 }
 
 func (s *Service) ImportDirectory(ctx context.Context, dir string, opts interfaces.ImportOptions) (*interfaces.ImportResult, error) {
@@ -172,9 +197,29 @@ func (s *Service) ImportDirectory(ctx context.Context, dir string, opts interfac
 
 	docs, err := s.LoadDirectory(ctx, dir, interfaces.LoadOptions{})
 	if err != nil {
+		logging.WithFields(logging.WithMarkdownContext(s.logger, dir, "", "import_directory"), map[string]any{
+			"error": err,
+		}).Error("markdown.service.import_directory.failed")
 		return nil, err
 	}
-	return s.importer.ImportDocuments(ctx, docs, opts)
+	logger := logging.WithMarkdownContext(s.logger, dir, "", "import_directory")
+	result, err := s.importer.ImportDocuments(ctx, docs, opts)
+	if err != nil {
+		logging.WithFields(logger, map[string]any{
+			"error": err,
+		}).Error("markdown.service.import_directory.failed")
+		return nil, err
+	}
+
+	logging.WithFields(logger, map[string]any{
+		"documents": len(docs),
+		"created":   len(result.CreatedContentIDs),
+		"updated":   len(result.UpdatedContentIDs),
+		"skipped":   len(result.SkippedContentIDs),
+		"dry_run":   opts.DryRun,
+	}).Info("markdown.service.import_directory.completed")
+
+	return result, nil
 }
 
 func (s *Service) Sync(ctx context.Context, dir string, opts interfaces.SyncOptions) (*interfaces.SyncResult, error) {
@@ -184,9 +229,32 @@ func (s *Service) Sync(ctx context.Context, dir string, opts interfaces.SyncOpti
 
 	docs, err := s.LoadDirectory(ctx, dir, interfaces.LoadOptions{})
 	if err != nil {
+		logging.WithFields(logging.WithMarkdownContext(s.logger, dir, "", "sync_directory"), map[string]any{
+			"error": err,
+		}).Error("markdown.service.sync.failed")
 		return nil, err
 	}
-	return s.importer.SyncDocuments(ctx, docs, opts)
+	logger := logging.WithMarkdownContext(s.logger, dir, "", "sync_directory")
+	result, err := s.importer.SyncDocuments(ctx, docs, opts)
+	if err != nil {
+		logging.WithFields(logger, map[string]any{
+			"error": err,
+		}).Error("markdown.service.sync.failed")
+		return nil, err
+	}
+
+	logging.WithFields(logger, map[string]any{
+		"documents":       len(docs),
+		"created":         result.Created,
+		"updated":         result.Updated,
+		"deleted":         result.Deleted,
+		"skipped":         result.Skipped,
+		"dry_run":         opts.DryRun,
+		"delete_orphans":  opts.DeleteOrphaned,
+		"update_existing": opts.UpdateExisting,
+	}).Info("markdown.service.sync.completed")
+
+	return result, nil
 }
 
 func (s *Service) renderDocument(ctx context.Context, doc *interfaces.Document, overrides interfaces.ParseOptions) error {
