@@ -84,7 +84,7 @@ All external dependencies are defined as interfaces, allowing the host applicati
 
 12. **Minimal Dependencies**: The module keeps external dependencies to a minimum; internationalization delegates to `github.com/goliatone/go-i18n` behind a thin wrapper, persistence contracts are satisfied by adapters backed by `github.com/goliatone/go-persistence-bun` and `github.com/goliatone/go-repository-bun`, and caching decorators are provided by `github.com/goliatone/go-repository-cache`, while all other integrations flow through host-provided interfaces.
 
-13. **Pluggable Logging**: The runtime only depends on the leveled logging contracts declared in `pkg/interfaces/logger.go`. A thin console logger is used for tests and bootstrapping, while production deployments can drop in `github.com/goliatone/go-logger` (or any compatible provider) without introducing a mandatory module dependency.
+13. **Pluggable Logging**: The runtime only depends on the leveled logging contracts declared in `pkg/interfaces/logger.go`. A thin console logger is used for tests and bootstrapping, while production deployments can drop in `github.com/goliatone/go-logger` (or any compatible provider) without introducing a mandatory module dependency. Service log entries always include the `operation` name alongside entity identifiers; command handlers reuse the same schema by emitting `module`, `component=command`, `command` (message type), and entity fields (e.g., `content_id`, `page_id`) so telemetry and dashboards line up across services and commands.
 
 14. **Isolated Modules**: Each content type module (pages, blocks, menus, widgets) is independent with no direct dependencies on others.
 
