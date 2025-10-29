@@ -58,6 +58,12 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 	if len(result.Errors) != 0 {
 		t.Fatalf("expected no errors, got %d", len(result.Errors))
 	}
+	if result.PagesSkipped != 0 {
+		t.Fatalf("expected no skipped pages, got %d", result.PagesSkipped)
+	}
+	if result.AssetsSkipped != 0 {
+		t.Fatalf("expected no skipped assets, got %d", result.AssetsSkipped)
+	}
 
 	calls := storage.ExecCalls()
 	if len(calls) == 0 {
@@ -138,6 +144,12 @@ func TestBuildUsesWorkerPool(t *testing.T) {
 	if result.PagesBuilt != expectedLocalized {
 		t.Fatalf("expected %d pages built, got %d", expectedLocalized, result.PagesBuilt)
 	}
+	if result.PagesSkipped != 0 {
+		t.Fatalf("expected no skipped pages, got %d", result.PagesSkipped)
+	}
+	if result.AssetsSkipped != 0 {
+		t.Fatalf("expected no skipped assets, got %d", result.AssetsSkipped)
+	}
 	if len(result.Errors) != 0 {
 		t.Fatalf("expected no errors, got %d", len(result.Errors))
 	}
@@ -182,6 +194,12 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 	if len(result.Diagnostics) != expectedLocalized {
 		t.Fatalf("expected %d diagnostics, got %d", expectedLocalized, len(result.Diagnostics))
 	}
+	if result.PagesSkipped != 0 {
+		t.Fatalf("expected no skipped pages in dry-run, got %d", result.PagesSkipped)
+	}
+	if result.AssetsSkipped != 0 {
+		t.Fatalf("expected no skipped assets in dry-run, got %d", result.AssetsSkipped)
+	}
 	for _, diag := range result.Diagnostics {
 		if diag.Err != nil {
 			t.Fatalf("unexpected diagnostic error: %v", diag.Err)
@@ -220,8 +238,15 @@ func TestBuildGeneratesSitemapAndRobots(t *testing.T) {
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
-	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err != nil {
 		t.Fatalf("build: %v", err)
+	}
+	if result.PagesSkipped != 0 {
+		t.Fatalf("expected no skipped pages, got %d", result.PagesSkipped)
+	}
+	if result.AssetsSkipped != 0 {
+		t.Fatalf("expected no skipped assets, got %d", result.AssetsSkipped)
 	}
 
 	var sitemapWritten, robotsWritten bool
@@ -281,6 +306,9 @@ func TestBuildCopiesThemeAssets(t *testing.T) {
 	if result.AssetsBuilt != 2 {
 		t.Fatalf("expected 2 assets copied, got %d", result.AssetsBuilt)
 	}
+	if result.AssetsSkipped != 0 {
+		t.Fatalf("expected no skipped assets, got %d", result.AssetsSkipped)
+	}
 	expectedAssets := map[string]struct{}{
 		path.Join(fixtures.Config.OutputDir, "assets/public/css/site.css"): {},
 		path.Join(fixtures.Config.OutputDir, "assets/public/js/app.js"):    {},
@@ -309,6 +337,90 @@ func TestBuildCopiesThemeAssets(t *testing.T) {
 	}
 }
 
+func TestBuildSkipsPagesWithManifest(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 7, 15, 12, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.Incremental = true
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	if _, err := svc.Build(ctx, BuildOptions{}); err != nil {
+		t.Fatalf("initial build: %v", err)
+	}
+
+	expectedLocalized := fixtures.LocalizedCount()
+	renderer.assertCalls(t, expectedLocalized)
+
+	initialExecs := len(storage.ExecCalls())
+
+	renderer2 := &recordingRenderer{}
+	svc2 := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer2,
+		Storage:  storage,
+	}).(*service)
+	svc2.now = func() time.Time { return now.Add(30 * time.Minute) }
+
+	result, err := svc2.Build(ctx, BuildOptions{})
+	if err != nil {
+		t.Fatalf("incremental build: %v", err)
+	}
+
+	if result.PagesBuilt != 0 {
+		t.Fatalf("expected no rebuilt pages, got %d", result.PagesBuilt)
+	}
+	if result.PagesSkipped != expectedLocalized {
+		t.Fatalf("expected %d skipped pages, got %d", expectedLocalized, result.PagesSkipped)
+	}
+	if len(result.Rendered) != 0 {
+		t.Fatalf("expected no rendered outputs when skipping, got %d", len(result.Rendered))
+	}
+	if len(result.Diagnostics) != expectedLocalized {
+		t.Fatalf("expected %d diagnostics, got %d", expectedLocalized, len(result.Diagnostics))
+	}
+	if result.AssetsBuilt != 0 {
+		t.Fatalf("expected no assets copied, got %d", result.AssetsBuilt)
+	}
+	if result.AssetsSkipped != 0 {
+		t.Fatalf("expected no skipped assets (no resolver), got %d", result.AssetsSkipped)
+	}
+	renderer2.assertCalls(t, 0)
+
+	additionalPageWrites := 0
+	execCalls := storage.ExecCalls()
+	for _, call := range execCalls[initialExecs:] {
+		if call.Query != storageOpWrite {
+			continue
+		}
+		if len(call.Args) < 4 {
+			continue
+		}
+		if category, _ := call.Args[3].(string); category == string(categoryPage) {
+			additionalPageWrites++
+		}
+	}
+	if additionalPageWrites != 0 {
+		t.Fatalf("expected no additional page writes, got %d", additionalPageWrites)
+	}
+}
+
 type renderFixtures struct {
 	Config   Config
 	Content  *stubContentService
@@ -328,9 +440,23 @@ type storageCall struct {
 type recordingStorage struct {
 	mu    sync.Mutex
 	execs []storageCall
+	files map[string][]byte
 }
 
 func (s *recordingStorage) Exec(_ context.Context, query string, args ...any) (interfaces.Result, error) {
+	if query == storageOpWrite && len(args) >= 2 {
+		if target, ok := args[0].(string); ok {
+			if reader, ok := args[1].(io.Reader); ok && reader != nil {
+				data, err := io.ReadAll(reader)
+				if err == nil {
+					if s.files == nil {
+						s.files = map[string][]byte{}
+					}
+					s.files[target] = append([]byte(nil), data...)
+				}
+			}
+		}
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	copied := append([]any(nil), args...)
@@ -349,7 +475,16 @@ func (s *recordingStorage) Query(_ context.Context, query string, args ...any) (
 		Query: query,
 		Args:  copied,
 	})
-	return noopRows{}, nil
+	if query == storageOpRead && len(args) > 0 {
+		if target, ok := args[0].(string); ok {
+			if data, ok := s.files[target]; ok {
+				return &bufferedRows{
+					data: [][]byte{append([]byte(nil), data...)},
+				}, nil
+			}
+		}
+	}
+	return &bufferedRows{}, nil
 }
 
 func (s *recordingStorage) Transaction(_ context.Context, fn func(tx interfaces.Transaction) error) error {
@@ -391,11 +526,40 @@ type noopResult struct{}
 func (noopResult) RowsAffected() (int64, error) { return 0, nil }
 func (noopResult) LastInsertId() (int64, error) { return 0, nil }
 
-type noopRows struct{}
+type bufferedRows struct {
+	data  [][]byte
+	index int
+}
 
-func (noopRows) Next() bool        { return false }
-func (noopRows) Scan(...any) error { return fmt.Errorf("no rows") }
-func (noopRows) Close() error      { return nil }
+func (r *bufferedRows) Next() bool {
+	if r.index >= len(r.data) {
+		return false
+	}
+	r.index++
+	return true
+}
+
+func (r *bufferedRows) Scan(dest ...any) error {
+	if r.index == 0 || r.index > len(r.data) {
+		return fmt.Errorf("buffered rows: scan without next")
+	}
+	if len(dest) == 0 {
+		return fmt.Errorf("buffered rows: missing destination")
+	}
+	value := r.data[r.index-1]
+	switch target := dest[0].(type) {
+	case *[]byte:
+		*target = append((*target)[:0], value...)
+		return nil
+	case *string:
+		*target = string(value)
+		return nil
+	default:
+		return fmt.Errorf("buffered rows: unsupported scan type %T", dest[0])
+	}
+}
+
+func (r *bufferedRows) Close() error { return nil }
 
 type stubAssetResolver struct {
 	assets map[string][]byte
