@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/google/uuid"
 )
 
 func TestServiceLoad(t *testing.T) {
@@ -100,4 +101,100 @@ func newTestService(tb testing.TB, recursive bool) *Service {
 		tb.Fatalf("NewService: %v", err)
 	}
 	return svc
+}
+
+func TestServiceImportLogsResult(t *testing.T) {
+	contentStub := newStubContentService()
+	pageStub := newStubPageService()
+	logger := &recordingLogger{}
+
+	svc := newImportService(t, contentStub, pageStub, WithLogger(logger))
+
+	doc, err := svc.Load(context.Background(), "en/about.md", interfaces.LoadOptions{})
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+
+	opts := interfaces.ImportOptions{
+		ContentTypeID: uuid.New(),
+		AuthorID:      uuid.New(),
+	}
+
+	if _, err := svc.Import(context.Background(), doc, opts); err != nil {
+		t.Fatalf("Import: %v", err)
+	}
+
+	var foundContext, foundSummary bool
+	for _, fields := range logger.fields {
+		if path, ok := fields["markdown_path"]; ok && path == "en/about.md" {
+			if action, ok := fields["sync_action"]; ok && action == "import" {
+				foundContext = true
+			}
+		}
+		if _, ok := fields["created"]; ok {
+			foundSummary = true
+		}
+	}
+
+	if !foundContext {
+		t.Fatalf("expected markdown context fields recorded, got %#v", logger.fields)
+	}
+	if !foundSummary {
+		t.Fatalf("expected import summary fields recorded, got %#v", logger.fields)
+	}
+}
+
+func TestServiceImportLogsError(t *testing.T) {
+	contentStub := newStubContentService()
+	pageStub := newStubPageService()
+	logger := &recordingLogger{}
+
+	svc := newImportService(t, contentStub, pageStub, WithLogger(logger))
+
+	if _, err := svc.Import(context.Background(), nil, interfaces.ImportOptions{}); err == nil {
+		t.Fatal("expected error when document is nil")
+	}
+
+	var foundAction, foundError bool
+	for _, fields := range logger.fields {
+		if action, ok := fields["sync_action"]; ok && action == "import" {
+			foundAction = true
+		}
+		if reason, ok := fields["error"]; ok && reason == "document_nil" {
+			foundError = true
+		}
+	}
+	if !foundAction {
+		t.Fatalf("expected sync_action field recorded, got %#v", logger.fields)
+	}
+	if !foundError {
+		t.Fatalf("expected error field recorded, got %#v", logger.fields)
+	}
+}
+
+type recordingLogger struct {
+	fields []map[string]any
+}
+
+func (r *recordingLogger) Trace(string, ...any) {}
+func (r *recordingLogger) Debug(string, ...any) {}
+func (r *recordingLogger) Info(string, ...any)  {}
+func (r *recordingLogger) Warn(string, ...any)  {}
+func (r *recordingLogger) Error(string, ...any) {}
+func (r *recordingLogger) Fatal(string, ...any) {}
+
+func (r *recordingLogger) WithFields(fields map[string]any) interfaces.Logger {
+	if fields == nil {
+		return r
+	}
+	copied := make(map[string]any, len(fields))
+	for k, v := range fields {
+		copied[k] = v
+	}
+	r.fields = append(r.fields, copied)
+	return r
+}
+
+func (r *recordingLogger) WithContext(context.Context) interfaces.Logger {
+	return r
 }

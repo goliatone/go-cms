@@ -167,7 +167,7 @@ func TestSyncDeletesOrphans(t *testing.T) {
 
 // Helper constructors --------------------------------------------------------
 
-func newImportService(tb testing.TB, contentSvc *stubContentService, pageSvc *stubPageService) *Service {
+func newImportService(tb testing.TB, contentSvc *stubContentService, pageSvc *stubPageService, opts ...ServiceOption) *Service {
 	tb.Helper()
 
 	cfg := Config{
@@ -178,10 +178,13 @@ func newImportService(tb testing.TB, contentSvc *stubContentService, pageSvc *st
 		Recursive:     true,
 	}
 
-	svc, err := NewService(cfg, nil,
+	serviceOpts := []ServiceOption{
 		WithContentService(contentSvc),
 		WithPageService(pageSvc),
-	)
+	}
+	serviceOpts = append(serviceOpts, opts...)
+
+	svc, err := NewService(cfg, nil, serviceOpts...)
 	if err != nil {
 		tb.Fatalf("NewService: %v", err)
 	}

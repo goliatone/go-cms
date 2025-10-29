@@ -108,3 +108,36 @@ func TestSchedulerLoggerRequestsSchedulerModule(t *testing.T) {
 		t.Fatalf("expected scheduler module request, got %v", provider.requested)
 	}
 }
+
+func TestMarkdownLoggerRequestsMarkdownModule(t *testing.T) {
+	provider := &stubProvider{logger: &recordingLogger{}}
+	_ = MarkdownLogger(provider)
+	if len(provider.requested) == 0 || provider.requested[0] != markdownModule {
+		t.Fatalf("expected markdown module request, got %v", provider.requested)
+	}
+}
+
+func TestWithMarkdownContextAddsFields(t *testing.T) {
+	rec := &recordingLogger{}
+	logger := WithMarkdownContext(rec, "content/en/about.md", "en", "import")
+	if len(rec.fields) != 1 {
+		t.Fatalf("expected markdown context to append fields, got %d entries", len(rec.fields))
+	}
+	fields := rec.fields[0]
+	if fields[fieldMarkdownPath] != "content/en/about.md" {
+		t.Fatalf("expected markdown_path field, got %v", fields[fieldMarkdownPath])
+	}
+	if fields[fieldMarkdownLocale] != "en" {
+		t.Fatalf("expected locale field, got %v", fields[fieldMarkdownLocale])
+	}
+	if fields[fieldMarkdownAction] != "import" {
+		t.Fatalf("expected sync_action field, got %v", fields[fieldMarkdownAction])
+	}
+
+	// Ensure empty values are ignored.
+	rec = &recordingLogger{}
+	_ = WithMarkdownContext(rec, "", "", "")
+	if len(rec.fields) != 0 {
+		t.Fatalf("expected no fields recorded when values empty, got %#v", rec.fields)
+	}
+}

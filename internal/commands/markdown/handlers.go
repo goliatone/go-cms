@@ -147,7 +147,7 @@ func NewSyncDirectoryHandler(service interfaces.MarkdownService, logger interfac
 		}
 
 		syncOpts := interfaces.SyncOptions{
-			ImportOptions: importOpts,
+			ImportOptions:  importOpts,
 			DeleteOrphaned: msg.DeleteOrphaned,
 			UpdateExisting: msg.UpdateExisting,
 		}
@@ -158,13 +158,13 @@ func NewSyncDirectoryHandler(service interfaces.MarkdownService, logger interfac
 		}
 		if result != nil {
 			logging.WithFields(baseLogger, map[string]any{
-				"created_count": result.Created,
-				"updated_count": result.Updated,
-				"deleted_count": result.Deleted,
-				"skipped_count": result.Skipped,
-				"error_count":   len(result.Errors),
-				"dry_run":       msg.DryRun,
-				"delete_orphans": msg.DeleteOrphaned,
+				"created_count":   result.Created,
+				"updated_count":   result.Updated,
+				"deleted_count":   result.Deleted,
+				"skipped_count":   result.Skipped,
+				"error_count":     len(result.Errors),
+				"dry_run":         msg.DryRun,
+				"delete_orphans":  msg.DeleteOrphaned,
 				"update_existing": msg.UpdateExisting,
 			}).Info("markdown.command.sync_directory.completed")
 		}

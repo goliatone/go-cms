@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"github.com/goliatone/go-cms/internal/commands"
-	"github.com/goliatone/go-cms/internal/commands/fixtures"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	command "github.com/goliatone/go-command"
@@ -37,7 +36,7 @@ func TestRegisterMarkdownCommandsHandlerOptionsApplied(t *testing.T) {
 }
 
 func TestRegisterMarkdownCommandsRegistersHandlers(t *testing.T) {
-	reg := fixtures.NewRecordingRegistry()
+	reg := &recordingRegistry{}
 	service := &stubMarkdownService{}
 
 	set, err := RegisterMarkdownCommands(reg, service, nil, FeatureGates{
@@ -52,14 +51,14 @@ func TestRegisterMarkdownCommandsRegistersHandlers(t *testing.T) {
 	if set.Import == nil || set.Sync == nil {
 		t.Fatalf("expected import and sync handlers, got %#v", set)
 	}
-	if len(reg.Handlers) != 2 {
-		t.Fatalf("expected two handlers registered, got %d", len(reg.Handlers))
+	if len(reg.handlers) != 2 {
+		t.Fatalf("expected two handlers registered, got %d", len(reg.handlers))
 	}
-	if reg.Handlers[0] != set.Import {
-		t.Fatalf("expected import handler registered first, got %#v", reg.Handlers[0])
+	if reg.handlers[0] != set.Import {
+		t.Fatalf("expected import handler registered first, got %#v", reg.handlers[0])
 	}
-	if reg.Handlers[1] != set.Sync {
-		t.Fatalf("expected sync handler registered second, got %#v", reg.Handlers[1])
+	if reg.handlers[1] != set.Sync {
+		t.Fatalf("expected sync handler registered second, got %#v", reg.handlers[1])
 	}
 }
 
@@ -89,26 +88,26 @@ func TestRegisterMarkdownCronRegistersHandler(t *testing.T) {
 	handler := NewSyncDirectoryHandler(service, logging.NoOp(), FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	})
-	recorder := fixtures.NewCronRecorder()
+	recorder := &recordingCron{}
 
 	cfg := command.HandlerConfig{Expression: "@daily"}
 	msg := SyncDirectoryCommand{Directory: "content"}
 
-	if err := RegisterMarkdownCron(recorder.Registrar(), handler, cfg, msg); err != nil {
+	if err := RegisterMarkdownCron(recorder.register, handler, cfg, msg); err != nil {
 		t.Fatalf("register markdown cron: %v", err)
 	}
 
-	if len(recorder.Registrations) != 1 {
-		t.Fatalf("expected one cron registration, got %d", len(recorder.Registrations))
+	if len(recorder.registrations) != 1 {
+		t.Fatalf("expected one cron registration, got %d", len(recorder.registrations))
 	}
-	reg := recorder.Registrations[0]
-	if reg.Config.Expression != cfg.Expression {
-		t.Fatalf("expected cron expression %q, got %q", cfg.Expression, reg.Config.Expression)
+	reg := recorder.registrations[0]
+	if reg.config.Expression != cfg.Expression {
+		t.Fatalf("expected cron expression %q, got %q", cfg.Expression, reg.config.Expression)
 	}
-	if reg.Handler == nil {
+	if reg.handler == nil {
 		t.Fatal("expected cron handler function recorded")
 	}
-	if err := reg.Handler(); err != nil {
+	if err := reg.handler(); err != nil {
 		t.Fatalf("executing cron handler: %v", err)
 	}
 	if len(service.syncCalls) != 1 {
@@ -130,11 +129,49 @@ func TestRegisterMarkdownCronNoOpWhenRegistrarNil(t *testing.T) {
 }
 
 func TestRegisterMarkdownCronNoOpWhenHandlerNil(t *testing.T) {
-	recorder := fixtures.NewCronRecorder()
-	if err := RegisterMarkdownCron(recorder.Registrar(), nil, command.HandlerConfig{}, SyncDirectoryCommand{Directory: "content"}); err != nil {
+	recorder := &recordingCron{}
+	if err := RegisterMarkdownCron(recorder.register, nil, command.HandlerConfig{}, SyncDirectoryCommand{Directory: "content"}); err != nil {
 		t.Fatalf("expected nil error when handler nil, got %v", err)
 	}
-	if len(recorder.Registrations) != 0 {
-		t.Fatalf("expected no registrations when handler nil, got %d", len(recorder.Registrations))
+	if len(recorder.registrations) != 0 {
+		t.Fatalf("expected no registrations when handler nil, got %d", len(recorder.registrations))
 	}
+}
+
+type recordingRegistry struct {
+	handlers []any
+	err      error
+}
+
+func (r *recordingRegistry) RegisterCommand(handler any) error {
+	if r.err != nil {
+		return r.err
+	}
+	r.handlers = append(r.handlers, handler)
+	return nil
+}
+
+type cronRegistration struct {
+	config  command.HandlerConfig
+	handler func() error
+}
+
+type recordingCron struct {
+	registrations []cronRegistration
+	err           error
+}
+
+func (r *recordingCron) register(cfg command.HandlerConfig, handler any) error {
+	if r.err != nil {
+		return r.err
+	}
+	var fn func() error
+	if h, ok := handler.(func() error); ok {
+		fn = h
+	}
+	r.registrations = append(r.registrations, cronRegistration{
+		config:  cfg,
+		handler: fn,
+	})
+	return nil
 }
