@@ -18,6 +18,7 @@ import (
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
 	widgetscmd "github.com/goliatone/go-cms/internal/commands/widgets"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/media"
@@ -96,6 +97,9 @@ type Container struct {
 	commandSubscriptions []CommandSubscription
 	commandHandlers      []any
 
+	generatorSvc     generator.Service
+	generatorStorage interfaces.StorageProvider
+
 	auditRecorder jobs.AuditRecorder
 	jobWorker     *jobs.Worker
 }
@@ -165,6 +169,20 @@ func WithMarkdownService(svc interfaces.MarkdownService) Option {
 func WithScheduler(s interfaces.Scheduler) Option {
 	return func(c *Container) {
 		c.scheduler = s
+	}
+}
+
+// WithGeneratorOutput overrides the generator output directory.
+func WithGeneratorOutput(output string) Option {
+	return func(c *Container) {
+		c.Config.Generator.OutputDir = output
+	}
+}
+
+// WithGeneratorStorage overrides the storage provider used by the generator.
+func WithGeneratorStorage(sp interfaces.StorageProvider) Option {
+	return func(c *Container) {
+		c.generatorStorage = sp
 	}
 }
 
@@ -329,6 +347,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		templateRepo:          memoryTemplateRepo,
 		memoryLocaleRepo:      memoryLocaleRepo,
 		mediaSvc:              media.NewNoOpService(),
+		generatorStorage:      storage.NewNoOpProvider(),
 	}
 
 	c.seedLocales()
@@ -473,6 +492,38 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 
 	if err := c.registerCommandHandlers(); err != nil {
 		return nil, err
+	}
+
+	if c.generatorSvc == nil {
+		if !c.Config.Generator.Enabled {
+			c.generatorSvc = generator.NewDisabledService()
+		} else {
+			genCfg := generator.Config{
+				OutputDir:       c.Config.Generator.OutputDir,
+				BaseURL:         c.Config.Generator.BaseURL,
+				CleanBuild:      c.Config.Generator.CleanBuild,
+				Incremental:     c.Config.Generator.Incremental,
+				CopyAssets:      c.Config.Generator.CopyAssets,
+				GenerateSitemap: c.Config.Generator.GenerateSitemap,
+				GenerateRobots:  c.Config.Generator.GenerateRobots,
+				GenerateFeeds:   c.Config.Generator.GenerateFeeds,
+				Workers:         c.Config.Generator.Workers,
+				DefaultLocale:   c.Config.DefaultLocale,
+				Locales:         append([]string{}, c.Config.I18N.Locales...),
+			}
+			genDeps := generator.Dependencies{
+				Pages:    c.PageService(),
+				Content:  c.ContentService(),
+				Blocks:   c.BlockService(),
+				Widgets:  c.WidgetService(),
+				Menus:    c.MenuService(),
+				Themes:   c.ThemeService(),
+				I18N:     c.I18nService(),
+				Renderer: c.template,
+				Storage:  c.generatorStorage,
+			}
+			c.generatorSvc = generator.NewService(genCfg, genDeps)
+		}
 	}
 
 	return c, nil
@@ -739,6 +790,17 @@ func (c *Container) CommandHandlers() []any {
 	handlers := make([]any, len(c.commandHandlers))
 	copy(handlers, c.commandHandlers)
 	return handlers
+}
+
+// GeneratorService returns the configured static site generator service.
+func (c *Container) GeneratorService() generator.Service {
+	if c == nil {
+		return generator.NewDisabledService()
+	}
+	if c.generatorSvc == nil {
+		return generator.NewDisabledService()
+	}
+	return c.generatorSvc
 }
 
 func (c *Container) applyCronRegistrar() {
