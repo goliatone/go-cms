@@ -12,7 +12,7 @@ type PageService interface {
 	Update(ctx context.Context, req PageUpdateRequest) (*PageRecord, error)
 	GetBySlug(ctx context.Context, slug string) (*PageRecord, error)
 	List(ctx context.Context) ([]*PageRecord, error)
-	Delete(ctx context.Context, id uuid.UUID) error
+	Delete(ctx context.Context, req PageDeleteRequest) error
 }
 
 // PageCreateRequest captures the required fields to create a page backed by content.
@@ -36,6 +36,13 @@ type PageUpdateRequest struct {
 	UpdatedBy    uuid.UUID
 	Translations []PageTranslationInput
 	Metadata     map[string]any
+}
+
+// PageDeleteRequest captures the information required to remove a page.
+type PageDeleteRequest struct {
+	ID         uuid.UUID
+	DeletedBy  uuid.UUID
+	HardDelete bool
 }
 
 // PageTranslationInput describes localized routing attributes.
