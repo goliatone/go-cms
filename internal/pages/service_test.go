@@ -350,6 +350,152 @@ func TestPageServiceVersionLifecycle(t *testing.T) {
 	}
 }
 
+func TestPageServiceUpdateReplacesTranslations(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+
+	enLocale := uuid.New()
+	esLocale := uuid.New()
+	localeStore.Put(&content.Locale{ID: enLocale, Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: esLocale, Code: "es", Display: "Spanish"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "update-page",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Update"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithPageClock(func() time.Time {
+		return time.Unix(0, 0)
+	}))
+
+	page, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "update-page",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Update",
+			Path:   "/update",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	newTemplate := uuid.New()
+	updated, err := pageSvc.Update(context.Background(), pages.UpdatePageRequest{
+		ID:         page.ID,
+		TemplateID: &newTemplate,
+		Status:     "published",
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{
+			{Locale: "en", Title: "Update EN", Path: "/update"},
+			{Locale: "es", Title: "Actualizar ES", Path: "/es/actualizar"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("update page: %v", err)
+	}
+
+	if updated.TemplateID != newTemplate {
+		t.Fatalf("expected template %s got %s", newTemplate, updated.TemplateID)
+	}
+	if updated.Status != "published" {
+		t.Fatalf("expected status published got %s", updated.Status)
+	}
+	if len(updated.Translations) != 2 {
+		t.Fatalf("expected 2 translations got %d", len(updated.Translations))
+	}
+
+	var hasEnglish, hasSpanish bool
+	for _, tr := range updated.Translations {
+		switch tr.LocaleID {
+		case enLocale:
+			hasEnglish = true
+			if tr.Path != "/update" {
+				t.Fatalf("expected en path /update got %s", tr.Path)
+			}
+		case esLocale:
+			hasSpanish = true
+			if tr.Path != "/es/actualizar" {
+				t.Fatalf("expected es path /es/actualizar got %s", tr.Path)
+			}
+		}
+	}
+	if !hasEnglish || !hasSpanish {
+		t.Fatalf("expected translations for both locales (en=%v es=%v)", hasEnglish, hasSpanish)
+	}
+}
+
+func TestPageServiceDeleteHard(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "delete-page",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Delete"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore)
+	page, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:    contentRecord.ID,
+		TemplateID:   uuid.New(),
+		Slug:         "delete-page",
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+		Translations: []pages.PageTranslationInput{{Locale: "en", Title: "Delete", Path: "/delete"}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	err = pageSvc.Delete(context.Background(), pages.DeletePageRequest{ID: page.ID, HardDelete: true})
+	if err != nil {
+		t.Fatalf("delete page: %v", err)
+	}
+
+	_, err = pageSvc.Get(context.Background(), page.ID)
+	var notFound *pages.PageNotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("expected not found error got %v", err)
+	}
+}
+
+func TestPageServiceDeleteSoftUnsupported(t *testing.T) {
+	pageSvc := pages.NewService(pages.NewMemoryPageRepository(), content.NewMemoryContentRepository(), content.NewMemoryLocaleRepository())
+	err := pageSvc.Delete(context.Background(), pages.DeletePageRequest{ID: uuid.New(), HardDelete: false})
+	if !errors.Is(err, pages.ErrPageSoftDeleteUnsupported) {
+		t.Fatalf("expected ErrPageSoftDeleteUnsupported got %v", err)
+	}
+}
+
 func TestPageServiceListIncludesBlocks(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	contentTypeStore := content.NewMemoryContentTypeRepository()

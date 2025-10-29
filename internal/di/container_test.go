@@ -11,6 +11,7 @@ import (
 	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
 	"github.com/goliatone/go-cms/internal/di"
+	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -318,6 +319,46 @@ func TestContainerCommandRegistrationRespectsFeatureGates(t *testing.T) {
 		case *pagescmd.SchedulePageHandler:
 			t.Fatal("did not expect page schedule handler when scheduling disabled")
 		}
+	}
+}
+
+func TestContainerGeneratorServiceDisabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Generator.Enabled = false
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	svc := container.GeneratorService()
+	if svc == nil {
+		t.Fatal("expected generator service reference")
+	}
+
+	if _, err := svc.Build(context.Background(), generator.BuildOptions{}); !errors.Is(err, generator.ErrServiceDisabled) {
+		t.Fatalf("expected ErrServiceDisabled, got %v", err)
+	}
+}
+
+func TestContainerGeneratorServiceEnabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Themes = true
+	cfg.Features.Widgets = true
+	cfg.Generator.Enabled = true
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	svc := container.GeneratorService()
+	if svc == nil {
+		t.Fatal("expected generator service")
+	}
+
+	if _, err := svc.Build(context.Background(), generator.BuildOptions{}); !errors.Is(err, generator.ErrNotImplemented) {
+		t.Fatalf("expected ErrNotImplemented, got %v", err)
 	}
 }
 

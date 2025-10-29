@@ -153,14 +153,14 @@ type logEntry struct {
 
 type goldenLogger struct {
 	ctx     map[string]any
-	entries *[]logEntry
+	records *[]logEntry
 }
 
 func newGoldenLogger() *goldenLogger {
 	entrySlice := make([]logEntry, 0)
 	return &goldenLogger{
 		ctx:     map[string]any{},
-		entries: &entrySlice,
+		records: &entrySlice,
 	}
 }
 
@@ -178,26 +178,26 @@ func (l *goldenLogger) WithFields(fields map[string]any) interfaces.Logger {
 	}
 	return &goldenLogger{
 		ctx:     merged,
-		entries: l.entries,
+		records: l.records,
 	}
 }
 
 func (l *goldenLogger) WithContext(context.Context) interfaces.Logger {
 	return &goldenLogger{
 		ctx:     cloneFields(l.ctx),
-		entries: l.entries,
+		records: l.records,
 	}
 }
 
 func (l *goldenLogger) entries() []logEntry {
-	if l.entries == nil {
+	if l.records == nil {
 		return nil
 	}
-	return append([]logEntry(nil), (*l.entries)...)
+	return append([]logEntry(nil), (*l.records)...)
 }
 
 func (l *goldenLogger) record(level, msg string, args ...any) {
-	if l.entries == nil {
+	if l.records == nil {
 		return
 	}
 	message := msg
@@ -212,7 +212,7 @@ func (l *goldenLogger) record(level, msg string, args ...any) {
 	if len(fields) > 0 {
 		entry.Fields = fields
 	}
-	*l.entries = append(*l.entries, entry)
+	*l.records = append(*l.records, entry)
 }
 
 func assertGoldenLogs(t *testing.T, entries []logEntry, goldenPath string) {
@@ -254,6 +254,28 @@ func normaliseLogValue(value any) any {
 	switch v := value.(type) {
 	case error:
 		return v.Error()
+	case int:
+		return float64(v)
+	case int8:
+		return float64(v)
+	case int16:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case uint:
+		return float64(v)
+	case uint8:
+		return float64(v)
+	case uint16:
+		return float64(v)
+	case uint32:
+		return float64(v)
+	case uint64:
+		return float64(v)
+	case float32:
+		return float64(v)
 	default:
 		return v
 	}

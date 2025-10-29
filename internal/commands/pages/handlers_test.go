@@ -17,10 +17,12 @@ type stubPageService struct {
 	publishRequests  []pages.PublishPagePublishRequest
 	scheduleRequests []pages.SchedulePageRequest
 	restoreRequests  []pages.RestorePageVersionRequest
+	deleteRequests   []pages.DeletePageRequest
 
 	publishErr  error
 	scheduleErr error
 	restoreErr  error
+	deleteErr   error
 }
 
 func (s *stubPageService) Create(context.Context, pages.CreatePageRequest) (*pages.Page, error) {
@@ -33,6 +35,18 @@ func (s *stubPageService) Get(context.Context, uuid.UUID) (*pages.Page, error) {
 
 func (s *stubPageService) List(context.Context) ([]*pages.Page, error) {
 	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) Update(context.Context, pages.UpdatePageRequest) (*pages.Page, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) Delete(ctx context.Context, req pages.DeletePageRequest) error {
+	s.deleteRequests = append(s.deleteRequests, req)
+	if s.deleteErr != nil {
+		return s.deleteErr
+	}
+	return nil
 }
 
 func (s *stubPageService) Schedule(ctx context.Context, req pages.SchedulePageRequest) (*pages.Page, error) {

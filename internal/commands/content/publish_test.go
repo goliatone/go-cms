@@ -35,6 +35,14 @@ func (s *stubContentService) List(context.Context) ([]*content.Content, error) {
 	return nil, errors.New("not implemented")
 }
 
+func (s *stubContentService) Update(context.Context, content.UpdateContentRequest) (*content.Content, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubContentService) Delete(context.Context, content.DeleteContentRequest) error {
+	return errors.New("not implemented")
+}
+
 func (s *stubContentService) Schedule(ctx context.Context, req content.ScheduleContentRequest) (*content.Content, error) {
 	s.scheduleRequests = append(s.scheduleRequests, req)
 	if s.scheduleErr != nil {

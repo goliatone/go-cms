@@ -111,6 +111,138 @@ func TestServiceCreateDuplicateSlug(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateReplacesTranslations(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+
+	enLocale := uuid.New()
+	esLocale := uuid.New()
+	localeStore.Put(&content.Locale{ID: enLocale, Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: esLocale, Code: "es", Display: "Spanish"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore, content.WithClock(func() time.Time {
+		return time.Unix(0, 0)
+	}))
+
+	ctx := context.Background()
+	authorID := uuid.New()
+	created, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "company",
+		Status:        "draft",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Company",
+				Content: map[string]any{"body": "Hello"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	enTranslationID := created.Translations[0].ID
+
+	updated, err := svc.Update(ctx, content.UpdateContentRequest{
+		ID:        created.ID,
+		Status:    "published",
+		UpdatedBy: authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Company Updated",
+				Content: map[string]any{"body": "Updated"},
+			},
+			{
+				Locale:  "es",
+				Title:   "Empresa",
+				Content: map[string]any{"body": "Hola"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("update content: %v", err)
+	}
+
+	if updated.Status != "published" {
+		t.Fatalf("expected status published got %s", updated.Status)
+	}
+	if len(updated.Translations) != 2 {
+		t.Fatalf("expected 2 translations got %d", len(updated.Translations))
+	}
+
+	var enFound, esFound bool
+	for _, tr := range updated.Translations {
+		if tr.LocaleID == enLocale {
+			enFound = true
+			if tr.ID != enTranslationID {
+				t.Fatalf("expected en translation ID %s got %s", enTranslationID, tr.ID)
+			}
+			if tr.Title != "Company Updated" {
+				t.Fatalf("expected updated title got %s", tr.Title)
+			}
+		}
+		if tr.LocaleID == esLocale {
+			esFound = true
+			if tr.Title != "Empresa" {
+				t.Fatalf("expected es title got %s", tr.Title)
+			}
+		}
+	}
+	if !enFound || !esFound {
+		t.Fatalf("expected both locales present (en=%v es=%v)", enFound, esFound)
+	}
+}
+
+func TestServiceDeleteHard(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	ctx := context.Background()
+	record, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "delete-me",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Delete"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	err = svc.Delete(ctx, content.DeleteContentRequest{ID: record.ID, HardDelete: true})
+	if err != nil {
+		t.Fatalf("delete content: %v", err)
+	}
+
+	_, err = svc.Get(ctx, record.ID)
+	var notFound *content.NotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("expected not found error got %v", err)
+	}
+}
+
+func TestServiceDeleteSoftUnsupported(t *testing.T) {
+	svc := content.NewService(content.NewMemoryContentRepository(), content.NewMemoryContentTypeRepository(), content.NewMemoryLocaleRepository())
+	err := svc.Delete(context.Background(), content.DeleteContentRequest{ID: uuid.New(), HardDelete: false})
+	if !errors.Is(err, content.ErrContentSoftDeleteUnsupported) {
+		t.Fatalf("expected soft delete unsupported error got %v", err)
+	}
+}
+
 func TestServiceCreateUnknownLocale(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	typeStore := content.NewMemoryContentTypeRepository()

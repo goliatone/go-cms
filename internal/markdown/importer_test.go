@@ -297,9 +297,9 @@ func (s *stubContentService) List(context.Context) ([]*interfaces.ContentRecord,
 	return result, nil
 }
 
-func (s *stubContentService) Delete(_ context.Context, id uuid.UUID) error {
+func (s *stubContentService) Delete(_ context.Context, req interfaces.ContentDeleteRequest) error {
 	for slug, record := range s.records {
-		if record.ID == id {
+		if record.ID == req.ID {
 			delete(s.records, slug)
 			return nil
 		}
@@ -388,9 +388,9 @@ func (s *stubPageService) List(context.Context) ([]*interfaces.PageRecord, error
 	return result, nil
 }
 
-func (s *stubPageService) Delete(_ context.Context, id uuid.UUID) error {
+func (s *stubPageService) Delete(_ context.Context, req interfaces.PageDeleteRequest) error {
 	for slug, record := range s.records {
-		if record.ID == id {
+		if record.ID == req.ID {
 			delete(s.records, slug)
 			return nil
 		}
