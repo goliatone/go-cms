@@ -117,6 +117,14 @@ func TestMarkdownLoggerRequestsMarkdownModule(t *testing.T) {
 	}
 }
 
+func TestGeneratorLoggerRequestsGeneratorModule(t *testing.T) {
+	provider := &stubProvider{logger: &recordingLogger{}}
+	_ = GeneratorLogger(provider)
+	if len(provider.requested) == 0 || provider.requested[0] != generatorModule {
+		t.Fatalf("expected generator module request, got %v", provider.requested)
+	}
+}
+
 func TestWithMarkdownContextAddsFields(t *testing.T) {
 	rec := &recordingLogger{}
 	_ = WithMarkdownContext(rec, "content/en/about.md", "en", "import")
