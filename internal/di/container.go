@@ -22,6 +22,7 @@ import (
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/jobs"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
@@ -516,18 +517,20 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			c.generatorSvc = generator.NewDisabledService()
 		} else {
 			genCfg := generator.Config{
-				OutputDir:       c.Config.Generator.OutputDir,
-				BaseURL:         c.Config.Generator.BaseURL,
-				CleanBuild:      c.Config.Generator.CleanBuild,
-				Incremental:     c.Config.Generator.Incremental,
-				CopyAssets:      c.Config.Generator.CopyAssets,
-				GenerateSitemap: c.Config.Generator.GenerateSitemap,
-				GenerateRobots:  c.Config.Generator.GenerateRobots,
-				GenerateFeeds:   c.Config.Generator.GenerateFeeds,
-				Workers:         c.Config.Generator.Workers,
-				DefaultLocale:   c.Config.DefaultLocale,
-				Locales:         append([]string{}, c.Config.I18N.Locales...),
-				Menus:           maps.Clone(c.Config.Generator.Menus),
+				OutputDir:        c.Config.Generator.OutputDir,
+				BaseURL:          c.Config.Generator.BaseURL,
+				CleanBuild:       c.Config.Generator.CleanBuild,
+				Incremental:      c.Config.Generator.Incremental,
+				CopyAssets:       c.Config.Generator.CopyAssets,
+				GenerateSitemap:  c.Config.Generator.GenerateSitemap,
+				GenerateRobots:   c.Config.Generator.GenerateRobots,
+				GenerateFeeds:    c.Config.Generator.GenerateFeeds,
+				Workers:          c.Config.Generator.Workers,
+				DefaultLocale:    c.Config.DefaultLocale,
+				Locales:          append([]string{}, c.Config.I18N.Locales...),
+				Menus:            maps.Clone(c.Config.Generator.Menus),
+				RenderTimeout:    c.Config.Generator.RenderTimeout,
+				AssetCopyTimeout: c.Config.Generator.AssetCopyTimeout,
 			}
 			genDeps := generator.Dependencies{
 				Pages:    c.PageService(),
@@ -542,6 +545,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				Locales:  c.localeRepo,
 				Assets:   c.generatorAssetResolver,
 				Hooks:    c.generatorHooks,
+				Logger:   logging.GeneratorLogger(c.loggerProvider),
 			}
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}
