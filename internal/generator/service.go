@@ -19,6 +19,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/i18n"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
@@ -48,25 +49,29 @@ type Service interface {
 
 // Config captures runtime behaviour toggles for the generator.
 type Config struct {
-	OutputDir       string
-	BaseURL         string
-	CleanBuild      bool
-	Incremental     bool
-	CopyAssets      bool
-	GenerateSitemap bool
-	GenerateRobots  bool
-	GenerateFeeds   bool
-	Workers         int
-	DefaultLocale   string
-	Locales         []string
-	Menus           map[string]string
+	OutputDir        string
+	BaseURL          string
+	CleanBuild       bool
+	Incremental      bool
+	CopyAssets       bool
+	GenerateSitemap  bool
+	GenerateRobots   bool
+	GenerateFeeds    bool
+	Workers          int
+	DefaultLocale    string
+	Locales          []string
+	Menus            map[string]string
+	RenderTimeout    time.Duration
+	AssetCopyTimeout time.Duration
 }
 
 // BuildOptions narrows the scope of a generator run.
 type BuildOptions struct {
-	Locales []string
-	PageIDs []uuid.UUID
-	DryRun  bool
+	Locales    []string
+	PageIDs    []uuid.UUID
+	DryRun     bool
+	Force      bool
+	AssetsOnly bool
 }
 
 // BuildResult reports aggregated build metadata.
@@ -81,6 +86,20 @@ type BuildResult struct {
 	Diagnostics   []RenderDiagnostic
 	Errors        []error
 	DryRun        bool
+	Metrics       BuildMetrics
+}
+
+// BuildMetrics captures timing and throughput statistics for a generator run.
+type BuildMetrics struct {
+	ContextDuration       time.Duration
+	RenderDuration        time.Duration
+	PersistDuration       time.Duration
+	AssetDuration         time.Duration
+	SitemapDuration       time.Duration
+	RobotsDuration        time.Duration
+	PagesPerSecond        float64
+	AssetsPerSecond       float64
+	SkippedPagesPerSecond float64
 }
 
 // Dependencies lists the services required by the generator.
@@ -96,6 +115,17 @@ type Dependencies struct {
 	Storage  interfaces.StorageProvider
 	Locales  LocaleLookup
 	Assets   AssetResolver
+	Hooks    Hooks
+	Logger   interfaces.Logger
+}
+
+// Hooks expose lifecycle callbacks for build operations.
+type Hooks struct {
+	BeforeBuild func(context.Context, BuildOptions) error
+	AfterBuild  func(context.Context, BuildOptions, *BuildResult) error
+	AfterPage   func(context.Context, RenderedPage) error
+	BeforeClean func(context.Context, string) error
+	AfterClean  func(context.Context, string) error
 }
 
 // LocaleLookup resolves locales from configured repositories.
@@ -105,10 +135,16 @@ type LocaleLookup interface {
 
 // NewService wires a generator implementation with the provided configuration and dependencies.
 func NewService(cfg Config, deps Dependencies) Service {
+	logger := deps.Logger
+	if logger == nil {
+		logger = logging.NoOp()
+	}
 	return &service{
-		cfg:  cfg,
-		deps: deps,
-		now:  time.Now,
+		cfg:    cfg,
+		deps:   deps,
+		now:    time.Now,
+		hooks:  deps.Hooks,
+		logger: logger,
 	}
 }
 
@@ -118,9 +154,30 @@ func NewDisabledService() Service {
 }
 
 type service struct {
-	cfg  Config
-	deps Dependencies
-	now  func() time.Time
+	cfg    Config
+	deps   Dependencies
+	now    func() time.Time
+	hooks  Hooks
+	logger interfaces.Logger
+}
+
+func (s *service) baseLogger(ctx context.Context) interfaces.Logger {
+	log := s.logger
+	if log == nil {
+		log = logging.NoOp()
+	}
+	if ctx != nil {
+		log = log.WithContext(ctx)
+	}
+	return log
+}
+
+func (s *service) operationLogger(ctx context.Context, operation string, extra map[string]any) interfaces.Logger {
+	fields := map[string]any{"operation": operation}
+	for key, value := range extra {
+		fields[key] = value
+	}
+	return logging.WithFields(s.baseLogger(ctx), fields)
 }
 
 type disabledService struct{}
@@ -135,10 +192,18 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 	if s.deps.Renderer == nil {
 		return nil, errRendererRequired
 	}
+	if err := s.beforeBuildHook(ctx, opts); err != nil {
+		return nil, err
+	}
 
 	start := time.Now()
+	metrics := BuildMetrics{}
+
+	contextStart := time.Now()
 	buildCtx, err := s.loadContext(ctx, opts)
+	metrics.ContextDuration = time.Since(contextStart)
 	if err != nil {
+		s.operationLogger(ctx, "build", map[string]any{"phase": "context"}).Error("generator context load failed", "error", err)
 		return nil, err
 	}
 
@@ -151,28 +216,36 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		result.Locales = append(result.Locales, spec.Code)
 	}
 
-	siteMeta := SiteMetadata{
-		BaseURL:       strings.TrimRight(s.cfg.BaseURL, "/"),
-		DefaultLocale: buildCtx.DefaultLocale,
-		Locales:       append([]LocaleSpec(nil), buildCtx.Locales...),
-		MenuAliases:   maps.Clone(buildCtx.MenuAliases),
-		Metadata:      map[string]any{},
+	logFields := map[string]any{
+		"dry_run":      opts.DryRun,
+		"force":        opts.Force,
+		"assets_only":  opts.AssetsOnly,
+		"locale_count": len(buildCtx.Locales),
+		"page_targets": len(buildCtx.Pages),
 	}
-	if siteMeta.MenuAliases == nil {
-		siteMeta.MenuAliases = map[string]string{}
+	if len(opts.Locales) > 0 {
+		logFields["requested_locales"] = len(opts.Locales)
 	}
+	if len(opts.PageIDs) > 0 {
+		logFields["page_filters"] = len(opts.PageIDs)
+	}
+
+	opLogger := s.operationLogger(ctx, "build", logFields)
+	opLogger.Info("generator build started")
+
+	siteMeta := s.buildSiteMetadata(buildCtx)
 
 	var (
 		mu          sync.Mutex
 		rendered    = make([]RenderedPage, 0, len(buildCtx.Pages))
 		errorsSlice []error
 		baseDir     = strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
-		pageKeys    = map[string]struct{}{}
 	)
 
 	manifest, manifestErr := s.loadManifest(ctx)
 	if manifestErr != nil {
 		errorsSlice = append(errorsSlice, manifestErr)
+		opLogger.Warn("generator manifest load failed", "error", manifestErr)
 	}
 	if manifest == nil {
 		manifest = newBuildManifest()
@@ -182,12 +255,7 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		mu.Lock()
 		defer mu.Unlock()
 		result.Diagnostics = append(result.Diagnostics, outcome.diagnostic)
-		if manifest != nil && outcome.diagnostic.PageID != uuid.Nil {
-			key := manifest.pageKey(outcome.diagnostic.PageID, outcome.diagnostic.Locale)
-			if key != "" {
-				pageKeys[key] = struct{}{}
-			}
-		}
+		// manifest bookkeeping handled after successful render
 		if outcome.err != nil {
 			errorsSlice = append(errorsSlice, outcome.err)
 			return
@@ -202,6 +270,7 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		}
 	}
 
+	renderStart := time.Now()
 	workerCount := s.effectiveWorkerCount(len(buildCtx.Locales))
 	if workerCount <= 1 || len(buildCtx.Pages) <= 1 {
 		for _, page := range buildCtx.Pages {
@@ -216,55 +285,69 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 					},
 					err: ctx.Err(),
 				})
+				metrics.RenderDuration = time.Since(renderStart)
+				result.Errors = append(result.Errors, ctx.Err())
 				return result, ctx.Err()
 			default:
-				outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir)
+				outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir, opts.Force)
 				collect(outcome)
 			}
 		}
 	} else {
-		if err := s.renderConcurrently(ctx, siteMeta, buildCtx, workerCount, manifest, baseDir, collect); err != nil {
+		if err := s.renderConcurrently(ctx, siteMeta, buildCtx, workerCount, manifest, baseDir, opts.Force, collect); err != nil {
 			errorsSlice = append(errorsSlice, err)
 		}
 	}
+	metrics.RenderDuration = time.Since(renderStart)
 
-	if opts.DryRun {
-		result.Rendered = rendered
-		result.Duration = time.Since(start)
-		if len(errorsSlice) > 0 {
-			result.Errors = append(result.Errors, errorsSlice...)
-			return result, errors.Join(errorsSlice...)
-		}
-		return result, nil
-	}
-
-	writer := newArtifactWriter(s.deps.Storage)
-	if err := s.persistPages(ctx, writer, buildCtx, rendered); err != nil {
-		errorsSlice = append(errorsSlice, err)
-	}
-
-	assetSummary, err := s.copyAssets(ctx, writer, buildCtx, manifest, baseDir)
-	if err != nil {
-		errorsSlice = append(errorsSlice, err)
-	} else {
-		result.AssetsBuilt += assetSummary.Built
-		result.AssetsSkipped += assetSummary.Skipped
-	}
-
-	if s.cfg.GenerateSitemap {
-		sitemapPages := s.mergeRenderedForSitemap(buildCtx, rendered, manifest)
-		if err := s.writeSitemap(ctx, writer, siteMeta, buildCtx, sitemapPages); err != nil {
+	var writer artifactWriter
+	if !opts.DryRun {
+		writer = newArtifactWriter(s.deps.Storage)
+		persistStart := time.Now()
+		if err := s.persistPages(ctx, writer, buildCtx, rendered); err != nil {
 			errorsSlice = append(errorsSlice, err)
 		}
-	}
+		metrics.PersistDuration = time.Since(persistStart)
+		if len(rendered) > 0 {
+			if err := s.afterPagesHook(ctx, rendered); err != nil {
+				errorsSlice = append(errorsSlice, err)
+			}
+		}
 
-	if s.cfg.GenerateRobots {
-		if err := s.writeRobots(ctx, writer, siteMeta); err != nil {
+		assetStart := time.Now()
+		assetSummary, err := s.copyAssets(ctx, writer, buildCtx, manifest, baseDir, opts.Force)
+		metrics.AssetDuration = time.Since(assetStart)
+		if err != nil {
 			errorsSlice = append(errorsSlice, err)
+		} else {
+			result.AssetsBuilt += assetSummary.Built
+			result.AssetsSkipped += assetSummary.Skipped
+		}
+
+		if s.cfg.GenerateSitemap {
+			sitemapStart := time.Now()
+			sitemapPages := s.mergeRenderedForSitemap(buildCtx, rendered, manifest)
+			if err := s.writeSitemap(ctx, writer, siteMeta, buildCtx, sitemapPages); err != nil {
+				errorsSlice = append(errorsSlice, err)
+			} else {
+				metrics.SitemapDuration = time.Since(sitemapStart)
+			}
+		}
+
+		if s.cfg.GenerateRobots {
+			robotsStart := time.Now()
+			if err := s.writeRobots(ctx, writer, siteMeta); err != nil {
+				errorsSlice = append(errorsSlice, err)
+			} else {
+				metrics.RobotsDuration = time.Since(robotsStart)
+			}
 		}
 	}
 
-	if manifest != nil && len(errorsSlice) == 0 {
+	if manifest != nil && len(rendered) > 0 && len(errorsSlice) == 0 {
+		if writer == nil {
+			writer = newArtifactWriter(s.deps.Storage)
+		}
 		manifest.GeneratedAt = buildCtx.GeneratedAt
 		for _, page := range rendered {
 			if page.PageID == uuid.Nil || strings.TrimSpace(page.Checksum) == "" {
@@ -290,10 +373,62 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 
 	result.Rendered = rendered
 	result.Duration = time.Since(start)
-	if len(errorsSlice) > 0 {
-		result.Errors = append(result.Errors, errorsSlice...)
-		return result, errors.Join(errorsSlice...)
+	result.Metrics = metrics
+
+	if metrics.RenderDuration > 0 && result.PagesBuilt > 0 {
+		result.Metrics.PagesPerSecond = float64(result.PagesBuilt) / metrics.RenderDuration.Seconds()
+	} else if result.PagesBuilt > 0 && result.Duration > 0 {
+		result.Metrics.PagesPerSecond = float64(result.PagesBuilt) / result.Duration.Seconds()
 	}
+	if metrics.AssetDuration > 0 && result.AssetsBuilt > 0 {
+		result.Metrics.AssetsPerSecond = float64(result.AssetsBuilt) / metrics.AssetDuration.Seconds()
+	}
+	if metrics.RenderDuration > 0 && result.PagesSkipped > 0 {
+		result.Metrics.SkippedPagesPerSecond = float64(result.PagesSkipped) / metrics.RenderDuration.Seconds()
+	}
+
+	if err := s.afterBuildHook(ctx, opts, result); err != nil {
+		errorsSlice = append(errorsSlice, err)
+	}
+
+	if len(errorsSlice) > 0 {
+		aggregated := errors.Join(errorsSlice...)
+		result.Errors = append(result.Errors, errorsSlice...)
+		opLogger.Error("generator build completed with errors",
+			"error", aggregated,
+			"duration", result.Duration,
+			"error_count", len(errorsSlice),
+			"pages_built", result.PagesBuilt,
+			"pages_skipped", result.PagesSkipped,
+			"assets_built", result.AssetsBuilt,
+			"assets_skipped", result.AssetsSkipped,
+			"pages_per_sec", result.Metrics.PagesPerSecond,
+			"assets_per_sec", result.Metrics.AssetsPerSecond,
+			"context_duration", result.Metrics.ContextDuration,
+			"render_duration", result.Metrics.RenderDuration,
+			"persist_duration", result.Metrics.PersistDuration,
+			"asset_duration", result.Metrics.AssetDuration,
+			"sitemap_duration", result.Metrics.SitemapDuration,
+			"robots_duration", result.Metrics.RobotsDuration,
+		)
+		return result, aggregated
+	}
+
+	completionFields := []any{
+		"duration", result.Duration,
+		"pages_built", result.PagesBuilt,
+		"pages_skipped", result.PagesSkipped,
+		"assets_built", result.AssetsBuilt,
+		"assets_skipped", result.AssetsSkipped,
+		"pages_per_sec", result.Metrics.PagesPerSecond,
+		"skipped_pages_per_sec", result.Metrics.SkippedPagesPerSecond,
+		"assets_per_sec", result.Metrics.AssetsPerSecond,
+		"context_duration", result.Metrics.ContextDuration,
+		"render_duration", result.Metrics.RenderDuration,
+		"persist_duration", result.Metrics.PersistDuration,
+		"asset_duration", result.Metrics.AssetDuration,
+	}
+	opLogger.Info("generator build completed", completionFields...)
 	return result, nil
 }
 
@@ -304,6 +439,7 @@ func (s *service) renderConcurrently(
 	workers int,
 	manifest *buildManifest,
 	baseDir string,
+	force bool,
 	collect func(renderOutcome),
 ) error {
 	grouped := groupPagesByLocale(buildCtx.Pages)
@@ -332,7 +468,7 @@ func (s *service) renderConcurrently(
 						})
 						return
 					default:
-						outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir)
+						outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir, force)
 						collect(outcome)
 					}
 				}
@@ -354,6 +490,21 @@ func (s *service) renderConcurrently(
 	return nil
 }
 
+func (s *service) buildSiteMetadata(buildCtx *BuildContext) SiteMetadata {
+	menuAliases := maps.Clone(buildCtx.MenuAliases)
+	if menuAliases == nil {
+		menuAliases = map[string]string{}
+	}
+	locales := append([]LocaleSpec(nil), buildCtx.Locales...)
+	return SiteMetadata{
+		BaseURL:       strings.TrimRight(s.cfg.BaseURL, "/"),
+		DefaultLocale: buildCtx.DefaultLocale,
+		Locales:       locales,
+		MenuAliases:   menuAliases,
+		Metadata:      map[string]any{},
+	}
+}
+
 func (s *service) renderPage(
 	ctx context.Context,
 	siteMeta SiteMetadata,
@@ -361,7 +512,10 @@ func (s *service) renderPage(
 	data *PageData,
 	manifest *buildManifest,
 	baseDir string,
+	force bool,
 ) renderOutcome {
+	renderCtx, cancel := withTimeout(ctx, s.cfg.RenderTimeout)
+	defer cancel()
 	route := safeTranslationPath(data.Translation)
 	outcome := renderOutcome{
 		diagnostic: RenderDiagnostic{
@@ -372,9 +526,10 @@ func (s *service) renderPage(
 	}
 
 	select {
-	case <-ctx.Done():
-		outcome.err = ctx.Err()
-		outcome.diagnostic.Err = ctx.Err()
+	case <-renderCtx.Done():
+		err := renderCtx.Err()
+		outcome.err = err
+		outcome.diagnostic.Err = err
 		return outcome
 	default:
 	}
@@ -398,7 +553,7 @@ func (s *service) renderPage(
 	}
 	outcome.diagnostic.Template = templateName
 
-	if s.cfg.Incremental && manifest != nil {
+	if s.cfg.Incremental && manifest != nil && !force {
 		destRel := buildOutputPath(route, data.Locale.Code, buildCtx.DefaultLocale)
 		expectedOutput := joinOutputPath(baseDir, destRel)
 		if manifest.shouldSkipPage(data.Page.ID, data.Locale.Code, data.Metadata.Hash, expectedOutput) {
@@ -430,12 +585,35 @@ func (s *service) renderPage(
 		Helpers: newTemplateHelpers(siteMeta.DefaultLocale, data.Locale, siteMeta.BaseURL),
 	}
 
+	type renderResult struct {
+		html string
+		err  error
+	}
 	start := time.Now()
-	rendered, err := s.deps.Renderer.RenderTemplate(templateName, templateCtx)
-	duration := time.Since(start)
-	outcome.diagnostic.Duration = duration
-	if err != nil {
-		wrapped := fmt.Errorf("generator: render template %q for page %s (%s): %w", templateName, data.Page.ID, data.Locale.Code, err)
+	results := make(chan renderResult, 1)
+	go func() {
+		html, err := s.deps.Renderer.RenderTemplate(templateName, templateCtx)
+		results <- renderResult{html: html, err: err}
+	}()
+	var (
+		rendered  string
+		renderErr error
+	)
+	select {
+	case <-renderCtx.Done():
+		elapsed := time.Since(start)
+		err := fmt.Errorf("generator: render template %q for page %s (%s) timed out: %w", templateName, data.Page.ID, data.Locale.Code, renderCtx.Err())
+		outcome.diagnostic.Duration = elapsed
+		outcome.err = err
+		outcome.diagnostic.Err = err
+		return outcome
+	case res := <-results:
+		rendered = res.html
+		renderErr = res.err
+		outcome.diagnostic.Duration = time.Since(start)
+	}
+	if renderErr != nil {
+		wrapped := fmt.Errorf("generator: render template %q for page %s (%s): %w", templateName, data.Page.ID, data.Locale.Code, renderErr)
 		outcome.err = wrapped
 		outcome.diagnostic.Err = wrapped
 		return outcome
@@ -520,35 +698,54 @@ func (s *service) copyAssets(
 	buildCtx *BuildContext,
 	manifest *buildManifest,
 	baseDir string,
+	force bool,
 ) (assetCopySummary, error) {
 	summary := assetCopySummary{}
 	if s.deps.Assets == nil {
 		return summary, nil
 	}
+	assetCtx, cancel := withTimeout(ctx, s.cfg.AssetCopyTimeout)
+	defer cancel()
 	if strings.TrimSpace(baseDir) == "" {
 		baseDir = strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
 	}
 	dirCache := map[string]struct{}{}
 	if baseDir != "" {
 		dirCache[baseDir] = struct{}{}
-		if err := writer.EnsureDir(ctx, baseDir); err != nil {
+		if err := writer.EnsureDir(assetCtx, baseDir); err != nil {
 			return summary, err
 		}
 	}
 	seen := map[string]struct{}{}
 	for _, page := range buildCtx.Pages {
+		select {
+		case <-assetCtx.Done():
+			if err := assetCtx.Err(); err != nil {
+				return summary, err
+			}
+			return summary, nil
+		default:
+		}
 		theme := page.Theme
 		if theme == nil {
 			continue
 		}
 		assets := collectThemeAssets(theme)
 		for _, asset := range assets {
+			select {
+			case <-assetCtx.Done():
+				if err := assetCtx.Err(); err != nil {
+					return summary, err
+				}
+				return summary, nil
+			default:
+			}
 			key := theme.ID.String() + "::" + asset
 			if _, ok := seen[key]; ok {
 				continue
 			}
 			seen[key] = struct{}{}
-			reader, err := s.deps.Assets.Open(ctx, theme, asset)
+			reader, err := s.deps.Assets.Open(assetCtx, theme, asset)
 			if err != nil {
 				return summary, err
 			}
@@ -568,13 +765,13 @@ func (s *service) copyAssets(
 			destRel := path.Join("assets", resolved)
 			fullPath := joinOutputPath(baseDir, destRel)
 			checksum := computeHash(data)
-			if manifest != nil && s.cfg.Incremental {
+			if manifest != nil && s.cfg.Incremental && !force {
 				if theme != nil && manifest.shouldSkipAsset(theme.ID, asset, checksum, fullPath) {
 					summary.Skipped++
 					continue
 				}
 			}
-			if err := ensureDir(ctx, writer, dirCache, path.Dir(fullPath)); err != nil {
+			if err := ensureDir(assetCtx, writer, dirCache, path.Dir(fullPath)); err != nil {
 				return summary, err
 			}
 			metadata := map[string]string{
@@ -591,7 +788,7 @@ func (s *service) copyAssets(
 				Checksum:    checksum,
 				Metadata:    metadata,
 			}
-			if err := writer.WriteFile(ctx, req); err != nil {
+			if err := writer.WriteFile(assetCtx, req); err != nil {
 				return summary, err
 			}
 			summary.Built++
@@ -683,6 +880,9 @@ func (s *service) loadManifest(ctx context.Context) (*buildManifest, error) {
 	if err != nil {
 		return nil, fmt.Errorf("generator: read manifest: %w", err)
 	}
+	if rows == nil {
+		return newBuildManifest(), nil
+	}
 	defer rows.Close()
 	if !rows.Next() {
 		return newBuildManifest(), nil
@@ -696,6 +896,50 @@ func (s *service) loadManifest(ctx context.Context) (*buildManifest, error) {
 		return nil, err
 	}
 	return manifest, nil
+}
+
+func (s *service) beforeBuildHook(ctx context.Context, opts BuildOptions) error {
+	if s.hooks.BeforeBuild == nil {
+		return nil
+	}
+	return s.hooks.BeforeBuild(ctx, opts)
+}
+
+func (s *service) afterBuildHook(ctx context.Context, opts BuildOptions, result *BuildResult) error {
+	if s.hooks.AfterBuild == nil {
+		return nil
+	}
+	return s.hooks.AfterBuild(ctx, opts, result)
+}
+
+func (s *service) afterPagesHook(ctx context.Context, pages []RenderedPage) error {
+	if s.hooks.AfterPage == nil || len(pages) == 0 {
+		return nil
+	}
+	var errs []error
+	for _, page := range pages {
+		if err := s.hooks.AfterPage(ctx, page); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		return errors.Join(errs...)
+	}
+	return nil
+}
+
+func (s *service) beforeCleanHook(ctx context.Context, target string) error {
+	if s.hooks.BeforeClean == nil {
+		return nil
+	}
+	return s.hooks.BeforeClean(ctx, target)
+}
+
+func (s *service) afterCleanHook(ctx context.Context, target string) error {
+	if s.hooks.AfterClean == nil {
+		return nil
+	}
+	return s.hooks.AfterClean(ctx, target)
 }
 
 func (s *service) manifestTargetPath() string {
@@ -843,6 +1087,13 @@ func ensureDir(ctx context.Context, writer artifactWriter, cache map[string]stru
 	return writer.EnsureDir(ctx, dir)
 }
 
+func withTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, timeout)
+}
+
 func joinOutputPath(base string, rel string) string {
 	if strings.TrimSpace(base) == "" {
 		return strings.TrimLeft(rel, "/")
@@ -859,20 +1110,176 @@ func computeHashFromString(content string) string {
 	return computeHash([]byte(content))
 }
 
-func (service) BuildPage(context.Context, uuid.UUID, string) error {
+func (s *service) BuildPage(ctx context.Context, pageID uuid.UUID, locale string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if pageID == uuid.Nil {
+		return fmt.Errorf("generator: BuildPage requires a page identifier")
+	}
+	opts := BuildOptions{
+		PageIDs: []uuid.UUID{pageID},
+		Force:   true,
+	}
+	if trimmed := strings.TrimSpace(locale); trimmed != "" {
+		opts.Locales = []string{trimmed}
+	}
+	if err := s.beforeBuildHook(ctx, opts); err != nil {
+		return err
+	}
+	start := time.Now()
+	buildCtx, err := s.loadContext(ctx, opts)
+	if err != nil {
+		return err
+	}
+	result := &BuildResult{
+		Locales:     make([]string, 0, len(buildCtx.Locales)),
+		Diagnostics: make([]RenderDiagnostic, 0, len(buildCtx.Pages)),
+		DryRun:      false,
+	}
+	for _, spec := range buildCtx.Locales {
+		result.Locales = append(result.Locales, spec.Code)
+	}
+	if len(buildCtx.Pages) == 0 {
+		result.Duration = time.Since(start)
+		_ = s.afterBuildHook(ctx, opts, result)
+		return fmt.Errorf("generator: page %s matched no build targets", pageID)
+	}
+	siteMeta := s.buildSiteMetadata(buildCtx)
+	manifest, err := s.loadManifest(ctx)
+	if err != nil {
+		return err
+	}
+	if manifest == nil {
+		manifest = newBuildManifest()
+	}
+	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	writer := newArtifactWriter(s.deps.Storage)
+	rendered := make([]RenderedPage, 0, len(buildCtx.Pages))
+	errorsSlice := []error{}
+	for _, page := range buildCtx.Pages {
+		outcome := s.renderPage(ctx, siteMeta, buildCtx, page, manifest, baseDir, true)
+		result.Diagnostics = append(result.Diagnostics, outcome.diagnostic)
+		if outcome.err != nil {
+			errorsSlice = append(errorsSlice, outcome.err)
+			continue
+		}
+		result.PagesBuilt++
+		rendered = append(rendered, outcome.page)
+	}
+	if len(rendered) > 0 {
+		if err := s.persistPages(ctx, writer, buildCtx, rendered); err != nil {
+			errorsSlice = append(errorsSlice, err)
+		}
+		if err := s.afterPagesHook(ctx, rendered); err != nil {
+			errorsSlice = append(errorsSlice, err)
+		}
+		manifest.GeneratedAt = buildCtx.GeneratedAt
+		for _, page := range rendered {
+			if page.PageID == uuid.Nil || strings.TrimSpace(page.Checksum) == "" {
+				continue
+			}
+			entry := manifestPage{
+				PageID:       page.PageID.String(),
+				Locale:       page.Locale,
+				Route:        page.Route,
+				Output:       page.Output,
+				Template:     page.Template,
+				Hash:         page.Metadata.Hash,
+				Checksum:     page.Checksum,
+				LastModified: page.Metadata.LastModified,
+				RenderedAt:   buildCtx.GeneratedAt,
+			}
+			manifest.setPage(entry)
+		}
+		if err := s.persistManifest(ctx, writer, manifest); err != nil {
+			errorsSlice = append(errorsSlice, err)
+		}
+	}
+	result.Rendered = rendered
+	result.Duration = time.Since(start)
+	if err := s.afterBuildHook(ctx, opts, result); err != nil {
+		errorsSlice = append(errorsSlice, err)
+	}
+	if len(errorsSlice) > 0 {
+		return errors.Join(errorsSlice...)
+	}
+	return nil
+}
+
+func (s *service) BuildAssets(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	opts := BuildOptions{
+		Force:      true,
+		AssetsOnly: true,
+	}
+	if err := s.beforeBuildHook(ctx, opts); err != nil {
+		return err
+	}
+	start := time.Now()
+	buildCtx, err := s.loadContext(ctx, BuildOptions{})
+	if err != nil {
+		return err
+	}
+	manifest, err := s.loadManifest(ctx)
+	if err != nil {
+		return err
+	}
+	if manifest == nil {
+		manifest = newBuildManifest()
+	}
+	baseDir := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	writer := newArtifactWriter(s.deps.Storage)
+	summary, err := s.copyAssets(ctx, writer, buildCtx, manifest, baseDir, true)
+	if err != nil {
+		return err
+	}
+	manifest.GeneratedAt = buildCtx.GeneratedAt
+	if err := s.persistManifest(ctx, writer, manifest); err != nil {
+		return err
+	}
+	result := &BuildResult{
+		Locales:       make([]string, 0, len(buildCtx.Locales)),
+		AssetsBuilt:   summary.Built,
+		AssetsSkipped: summary.Skipped,
+		Diagnostics:   []RenderDiagnostic{},
+		Duration:      time.Since(start),
+	}
+	for _, spec := range buildCtx.Locales {
+		result.Locales = append(result.Locales, spec.Code)
+	}
+	if err := s.afterBuildHook(ctx, opts, result); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *service) BuildSitemap(context.Context) error {
 	return ErrNotImplemented
 }
 
-func (service) BuildAssets(context.Context) error {
-	return ErrNotImplemented
-}
-
-func (service) BuildSitemap(context.Context) error {
-	return ErrNotImplemented
-}
-
-func (service) Clean(context.Context) error {
-	return ErrNotImplemented
+func (s *service) Clean(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	base := strings.Trim(strings.TrimSpace(s.cfg.OutputDir), "/")
+	if base == "" {
+		return nil
+	}
+	if err := s.beforeCleanHook(ctx, base); err != nil {
+		return err
+	}
+	if s.deps.Storage != nil {
+		if _, err := s.deps.Storage.Exec(ctx, storageOpRemove, base); err != nil {
+			return err
+		}
+	}
+	if err := s.afterCleanHook(ctx, base); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (disabledService) Build(context.Context, BuildOptions) (*BuildResult, error) {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
@@ -167,6 +168,7 @@ func TestLoadContextBuildsLocalizedPages(t *testing.T) {
 		Menus:   menuSvc,
 		Themes:  themeSvc,
 		Locales: locales,
+		Logger:  logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -292,6 +294,7 @@ func TestLoadContextAppliesLocaleFilter(t *testing.T) {
 		Menus:   menuSvc,
 		Themes:  themeSvc,
 		Locales: locales,
+		Logger:  logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -308,6 +311,90 @@ func TestLoadContextAppliesLocaleFilter(t *testing.T) {
 	}
 	if buildCtx.Pages[0].Locale.Code != "es" {
 		t.Fatalf("expected locale es, got %s", buildCtx.Pages[0].Locale.Code)
+	}
+}
+
+func TestLoadContextPropagatesMenuErrors(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 2, 1, 10, 0, 0, 0, time.UTC)
+
+	localeEN := uuid.New()
+	contentID := uuid.New()
+	pageID := uuid.New()
+	templateID := uuid.New()
+	menuErr := errors.New("menu resolution failed")
+
+	contentSvc := &stubContentService{
+		records: map[uuid.UUID]*content.Content{
+			contentID: {
+				ID:        contentID,
+				Slug:      "home",
+				Status:    "published",
+				UpdatedAt: now,
+				Translations: []*content.ContentTranslation{
+					{ID: uuid.New(), ContentID: contentID, LocaleID: localeEN, Title: "Home", Content: map[string]any{"body": "home"}, UpdatedAt: now},
+				},
+			},
+		},
+	}
+	pageSvc := &stubPagesService{
+		records: map[uuid.UUID]*pages.Page{
+			pageID: {
+				ID:         pageID,
+				ContentID:  contentID,
+				TemplateID: templateID,
+				Slug:       "home",
+				Status:     "published",
+				IsVisible:  true,
+				UpdatedAt:  now,
+				Translations: []*pages.PageTranslation{
+					{ID: uuid.New(), PageID: pageID, LocaleID: localeEN, Title: "Home", Path: "/", UpdatedAt: now},
+				},
+			},
+		},
+		listing: []*pages.Page{{
+			ID:         pageID,
+			ContentID:  contentID,
+			TemplateID: templateID,
+			Slug:       "home",
+			Status:     "published",
+			IsVisible:  true,
+			UpdatedAt:  now,
+			Translations: []*pages.PageTranslation{
+				{ID: uuid.New(), PageID: pageID, LocaleID: localeEN, Title: "Home", Path: "/", UpdatedAt: now},
+			},
+		}},
+	}
+	menuSvc := &errorMenuService{stubMenusService: newStubMenuService(), err: menuErr}
+	themeSvc := &stubThemesService{
+		template: &themes.Template{ID: templateID, ThemeID: uuid.New(), Name: "default"},
+	}
+	locales := &stubLocaleLookup{
+		records: map[string]*content.Locale{
+			"en": {ID: localeEN, Code: "en"},
+		},
+	}
+
+	cfg := Config{
+		OutputDir:     "dist",
+		DefaultLocale: "en",
+		Menus: map[string]string{
+			"main": "main",
+		},
+	}
+
+	svc := NewService(cfg, Dependencies{
+		Pages:   pageSvc,
+		Content: contentSvc,
+		Menus:   menuSvc,
+		Themes:  themeSvc,
+		Locales: locales,
+		Logger:  logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	if _, err := svc.loadContext(ctx, BuildOptions{}); err == nil || !errors.Is(err, menuErr) {
+		t.Fatalf("expected menu error, got %v", err)
 	}
 }
 
@@ -472,6 +559,15 @@ func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string,
 
 func (s *stubMenusService) InvalidateCache(context.Context) error {
 	return nil
+}
+
+type errorMenuService struct {
+	*stubMenusService
+	err error
+}
+
+func (s *errorMenuService) ResolveNavigation(context.Context, string, string) ([]menus.NavigationNode, error) {
+	return nil, s.err
 }
 
 type stubThemesService struct {

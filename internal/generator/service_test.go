@@ -14,6 +14,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -37,6 +38,7 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -131,6 +133,7 @@ func TestBuildUsesWorkerPool(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -158,6 +161,48 @@ func TestBuildUsesWorkerPool(t *testing.T) {
 	}
 }
 
+func TestBuildFailsOnRenderTimeout(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 3, 20, 12, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.RenderTimeout = time.Millisecond
+
+	renderer := &concurrentRenderer{
+		recordingRenderer: recordingRenderer{},
+		delay:             5 * time.Millisecond,
+	}
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Logger:   logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err == nil {
+		t.Fatalf("expected render timeout error, got nil")
+	}
+	if result == nil {
+		t.Fatalf("expected build result despite error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("expected timeout error, got %v", err)
+	}
+	if len(result.Diagnostics) == 0 || result.Diagnostics[0].Err == nil {
+		t.Fatalf("expected diagnostic error for timeout")
+	}
+	if len(result.Errors) == 0 {
+		t.Fatalf("expected recorded error slice")
+	}
+}
+
 func TestBuildDryRunDiagnostics(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 4, 2, 18, 5, 0, 0, time.UTC)
@@ -173,6 +218,7 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -241,6 +287,7 @@ func TestBuildGeneratesSitemapAndRobots(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -301,6 +348,7 @@ func TestBuildCopiesThemeAssets(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 		Assets:   assetResolver,
 	}).(*service)
 	svc.now = func() time.Time { return now }
@@ -343,6 +391,38 @@ func TestBuildCopiesThemeAssets(t *testing.T) {
 	}
 }
 
+func TestBuildReturnsErrorWhenStorageWriteFails(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 6, 15, 8, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+
+	renderer := &recordingRenderer{}
+	storage := &failingStorage{failOnWrite: true}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Logger:   logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err == nil {
+		t.Fatalf("expected storage write error")
+	}
+	if result == nil || len(result.Errors) == 0 {
+		t.Fatalf("expected errors recorded in result")
+	}
+	if !strings.Contains(err.Error(), "storage write failed") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
 func TestBuildSkipsPagesWithManifest(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 7, 15, 12, 0, 0, 0, time.UTC)
@@ -360,6 +440,7 @@ func TestBuildSkipsPagesWithManifest(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -408,6 +489,7 @@ func TestBuildSkipsPagesWithManifest(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer2,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc2.now = func() time.Time { return now.Add(30 * time.Minute) }
 
@@ -471,6 +553,7 @@ func TestBuildPageForcesRender(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -492,6 +575,7 @@ func TestBuildPageForcesRender(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: renderer2,
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc2.now = func() time.Time { return now.Add(5 * time.Minute) }
 
@@ -538,6 +622,7 @@ func TestBuildAssetsForcesCopy(t *testing.T) {
 		Renderer: renderer,
 		Storage:  storage,
 		Assets:   assetResolver,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -556,6 +641,7 @@ func TestBuildAssetsForcesCopy(t *testing.T) {
 		Renderer: renderer2,
 		Storage:  storage,
 		Assets:   assetResolver,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc2.now = func() time.Time { return now.Add(10 * time.Minute) }
 
@@ -580,6 +666,47 @@ func TestBuildAssetsForcesCopy(t *testing.T) {
 	}
 }
 
+func TestBuildFailsOnAssetCopyTimeout(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 9, 20, 10, 0, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.AssetCopyTimeout = time.Millisecond
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+	assetResolver := &delayedAssetResolver{
+		base:  newStubAssetResolver(),
+		delay: 5 * time.Millisecond,
+	}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Assets:   assetResolver,
+		Logger:   logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err == nil {
+		t.Fatalf("expected asset copy timeout error")
+	}
+	if result == nil || len(result.Errors) == 0 {
+		t.Fatalf("expected errors recorded for asset timeout")
+	}
+	if !errors.Is(err, context.DeadlineExceeded) && !strings.Contains(err.Error(), "context deadline exceeded") {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if result.AssetsBuilt != 0 {
+		t.Fatalf("expected no assets built on timeout, got %d", result.AssetsBuilt)
+	}
+}
+
 func TestCleanInvokesStorageRemove(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 10, 1, 8, 0, 0, 0, time.UTC)
@@ -594,6 +721,7 @@ func TestCleanInvokesStorageRemove(t *testing.T) {
 		Locales:  fixtures.Locales,
 		Renderer: &recordingRenderer{},
 		Storage:  storage,
+		Logger:   logging.NoOp(),
 	}).(*service)
 
 	if err := svc.Clean(ctx); err != nil {
@@ -676,6 +804,7 @@ func TestGeneratorHooksInvoked(t *testing.T) {
 		Storage:  storage,
 		Assets:   assetResolver,
 		Hooks:    hooks,
+		Logger:   logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -800,6 +929,18 @@ func (s *recordingStorage) ExecCalls() []storageCall {
 	return calls
 }
 
+type failingStorage struct {
+	recordingStorage
+	failOnWrite bool
+}
+
+func (s *failingStorage) Exec(ctx context.Context, query string, args ...any) (interfaces.Result, error) {
+	if query == storageOpWrite && s.failOnWrite {
+		return nil, fmt.Errorf("storage write failed")
+	}
+	return s.recordingStorage.Exec(ctx, query, args...)
+}
+
 type recordingTx struct {
 	storage *recordingStorage
 }
@@ -885,6 +1026,30 @@ func (r *stubAssetResolver) ResolvePath(_ *themes.Theme, asset string) (string, 
 		return "", fmt.Errorf("asset %s not found", asset)
 	}
 	return asset, nil
+}
+
+type delayedAssetResolver struct {
+	base  *stubAssetResolver
+	delay time.Duration
+}
+
+func (r *delayedAssetResolver) Open(ctx context.Context, theme *themes.Theme, asset string) (io.ReadCloser, error) {
+	if r.base == nil {
+		return nil, fmt.Errorf("nil base resolver")
+	}
+	select {
+	case <-time.After(r.delay):
+		return r.base.Open(ctx, theme, asset)
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
+func (r *delayedAssetResolver) ResolvePath(theme *themes.Theme, asset string) (string, error) {
+	if r.base == nil {
+		return "", fmt.Errorf("nil base resolver")
+	}
+	return r.base.ResolvePath(theme, asset)
 }
 
 func newRenderFixtures(now time.Time) renderFixtures {
