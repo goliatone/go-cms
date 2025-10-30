@@ -13,6 +13,7 @@ const (
 	pagesModule     = "cms.pages"
 	schedulerModule = "cms.scheduler"
 	markdownModule  = "cms.markdown"
+	generatorModule = "cms.generator"
 )
 
 const (
@@ -66,6 +67,11 @@ func SchedulerLogger(provider interfaces.LoggerProvider) interfaces.Logger {
 // MarkdownLogger returns the logger namespace reserved for markdown workflows.
 func MarkdownLogger(provider interfaces.LoggerProvider) interfaces.Logger {
 	return ModuleLogger(provider, markdownModule)
+}
+
+// GeneratorLogger returns the logger namespace reserved for generator workflows.
+func GeneratorLogger(provider interfaces.LoggerProvider) interfaces.Logger {
+	return ModuleLogger(provider, generatorModule)
 }
 
 // WithMarkdownContext enriches the provided logger with common markdown fields such as
