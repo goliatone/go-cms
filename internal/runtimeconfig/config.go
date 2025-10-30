@@ -128,18 +128,18 @@ type MarkdownParserConfig struct {
 
 // GeneratorConfig captures behaviour for the static site generator.
 type GeneratorConfig struct {
-	Enabled         bool
-	OutputDir       string
-	BaseURL         string
-	CleanBuild      bool
-	Incremental     bool
-	CopyAssets      bool
-	GenerateSitemap bool
-	GenerateRobots  bool
-	GenerateFeeds   bool
-	Workers         int
-	Menus           map[string]string
-	RenderTimeout   time.Duration
+	Enabled          bool
+	OutputDir        string
+	BaseURL          string
+	CleanBuild       bool
+	Incremental      bool
+	CopyAssets       bool
+	GenerateSitemap  bool
+	GenerateRobots   bool
+	GenerateFeeds    bool
+	Workers          int
+	Menus            map[string]string
+	RenderTimeout    time.Duration
 	AssetCopyTimeout time.Duration
 }
 
@@ -175,16 +175,16 @@ func DefaultConfig() Config {
 			LocalePatterns: map[string]string{},
 		},
 		Generator: GeneratorConfig{
-			OutputDir:       "dist",
-			CleanBuild:      true,
-			Incremental:     false,
-			CopyAssets:      true,
-			GenerateSitemap: true,
-			GenerateRobots:  false,
-			GenerateFeeds:   false,
-			Workers:         0,
-			Menus:           map[string]string{},
-			RenderTimeout:   0,
+			OutputDir:        "dist",
+			CleanBuild:       true,
+			Incremental:      false,
+			CopyAssets:       true,
+			GenerateSitemap:  true,
+			GenerateRobots:   false,
+			GenerateFeeds:    false,
+			Workers:          0,
+			Menus:            map[string]string{},
+			RenderTimeout:    0,
 			AssetCopyTimeout: 0,
 		},
 	}
