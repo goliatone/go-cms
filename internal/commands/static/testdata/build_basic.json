@@ -1,0 +1,10 @@
+{
+  "page_ids": [
+    "c4c9f4b4-7c15-4db2-b1e0-9c1f4d4d8f6a",
+    "28f9059c-3a6f-4f2b-8d1f-0e5a2a57d460"
+  ],
+  "locales": ["en", "es"],
+  "force": true,
+  "dry_run": false,
+  "assets_only": false
+}
