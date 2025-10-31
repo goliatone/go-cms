@@ -2,6 +2,7 @@ package runtimeconfig
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -22,6 +23,10 @@ var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron aut
 var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must be enabled to configure markdown")
 var ErrMarkdownContentDirRequired = errors.New("cms config: markdown content directory is required when markdown is enabled")
 var ErrGeneratorOutputDirRequired = errors.New("cms config: generator output directory is required when generator is enabled")
+var ErrLoggingProviderRequired = errors.New("cms config: logging provider is required when logging feature is enabled")
+var ErrLoggingProviderUnknown = errors.New("cms config: logging provider is invalid")
+var ErrLoggingLevelInvalid = errors.New("cms config: logging level is invalid")
+var ErrLoggingFormatInvalid = errors.New("cms config: logging format is invalid")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -38,6 +43,7 @@ type Config struct {
 	Commands      CommandsConfig
 	Markdown      MarkdownConfig
 	Generator     GeneratorConfig
+	Logging       LoggingConfig
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -96,6 +102,16 @@ type Features struct {
 	MediaLibrary  bool
 	AdvancedCache bool
 	Markdown      bool
+	Logger        bool
+}
+
+// LoggingConfig captures provider-specific options for runtime logging.
+type LoggingConfig struct {
+	Provider  string
+	Level     string
+	Format    string
+	AddSource bool
+	Focus     []string
 }
 
 // CommandsConfig captures optional command-layer behaviour.
@@ -187,6 +203,11 @@ func DefaultConfig() Config {
 			RenderTimeout:    0,
 			AssetCopyTimeout: 0,
 		},
+		Logging: LoggingConfig{
+			Provider: "console",
+			Level:    "info",
+			Format:   "",
+		},
 	}
 }
 
@@ -219,5 +240,53 @@ func (cfg Config) Validate() error {
 			return ErrGeneratorOutputDirRequired
 		}
 	}
+	if cfg.Features.Logger {
+		provider := normalizeProvider(cfg.Logging.Provider)
+		if provider == "" {
+			return ErrLoggingProviderRequired
+		}
+		if !isSupportedProvider(provider) {
+			return fmt.Errorf("%w: %s", ErrLoggingProviderUnknown, provider)
+		}
+		if level := strings.TrimSpace(cfg.Logging.Level); level != "" && !isSupportedLevel(level) {
+			return fmt.Errorf("%w: %s", ErrLoggingLevelInvalid, level)
+		}
+		if provider == "gologger" {
+			if format := strings.TrimSpace(cfg.Logging.Format); format != "" && !isSupportedFormat(format) {
+				return fmt.Errorf("%w: %s", ErrLoggingFormatInvalid, format)
+			}
+		}
+	}
 	return nil
+}
+
+func normalizeProvider(provider string) string {
+	return strings.ToLower(strings.TrimSpace(provider))
+}
+
+func isSupportedProvider(provider string) bool {
+	switch provider {
+	case "console", "gologger":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedLevel(level string) bool {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "trace", "debug", "info", "warn", "warning", "error", "fatal":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSupportedFormat(format string) bool {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "json", "console", "pretty":
+		return true
+	default:
+		return false
+	}
 }
