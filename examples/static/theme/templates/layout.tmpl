@@ -1,0 +1,48 @@
+{{ define "layout" }}
+<!doctype html>
+<html lang="{{ .Page.Locale.Code }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ .Page.Translation.Title }} · Static Demo</title>
+    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL "assets/theme.css" }}">
+  </head>
+  <body>
+    <header class="header">
+      <div class="brand">
+        <img class="brand__logo" src="{{ .Helpers.WithBaseURL "assets/logo.svg" }}" alt="Go CMS logo">
+        <span class="brand__title">Go CMS Static Demo</span>
+      </div>
+      {{ with index .Page.Menus "primary" }}
+      <nav class="nav" aria-label="Primary navigation">
+        <ul>
+          {{ range . }}
+          <li><a href="{{ $.Helpers.WithBaseURL .URL }}">{{ .Label }}</a></li>
+          {{ end }}
+        </ul>
+      </nav>
+      {{ end }}
+      <div class="locale-switcher">
+        {{ range .Site.Locales }}
+          {{ if eq .Code $.Page.Locale.Code }}
+            <span class="active">{{ .Code }}</span>
+          {{ else }}
+            <span>{{ .Code }}</span>
+          {{ end }}
+        {{ end }}
+      </div>
+    </header>
+
+    <main class="container">
+      <article>
+        <h1>{{ .Page.Translation.Title }}</h1>
+        <p>{{ index .Page.ContentTranslation.Content "body" }}</p>
+      </article>
+    </main>
+
+    <footer class="footer">
+      <p>Generated at {{ .Build.GeneratedAt.Format "2006-01-02 15:04 MST" }} · Locale {{ .Page.Locale.Code }}</p>
+    </footer>
+  </body>
+</html>
+{{ end }}

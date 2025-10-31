@@ -1,0 +1,124 @@
+{{ define "layout" }}
+<!doctype html>
+<html lang="{{ .Page.Locale.Code }}">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{{ .Page.Translation.Title }} · go-cms Demo</title>
+    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL "assets/theme.css" }}">
+  </head>
+  <body>
+    <header class="site-header">
+      <div class="brand">
+        <img class="brand__logo" src="{{ .Helpers.WithBaseURL "assets/logo.svg" }}" alt="go-cms logo">
+        <div class="brand__titles">
+          <span class="brand__title">go-cms</span>
+          <span class="brand__subtitle">Web Example (static build)</span>
+        </div>
+      </div>
+      {{ with index .Page.Menus "primary" }}
+      <nav class="site-nav" aria-label="Primary navigation">
+        <ul>
+          {{ range . }}
+          <li><a href="{{ $.Helpers.WithBaseURL .URL }}">{{ .Label }}</a></li>
+          {{ end }}
+        </ul>
+      </nav>
+      {{ end }}
+      <div class="locale-switcher">
+        {{ range .Site.Locales }}
+          {{ if eq .Code $.Page.Locale.Code }}
+            <span class="locale locale--active">{{ .Code }}</span>
+          {{ else }}
+            <span class="locale">{{ .Code }}</span>
+          {{ end }}
+        {{ end }}
+      </div>
+    </header>
+
+    <main class="layout">
+      <article class="content">
+        <h1>{{ .Page.Translation.Title }}</h1>
+        {{ with index .Page.ContentTranslation.Content "summary" }}
+        <p class="summary">{{ . }}</p>
+        {{ end }}
+        {{ with index .Page.ContentTranslation.Content "body" }}
+        <div class="rich-text">
+          {{ safeHTML . }}
+        </div>
+        {{ end }}
+
+        {{ $localeID := .Page.Locale.LocaleID }}
+        {{ range .Page.Blocks }}
+          {{ $name := blockName . }}
+          {{ $content := blockContent . $localeID }}
+          {{ if $content }}
+          <section class="block block--{{ $name }}">
+            {{ if eq $name "hero" }}
+              <div class="hero">
+                <h2>{{ index $content "title" }}</h2>
+                {{ with index $content "subtitle" }}<p>{{ . }}</p>{{ end }}
+                {{ with index $content "cta_url" }}
+                <a class="hero__cta" href="{{ . }}">{{ index $content "cta_text" }}</a>
+                {{ end }}
+              </div>
+            {{ else if eq $name "features_grid" }}
+              <div class="features">
+                <h3>{{ index $content "title" }}</h3>
+                <div class="features__grid">
+                  {{ range index $content "features" }}
+                    <article class="feature">
+                      <div class="feature__icon">{{ index . "icon" }}</div>
+                      <h4>{{ index . "title" }}</h4>
+                      <p>{{ index . "description" }}</p>
+                    </article>
+                  {{ end }}
+                </div>
+              </div>
+            {{ else if eq $name "call_to_action" }}
+              <div class="cta">
+                <h3>{{ index $content "headline" }}</h3>
+                <p>{{ index $content "description" }}</p>
+                {{ with index $content "button_url" }}
+                <a class="cta__button" href="{{ . }}">{{ index $content "button_text" }}</a>
+                {{ end }}
+              </div>
+            {{ else }}
+              <pre class="block__fallback">{{ printf "%v" $content }}</pre>
+            {{ end }}
+          </section>
+          {{ end }}
+        {{ end }}
+      </article>
+
+      <aside class="sidebar">
+        <h2>Sidebar</h2>
+        {{ $localeID := .Page.Locale.LocaleID }}
+        {{ with index .Page.Widgets "sidebar.primary" }}
+          {{ range . }}
+            {{ $config := widgetConfig . $localeID }}
+            <section class="widget widget--{{ widgetName . }}">
+              {{ with index $config "headline" }}<h3>{{ . }}</h3>{{ end }}
+              {{ with index $config "description" }}<p>{{ . }}</p>{{ end }}
+              {{ with index $config "offer" }}<p class="widget__offer">{{ . }}</p>{{ end }}
+              {{ with index $config "cta_text" }}
+                <button type="button">{{ . }}</button>
+              {{ end }}
+            </section>
+          {{ end }}
+        {{ else }}
+          <p>No widgets configured for this area.</p>
+        {{ end }}
+      </aside>
+    </main>
+
+    <footer class="site-footer">
+      <p>
+        Generated {{ .Build.GeneratedAt.Format "2006-01-02 15:04 MST" }} ·
+        Locale {{ .Page.Locale.Code }} ·
+        Route {{ .Page.Translation.Path }}
+      </p>
+    </footer>
+  </body>
+</html>
+{{ end }}

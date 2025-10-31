@@ -1,0 +1,136 @@
+{
+  "version": 1,
+  "generated_at": "2025-10-30T21:27:33.852753-07:00",
+  "pages": {
+    "131e7ce0-b5d2-4a13-bd46-353978798286::en": {
+      "page_id": "131e7ce0-b5d2-4a13-bd46-353978798286",
+      "locale": "en",
+      "route": "/contact",
+      "output": "dist/static-demo/contact/index.html",
+      "template": "page.tmpl",
+      "hash": "938adb90e20c4957d8472f288bd7622356089029c92c4c7266887d153a39a271",
+      "checksum": "5c8740d5da2282dcee8d0f48df64881a30705772fc34ef8045465512766637e9",
+      "last_modified": "2025-10-30T21:27:33.850547-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "131e7ce0-b5d2-4a13-bd46-353978798286::es": {
+      "page_id": "131e7ce0-b5d2-4a13-bd46-353978798286",
+      "locale": "es",
+      "route": "/es/contacto",
+      "output": "dist/static-demo/es/contacto/index.html",
+      "template": "page.tmpl",
+      "hash": "8bc3a09bef7b6129c3d17634391840956428b6345955870940f2b78b5c85b827",
+      "checksum": "1368a7845d4bf5d9cebe5d297ed3fb63c14e675e9757899a5a984a4404adcaef",
+      "last_modified": "2025-10-30T21:27:33.850547-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "498fa4d6-72be-4cb7-b686-e7c29563a048::en": {
+      "page_id": "498fa4d6-72be-4cb7-b686-e7c29563a048",
+      "locale": "en",
+      "route": "/services",
+      "output": "dist/static-demo/services/index.html",
+      "template": "page.tmpl",
+      "hash": "ff2dabccc935576965fc55a4b5e20d0453c0ba19bb3ff2c9279ae52bef4c789c",
+      "checksum": "a84ef17f7ef51f11f0a3b9515f61c3c0abbc0eae354b7303ed5786fac2bab285",
+      "last_modified": "2025-10-30T21:27:33.850499-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "498fa4d6-72be-4cb7-b686-e7c29563a048::es": {
+      "page_id": "498fa4d6-72be-4cb7-b686-e7c29563a048",
+      "locale": "es",
+      "route": "/es/servicios",
+      "output": "dist/static-demo/es/servicios/index.html",
+      "template": "page.tmpl",
+      "hash": "a7d9127fae43fbc28b1afd652bbe48c48d272fd7058f8480c048a246de8e0f44",
+      "checksum": "39220fde63124b7fb2aceccab50178ae5ee371ad4099f0b47f0a6aaeed2b1908",
+      "last_modified": "2025-10-30T21:27:33.850499-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "62accb95-3e43-418a-85fa-cb5642ca5936::en": {
+      "page_id": "62accb95-3e43-418a-85fa-cb5642ca5936",
+      "locale": "en",
+      "route": "/blog",
+      "output": "dist/static-demo/blog/index.html",
+      "template": "page.tmpl",
+      "hash": "25589f7518391c5ac7b79a28b97a1dd79de6cac1abfd1f156a1951e40e889e3b",
+      "checksum": "7e80add8471d5a1f5e4cd2d6476406a75b44e813b68e26a4164d1064cf17a21d",
+      "last_modified": "2025-10-30T21:27:33.85054-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "62accb95-3e43-418a-85fa-cb5642ca5936::es": {
+      "page_id": "62accb95-3e43-418a-85fa-cb5642ca5936",
+      "locale": "es",
+      "route": "/es/blog",
+      "output": "dist/static-demo/es/blog/index.html",
+      "template": "page.tmpl",
+      "hash": "729a1fa3c06995649bb49b3daa71c22b618c29c93c04d3902ea89f23fa3dbff0",
+      "checksum": "4fc4b9a9cf0d4b0704c613daae0b7279f6567c1feb424ae70e1dab89a4482588",
+      "last_modified": "2025-10-30T21:27:33.85054-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "8f7d0ed9-73a0-482d-af46-8bf2900ac5a2::en": {
+      "page_id": "8f7d0ed9-73a0-482d-af46-8bf2900ac5a2",
+      "locale": "en",
+      "route": "/company",
+      "output": "dist/static-demo/company/index.html",
+      "template": "page.tmpl",
+      "hash": "275a45f1c664171fcda13d17b1915c5b5bc702f5d4e37d3c5d200ea68a01ed7c",
+      "checksum": "4ebcd01c7e0e7837bf2700f4f1d2f0b4ee6f2dac108c96ebf959a7399378f2e1",
+      "last_modified": "2025-10-30T21:27:33.850566-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "8f7d0ed9-73a0-482d-af46-8bf2900ac5a2::es": {
+      "page_id": "8f7d0ed9-73a0-482d-af46-8bf2900ac5a2",
+      "locale": "es",
+      "route": "/es/empresa",
+      "output": "dist/static-demo/es/empresa/index.html",
+      "template": "page.tmpl",
+      "hash": "f06e8606f65d6da2f76b9044756491cf76378b4d757f1ffa2a05b9db80fd06a6",
+      "checksum": "674a7336249a79bd76e5456096b52cc9b5a01934c6e8315ba8b2afc3af37b21b",
+      "last_modified": "2025-10-30T21:27:33.850566-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "c339676d-c63e-48b9-80ca-e1898518e856::en": {
+      "page_id": "c339676d-c63e-48b9-80ca-e1898518e856",
+      "locale": "en",
+      "route": "/",
+      "output": "dist/static-demo/index.html",
+      "template": "page.tmpl",
+      "hash": "cd30b5e86f887c135a75e639d28ab1bdc6127e501232ff8a7f641cdd691c2a52",
+      "checksum": "382a4bed82e30838dec1eefdba87a7b3113056505826e8c2067ed63a9f5ea7c2",
+      "last_modified": "2025-10-30T21:27:33.850553-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    },
+    "c339676d-c63e-48b9-80ca-e1898518e856::es": {
+      "page_id": "c339676d-c63e-48b9-80ca-e1898518e856",
+      "locale": "es",
+      "route": "/es",
+      "output": "dist/static-demo/es/index.html",
+      "template": "page.tmpl",
+      "hash": "d7e237a5ba57945e7e75551c5f056d38d4d77a37c8563a3bd8e27e504f35186e",
+      "checksum": "6e0c053f5e2bbae56520c95ba49f3cdced4b0d499ff071e32556902dbd62dfd9",
+      "last_modified": "2025-10-30T21:27:33.850553-07:00",
+      "rendered_at": "2025-10-30T21:27:33.852753-07:00"
+    }
+  },
+  "assets": {
+    "66333ad2-77d9-432c-8d8a-127d0ca4df7a::assets/logo.svg": {
+      "key": "66333ad2-77d9-432c-8d8a-127d0ca4df7a::assets/logo.svg",
+      "theme_id": "66333ad2-77d9-432c-8d8a-127d0ca4df7a",
+      "source": "assets/logo.svg",
+      "output": "dist/static-demo/assets/logo.svg",
+      "checksum": "231a214c58341ead8759f087bd138737c2d69295465915c51e6034dbca8224b6",
+      "size": 483,
+      "copied_at": "2025-10-30T21:27:33.856887-07:00"
+    },
+    "66333ad2-77d9-432c-8d8a-127d0ca4df7a::assets/theme.css": {
+      "key": "66333ad2-77d9-432c-8d8a-127d0ca4df7a::assets/theme.css",
+      "theme_id": "66333ad2-77d9-432c-8d8a-127d0ca4df7a",
+      "source": "assets/theme.css",
+      "output": "dist/static-demo/assets/theme.css",
+      "checksum": "9b2c83981693f4884a314edae8c8863df09cc59926b9d605ac43c31dca6fd8bb",
+      "size": 1196,
+      "copied_at": "2025-10-30T21:27:33.856602-07:00"
+    }
+  }
+}

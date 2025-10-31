@@ -17,11 +17,13 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/goliatone/go-cms"
+	genutil "github.com/goliatone/go-cms/examples/genutil"
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	"github.com/goliatone/go-cms/internal/blocks"
 	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
+	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/markdown"
 	"github.com/goliatone/go-cms/internal/menus"
@@ -473,6 +475,22 @@ func (a *cmsPageServiceAdapter) pageMetaClone(pageID uuid.UUID) map[string]any {
 func main() {
 	ctx := context.Background()
 
+	projectRoot, err := os.Getwd()
+	if err != nil {
+		log.Fatalf("resolve working directory: %v", err)
+	}
+
+	themeDir := filepath.Join(projectRoot, "themes", "default")
+	templateDir := filepath.Join(themeDir, "templates")
+	generatorRenderer, err := genutil.NewGoTemplateRenderer(templateDir)
+	if err != nil {
+		log.Fatalf("configure generator renderer: %v", err)
+	}
+	outputRel := filepath.ToSlash(filepath.Join("dist", "web"))
+	outputRoot := filepath.Join(projectRoot, outputRel)
+	generatorStorage := genutil.NewFilesystemStorage(outputRoot, outputRel)
+	assetResolver := genutil.NewThemeAssetResolver()
+
 	// Configure CMS
 	cfg := cms.DefaultConfig()
 	cfg.DefaultLocale = "en"
@@ -524,20 +542,49 @@ func main() {
 		SlugParam:    "slug",
 	}
 
+	cfg.Generator.Enabled = true
+	cfg.Generator.OutputDir = outputRel
+	cfg.Generator.BaseURL = "http://localhost:8998"
+	cfg.Generator.CopyAssets = true
+	cfg.Generator.GenerateSitemap = true
+	cfg.Generator.GenerateRobots = true
+	cfg.Generator.Menus = map[string]string{
+		"primary": "primary",
+	}
+
 	// Initialize CMS
-	module, err := cms.New(cfg, di.WithCacheProvider(noop.Cache()))
+	module, err := cms.New(cfg,
+		di.WithCacheProvider(noop.Cache()),
+		di.WithTemplate(generatorRenderer),
+		di.WithGeneratorStorage(generatorStorage),
+		di.WithGeneratorAssetResolver(assetResolver),
+	)
 	if err != nil {
 		log.Fatalf("initialize cms: %v", err)
 	}
 
 	// Setup demo data
-	pageTemplateID, err := setupDemoData(ctx, module, &cfg)
+	pageTemplateID, err := setupDemoData(ctx, module, &cfg, filepath.ToSlash(themeDir))
 	if err != nil {
 		log.Fatalf("setup demo data: %v", err)
 	}
 
 	if err := bootstrapMarkdownDemo(ctx, module, &cfg, pageTemplateID); err != nil {
 		log.Printf("bootstrap markdown demo: %v", err)
+	}
+
+	if cfg.Generator.Enabled {
+		if err := os.RemoveAll(outputRoot); err != nil {
+			log.Printf("warning: unable to clear generator output directory %s: %v", outputRoot, err)
+		}
+		start := time.Now()
+		result, buildErr := module.Generator().Build(ctx, generator.BuildOptions{})
+		if buildErr != nil {
+			log.Printf("initial generator build failed: %v", buildErr)
+		} else if result != nil {
+			log.Printf("initial generator build completed: pages=%d assets=%d duration=%s", result.PagesBuilt, result.AssetsBuilt, time.Since(start).Truncate(time.Millisecond))
+		}
+		log.Printf("static output available under %s", outputRel)
 	}
 
 	// Create go-router Fiber server with built-in template engine
@@ -561,7 +608,7 @@ func main() {
 	r := server.Router()
 
 	// Setup routes
-	setupRoutes(r, module, &cfg)
+	setupRoutes(r, module, &cfg, outputRoot)
 
 	// Serve static files
 	r.Static("/static", "./static")
@@ -594,12 +641,70 @@ func main() {
 	log.Println("Server exited")
 }
 
-func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Config) {
+func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Config, generatorOutput string) {
 	pageSvc := module.Pages()
 	menuSvc := module.Menus()
 	widgetSvc := module.Widgets()
 	contentSvc := module.Content()
 	container := module.Container()
+	genSvc := module.Generator()
+
+	if cfg.Generator.Enabled {
+		r.Post("/generator/build", func(ctx router.Context) error {
+			if genSvc == nil {
+				return ctx.JSON(503, map[string]string{"error": "generator unavailable"})
+			}
+			start := time.Now()
+			opts := generator.BuildOptions{}
+			if locales := ctx.Query("locales"); locales != "" {
+				var selected []string
+				for _, part := range strings.Split(locales, ",") {
+					if trimmed := strings.TrimSpace(part); trimmed != "" {
+						selected = append(selected, trimmed)
+					}
+				}
+				if len(selected) > 0 {
+					opts.Locales = selected
+				}
+			}
+
+			result, err := genSvc.Build(ctx.Context(), opts)
+			if err != nil {
+				status := 500
+				if errors.Is(err, generator.ErrServiceDisabled) {
+					status = 503
+				}
+				return ctx.JSON(status, map[string]any{"error": err.Error()})
+			}
+
+			response := map[string]any{
+				"duration_ms": time.Since(start).Milliseconds(),
+				"output_dir":  cfg.Generator.OutputDir,
+				"output_path": filepath.ToSlash(generatorOutput),
+			}
+			if result != nil {
+				response["pages_built"] = result.PagesBuilt
+				response["pages_skipped"] = result.PagesSkipped
+				response["assets_built"] = result.AssetsBuilt
+				response["assets_skipped"] = result.AssetsSkipped
+				response["locales"] = result.Locales
+			}
+			return ctx.JSON(200, response)
+		})
+
+		r.Post("/generator/clean", func(ctx router.Context) error {
+			if genSvc == nil {
+				return ctx.JSON(503, map[string]string{"error": "generator unavailable"})
+			}
+			if err := genSvc.Clean(ctx.Context()); err != nil {
+				return ctx.JSON(500, map[string]any{"error": err.Error()})
+			}
+			return ctx.JSON(200, map[string]any{
+				"status":     "cleaned",
+				"output_dir": cfg.Generator.OutputDir,
+			})
+		})
+	}
 
 	// Home page
 	r.Get("/", func(ctx router.Context) error {
@@ -944,7 +1049,7 @@ func (s *demoCronScheduler) Register(cfg command.HandlerConfig, handler any) err
 	return nil
 }
 
-func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) (uuid.UUID, error) {
+func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, themePath string) (uuid.UUID, error) {
 	blockSvc := module.Blocks()
 	menuSvc := module.Menus()
 	widgetSvc := module.Widgets()
@@ -954,16 +1059,25 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) (uu
 	container := module.Container()
 
 	authorID := demoAuthorID
+	cleanThemePath := strings.TrimSpace(themePath)
+	if cleanThemePath == "" {
+		cleanThemePath = "./themes/default"
+	}
 
 	// Register theme
 	themeInput := themes.RegisterThemeInput{
 		Name:      "Default",
 		Version:   "1.0.0",
-		ThemePath: "./themes/default",
+		ThemePath: filepath.ToSlash(cleanThemePath),
 		Config: themes.ThemeConfig{
 			WidgetAreas: []themes.ThemeWidgetArea{
 				{Code: "hero", Name: "Hero Banner"},
 				{Code: "sidebar", Name: "Sidebar"},
+			},
+			Assets: &themes.ThemeAssets{
+				BasePath: stringPtr("assets"),
+				Styles:   []string{"theme.css"},
+				Images:   []string{"logo.svg"},
 			},
 		},
 	}
@@ -977,6 +1091,11 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config) (uu
 			theme = existing
 		} else {
 			return uuid.Nil, fmt.Errorf("register theme: %w", err)
+		}
+	}
+	if theme != nil {
+		if _, err := themeSvc.ActivateTheme(ctx, theme.ID); err != nil {
+			log.Printf("warning: activate theme %s: %v", theme.ID, err)
 		}
 	}
 
@@ -1635,6 +1754,10 @@ func intPtr(v int) *int {
 
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+func stringPtr(s string) *string {
+	return &s
 }
 
 func ensureWidgetDefinition(ctx context.Context, svc widgets.Service, input widgets.RegisterDefinitionInput) (*widgets.Definition, error) {
