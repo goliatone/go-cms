@@ -2,6 +2,7 @@ package di
 
 import (
 	"errors"
+	"fmt"
 	"maps"
 	"strings"
 	"time"
@@ -17,12 +18,15 @@ import (
 	mediacmd "github.com/goliatone/go-cms/internal/commands/media"
 	menuscmd "github.com/goliatone/go-cms/internal/commands/menus"
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
+	staticcmd "github.com/goliatone/go-cms/internal/commands/static"
 	widgetscmd "github.com/goliatone/go-cms/internal/commands/widgets"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/logging"
+	"github.com/goliatone/go-cms/internal/logging/console"
+	"github.com/goliatone/go-cms/internal/logging/gologger"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
@@ -374,6 +378,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		opt(c)
 	}
 
+	if err := c.configureLoggerProvider(); err != nil {
+		return nil, err
+	}
 	c.configureCacheDefaults()
 	c.configureRepositories()
 	c.configureNavigation()
@@ -385,6 +392,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithVersioningEnabled(c.Config.Features.Versioning),
 			content.WithScheduler(c.scheduler),
 			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
+			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
 		}
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
 	}
@@ -420,6 +428,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithPageVersioningEnabled(c.Config.Features.Versioning),
 			pages.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			pages.WithScheduler(c.scheduler),
+			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
 		)
 		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
 	}
@@ -554,6 +563,62 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	return c, nil
 }
 
+func (c *Container) configureLoggerProvider() error {
+	if c.loggerProvider != nil || !c.Config.Features.Logger {
+		return nil
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(c.Config.Logging.Provider))
+	switch provider {
+	case "", "console":
+		options := console.Options{}
+		if lvl, ok := parseConsoleLevel(c.Config.Logging.Level); ok {
+			options.MinLevel = &lvl
+		}
+		c.loggerProvider = console.NewProvider(options)
+	case "gologger":
+		provider, err := gologger.NewProvider(gologger.Config{
+			Level:     c.Config.Logging.Level,
+			Format:    c.Config.Logging.Format,
+			AddSource: c.Config.Logging.AddSource,
+			Focus:     append([]string{}, c.Config.Logging.Focus...),
+		})
+		if err != nil {
+			return err
+		}
+		c.loggerProvider = provider
+	default:
+		c.loggerProvider = console.NewProvider(console.Options{})
+	}
+
+	return nil
+}
+
+func parseConsoleLevel(level string) (console.Level, bool) {
+	switch strings.ToLower(strings.TrimSpace(level)) {
+	case "trace":
+		lvl := console.LevelTrace
+		return lvl, true
+	case "debug":
+		lvl := console.LevelDebug
+		return lvl, true
+	case "info", "":
+		lvl := console.LevelInfo
+		return lvl, true
+	case "warn", "warning":
+		lvl := console.LevelWarn
+		return lvl, true
+	case "error":
+		lvl := console.LevelError
+		return lvl, true
+	case "fatal":
+		lvl := console.LevelFatal
+		return lvl, true
+	default:
+		return 0, false
+	}
+}
+
 func (c *Container) configureCacheDefaults() {
 	if !c.Config.Cache.Enabled || !c.Config.Features.AdvancedCache {
 		c.cacheService = nil
@@ -636,12 +701,17 @@ func (c *Container) configureNavigation() {
 }
 
 func (c *Container) configureScheduler() {
+	logger := logging.SchedulerLogger(c.loggerProvider)
 	if !c.Config.Features.Scheduling {
 		c.scheduler = cmsscheduler.NewNoOp()
+		logger.Debug("scheduler.feature_disabled", "provider", "noop")
 		return
 	}
 	if c.scheduler == nil {
 		c.scheduler = cmsscheduler.NewInMemory()
+		logger.Info("scheduler.configured", "provider", "in-memory")
+	} else {
+		logger.Debug("scheduler.provider_supplied", "provider", fmt.Sprintf("%T", c.scheduler))
 	}
 }
 
@@ -948,6 +1018,17 @@ func (c *Container) registerCommandHandlers() error {
 			register(handlerSet.Import)
 			register(handlerSet.Sync)
 		}
+	}
+
+	// Static generator commands.
+	if c.generatorSvc != nil && c.Config.Generator.Enabled {
+		gates := staticcmd.FeatureGates{
+			GeneratorEnabled: func() bool { return c.Config.Generator.Enabled },
+		}
+		staticLogger := loggerFor("static")
+		register(staticcmd.NewBuildSiteHandler(c.generatorSvc, staticLogger, gates))
+		register(staticcmd.NewDiffSiteHandler(c.generatorSvc, staticLogger, gates))
+		register(staticcmd.NewCleanSiteHandler(c.generatorSvc, staticLogger, gates))
 	}
 
 	// Menu commands.
