@@ -332,6 +332,57 @@ func TestBuildGeneratesSitemapAndRobots(t *testing.T) {
 	}
 }
 
+func TestBuildSkipsSitemapAndFeedsWhenDisabled(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 5, 12, 18, 30, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+	fixtures.Config.GenerateSitemap = false
+	fixtures.Config.GenerateRobots = false
+	fixtures.Config.GenerateFeeds = false
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   fixtures.Themes,
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Logger:   logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+	if result.FeedsBuilt != 0 {
+		t.Fatalf("expected no feeds built when disabled, got %d", result.FeedsBuilt)
+	}
+	if result.Metrics.SitemapDuration != 0 {
+		t.Fatalf("expected zero sitemap duration when disabled, got %s", result.Metrics.SitemapDuration)
+	}
+	if result.Metrics.FeedDuration != 0 {
+		t.Fatalf("expected zero feed duration when disabled, got %s", result.Metrics.FeedDuration)
+	}
+
+	for _, call := range storage.ExecCalls() {
+		if call.Query != storageOpWrite {
+			continue
+		}
+		if len(call.Args) < 4 {
+			continue
+		}
+		category, _ := call.Args[3].(string)
+		if category == string(categorySitemap) || category == string(categoryFeed) {
+			t.Fatalf("unexpected artifact write with category %s while disabled", category)
+		}
+	}
+}
+
 func TestBuildCopiesThemeAssets(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 6, 10, 11, 30, 0, 0, time.UTC)
@@ -421,6 +472,48 @@ func TestBuildReturnsErrorWhenStorageWriteFails(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "storage write failed") {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestBuildFailsWhenThemesDisabled(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 6, 22, 10, 45, 0, 0, time.UTC)
+	fixtures := newRenderFixtures(now)
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+
+	svc := NewService(fixtures.Config, Dependencies{
+		Pages:    fixtures.Pages,
+		Content:  fixtures.Content,
+		Menus:    fixtures.Menus,
+		Themes:   themes.NewNoOpService(),
+		Locales:  fixtures.Locales,
+		Renderer: renderer,
+		Storage:  storage,
+		Logger:   logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err == nil {
+		t.Fatalf("expected error when themes disabled")
+	}
+	if !errors.Is(err, errTemplateRequired) {
+		t.Fatalf("expected errTemplateRequired, got %v", err)
+	}
+	if len(result.Diagnostics) == 0 {
+		t.Fatalf("expected diagnostics for missing templates")
+	}
+	for _, diag := range result.Diagnostics {
+		if diag.Err == nil {
+			t.Fatalf("expected diagnostic error for missing template")
+		}
+	}
+	for _, call := range storage.ExecCalls() {
+		if call.Query == storageOpWrite {
+			t.Fatalf("expected no artifact writes when template resolution fails")
+		}
 	}
 }
 

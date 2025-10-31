@@ -14,6 +14,7 @@ import (
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/media"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
@@ -200,6 +201,125 @@ func TestModule_Phase6FeaturesWithBunAndCache(t *testing.T) {
 		t.Fatalf("expected cache provider to be used (gets=%d, sets=%d)", cacheProvider.gets, cacheProvider.sets)
 	}
 }
+
+func TestModuleWidgetsDisabledReturnsNoOp(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cfg := cms.DefaultConfig()
+	module, err := cms.New(cfg)
+	if err != nil {
+		t.Fatalf("new module: %v", err)
+	}
+
+	widgetSvc := module.Widgets()
+	if widgetSvc == nil {
+		t.Fatalf("expected widget service instance")
+	}
+	if _, err := widgetSvc.RegisterDefinition(ctx, widgets.RegisterDefinitionInput{Name: "any"}); !errors.Is(err, widgets.ErrFeatureDisabled) {
+		t.Fatalf("expected ErrFeatureDisabled, got %v", err)
+	}
+	if module.Pages() == nil {
+		t.Fatalf("expected page service even when widgets disabled")
+	}
+}
+
+func TestModuleWidgetsAndThemesEnabled(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cfg := cms.DefaultConfig()
+	cfg.Features.Widgets = true
+	cfg.Features.Themes = true
+
+	module, err := cms.New(cfg)
+	if err != nil {
+		t.Fatalf("new module: %v", err)
+	}
+
+	definitions, err := module.Widgets().ListDefinitions(ctx)
+	if err != nil {
+		t.Fatalf("list widget definitions: %v", err)
+	}
+	if len(definitions) == 0 {
+		t.Fatalf("expected built-in widget definition when widgets enabled")
+	}
+
+	themes := module.Themes()
+	if themes == nil {
+		t.Fatalf("expected theme service instance")
+	}
+	list, err := themes.ListThemes(ctx)
+	if err != nil {
+		t.Fatalf("list themes with memory repositories: %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("expected no themes registered by default, got %d", len(list))
+	}
+}
+
+func TestModuleContentRetentionLimitEnforced(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Retention.Content = 1
+
+	module, err := cms.New(cfg)
+	if err != nil {
+		t.Fatalf("new module: %v", err)
+	}
+
+	typeRepo := module.Container().ContentTypeRepository()
+	seeder, ok := typeRepo.(interface{ Put(*content.ContentType) })
+	if !ok {
+		t.Fatalf("content type repository not seedable")
+	}
+	contentTypeID := uuid.New()
+	seeder.Put(&content.ContentType{ID: contentTypeID, Name: "article"})
+
+	author := uuid.New()
+	contentSvc := module.Content()
+	created, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "retention-module",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     author,
+		UpdatedBy:     author,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Retention Module",
+				Content: map[string]any{"body": "draft"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	snapshot := content.ContentVersionSnapshot{
+		Fields: map[string]any{"headline": "first"},
+		Translations: []content.ContentVersionTranslationSnapshot{
+			{Locale: "en", Title: "Draft", Content: map[string]any{"body": "draft"}},
+		},
+	}
+	if _, err := contentSvc.CreateDraft(ctx, content.CreateContentDraftRequest{
+		ContentID: created.ID,
+		Snapshot:  snapshot,
+		CreatedBy: author,
+	}); err != nil {
+		t.Fatalf("first draft: %v", err)
+	}
+	_, err = contentSvc.CreateDraft(ctx, content.CreateContentDraftRequest{
+		ContentID: created.ID,
+		Snapshot:  snapshot,
+		CreatedBy: author,
+	})
+	if !errors.Is(err, content.ErrContentVersionRetentionExceeded) {
+		t.Fatalf("expected ErrContentVersionRetentionExceeded, got %v", err)
+	}
 
 func registerPhase6Models(t *testing.T, db *bun.DB) {
 	t.Helper()
