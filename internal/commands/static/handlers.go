@@ -224,6 +224,55 @@ func (h *CleanSiteHandler) Execute(ctx context.Context, msg CleanSiteCommand) er
 	return h.inner.Execute(ctx, msg)
 }
 
+// BuildSitemapHandler regenerates sitemap artifacts via the generator service.
+type BuildSitemapHandler struct {
+	inner *commands.Handler[BuildSitemapCommand]
+}
+
+// NewBuildSitemapHandler constructs a handler that invokes generator sitemap builds.
+func NewBuildSitemapHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[BuildSitemapCommand]) *BuildSitemapHandler {
+	baseLogger := logger
+	if baseLogger == nil {
+		baseLogger = logging.NoOp()
+	}
+
+	exec := func(ctx context.Context, msg BuildSitemapCommand) error {
+		if service == nil || !gates.generatorEnabled() {
+			return generator.ErrServiceDisabled
+		}
+		if !gates.sitemapEnabled() {
+			return generator.ErrServiceDisabled
+		}
+		err := service.BuildSitemap(ctx)
+		invokeCallback(msg.ResultCallback, ResultEnvelope{
+			Result: nil,
+			Metadata: map[string]any{
+				"operation": "build_sitemap",
+			},
+		})
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
+	handlerOpts := []commands.HandlerOption[BuildSitemapCommand]{
+		commands.WithLogger[BuildSitemapCommand](baseLogger),
+		commands.WithOperation[BuildSitemapCommand]("static.sitemap"),
+		commands.WithTelemetry(commands.DefaultTelemetry[BuildSitemapCommand](baseLogger)),
+	}
+	handlerOpts = append(handlerOpts, opts...)
+
+	return &BuildSitemapHandler{
+		inner: commands.NewHandler(exec, handlerOpts...),
+	}
+}
+
+// Execute satisfies command.Commander[BuildSitemapCommand].
+func (h *BuildSitemapHandler) Execute(ctx context.Context, msg BuildSitemapCommand) error {
+	return h.inner.Execute(ctx, msg)
+}
+
 func normalizeLocales(values []string) []string {
 	if len(values) == 0 {
 		return nil
