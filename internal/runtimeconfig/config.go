@@ -27,6 +27,7 @@ var ErrLoggingProviderRequired = errors.New("cms config: logging provider is req
 var ErrLoggingProviderUnknown = errors.New("cms config: logging provider is invalid")
 var ErrLoggingLevelInvalid = errors.New("cms config: logging level is invalid")
 var ErrLoggingFormatInvalid = errors.New("cms config: logging format is invalid")
+var ErrVersionRetentionLimitInvalid = errors.New("cms config: version retention limit must be zero or positive")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -40,6 +41,7 @@ type Config struct {
 	Navigation    NavigationConfig
 	Themes        ThemeConfig
 	Widgets       WidgetConfig
+	Retention     RetentionConfig
 	Features      Features
 	Commands      CommandsConfig
 	Markdown      MarkdownConfig
@@ -130,6 +132,13 @@ type WidgetDefinitionConfig struct {
 	Icon        string
 }
 
+// RetentionConfig captures per-module version retention limits.
+type RetentionConfig struct {
+	Content int
+	Pages   int
+	Blocks  int
+}
+
 // CommandsConfig captures optional command-layer behaviour.
 type CommandsConfig struct {
 	Enabled                bool
@@ -183,6 +192,7 @@ func DefaultConfig() Config {
 		Content: ContentConfig{
 			PageHierarchy: true,
 		},
+		Retention: RetentionConfig{},
 		I18N: I18NConfig{
 			Enabled: true,
 			Locales: []string{"en"},
@@ -277,6 +287,15 @@ func (cfg Config) Validate() error {
 		if strings.TrimSpace(cfg.Generator.OutputDir) == "" {
 			return ErrGeneratorOutputDirRequired
 		}
+	}
+	if cfg.Retention.Content < 0 {
+		return fmt.Errorf("%w: content", ErrVersionRetentionLimitInvalid)
+	}
+	if cfg.Retention.Pages < 0 {
+		return fmt.Errorf("%w: pages", ErrVersionRetentionLimitInvalid)
+	}
+	if cfg.Retention.Blocks < 0 {
+		return fmt.Errorf("%w: blocks", ErrVersionRetentionLimitInvalid)
 	}
 	if cfg.Features.Logger {
 		provider := normalizeProvider(cfg.Logging.Provider)
