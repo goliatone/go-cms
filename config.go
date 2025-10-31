@@ -24,6 +24,7 @@ type (
 	URLKitResolverConfig   = runtimeconfig.URLKitResolverConfig
 	WidgetConfig           = runtimeconfig.WidgetConfig
 	WidgetDefinitionConfig = runtimeconfig.WidgetDefinitionConfig
+	RetentionConfig        = runtimeconfig.RetentionConfig
 	Features               = runtimeconfig.Features
 	CommandsConfig         = runtimeconfig.CommandsConfig
 	MarkdownConfig         = runtimeconfig.MarkdownConfig
