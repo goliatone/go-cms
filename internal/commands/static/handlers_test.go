@@ -216,6 +216,66 @@ func TestCleanSiteHandler_Execute_GeneratorDisabled(t *testing.T) {
 	}
 }
 
+func TestBuildSitemapHandler_Execute(t *testing.T) {
+	sitemapCalled := false
+	svc := &fakeGeneratorService{
+		buildSitemapFunc: func(ctx context.Context) error {
+			sitemapCalled = true
+			return nil
+		},
+	}
+
+	handler := NewBuildSitemapHandler(svc, nil, FeatureGates{
+		GeneratorEnabled: alwaysTrue,
+		SitemapEnabled:   alwaysTrue,
+	})
+
+	callbackInvoked := false
+	cmd := BuildSitemapCommand{
+		ResultCallback: func(env ResultEnvelope) {
+			callbackInvoked = true
+			if env.Result != nil {
+				t.Fatalf("expected nil result, got %#v", env.Result)
+			}
+			if env.Metadata["operation"] != "build_sitemap" {
+				t.Fatalf("expected build_sitemap operation, got %v", env.Metadata["operation"])
+			}
+		},
+	}
+
+	if err := handler.Execute(context.Background(), cmd); err != nil {
+		t.Fatalf("execute build sitemap: %v", err)
+	}
+	if !sitemapCalled {
+		t.Fatal("expected BuildSitemap to be called")
+	}
+	if !callbackInvoked {
+		t.Fatal("expected callback to be invoked")
+	}
+}
+
+func TestBuildSitemapHandler_Execute_GeneratorDisabled(t *testing.T) {
+	handler := NewBuildSitemapHandler(&fakeGeneratorService{}, nil, FeatureGates{
+		GeneratorEnabled: alwaysFalse,
+		SitemapEnabled:   alwaysTrue,
+	})
+	err := handler.Execute(context.Background(), BuildSitemapCommand{})
+	if !errors.Is(err, generator.ErrServiceDisabled) {
+		t.Fatalf("expected ErrServiceDisabled, got %v", err)
+	}
+}
+
+func TestBuildSitemapHandler_Execute_SitemapDisabled(t *testing.T) {
+	handler := NewBuildSitemapHandler(&fakeGeneratorService{}, nil, FeatureGates{
+		GeneratorEnabled: alwaysTrue,
+		SitemapEnabled:   alwaysFalse,
+	})
+	err := handler.Execute(context.Background(), BuildSitemapCommand{})
+	if !errors.Is(err, generator.ErrServiceDisabled) {
+		t.Fatalf("expected ErrServiceDisabled, got %v", err)
+	}
+}
+
 func TestBuildSiteCommandValidate(t *testing.T) {
 	cmd := loadBuildFixture(t, "build_invalid_locale.json")
 	if err := cmd.Validate(); err == nil {

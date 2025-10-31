@@ -3,7 +3,9 @@ package di_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/goliatone/go-cms"
 	contentcmd "github.com/goliatone/go-cms/internal/commands/content"
@@ -11,10 +13,14 @@ import (
 	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
 	"github.com/goliatone/go-cms/internal/di"
+	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/generator"
+	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/google/uuid"
 )
 
 func TestContainerWidgetServiceDisabled(t *testing.T) {
@@ -67,6 +73,81 @@ func TestContainerWidgetServiceEnabled(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("expected newsletter_signup definition to be registered")
+	}
+}
+
+func TestContainerWidgetRegistryDeduplicatesConfiguredDefinitions(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Widgets = true
+	cfg.Widgets.Definitions = []cms.WidgetDefinitionConfig{
+		{
+			Name: "hero_banner",
+			Schema: map[string]any{
+				"fields": []any{
+					map[string]any{"name": "cta"},
+				},
+			},
+		},
+		{
+			Name: "HERO_BANNER",
+			Schema: map[string]any{
+				"fields": []any{
+					map[string]any{"name": "cta"},
+				},
+			},
+			Defaults: map[string]any{
+				"cta": "Join now",
+			},
+		},
+	}
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	svc := container.WidgetService()
+	definitions, err := svc.ListDefinitions(context.Background())
+	if err != nil {
+		t.Fatalf("list definitions: %v", err)
+	}
+	if len(definitions) != 1 {
+		t.Fatalf("expected 1 definition, got %d", len(definitions))
+	}
+	def := definitions[0]
+	if def.Name != "HERO_BANNER" {
+		t.Fatalf("expected HERO_BANNER, got %s", def.Name)
+	}
+	if def.Defaults["cta"] != "Join now" {
+		t.Fatalf("expected defaults to come from latest config entry")
+	}
+}
+
+func TestContainerWidgetConfigRespectsFeatureFlag(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Widgets.Definitions = []cms.WidgetDefinitionConfig{
+		{
+			Name: "marketing_banner",
+			Schema: map[string]any{
+				"fields": []any{
+					map[string]any{"name": "headline"},
+				},
+			},
+		},
+	}
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	svc := container.WidgetService()
+	if svc == nil {
+		t.Fatalf("expected widget service instance")
+	}
+
+	if _, err := svc.ListDefinitions(context.Background()); !errors.Is(err, widgets.ErrFeatureDisabled) {
+		t.Fatalf("expected ErrFeatureDisabled when widgets feature disabled, got %v", err)
 	}
 }
 
@@ -132,6 +213,148 @@ func TestContainerThemeServiceEnabled(t *testing.T) {
 	}
 	if len(summaries) != 1 {
 		t.Fatalf("expected 1 active theme, got %d", len(summaries))
+	}
+}
+
+func TestContainerPageServiceIntegratesFeatureServices(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Widgets = true
+	cfg.Features.Themes = true
+	cfg.Features.MediaLibrary = true
+
+	mediaProvider := &recordingMediaProvider{}
+	container, err := di.NewContainer(cfg, di.WithMedia(mediaProvider))
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	ctx := context.Background()
+	now := time.Now().UTC()
+
+	themeSvc := container.ThemeService()
+	theme, err := themeSvc.RegisterTheme(ctx, themes.RegisterThemeInput{
+		Name:      "aurora",
+		Version:   "1.0.0",
+		ThemePath: "themes/aurora",
+		Config: themes.ThemeConfig{
+			WidgetAreas: []themes.ThemeWidgetArea{
+				{Code: "hero", Name: "Hero"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register theme: %v", err)
+	}
+	template, err := themeSvc.RegisterTemplate(ctx, themes.RegisterTemplateInput{
+		ThemeID:      theme.ID,
+		Name:         "landing",
+		Slug:         "landing",
+		TemplatePath: "templates/landing.html",
+		Regions: map[string]themes.TemplateRegion{
+			"hero": {
+				Name:           "Hero",
+				AcceptsWidgets: true,
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register template: %v", err)
+	}
+
+	widgetSvc := container.WidgetService()
+	if _, err := widgetSvc.RegisterAreaDefinition(ctx, widgets.RegisterAreaDefinitionInput{
+		Code:       "hero",
+		Name:       "Hero",
+		Scope:      widgets.AreaScopeTemplate,
+		TemplateID: &template.ID,
+	}); err != nil {
+		t.Fatalf("register area definition: %v", err)
+	}
+	definition, err := widgetSvc.RegisterDefinition(ctx, widgets.RegisterDefinitionInput{
+		Name: "hero_banner",
+		Schema: map[string]any{
+			"type":       "object",
+			"properties": map[string]any{},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register widget definition: %v", err)
+	}
+	instance, err := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
+		DefinitionID: definition.ID,
+		Position:     0,
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("create widget instance: %v", err)
+	}
+	if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+		AreaCode:   "hero",
+		InstanceID: instance.ID,
+	}); err != nil {
+		t.Fatalf("assign widget to area: %v", err)
+	}
+
+	pageID := uuid.New()
+	translation := &pages.PageTranslation{
+		ID:        uuid.New(),
+		PageID:    pageID,
+		LocaleID:  uuid.New(),
+		Title:     "Home",
+		Path:      "/",
+		CreatedAt: now,
+		UpdatedAt: now,
+		MediaBindings: media.BindingSet{
+			"hero_image": {
+				{
+					Slot: "hero_image",
+					Reference: interfaces.MediaReference{
+						ID: "asset-1",
+					},
+				},
+			},
+		},
+	}
+	page := &pages.Page{
+		ID:             pageID,
+		ContentID:      uuid.New(),
+		CurrentVersion: 1,
+		TemplateID:     template.ID,
+		Slug:           "home",
+		Status:         string(domain.StatusPublished),
+		CreatedBy:      uuid.New(),
+		UpdatedBy:      uuid.New(),
+		CreatedAt:      now,
+		UpdatedAt:      now,
+		Translations:   []*pages.PageTranslation{translation},
+	}
+	if _, err := container.PageRepository().Create(ctx, page); err != nil {
+		t.Fatalf("seed page: %v", err)
+	}
+
+	results, err := container.PageService().List(ctx)
+	if err != nil {
+		t.Fatalf("list pages: %v", err)
+	}
+	if len(results) != 1 {
+		t.Fatalf("expected 1 page, got %d", len(results))
+	}
+
+	enriched := results[0]
+	widgetPlacements := enriched.Widgets["hero"]
+	if len(widgetPlacements) == 0 {
+		t.Fatalf("expected hero widgets to be attached")
+	}
+	if len(enriched.Translations) == 0 {
+		t.Fatalf("expected translations to be present")
+	}
+	resolved := enriched.Translations[0].ResolvedMedia["hero_image"]
+	if len(resolved) == 0 {
+		t.Fatalf("expected media bindings to be resolved")
+	}
+	if mediaProvider.resolveCalls == 0 {
+		t.Fatalf("expected media provider to be invoked")
 	}
 }
 
@@ -397,6 +620,44 @@ func TestContainerCommandsDisabledSkipsRegistration(t *testing.T) {
 	if len(dispatcher.Handlers) != 0 {
 		t.Fatalf("expected dispatcher to remain empty when commands disabled")
 	}
+}
+
+type recordingMediaProvider struct {
+	resolveCalls int
+}
+
+func (p *recordingMediaProvider) Resolve(_ context.Context, req interfaces.MediaResolveRequest) (*interfaces.MediaAsset, error) {
+	p.resolveCalls++
+	url := "https://cdn.example.test/assets/" + strings.TrimPrefix(req.Reference.ID, "/")
+	return &interfaces.MediaAsset{
+		Reference: req.Reference,
+		Source: &interfaces.MediaResource{
+			URL: url,
+		},
+		Renditions: map[string]*interfaces.MediaResource{
+			"original": {URL: url},
+		},
+	}, nil
+}
+
+func (p *recordingMediaProvider) ResolveBatch(ctx context.Context, reqs []interfaces.MediaResolveRequest) (map[string]*interfaces.MediaAsset, error) {
+	out := make(map[string]*interfaces.MediaAsset, len(reqs))
+	for _, req := range reqs {
+		asset, err := p.Resolve(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		key := req.Reference.ID
+		if key == "" {
+			key = req.Reference.Path
+		}
+		out[key] = asset
+	}
+	return out, nil
+}
+
+func (p *recordingMediaProvider) Invalidate(context.Context, ...interfaces.MediaReference) error {
+	return nil
 }
 
 type fakeMarkdownService struct{}
