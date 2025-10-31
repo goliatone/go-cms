@@ -182,6 +182,12 @@ func registerThemeFixtures(t *testing.T, ctx context.Context, svc themes.Service
 		Name:         "page",
 		Slug:         "page",
 		TemplatePath: "themes/aurora/page.html",
+		Regions: map[string]themes.TemplateRegion{
+			"main": {
+				Name:          "Main",
+				AcceptsBlocks: true,
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("register template: %v", err)

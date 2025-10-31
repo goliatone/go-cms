@@ -626,7 +626,7 @@ func (s *service) renderPage(
 		Template: templateName,
 		HTML:     rendered,
 		Metadata: data.Metadata,
-		Duration: duration,
+		Duration: outcome.diagnostic.Duration,
 	}
 	return outcome
 }
@@ -762,7 +762,15 @@ func (s *service) copyAssets(
 			if resolved == "" {
 				resolved = strings.TrimLeft(strings.TrimSpace(asset), "/")
 			}
-			destRel := path.Join("assets", resolved)
+			normalized := strings.ReplaceAll(resolved, "\\", "/")
+			if strings.HasPrefix(normalized, "assets/") {
+				normalized = strings.TrimPrefix(normalized, "assets/")
+			}
+			if normalized == "" {
+				normalized = strings.TrimLeft(strings.TrimSpace(asset), "/")
+				normalized = strings.ReplaceAll(normalized, "\\", "/")
+			}
+			destRel := path.Join("assets", normalized)
 			fullPath := joinOutputPath(baseDir, destRel)
 			checksum := computeHash(data)
 			if manifest != nil && s.cfg.Incremental && !force {
