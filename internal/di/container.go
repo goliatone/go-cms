@@ -68,6 +68,7 @@ type Container struct {
 	blockRepo            blocks.InstanceRepository
 	blockDefinitionRepo  blocks.DefinitionRepository
 	blockTranslationRepo blocks.TranslationRepository
+	blockVersionRepo     blocks.InstanceVersionRepository
 
 	menuRepo            menus.MenuRepository
 	menuItemRepo        menus.MenuItemRepository
@@ -328,6 +329,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryBlockDefRepo := blocks.NewMemoryDefinitionRepository()
 	memoryBlockRepo := blocks.NewMemoryInstanceRepository()
 	memoryBlockTranslationRepo := blocks.NewMemoryTranslationRepository()
+	memoryBlockVersionRepo := blocks.NewMemoryInstanceVersionRepository()
 
 	memoryMenuRepo := menus.NewMemoryMenuRepository()
 	memoryMenuItemRepo := menus.NewMemoryMenuItemRepository()
@@ -357,6 +359,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		blockDefinitionRepo:   memoryBlockDefRepo,
 		blockRepo:             memoryBlockRepo,
 		blockTranslationRepo:  memoryBlockTranslationRepo,
+		blockVersionRepo:      memoryBlockVersionRepo,
 		menuRepo:              memoryMenuRepo,
 		menuItemRepo:          memoryMenuItemRepo,
 		menuTranslationRepo:   memoryMenuTranslationRepo,
@@ -390,6 +393,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if c.contentSvc == nil {
 		contentOpts := []content.ServiceOption{
 			content.WithVersioningEnabled(c.Config.Features.Versioning),
+			content.WithVersionRetentionLimit(c.Config.Retention.Content),
 			content.WithScheduler(c.scheduler),
 			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
@@ -401,6 +405,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		blockOpts := []blocks.ServiceOption{
 			blocks.WithMediaService(c.mediaSvc),
 			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
+			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
+		}
+		if c.blockVersionRepo != nil {
+			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
 		}
 		c.blockSvc = blocks.NewService(
 			c.blockDefinitionRepo,
@@ -448,6 +456,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		pageOpts := []pages.ServiceOption{
 			pages.WithMediaService(c.mediaSvc),
 			pages.WithPageVersioningEnabled(c.Config.Features.Versioning),
+			pages.WithPageVersionRetentionLimit(c.Config.Retention.Pages),
 			pages.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			pages.WithScheduler(c.scheduler),
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
@@ -626,6 +635,7 @@ func (c *Container) configureRepositories() {
 		c.blockDefinitionRepo = blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.blockRepo = blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.blockTranslationRepo = blocks.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.blockVersionRepo = blocks.NewBunInstanceVersionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 
 		c.menuRepo = menus.NewBunMenuRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.menuItemRepo = menus.NewBunMenuItemRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
