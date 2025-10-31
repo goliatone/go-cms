@@ -7,6 +7,10 @@ var (
 	ErrSchedulingFeatureRequiresVersioning = runtimeconfig.ErrSchedulingFeatureRequiresVersioning
 	ErrAdvancedCacheRequiresEnabledCache   = runtimeconfig.ErrAdvancedCacheRequiresEnabledCache
 	ErrCommandsCronRequiresScheduling      = runtimeconfig.ErrCommandsCronRequiresScheduling
+	ErrLoggingProviderRequired             = runtimeconfig.ErrLoggingProviderRequired
+	ErrLoggingProviderUnknown              = runtimeconfig.ErrLoggingProviderUnknown
+	ErrLoggingLevelInvalid                 = runtimeconfig.ErrLoggingLevelInvalid
+	ErrLoggingFormatInvalid                = runtimeconfig.ErrLoggingFormatInvalid
 )
 
 type (
@@ -23,6 +27,7 @@ type (
 	MarkdownConfig       = runtimeconfig.MarkdownConfig
 	MarkdownParserConfig = runtimeconfig.MarkdownParserConfig
 	GeneratorConfig      = runtimeconfig.GeneratorConfig
+	LoggingConfig        = runtimeconfig.LoggingConfig
 )
 
 func DefaultConfig() Config {
