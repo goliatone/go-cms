@@ -80,6 +80,7 @@ type BuildResult struct {
 	PagesSkipped  int
 	AssetsBuilt   int
 	AssetsSkipped int
+	FeedsBuilt    int
 	Locales       []string
 	Duration      time.Duration
 	Rendered      []RenderedPage
@@ -97,6 +98,7 @@ type BuildMetrics struct {
 	AssetDuration         time.Duration
 	SitemapDuration       time.Duration
 	RobotsDuration        time.Duration
+	FeedDuration          time.Duration
 	PagesPerSecond        float64
 	AssetsPerSecond       float64
 	SkippedPagesPerSecond float64
@@ -334,6 +336,18 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 			}
 		}
 
+		if s.cfg.GenerateFeeds {
+			feedStart := time.Now()
+			feedDocs := s.buildFeedDocuments(buildCtx)
+			written, err := s.writeFeeds(ctx, writer, siteMeta, buildCtx, feedDocs)
+			if err != nil {
+				errorsSlice = append(errorsSlice, err)
+			} else {
+				result.FeedsBuilt += written
+				metrics.FeedDuration = time.Since(feedStart)
+			}
+		}
+
 		if s.cfg.GenerateRobots {
 			robotsStart := time.Now()
 			if err := s.writeRobots(ctx, writer, siteMeta); err != nil {
@@ -402,6 +416,7 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 			"pages_skipped", result.PagesSkipped,
 			"assets_built", result.AssetsBuilt,
 			"assets_skipped", result.AssetsSkipped,
+			"feeds_built", result.FeedsBuilt,
 			"pages_per_sec", result.Metrics.PagesPerSecond,
 			"assets_per_sec", result.Metrics.AssetsPerSecond,
 			"context_duration", result.Metrics.ContextDuration,
@@ -409,6 +424,7 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 			"persist_duration", result.Metrics.PersistDuration,
 			"asset_duration", result.Metrics.AssetDuration,
 			"sitemap_duration", result.Metrics.SitemapDuration,
+			"feed_duration", result.Metrics.FeedDuration,
 			"robots_duration", result.Metrics.RobotsDuration,
 		)
 		return result, aggregated
@@ -427,6 +443,8 @@ func (s *service) Build(ctx context.Context, opts BuildOptions) (*BuildResult, e
 		"render_duration", result.Metrics.RenderDuration,
 		"persist_duration", result.Metrics.PersistDuration,
 		"asset_duration", result.Metrics.AssetDuration,
+		"feed_duration", result.Metrics.FeedDuration,
+		"feeds_built", result.FeedsBuilt,
 	}
 	opLogger.Info("generator build completed", completionFields...)
 	return result, nil
@@ -1264,8 +1282,62 @@ func (s *service) BuildAssets(ctx context.Context) error {
 	return nil
 }
 
-func (s *service) BuildSitemap(context.Context) error {
-	return ErrNotImplemented
+func (s *service) BuildSitemap(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if !s.cfg.GenerateSitemap {
+		return nil
+	}
+	opts := BuildOptions{
+		Force: true,
+	}
+	if err := s.beforeBuildHook(ctx, opts); err != nil {
+		return err
+	}
+
+	start := time.Now()
+	buildCtx, err := s.loadContext(ctx, BuildOptions{})
+	if err != nil {
+		return err
+	}
+	siteMeta := s.buildSiteMetadata(buildCtx)
+	manifest, err := s.loadManifest(ctx)
+	if err != nil {
+		return err
+	}
+	if manifest == nil {
+		manifest = newBuildManifest()
+	}
+
+	writer := newArtifactWriter(s.deps.Storage)
+	sitemapPages := s.mergeRenderedForSitemap(buildCtx, nil, manifest)
+	var writeErr error
+	if len(sitemapPages) > 0 {
+		writeErr = s.writeSitemap(ctx, writer, siteMeta, buildCtx, sitemapPages)
+	}
+
+	result := &BuildResult{
+		Locales:     make([]string, 0, len(buildCtx.Locales)),
+		Diagnostics: []RenderDiagnostic{},
+	}
+	result.Duration = time.Since(start)
+	if len(sitemapPages) > 0 {
+		result.Metrics = BuildMetrics{
+			SitemapDuration: result.Duration,
+		}
+	}
+	for _, spec := range buildCtx.Locales {
+		result.Locales = append(result.Locales, spec.Code)
+	}
+	if hookErr := s.afterBuildHook(ctx, opts, result); hookErr != nil {
+		if writeErr != nil {
+			writeErr = errors.Join(writeErr, hookErr)
+		} else {
+			writeErr = hookErr
+		}
+	}
+	return writeErr
 }
 
 func (s *service) Clean(ctx context.Context) error {
