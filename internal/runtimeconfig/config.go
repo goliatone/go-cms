@@ -39,6 +39,7 @@ type Config struct {
 	Cache         CacheConfig
 	Navigation    NavigationConfig
 	Themes        ThemeConfig
+	Widgets       WidgetConfig
 	Features      Features
 	Commands      CommandsConfig
 	Markdown      MarkdownConfig
@@ -114,6 +115,21 @@ type LoggingConfig struct {
 	Focus     []string
 }
 
+// WidgetConfig controls registry bootstrapping.
+type WidgetConfig struct {
+	Definitions []WidgetDefinitionConfig
+}
+
+// WidgetDefinitionConfig mirrors the minimal RegisterDefinitionInput requirements.
+type WidgetDefinitionConfig struct {
+	Name        string
+	Description string
+	Schema      map[string]any
+	Defaults    map[string]any
+	Category    string
+	Icon        string
+}
+
 // CommandsConfig captures optional command-layer behaviour.
 type CommandsConfig struct {
 	Enabled                bool
@@ -181,6 +197,28 @@ func DefaultConfig() Config {
 		Navigation: NavigationConfig{},
 		Themes: ThemeConfig{
 			BasePath: "themes",
+		},
+		Widgets: WidgetConfig{
+			Definitions: []WidgetDefinitionConfig{
+				{
+					Name:        "newsletter_signup",
+					Description: "Captures visitor email addresses with a simple form",
+					Schema: map[string]any{
+						"fields": []any{
+							map[string]any{"name": "headline", "type": "text"},
+							map[string]any{"name": "subheadline", "type": "text"},
+							map[string]any{"name": "cta_text", "type": "text"},
+							map[string]any{"name": "success_message", "type": "text"},
+						},
+					},
+					Defaults: map[string]any{
+						"cta_text":        "Subscribe",
+						"success_message": "Thanks for subscribing!",
+					},
+					Category: "marketing",
+					Icon:     "envelope-open",
+				},
+			},
 		},
 		Features: Features{},
 		Commands: CommandsConfig{},
