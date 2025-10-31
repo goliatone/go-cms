@@ -8,10 +8,12 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms"
+	"github.com/goliatone/go-cms/internal/blocks"
 	contentcmd "github.com/goliatone/go-cms/internal/commands/content"
 	fixtures "github.com/goliatone/go-cms/internal/commands/fixtures"
 	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
+	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/generator"
@@ -22,6 +24,36 @@ import (
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
+
+type warnRecordingLogger struct {
+	warns []string
+}
+
+func (l *warnRecordingLogger) Trace(string, ...any) {}
+func (l *warnRecordingLogger) Debug(string, ...any) {}
+func (l *warnRecordingLogger) Info(string, ...any)  {}
+func (l *warnRecordingLogger) Error(string, ...any) {}
+func (l *warnRecordingLogger) Fatal(string, ...any) {}
+
+func (l *warnRecordingLogger) Warn(msg string, _ ...any) {
+	l.warns = append(l.warns, msg)
+}
+
+func (l *warnRecordingLogger) WithFields(map[string]any) interfaces.Logger {
+	return l
+}
+
+func (l *warnRecordingLogger) WithContext(context.Context) interfaces.Logger {
+	return l
+}
+
+type singleLoggerProvider struct {
+	logger interfaces.Logger
+}
+
+func (p *singleLoggerProvider) GetLogger(string) interfaces.Logger {
+	return p.logger
+}
 
 func TestContainerWidgetServiceDisabled(t *testing.T) {
 	cfg := cms.DefaultConfig()
@@ -148,6 +180,216 @@ func TestContainerWidgetConfigRespectsFeatureFlag(t *testing.T) {
 
 	if _, err := svc.ListDefinitions(context.Background()); !errors.Is(err, widgets.ErrFeatureDisabled) {
 		t.Fatalf("expected ErrFeatureDisabled when widgets feature disabled, got %v", err)
+	}
+}
+
+func TestContainerContentRetentionLimitTriggersWarning(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Retention.Content = 1
+
+	recLogger := &warnRecordingLogger{}
+	container, err := di.NewContainer(cfg, di.WithLoggerProvider(&singleLoggerProvider{logger: recLogger}))
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	typeRepo := container.ContentTypeRepository()
+	if seeder, ok := typeRepo.(interface{ Put(*content.ContentType) }); ok {
+		ctID := uuid.New()
+		seeder.Put(&content.ContentType{ID: ctID, Name: "article"})
+
+		ctx := context.Background()
+		author := uuid.New()
+		contentSvc := container.ContentService()
+
+		created, err := contentSvc.Create(ctx, content.CreateContentRequest{
+			ContentTypeID: ctID,
+			Slug:          "retention-check",
+			Status:        string(domain.StatusDraft),
+			CreatedBy:     author,
+			UpdatedBy:     author,
+			Translations: []content.ContentTranslationInput{
+				{
+					Locale:  "en",
+					Title:   "Retention Check",
+					Content: map[string]any{"body": "draft"},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("create content: %v", err)
+		}
+
+		snapshot := content.ContentVersionSnapshot{
+			Fields: map[string]any{"headline": "first"},
+			Translations: []content.ContentVersionTranslationSnapshot{
+				{Locale: "en", Title: "Draft", Content: map[string]any{"body": "draft"}},
+			},
+		}
+
+		if _, err := contentSvc.CreateDraft(ctx, content.CreateContentDraftRequest{
+			ContentID: created.ID,
+			Snapshot:  snapshot,
+			CreatedBy: author,
+		}); err != nil {
+			t.Fatalf("first draft: %v", err)
+		}
+
+		_, err = contentSvc.CreateDraft(ctx, content.CreateContentDraftRequest{
+			ContentID: created.ID,
+			Snapshot:  snapshot,
+			CreatedBy: author,
+		})
+		if !errors.Is(err, content.ErrContentVersionRetentionExceeded) {
+			t.Fatalf("expected ErrContentVersionRetentionExceeded, got %v", err)
+		}
+		if len(recLogger.warns) == 0 {
+			t.Fatalf("expected retention warning to be recorded")
+		}
+	} else {
+		t.Fatalf("content type repository is not seedable")
+	}
+}
+
+func TestContainerPageRetentionLimitTriggersWarning(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Retention.Content = 1
+	cfg.Retention.Pages = 1
+
+	recLogger := &warnRecordingLogger{}
+	container, err := di.NewContainer(cfg, di.WithLoggerProvider(&singleLoggerProvider{logger: recLogger}))
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	typeRepo := container.ContentTypeRepository()
+	if seeder, ok := typeRepo.(interface{ Put(*content.ContentType) }); ok {
+		ctID := uuid.New()
+		seeder.Put(&content.ContentType{ID: ctID, Name: "article"})
+
+		ctx := context.Background()
+		author := uuid.New()
+		contentSvc := container.ContentService()
+		contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
+			ContentTypeID: ctID,
+			Slug:          "page-retention",
+			Status:        string(domain.StatusDraft),
+			CreatedBy:     author,
+			UpdatedBy:     author,
+			Translations: []content.ContentTranslationInput{
+				{
+					Locale:  "en",
+					Title:   "Retention Page Content",
+					Content: map[string]any{"body": "body"},
+				},
+			},
+		})
+		if err != nil {
+			t.Fatalf("create content: %v", err)
+		}
+
+		pageSvc := container.PageService()
+		pageRecord, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+			ContentID:  contentRecord.ID,
+			TemplateID: uuid.New(),
+			Slug:       "page-retention",
+			Status:     string(domain.StatusDraft),
+			CreatedBy:  author,
+			UpdatedBy:  author,
+			Translations: []pages.PageTranslationInput{
+				{Locale: "en", Title: "Retention Page", Path: "/page-retention"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("create page: %v", err)
+		}
+
+		snapshot := pages.PageVersionSnapshot{
+			Metadata: map[string]any{"note": "first draft"},
+		}
+		if _, err := pageSvc.CreateDraft(ctx, pages.CreatePageDraftRequest{
+			PageID:    pageRecord.ID,
+			Snapshot:  snapshot,
+			CreatedBy: author,
+		}); err != nil {
+			t.Fatalf("first page draft: %v", err)
+		}
+
+		_, err = pageSvc.CreateDraft(ctx, pages.CreatePageDraftRequest{
+			PageID:    pageRecord.ID,
+			Snapshot:  snapshot,
+			CreatedBy: author,
+		})
+		if !errors.Is(err, pages.ErrVersionRetentionExceeded) {
+			t.Fatalf("expected ErrVersionRetentionExceeded, got %v", err)
+		}
+		if len(recLogger.warns) == 0 {
+			t.Fatalf("expected retention warning to be recorded for pages")
+		}
+	} else {
+		t.Fatalf("content type repository is not seedable")
+	}
+}
+
+func TestContainerBlockRetentionLimitEnforced(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Retention.Blocks = 1
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	ctx := context.Background()
+	blockSvc := container.BlockService()
+
+	definition, err := blockSvc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name: "hero_banner",
+		Schema: map[string]any{
+			"fields": []any{"headline"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	author := uuid.New()
+	instance, err := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: definition.ID,
+		Region:       "hero",
+		Position:     0,
+		IsGlobal:     true,
+		Configuration: map[string]any{
+			"headline": "Welcome",
+		},
+		CreatedBy: author,
+		UpdatedBy: author,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	snapshot := blocks.BlockVersionSnapshot{
+		Configuration: map[string]any{"headline": "Draft"},
+	}
+	if _, err := blockSvc.CreateDraft(ctx, blocks.CreateInstanceDraftRequest{
+		InstanceID: instance.ID,
+		Snapshot:   snapshot,
+		CreatedBy:  author,
+	}); err != nil {
+		t.Fatalf("first block draft: %v", err)
+	}
+
+	_, err = blockSvc.CreateDraft(ctx, blocks.CreateInstanceDraftRequest{
+		InstanceID: instance.ID,
+		Snapshot:   snapshot,
+		CreatedBy:  author,
+	})
+	if !errors.Is(err, blocks.ErrInstanceVersionRetentionExceeded) {
+		t.Fatalf("expected ErrInstanceVersionRetentionExceeded, got %v", err)
 	}
 }
 
