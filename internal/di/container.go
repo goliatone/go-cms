@@ -91,7 +91,7 @@ type Container struct {
 	blockSvc       blocks.Service
 	i18nSvc        i18n.Service
 	menuSvc        menus.Service
-	widgetSvg      widgets.Service
+	widgetSvc      widgets.Service
 	themeSvc       themes.Service
 	mediaSvc       media.Service
 	markdownSvc    interfaces.MarkdownService
@@ -244,7 +244,7 @@ func WithBlockService(svc blocks.Service) Option {
 
 func WithWidgetService(svc widgets.Service) Option {
 	return func(c *Container) {
-		c.widgetSvg = svc
+		c.widgetSvc = svc
 	}
 }
 
@@ -418,18 +418,49 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		}
 	}
 
-	if c.pageSvc == nil {
-		pageOpts := []pages.ServiceOption{}
-		if c.blockSvc != nil {
-			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
+	if c.widgetSvc == nil {
+		if !c.Config.Features.Widgets {
+			c.widgetSvc = widgets.NewNoOpService()
+		} else {
+			registry := widgets.NewRegistry()
+			applyConfiguredWidgetDefinitions(registry, c.Config.Widgets.Definitions)
+
+			serviceOptions := []widgets.ServiceOption{
+				widgets.WithRegistry(registry),
+			}
+			if c.widgetAreaRepo != nil {
+				serviceOptions = append(serviceOptions, widgets.WithAreaDefinitionRepository(c.widgetAreaRepo))
+			}
+			if c.widgetPlacementRepo != nil {
+				serviceOptions = append(serviceOptions, widgets.WithAreaPlacementRepository(c.widgetPlacementRepo))
+			}
+
+			c.widgetSvc = widgets.NewService(
+				c.widgetDefinitionRepo,
+				c.widgetInstanceRepo,
+				c.widgetTranslationRepo,
+				serviceOptions...,
+			)
 		}
-		pageOpts = append(pageOpts, pages.WithMediaService(c.mediaSvc))
-		pageOpts = append(pageOpts,
+	}
+
+	if c.pageSvc == nil {
+		pageOpts := []pages.ServiceOption{
+			pages.WithMediaService(c.mediaSvc),
 			pages.WithPageVersioningEnabled(c.Config.Features.Versioning),
 			pages.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			pages.WithScheduler(c.scheduler),
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
-		)
+		}
+		if c.blockSvc != nil {
+			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
+		}
+		if c.widgetSvc != nil {
+			pageOpts = append(pageOpts, pages.WithWidgetService(c.widgetSvc))
+		}
+		if c.themeSvc != nil {
+			pageOpts = append(pageOpts, pages.WithThemeService(c.themeSvc))
+		}
 		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
 	}
 
@@ -447,64 +478,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			c.menuTranslationRepo,
 			c.localeRepo,
 			menuOpts...,
-		)
-	}
-
-	if c.widgetSvg == nil {
-		if !c.Config.Features.Widgets {
-			c.widgetSvg = widgets.NewNoOpService()
-		} else {
-			registry := widgets.NewRegistry()
-			registerBuiltInWidgets(registry)
-
-			serviceOptions := []widgets.ServiceOption{
-				widgets.WithRegistry(registry),
-			}
-			if c.widgetAreaRepo != nil {
-				serviceOptions = append(serviceOptions, widgets.WithAreaDefinitionRepository(c.widgetAreaRepo))
-			}
-			if c.widgetPlacementRepo != nil {
-				serviceOptions = append(serviceOptions, widgets.WithAreaPlacementRepository(c.widgetPlacementRepo))
-			}
-
-			c.widgetSvg = widgets.NewService(
-				c.widgetDefinitionRepo,
-				c.widgetInstanceRepo,
-				c.widgetTranslationRepo,
-				serviceOptions...,
-			)
-		}
-	}
-
-	if c.pageSvc == nil {
-		pageOpts := []pages.ServiceOption{}
-		if c.blockSvc != nil {
-			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
-		}
-		if c.widgetSvg != nil {
-			pageOpts = append(pageOpts, pages.WithWidgetService(c.widgetSvg))
-		}
-		if c.themeSvc != nil {
-			pageOpts = append(pageOpts, pages.WithThemeService(c.themeSvc))
-		}
-		pageOpts = append(pageOpts, pages.WithMediaService(c.mediaSvc))
-		c.pageSvc = pages.NewService(c.pageRepo, c.contentRepo, c.localeRepo, pageOpts...)
-	}
-
-	if c.menuSvc == nil {
-		menuOpcs := []menus.ServiceOption{}
-		if c.pageRepo != nil {
-			menuOpcs = append(menuOpcs, menus.WithPageRepository(c.pageRepo))
-		}
-		if c.menuURLResolver != nil {
-			menuOpcs = append(menuOpcs, menus.WithURLResolver(c.menuURLResolver))
-		}
-		c.menuSvc = menus.NewService(
-			c.menuRepo,
-			c.menuItemRepo,
-			c.menuTranslationRepo,
-			c.localeRepo,
-			menuOpcs...,
 		)
 	}
 
@@ -788,7 +761,7 @@ func (c *Container) MenuService() menus.Service {
 
 // WidgetService returns the configured widget service.
 func (c *Container) WidgetService() widgets.Service {
-	return c.widgetSvg
+	return c.widgetSvc
 }
 
 func (c *Container) ThemeService() themes.Service {
@@ -1024,11 +997,13 @@ func (c *Container) registerCommandHandlers() error {
 	if c.generatorSvc != nil && c.Config.Generator.Enabled {
 		gates := staticcmd.FeatureGates{
 			GeneratorEnabled: func() bool { return c.Config.Generator.Enabled },
+			SitemapEnabled:   func() bool { return c.Config.Generator.GenerateSitemap },
 		}
 		staticLogger := loggerFor("static")
 		register(staticcmd.NewBuildSiteHandler(c.generatorSvc, staticLogger, gates))
 		register(staticcmd.NewDiffSiteHandler(c.generatorSvc, staticLogger, gates))
 		register(staticcmd.NewCleanSiteHandler(c.generatorSvc, staticLogger, gates))
+		register(staticcmd.NewBuildSitemapHandler(c.generatorSvc, staticLogger, gates))
 	}
 
 	// Menu commands.
@@ -1048,11 +1023,11 @@ func (c *Container) registerCommandHandlers() error {
 	}
 
 	// Widget commands.
-	if c.widgetSvg != nil && c.Config.Features.Widgets {
+	if c.widgetSvc != nil && c.Config.Features.Widgets {
 		gates := widgetscmd.FeatureGates{
 			WidgetsEnabled: func() bool { return c.Config.Features.Widgets },
 		}
-		register(widgetscmd.NewSyncWidgetRegistryHandler(c.widgetSvg, loggerFor("widgets"), gates))
+		register(widgetscmd.NewSyncWidgetRegistryHandler(c.widgetSvc, loggerFor("widgets"), gates))
 	}
 
 	// Audit commands.
@@ -1072,33 +1047,36 @@ func (c *Container) registerCommandHandlers() error {
 	return errs
 }
 
-func registerBuiltInWidgets(registry *widgets.Registry) {
-	if registry == nil {
+func applyConfiguredWidgetDefinitions(registry *widgets.Registry, definitions []runtimeconfig.WidgetDefinitionConfig) {
+	if registry == nil || len(definitions) == 0 {
 		return
 	}
-	// TODO: Do now hardcode this, take from config
-	description := strPtr("Captures visitor email addresses with a simple form")
-	category := strPtr("marketing")
-	icon := strPtr("envelope-open")
+	for _, definition := range definitions {
+		input := buildWidgetDefinitionInput(definition)
+		if input.Name == "" || len(input.Schema) == 0 {
+			continue
+		}
+		registry.Register(input)
+	}
+}
 
-	registry.Register(widgets.RegisterDefinitionInput{
-		Name:        "newsletter_signup",
-		Description: description,
-		Schema: map[string]any{
-			"fields": []any{
-				map[string]any{"name": "headline", "type": "text"},
-				map[string]any{"name": "subheadline", "type": "text"},
-				map[string]any{"name": "cta_text", "type": "text"},
-				map[string]any{"name": "success_message", "type": "text"},
-			},
-		},
-		Defaults: map[string]any{
-			"cta_text":        "Subscribe",
-			"success_message": "Thanks for subscribing!",
-		},
-		Category: category,
-		Icon:     icon,
-	})
+func buildWidgetDefinitionInput(definition runtimeconfig.WidgetDefinitionConfig) widgets.RegisterDefinitionInput {
+	name := strings.TrimSpace(definition.Name)
+	input := widgets.RegisterDefinitionInput{
+		Name:     name,
+		Schema:   definition.Schema,
+		Defaults: definition.Defaults,
+	}
+	if description := strings.TrimSpace(definition.Description); description != "" {
+		input.Description = strPtr(description)
+	}
+	if category := strings.TrimSpace(definition.Category); category != "" {
+		input.Category = strPtr(category)
+	}
+	if icon := strings.TrimSpace(definition.Icon); icon != "" {
+		input.Icon = strPtr(icon)
+	}
+	return input
 }
 
 func strPtr(value string) *string {
