@@ -9,9 +9,10 @@ import (
 )
 
 const (
-	buildSiteMessageType = "cms.static.build"
-	diffSiteMessageType  = "cms.static.diff"
-	cleanSiteMessageType = "cms.static.clean"
+	buildSiteMessageType    = "cms.static.build"
+	diffSiteMessageType     = "cms.static.diff"
+	cleanSiteMessageType    = "cms.static.clean"
+	buildSitemapMessageType = "cms.static.build_sitemap"
 )
 
 // ResultCallback receives build results produced by generator operations. The callback is optional
@@ -102,9 +103,21 @@ func (CleanSiteCommand) Type() string { return cleanSiteMessageType }
 // Validate satisfies command.Message; there are no payload constraints.
 func (CleanSiteCommand) Validate() error { return nil }
 
+// BuildSitemapCommand regenerates sitemap artifacts without rebuilding pages.
+type BuildSitemapCommand struct {
+	ResultCallback ResultCallback `json:"-"`
+}
+
+// Type implements command.Message.
+func (BuildSitemapCommand) Type() string { return buildSitemapMessageType }
+
+// Validate satisfies command.Message; the command carries no payload.
+func (BuildSitemapCommand) Validate() error { return nil }
+
 // FeatureGates exposes runtime switches used to guard handler execution.
 type FeatureGates struct {
 	GeneratorEnabled func() bool
+	SitemapEnabled   func() bool
 }
 
 func (g FeatureGates) generatorEnabled() bool {
@@ -112,4 +125,11 @@ func (g FeatureGates) generatorEnabled() bool {
 		return false
 	}
 	return g.GeneratorEnabled()
+}
+
+func (g FeatureGates) sitemapEnabled() bool {
+	if g.SitemapEnabled == nil {
+		return false
+	}
+	return g.SitemapEnabled()
 }
