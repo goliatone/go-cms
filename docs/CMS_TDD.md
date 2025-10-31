@@ -125,6 +125,7 @@ Core content management functionality:
 - Slug generation
 - Persistence through the `StorageProvider` interface (fulfilled by go-persistence-bun/go-repository-bun adapters via `di.WithBunDB`)
 - Repository-level caching backed by `interfaces.CacheProvider` (defaults enabled via `cms.Config.Cache`)
+- Version retention limits enforced via `cms.Config.Retention.Content`; non-zero limits emit `ErrContentVersionRetentionExceeded` and log warnings when draft creation exceeds the configured window.
 
 ### Blocks Module (`blocks/`)
 
@@ -137,6 +138,7 @@ Block based content system:
 - Reusable block patterns
 - Repository integration through go-repository-bun
 - Repository-level caching (go-repository-cache) and DI wiring via `BlockService`
+- Optional version retention limits controlled by `cms.Config.Retention.Blocks`; when configured the service returns `ErrInstanceVersionRetentionExceeded` once drafts exceed the allowed count.
 
 ### Pages Module (`pages/`)
 
@@ -147,6 +149,7 @@ Hierarchical page management:
 - Template assignment
 - Menu order
 - Repository backed by go-repository-bun via the shared `StorageProvider`
+- Version history retention driven by `cms.Config.Retention.Pages`; when the limit is exceeded the service surfaces `ErrVersionRetentionExceeded` and records a warning so operators can adjust policies or archive older revisions.
 
 ### Menus Module (`menus/`)
 
@@ -171,6 +174,7 @@ Widget functionality:
 #### Behaviour
 
 - **Definition registration** – widget types require a non-empty name and JSON schema. Defaults are validated against the schema field list to avoid phantom configuration. The service deduplicates registrations and surfaces `ErrDefinitionExists` when IDs collide. Registry entries (built-in or host supplied) are applied automatically at service start.
+- **Configuration-driven registry** – `cms.Config.Widgets.Definitions` seeds the registry on startup. The default config still registers the `newsletter_signup` widget so existing deployments keep the prior behaviour. Hosts can clear the slice to opt-out or provide replacement definitions; duplicate names are deduplicated using case-insensitive matching, allowing overrides without touching internal helpers.
 - **Instance lifecycle** – instances merge configuration with definition defaults and enforce creator/updater UUIDs. Visibility schedule (`publish_on` / `unpublish_on`) is validated, and visibility rules must contain supported keys (`schedule`, `audience`, `segments`, `locales`). Unknown configuration keys or invalid schedules raise errors.
 - **Translations** – each widget instance can store one translation per locale. Duplicate inserts return `ErrTranslationExists`; updates replace the JSON payload in place.
 - **Area management** – areas are optional and feature-gated by repository availability. Definitions require canonical codes (`[a-z0-9._-]`), human-readable names, and an optional scope (`global`, `theme`, `template`). Assigning widgets to areas enforces uniqueness per locale/area pair, supports explicit positioning, and persists placement metadata. Reordering requires the full placement list to guarantee deterministic ordering.
@@ -193,6 +197,17 @@ Internationalization facade:
 - Adds CMS augmentations (template helper wiring, repository-backed loaders, default fallbacks)
 - Provides no-op implementations when the host disables localization
 
+### Markdown Slice – Phase 6 Closeout
+
+The Markdown importer reached functional parity in Phases 3–5; Phase 6 focuses on hardening and documentation:
+
+- **Operational Guides** – `FEAT_MARKDOWN.md` now ships with end-to-end setup instructions (config wiring, CLI usage, adapter behaviour). The README surfaces a quick-start snippet so hosts can enable the slice without spelunking through internal packages.
+- **QA Playbook** – A Phase 6 checklist lives alongside the feature document, covering manual import, sync retries, cron dispatch, dry-run previews, and failure handling for missing directories.
+- **Telemetry Backlog** – Observability gaps (metrics counters, tracing, tenant tagging) plus automation hooks for cron failures are tracked as follow-ups so Option 6 can evolve into multi-tenant environments without guesswork.
+- **Example Alignment** – `examples/web/` documents the delete/recreate adapter strategy demanded by current page APIs; the documentation calls this out so production adopters can swap in richer implementations once incremental page updates land.
+
+Future iterations (post Phase 6) should extend the CLI/command handlers with metrics emitters and pluggable workspace resolvers before the slice is considered production-ready for multi-tenant installations.
+
 ### Themes Module (`themes/`)
 
 Theme management:
@@ -208,6 +223,7 @@ Theme management:
 - Runtime diagnostics flow through the `pkg/interfaces.Logger` contract.
 - Default development/testing builds rely on a lightweight console logger that satisfies the interface without additional dependencies.
 - Production deployments can plug in `github.com/goliatone/go-logger` (or other compatible packages) by wiring a `LoggerProvider` through the DI container.
+- `cms.Config.Logging` governs integration: set `Provider` to `console` for the built-in fallback or `gologger` to activate the adapter defined in `internal/logging/gologger`, and use `Level`, `Format`, and `AddSource` to align output with deployment requirements.
 
 ## Data Model
 
@@ -329,12 +345,23 @@ Following ARCH_DESIGN.md, we rely on fixture-driven tests, golden files, and rep
 - Content versioning
 - Scheduled publishing
 - Media library integration
+- Markdown documentation & QA closeout (operational guides, telemetry backlog)
 
 **Phase 7: Observability**
 - Logger interface promotion (`pkg/interfaces/logger.go`)
 - Console logger fallback for local/testing builds
 - go-logger adapter wiring via DI (`go-logger` alignment and examples)
 - Structured audit/worker logs using the new contract
+- Documentation for provider wiring and troubleshooting (`docs/LOGGING_GUIDE.md`)
+
+## Static Command Integration
+
+- Static generator handlers (`BuildSiteHandler`, `DiffSiteHandler`, `CleanSiteHandler`, `BuildSitemapHandler`) are registered by the DI container whenever `Config.Generator.Enabled` and `Config.Commands.Enabled` are both true.
+- The CLI bootstrap (`cmd/static/internal/bootstrap`) enables commands, applies optional overrides for logger providers or generator storage, and returns a collector so the CLI (or host applications) can retrieve the instantiated handlers.
+- CLI execution (`cmd/static/main.go`) now maps flags to the `staticcmd` message types and attaches a result callback that streams `generator.BuildResult` diagnostics into the shared logging helper. Assets-only and single-page flows emit metadata-only envelopes so callers can record telemetry without bypassing the handler middleware, and the `sitemap` subcommand triggers the standalone sitemap command for regeneration without a full site build.
+- Hosts integrating the handlers directly should enable commands, request the collector or call `Module.CommandHandlers()`, and execute handlers with their own callbacks. If handlers are missing, the CLI surfaces a clear configuration error instead of silently falling back to service calls.
+- The generator writes `sitemap.xml` alongside build artifacts whenever `Config.Generator.GenerateSitemap` is true and exposes a dedicated `BuildSitemap` method for explicit regeneration.
+- RSS/Atom feeds are produced per locale under `feeds/<locale>.rss.xml` and `feeds/<locale>.atom.xml` (with default-locale aliases `feed.xml` / `feed.atom.xml`) when `Config.Generator.GenerateFeeds` is enabled; incremental builds continue to refresh these feeds even when page HTML is skipped.
 
 ## Usage Examples
 

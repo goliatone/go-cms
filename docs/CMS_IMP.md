@@ -119,6 +119,156 @@ Once the interfaces stabilise, we will promote the `.tmp` implementation into th
 - Page service scaffolding lives in `.tmp/cms/internal/pages/service.go` with in-memory repositories (`.tmp/cms/internal/pages/memory.go`) and targeted unit tests at `.tmp/cms/internal/pages/service_test.go` covering slug and locale validation.
 - Contract fixtures and pending tests live in `.tmp/cms/internal/pages/testdata/` and `.tmp/cms/internal/pages/repository_test.go`, ensuring hierarchical paths and translations remain consistent once persistence logic is implemented.
 
+## Static Generator Integration
+
+The static generator introduced in the Static SSG initiative reuses the CMS service layer to emit pre-rendered HTML, assets, and metadata without introducing hard dependencies for existing embedders. All orchestration code lives under `internal/generator/` and is surfaced via `cms.Module.Generator()`.
+
+### Configuration Overview
+
+Enable the generator through `cms.Config.Generator`—it remains opt-in so modules that do not require static builds incur no overhead:
+
+```go
+cfg := cms.DefaultConfig()
+cfg.Generator.Enabled = true
+cfg.Generator.OutputDir = "./dist"
+cfg.Generator.BaseURL = "https://example.com"
+cfg.Generator.Incremental = true        // Skip unchanged pages when manifest matches
+cfg.Generator.CopyAssets = true         // Mirror theme assets to the output storage
+cfg.Generator.GenerateSitemap = true    // Emit sitemap.xml through the storage provider
+cfg.Generator.Workers = runtime.NumCPU()
+
+module, err := cms.New(cfg)
+if err != nil {
+    return err
+}
+
+result, err := module.Generator().Build(ctx, generator.BuildOptions{
+    Locales: []string{"en", "es"},
+})
+if err != nil {
+    return err
+}
+```
+
+The generator respects incremental manifests (`internal/generator/manifest.go`) and storage streaming via `pkg/interfaces.StorageProvider`. When no template renderer or generator storage is configured, DI falls back to the defaults wired in `internal/di/container.go`.
+
+### Template Context Reference
+
+Template authors receive a strongly-typed payload defined in `internal/generator/render.go`:
+
+- `TemplateContext.Site` exposes `BaseURL`, `DefaultLocale`, and locale metadata, plus menu alias mappings configured via `cms.Config.Generator.Menus`.
+- `TemplateContext.Page` bundles the resolved `pages.Page`, `content.Content`, translations, and the active `themes.Template`.
+
+## Logging & Observability
+
+Phase 7 consolidated logging across services and commands. The DI container promotes the `pkg/interfaces.Logger` contract and supplies defaults when no provider is configured.
+
+### Console Logger (Default)
+
+- Implemented in `internal/logging/console`.
+- Enabled automatically when no external provider is supplied.
+- Emits leveled logs with lightweight key/value formatting—ideal for tests and examples.
+
+### go-logger Adapter
+
+- Located in `internal/logging/gologger`.
+- Activated when `cfg.Logging.Provider == "go-logger"` and `di.WithLoggerProvider` receives a go-logger-backed provider.
+- Supports JSON output, leveled filtering, and structured context propagation.
+
+```go
+provider := gologger.NewProvider(gologger.Config{
+    Level:  "info",
+    Format: "json",
+})
+
+cfg := cms.DefaultConfig()
+cfg.Logging.Provider = "go-logger"
+
+module, err := cms.New(cfg, di.WithLoggerProvider(provider))
+if err != nil {
+    return err
+}
+```
+
+### Command Handler Telemetry
+
+All command handlers (e.g., static generator commands) wrap execution with `internal/commands.Handler`, which:
+
+- Validates messages before execution.
+- Enforces per-command timeouts (`commands.WithTimeout`).
+- Emits structured telemetry via `commands.DefaultTelemetry`.
+- Provides optional callbacks for result envelopes, enabling CLIs to log metrics without coupling to service internals (see `cmd/static/main.go`).
+
+Refer to the dedicated [Logging Integration Guide](./LOGGING_GUIDE.md) for provider wiring, CLI bootstrap overrides, and troubleshooting tips.
+- `TemplateContext.Helpers` supplies locale-aware utilities (`Locale()`, `IsDefaultLocale()`, `WithBaseURL(..)`, `LocalePrefix()`), making it easier to render language switchers and canonical URLs.
+- `TemplateContext.Build` embeds timing data and the `BuildOptions` used for the current run, enabling templates to surface diagnostics or cache-busting metadata.
+
+A minimal Handlebars/Go template can iterate the blocks and navigation supplied by the context:
+
+```gotemplate
+{{ define "page" }}
+<!doctype html>
+<html lang="{{ .Page.Locale.Code }}">
+  <head>
+    <meta charset="utf-8">
+    <title>{{ .Page.Translation.Title }}</title>
+    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL (printf "/assets/%s.css" .Page.Template.Handle) }}">
+  </head>
+  <body>
+    {{ range .Page.Blocks }}{{ template .TemplatePath . }}{{ end }}
+    {{ range $code, $items := .Page.Menus }}
+      <nav data-menu="{{ $code }}">
+        {{ range $items }}<a href="{{ $.Helpers.WithBaseURL .Path }}">{{ .Label }}</a>{{ end }}
+      </nav>
+    {{ end }}
+  </body>
+</html>
+{{ end }}
+```
+
+### CLI Workflow
+
+`cmd/static` wraps the generator with a purpose-built CLI that respects DI wiring and feature flags. Typical invocations:
+
+- `go run ./cmd/static build --output=./dist --locale=en,es` renders all published pages for the specified locales and writes them to the configured storage backend.
+- `go run ./cmd/static diff --dry-run` executes a build without persisting artifacts, surfacing diagnostics for templates or data issues.
+- `go run ./cmd/static build --assets` copies theme assets exclusively—useful for CDNs or when page HTML is handled separately.
+- `go run ./cmd/static clean` clears the output directory via the storage abstraction and triggers the configured hooks.
+
+Both CLI and programmatic usage emit structured logs (`module=static`, `operation=build`) and timing metrics aligned with the telemetry conventions introduced in Phase 7 of the command work.
+
+### Multi-locale Output Example
+
+Running the sample walkthrough under `examples/static` produces the following tree in the configured storage provider:
+
+```
+dist/
+├── sitemap.xml
+├── robots.txt
+├── assets/
+│   ├── theme.css
+│   └── logo.png
+├── en/
+│   ├── index.html
+│   └── company/
+│       └── index.html
+└── es/
+    ├── index.html
+    └── empresa/
+        └── index.html
+```
+
+The generator automatically promotes the default locale to the root (`dist/index.html`) while nesting non-default locales beneath their locale codes.
+
+### Migration Checklist for Existing Deployments
+
+1. **Configuration** – enable the generator (`cfg.Generator.Enabled = true`), point `OutputDir` at an isolated artifact location, copy locale codes from existing runtime configuration, and map menu aliases to canonical menu codes (for example, `{"primary": "main"}`).
+2. **Template renderer** – register a concrete `interfaces.TemplateRenderer` (Handlebars, Go templates, etc.) and ensure theme templates expose stable `TemplatePath` values. Audit templates against the `TemplateContext` contract so locale, menu, and helper lookups do not rely on repository internals.
+3. **Theme assets** – populate `themes.Theme.Config.Assets` with the canonical asset list and supply a `generator.AssetResolver` that can open those files from your asset store (local disk, embedded FS, object storage).
+4. **Storage provider** – decide whether generator artifacts land on local disk or an external bucket. Provide the matching `interfaces.StorageProvider` (for example via `di.WithGeneratorStorage`) so the writer can stream HTML and manifest files without intermediate buffers.
+5. **Deployment pipeline** – wire `cmd/static` into existing build or CD jobs (`go run ./cmd/static build ...`) and publish the generated directory to your hosting target. When running incremental builds, persist the manifest (`.generator/manifest.json`) between runs to benefit from skip logic.
+6. **Rollback and validation** – extend existing deployment checks to diff the generator output (use `go run ./cmd/static diff`) and verify sitemap/robots content before promotion. This keeps static artifacts in lockstep with runtime templates and content approval workflows.
+
 ## External Dependency Interfaces
 
 ### Storage Provider
@@ -209,6 +359,19 @@ type FieldsLogger interface {
 ```
 
 The CMS uses this contract for all runtime diagnostics. Because it mirrors `github.com/goliatone/go-logger`, host applications can inject that package directly (or provide any compatible implementation) without adding a hard dependency to the module. The example bootstrap can wire a simple console logger for development, while production systems usually pass a configured go-logger provider through the DI container.
+
+```go
+cfg := cms.DefaultConfig()
+cfg.Features.Logger = true
+cfg.Logging.Provider = "gologger"
+cfg.Logging.Level = "debug"
+cfg.Logging.Format = "json"   // console | json | pretty
+cfg.Logging.AddSource = true  // include caller metadata
+
+module, err := cms.New(cfg)
+```
+
+When `cfg.Logging.Provider` is omitted or set to `console`, the module falls back to the built-in structured console logger. Setting the provider to `gologger` enables the adapter in `internal/logging/gologger`, which wraps `github.com/goliatone/go-logger/glog` so deployments can reuse their existing logger configuration without touching business services.
 
 ### Template Renderer
 
@@ -819,6 +982,19 @@ type URLKitResolverConfig struct {
 }
 ```
 
+### Service Initialisation Ordering
+
+The container now constructs high-traffic services in a single pass so every dependency is available before the next layer is built:
+
+1. `blocks.Service` (with media/versioning options)
+2. `widgets.Service` (pluggable registry or no-op depending on the feature flag)
+3. `themes.Service` (no-op when themes are disabled)
+4. `pages.Service` – initialised once with block, widget, theme, media, versioning, and scheduling options applied before any command handlers capture it
+5. `menus.Service` – created after pages so it can reuse the page repository and URL resolver once
+
+This ordering avoids the previous “build then rebuild” behaviour for the page and menu services and guarantees that feature-gated dependencies (widgets, themes, media) are always injected when enabled.
+
+
 When `Navigation.RouteConfig` is provided the DI container constructs a shared `urlkit.RouteManager` and injects a `menus.URLResolver`. Menu items continue to use slug-based fallbacks if the resolver cannot produce a URL. Locale-specific groups are optional; omit `LocaleGroups` to share a single group across locales.
 
 Example wiring:
@@ -867,10 +1043,18 @@ If these fields are absent the resolver uses the configured defaults and the ite
 Widgets follow the same dependency structure as the other slices: the container wires an in-memory service by default and upgrades to Bun + cache repositories when `di.WithBunDB` is provided. If the widgets feature flag is disabled the container returns `widgets.NewNoOpService()`.
 
 - **Repositories** – `NewContainer` primes memory repositories for definition, instance, translation, area definition, and area placement data. `configureRepositories` swaps in the Bun-backed implementations (`NewBunDefinitionRepositoryWithCache`, `NewBunInstanceRepositoryWithCache`, etc.) and clears the memory locale seed when a database connection is available.
-- **Registry** – the container always creates a `widgets.Registry`, registers the built-in definitions (currently a `newsletter_signup` widget), and passes it to the service through `widgets.WithRegistry`. Hosts can supply their own registry via `di.WithWidgetService` or by mutating the registry after construction.
+- **Registry** – the container always creates a `widgets.Registry`, hydrates it with `cfg.Widgets.Definitions`, and passes it to the service through `widgets.WithRegistry`. The default configuration keeps the `newsletter_signup` definition so existing deployments retain their built-in widget; hosts can replace the slice or clear it entirely to opt-out. Duplicate names are normalised (case-insensitive) and the last definition wins, making it easy to override the default without editing internal helpers.
 - **Area support** – area repositories are optional. When the container can provide `widgetAreaRepo` and `widgetPlacementRepo` (memory or Bun) it includes `widgets.WithAreaDefinitionRepository` and `widgets.WithAreaPlacementRepository`. If neither repository is configured, area APIs return `ErrAreaFeatureDisabled`, making it safe to ship applications that do not need placements yet.
 - **Visibility** – the service enforces `publish_on`/`unpublish_on` windows, rule-based scheduling, audience/segment filters, and locale allowlists through `EvaluateVisibility`. `ResolveArea` walks the primary locale, fallbacks, and finally the default locale to return the first visible widgets, cloning placement metadata for presentation.
 - **Bootstrap helpers** – `widgets.Bootstrap` wraps `EnsureDefinitions`/`EnsureAreaDefinitions`, allowing hosts to seed types and areas idempotently at startup even when the module is running in no-op mode or when definitions already exist.
+
+#### Registry configuration & migration
+
+Phase 4 externalises the built-in widget definition so applications can control the registry through configuration. Deployments that already used `cms.DefaultConfig()` continue to receive the `newsletter_signup` widget automatically because the default now seeds the same definition via `cfg.Widgets.Definitions`. To remove the default, set `cfg.Widgets.Definitions = nil` or an empty slice; to override it, replace the slice with your own definitions (later entries with the same name override earlier ones).
+
+#### Version retention configuration
+
+Phase 5 introduces the `cfg.Retention` block with per-slice version limits. The container now feeds the configured values into `content.WithVersionRetentionLimit`, `blocks.WithVersionRetentionLimit`, and `pages.WithPageVersionRetentionLimit`. Limits of zero preserve the previous “infinite history” behaviour; any positive value constrains how many drafts each service keeps before emitting `ErrContentVersionRetentionExceeded`, `ErrInstanceVersionRetentionExceeded`, or `ErrVersionRetentionExceeded`. The services log a warning via the module logger whenever a caller hits the ceiling so operators can adjust policies. Block versioning also gains first-class wiring: the container provisions the memory and Bun-backed instance version repositories and enables version retention whenever the `Versioning` feature is active.
 
 ### Scheduling Worker
 
