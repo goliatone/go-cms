@@ -22,6 +22,7 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/ettle/strcase v0.2.0 // indirect
 	github.com/fasthttp/websocket v1.5.8 // indirect
+	github.com/fatih/color v1.18.0 // indirect
 	github.com/flosch/pongo2/v6 v6.0.0 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
@@ -32,6 +33,7 @@ require (
 	github.com/gofiber/utils v1.1.0 // indirect
 	github.com/goliatone/go-composite-fs v0.0.1 // indirect
 	github.com/goliatone/go-errors v0.9.0 // indirect
+	github.com/goliatone/go-logger v0.4.0 // indirect
 	github.com/goliatone/go-repository-bun v0.7.0 // indirect
 	github.com/goliatone/go-repository-cache v0.5.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect

@@ -60,6 +60,15 @@ The server will start on `http://localhost:3000`.
 - `GET /api/pages/:id` - Get page by ID
 - `GET /api/menus/:code` - Get menu by code (e.g., `/api/menus/primary?locale=en`)
 
+### Static Generator
+
+The example wires the go-cms static generator so you can publish the demo site as HTML:
+
+- `POST /generator/build` – triggers a build (optionally pass `?locales=en,es`)
+- `POST /generator/clean` – removes generated artifacts
+
+Generated files are written to `dist/web`. You can inspect them directly or serve the directory with a static file server.
+
 ## Project Structure
 
 ```
