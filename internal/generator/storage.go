@@ -23,6 +23,7 @@ const (
 	categoryAsset    writeCategory = "asset"
 	categorySitemap  writeCategory = "sitemap"
 	categoryRobots   writeCategory = "robots"
+	categoryFeed     writeCategory = "feed"
 	categoryManifest writeCategory = "manifest"
 )
 
