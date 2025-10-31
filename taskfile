@@ -22,6 +22,8 @@ PATH=$(pwd)/node_modules/.bin:$PATH
 # This will make all scripts available in the ./src/bin directory
 PATH=$(pwd)/src/bin:$PATH
 
+GO_BIN=${GO_BIN:-/Users/goliatone/.g/go/bin/go}
+
 
 #################################################
 # Development dependencies
@@ -90,11 +92,15 @@ function dev:env:load {
 }
 
 function dev:test {
-    go test ./...
+    "${GO_BIN}" test ./...
+}
+
+function dev:test:regression {
+    "${GO_BIN}" test ./internal/generator ./cms
 }
 
 function command:test {
-    go test ./internal/commands/...
+    "${GO_BIN}" test ./internal/commands/...
 }
 
 function command:fmt:check {
@@ -121,7 +127,7 @@ function ci:commands {
 }
 
 function dev:cover {
-    go test -coverprofile=coverage.out ./... && go tool cover -func coverage.out
+    "${GO_BIN}" test -coverprofile=coverage.out ./... && go tool cover -func coverage.out
 }
 
 ##
