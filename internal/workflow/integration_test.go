@@ -72,19 +72,19 @@ func TestWorkflowIntegration_MultiStepPageLifecycle(t *testing.T) {
 	}
 
 	typeRepo := module.Container().ContentTypeRepository()
-	memoryTypes, ok := typeRepo.(*content.MemoryContentTypeRepository)
+	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) })
 	if !ok {
-		t.Fatalf("expected memory content type repository, got %T", typeRepo)
+		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}
 	contentTypeID := uuid.New()
-	memoryTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration"})
+	seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration"})
 
 	localeRepo := module.Container().LocaleRepository()
-	memoryLocales, ok := localeRepo.(*content.MemoryLocaleRepository)
+	seedLocales, ok := localeRepo.(interface{ Put(*content.Locale) })
 	if !ok {
-		t.Fatalf("expected memory locale repository, got %T", localeRepo)
+		t.Fatalf("expected seedable locale repository, got %T", localeRepo)
 	}
-	memoryLocales.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	seedLocales.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
 	contentSvc := module.Content()
 	authorID := uuid.New()

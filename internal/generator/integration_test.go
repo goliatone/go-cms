@@ -1,11 +1,14 @@
 package generator_test
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"path"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -16,10 +19,16 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/internal/themes"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
+)
+
+const (
+	storageOpWrite = "generator.write"
+	storageOpRead  = "generator.read"
 )
 
 func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
@@ -27,6 +36,7 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 	now := time.Date(2024, 12, 1, 9, 0, 0, 0, time.UTC)
 
 	cfg := runtimeconfig.DefaultConfig()
+	cfg.Cache.Enabled = false
 	cfg.Features.Themes = true
 	cfg.Generator.Enabled = true
 	cfg.Generator.OutputDir = "dist"
@@ -220,6 +230,7 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	registerGeneratorModels(t, bunDB)
 
 	cfg := runtimeconfig.DefaultConfig()
+	cfg.Cache.Enabled = false
 	cfg.Features.Themes = true
 	cfg.Generator.Enabled = true
 	cfg.Generator.OutputDir = "dist"
@@ -233,7 +244,23 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	cfg.I18N.Locales = []string{"en", "es"}
 
 	renderer := &integrationRenderer{}
-	container, memStorage, err := ditesting.NewGeneratorContainer(cfg, di.WithBunDB(bunDB), di.WithTemplate(renderer))
+
+	baseContainer, err := di.NewContainer(cfg, di.WithBunDB(bunDB), di.WithTemplate(renderer))
+	if err != nil {
+		t.Fatalf("build base container: %v", err)
+	}
+	pageWrapper := newHydratingPageService(baseContainer.PageService(), bunDB)
+	contentWrapper := newHydratingContentService(baseContainer.ContentService(), bunDB)
+
+	storage := newRecordingStorage()
+
+	container, _, err := ditesting.NewGeneratorContainer(cfg,
+		di.WithBunDB(bunDB),
+		di.WithTemplate(renderer),
+		di.WithGeneratorStorage(storage),
+		di.WithPageService(pageWrapper),
+		di.WithContentService(contentWrapper),
+	)
 	if err != nil {
 		t.Fatalf("build container: %v", err)
 	}
@@ -279,11 +306,13 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	themeSvc := container.ThemeService().(themes.Service)
 	template, _ := registerThemeFixtures(t, ctx, themeSvc)
 
-	contentRepo := container.ContentRepository()
-	pageRepo := container.PageRepository()
+	authorID := uuid.New()
+	pageSvc := container.PageService()
+	if _, ok := pageSvc.(*hydratingPageService); !ok {
+		t.Fatalf("expected hydrating page service, got %T", pageSvc)
+	}
 
 	publishedAt := now.Add(-6 * time.Hour)
-	authorID := uuid.New()
 	contentID := uuid.New()
 	contentRecord := &content.Content{
 		ID:             contentID,
@@ -319,8 +348,13 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 			},
 		},
 	}
-	if _, err := contentRepo.Create(ctx, contentRecord); err != nil {
-		t.Fatalf("create content: %v", err)
+	if _, err := bunDB.NewInsert().Model(contentRecord).Exec(ctx); err != nil {
+		t.Fatalf("insert content: %v", err)
+	}
+	for _, tr := range contentRecord.Translations {
+		if _, err := bunDB.NewInsert().Model(tr).Exec(ctx); err != nil {
+			t.Fatalf("insert content translation: %v", err)
+		}
 	}
 
 	pageID := uuid.New()
@@ -359,23 +393,40 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 			},
 		},
 	}
-	if _, err := pageRepo.Create(ctx, pageRecord); err != nil {
-		t.Fatalf("create page: %v", err)
+	if _, err := bunDB.NewInsert().Model(pageRecord).Exec(ctx); err != nil {
+		t.Fatalf("insert page: %v", err)
+	}
+	for _, tr := range pageRecord.Translations {
+		if _, err := bunDB.NewInsert().Model(tr).Exec(ctx); err != nil {
+			t.Fatalf("insert page translation: %v", err)
+		}
+	}
+
+	fetchedPage, err := pageSvc.Get(ctx, pageID)
+	if err != nil {
+		t.Fatalf("get page: %v", err)
+	}
+	if len(fetchedPage.Translations) == 0 {
+		t.Fatalf("expected page translations on fetch")
 	}
 
 	svc := container.GeneratorService()
 
-	firstResult, err := svc.Build(ctx, generator.BuildOptions{})
+	buildOpts := generator.BuildOptions{
+		PageIDs: []uuid.UUID{pageRecord.ID},
+	}
+
+	firstResult, err := svc.Build(ctx, buildOpts)
 	if err != nil {
 		t.Fatalf("first build: %v", err)
 	}
 	if firstResult.FeedsBuilt == 0 {
-		t.Fatalf("expected feeds generated on first build")
+		t.Fatalf("expected feeds generated on first build; pages_built=%d errors=%d diagnostics=%d", firstResult.PagesBuilt, len(firstResult.Errors), len(firstResult.Diagnostics))
 	}
 
-	initialCalls := len(memStorage.ExecCalls())
+	initialCalls := len(storage.ExecCalls())
 
-	secondResult, err := svc.Build(ctx, generator.BuildOptions{})
+	secondResult, err := svc.Build(ctx, buildOpts)
 	if err != nil {
 		t.Fatalf("second build: %v", err)
 	}
@@ -383,7 +434,7 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 		t.Fatalf("expected feeds generated on incremental build")
 	}
 
-	newCalls := memStorage.ExecCalls()[initialCalls:]
+	newCalls := storage.ExecCalls()[initialCalls:]
 	pageWrites := 0
 	feedWrites := 0
 	sitemapWrites := 0
@@ -464,6 +515,381 @@ func registerGeneratorModels(t *testing.T, db *bun.DB) {
 			t.Fatalf("create table %T: %v", model, err)
 		}
 	}
+
+	registerBlockTables(t, db)
+}
+
+func registerBlockTables(t *testing.T, db *bun.DB) {
+	t.Helper()
+	ctx := context.Background()
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS block_definitions (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			description TEXT,
+			icon TEXT,
+			schema TEXT,
+			defaults TEXT,
+			editor_style_url TEXT,
+			frontend_style_url TEXT,
+			deleted_at TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_instances (
+			id TEXT PRIMARY KEY,
+			page_id TEXT,
+			region TEXT NOT NULL,
+			position INTEGER NOT NULL DEFAULT 0,
+			definition_id TEXT NOT NULL,
+			configuration TEXT,
+			is_global BOOLEAN DEFAULT FALSE,
+			current_version INTEGER NOT NULL DEFAULT 1,
+			published_version INTEGER,
+			published_at TEXT,
+			published_by TEXT,
+			created_by TEXT NOT NULL,
+			updated_by TEXT NOT NULL,
+			deleted_at TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_versions (
+			id TEXT PRIMARY KEY,
+			block_instance_id TEXT NOT NULL,
+			version INTEGER NOT NULL,
+			status TEXT NOT NULL,
+			snapshot TEXT NOT NULL,
+			created_by TEXT NOT NULL,
+			created_at TEXT,
+			published_at TEXT,
+			published_by TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_translations (
+			id TEXT PRIMARY KEY,
+			block_instance_id TEXT NOT NULL,
+			locale_id TEXT NOT NULL,
+			content TEXT,
+			media_bindings TEXT,
+			attribute_overrides TEXT,
+			deleted_at TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		)`,
+	}
+
+	for _, stmt := range statements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			t.Fatalf("create block table: %v", err)
+		}
+	}
+}
+
+type recordingStorage struct {
+	mu        sync.Mutex
+	files     map[string][]byte
+	execCalls []ditesting.ExecCall
+}
+
+func newRecordingStorage() *recordingStorage {
+	return &recordingStorage{
+		files: make(map[string][]byte),
+	}
+}
+
+func (s *recordingStorage) Exec(ctx context.Context, query string, args ...any) (interfaces.Result, error) {
+	isWrite := query == storageOpWrite
+	if isWrite && len(args) >= 1 {
+		path, _ := args[0].(string)
+		if reader, ok := args[1].(io.Reader); ok && reader != nil {
+			data, err := io.ReadAll(reader)
+			if err != nil {
+				return nil, err
+			}
+			args[1] = bytes.NewReader(data)
+			if path != "" {
+				s.mu.Lock()
+				s.files[path] = data
+				s.mu.Unlock()
+			}
+		}
+	}
+	s.recordExec(query, args, false)
+	return recordingResult{}, nil
+}
+
+func (s *recordingStorage) Query(ctx context.Context, query string, args ...any) (interfaces.Rows, error) {
+	if query == storageOpRead && len(args) > 0 {
+		path, _ := args[0].(string)
+		if data := s.lookup(path); data != nil {
+			return &byteRows{data: data}, nil
+		}
+	}
+	return &byteRows{}, nil
+}
+
+func (s *recordingStorage) Transaction(ctx context.Context, fn func(interfaces.Transaction) error) error {
+	if fn == nil {
+		return nil
+	}
+	tx := &recordingTx{storage: s}
+	if err := fn(tx); err != nil {
+		tx.rollback = true
+		return err
+	}
+	tx.commit = true
+	return nil
+}
+
+func (s *recordingStorage) ExecCalls() []ditesting.ExecCall {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	calls := make([]ditesting.ExecCall, len(s.execCalls))
+	copy(calls, s.execCalls)
+	return calls
+}
+
+func (s *recordingStorage) recordExec(query string, args []any, inTx bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	clonedArgs := append([]any(nil), args...)
+	s.execCalls = append(s.execCalls, ditesting.ExecCall{
+		Query:         query,
+		Args:          clonedArgs,
+		InTransaction: inTx,
+	})
+}
+
+func (s *recordingStorage) lookup(path string) []byte {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	data, ok := s.files[path]
+	if !ok {
+		return nil
+	}
+	copied := make([]byte, len(data))
+	copy(copied, data)
+	return copied
+}
+
+type recordingTx struct {
+	storage  *recordingStorage
+	commit   bool
+	rollback bool
+}
+
+func (tx *recordingTx) Exec(ctx context.Context, query string, args ...any) (interfaces.Result, error) {
+	if tx.storage == nil {
+		return nil, errors.New("recording tx: storage not configured")
+	}
+	if query == storageOpWrite && len(args) >= 1 {
+		path, _ := args[0].(string)
+		if reader, ok := args[1].(io.Reader); ok && reader != nil {
+			data, err := io.ReadAll(reader)
+			if err != nil {
+				return nil, err
+			}
+			args[1] = bytes.NewReader(data)
+			if path != "" {
+				tx.storage.mu.Lock()
+				tx.storage.files[path] = data
+				tx.storage.mu.Unlock()
+			}
+		}
+	}
+	tx.storage.recordExec(query, args, true)
+	return recordingResult{}, nil
+}
+
+func (tx *recordingTx) Query(ctx context.Context, query string, args ...any) (interfaces.Rows, error) {
+	if tx.storage == nil {
+		return &byteRows{}, errors.New("recording tx: storage not configured")
+	}
+	return tx.storage.Query(ctx, query, args...)
+}
+
+func (tx *recordingTx) Transaction(context.Context, func(interfaces.Transaction) error) error {
+	return errors.New("recording tx: nested transactions not supported")
+}
+
+func (tx *recordingTx) Commit() error {
+	tx.commit = true
+	return nil
+}
+
+func (tx *recordingTx) Rollback() error {
+	tx.rollback = true
+	return nil
+}
+
+type recordingResult struct{}
+
+func (recordingResult) RowsAffected() (int64, error) { return 0, nil }
+
+func (recordingResult) LastInsertId() (int64, error) { return 0, nil }
+
+type byteRows struct {
+	data []byte
+	read bool
+}
+
+func (r *byteRows) Next() bool {
+	if r == nil || r.read {
+		return false
+	}
+	r.read = true
+	return true
+}
+
+func (r *byteRows) Scan(dest ...any) error {
+	if r == nil || !r.read {
+		return errors.New("recording rows: call Next before Scan")
+	}
+	if len(dest) == 0 {
+		return nil
+	}
+	switch target := dest[0].(type) {
+	case *[]byte:
+		*target = append((*target)[:0], r.data...)
+	case *string:
+		*target = string(r.data)
+	default:
+		return fmt.Errorf("recording rows: unsupported scan destination %T", dest[0])
+	}
+	return nil
+}
+
+func (r *byteRows) Close() error { return nil }
+
+type hydratingPageService struct {
+	pages.Service
+	db *bun.DB
+}
+
+func newHydratingPageService(delegate pages.Service, db *bun.DB) pages.Service {
+	if delegate == nil || db == nil {
+		return delegate
+	}
+	return &hydratingPageService{Service: delegate, db: db}
+}
+
+func (s *hydratingPageService) List(ctx context.Context) ([]*pages.Page, error) {
+	records, err := s.Service.List(ctx)
+	if err != nil || len(records) == 0 {
+		return records, err
+	}
+	return s.hydrate(ctx, records)
+}
+
+func (s *hydratingPageService) Get(ctx context.Context, id uuid.UUID) (*pages.Page, error) {
+	record, err := s.Service.Get(ctx, id)
+	if err != nil || record == nil {
+		return record, err
+	}
+	hydrated, err := s.hydrate(ctx, []*pages.Page{record})
+	if err != nil {
+		return nil, err
+	}
+	if len(hydrated) == 0 {
+		return nil, nil
+	}
+	return hydrated[0], nil
+}
+
+func (s *hydratingPageService) hydrate(ctx context.Context, records []*pages.Page) ([]*pages.Page, error) {
+	if len(records) == 0 || s.db == nil {
+		return records, nil
+	}
+	ids := make([]uuid.UUID, 0, len(records))
+	for _, record := range records {
+		if record == nil || record.ID == uuid.Nil {
+			continue
+		}
+		ids = append(ids, record.ID)
+	}
+	if len(ids) == 0 {
+		return records, nil
+	}
+
+	var translations []*pages.PageTranslation
+	if err := s.db.NewSelect().
+		Model(&translations).
+		Where("page_id IN (?)", bun.In(ids)).
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+
+	grouped := map[uuid.UUID][]*pages.PageTranslation{}
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		copyTr := *tr
+		grouped[tr.PageID] = append(grouped[tr.PageID], &copyTr)
+	}
+
+	result := make([]*pages.Page, 0, len(records))
+	for _, record := range records {
+		if record == nil {
+			result = append(result, nil)
+			continue
+		}
+		clone := *record
+		if trs, ok := grouped[record.ID]; ok {
+			clone.Translations = trs
+		} else {
+			clone.Translations = nil
+		}
+		result = append(result, &clone)
+	}
+	return result, nil
+}
+
+type hydratingContentService struct {
+	content.Service
+	db *bun.DB
+}
+
+func newHydratingContentService(delegate content.Service, db *bun.DB) content.Service {
+	if delegate == nil || db == nil {
+		return delegate
+	}
+	return &hydratingContentService{Service: delegate, db: db}
+}
+
+func (s *hydratingContentService) Get(ctx context.Context, id uuid.UUID) (*content.Content, error) {
+	record, err := s.Service.Get(ctx, id)
+	if err != nil || record == nil {
+		return record, err
+	}
+	return s.hydrate(ctx, record)
+}
+
+func (s *hydratingContentService) hydrate(ctx context.Context, record *content.Content) (*content.Content, error) {
+	if record == nil || s.db == nil || record.ID == uuid.Nil {
+		return record, nil
+	}
+	var translations []*content.ContentTranslation
+	if err := s.db.NewSelect().
+		Model(&translations).
+		Where("content_id = ?", record.ID).
+		Scan(ctx); err != nil {
+		return nil, err
+	}
+	if len(translations) == 0 {
+		return record, nil
+	}
+	cloned := *record
+	cloned.Translations = make([]*content.ContentTranslation, len(translations))
+	for i, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		copyTr := *tr
+		cloned.Translations[i] = &copyTr
+	}
+	return &cloned, nil
 }
 
 func strPtr(value string) *string {

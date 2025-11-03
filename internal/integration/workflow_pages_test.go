@@ -21,7 +21,6 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
-	"github.com/goliatone/go-cms/internal/workflow"
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
@@ -104,20 +103,20 @@ func TestWorkflowIntegration_GeneratorPropagatesStatuses(t *testing.T) {
 	template, _ := registerThemeFixtures(t, ctx, themeSvc)
 
 	typeRepo := container.ContentTypeRepository()
-	memoryTypeRepo, ok := typeRepo.(*content.MemoryContentTypeRepository)
+	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) })
 	if !ok {
-		t.Fatalf("expected memory content type repository, got %T", typeRepo)
+		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}
 	contentTypeID := uuid.New()
-	memoryTypeRepo.Put(&content.ContentType{ID: contentTypeID, Name: "workflow"})
+	seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "workflow"})
 
 	localeRepo := container.LocaleRepository()
-	memoryLocaleRepo, ok := localeRepo.(*content.MemoryLocaleRepository)
+	seedLocales, ok := localeRepo.(interface{ Put(*content.Locale) })
 	if !ok {
-		t.Fatalf("expected memory locale repository, got %T", localeRepo)
+		t.Fatalf("expected seedable locale repository, got %T", localeRepo)
 	}
 	enLocaleID := uuid.New()
-	memoryLocaleRepo.Put(&content.Locale{ID: enLocaleID, Code: "en", Display: "English"})
+	seedLocales.Put(&content.Locale{ID: enLocaleID, Code: "en", Display: "English"})
 
 	contentSvc := container.ContentService()
 	authorID := uuid.New()
@@ -283,18 +282,14 @@ func TestWorkflowIntegration_SchedulingLogsDeterministic(t *testing.T) {
 	}
 
 	localeRepo := container.LocaleRepository()
-	memoryLocaleRepo, ok := localeRepo.(*content.MemoryLocaleRepository)
+	seedLocales, ok := localeRepo.(interface{ Put(*content.Locale) })
 	if !ok {
-		t.Fatalf("expected memory locale repository, got %T", localeRepo)
+		t.Fatalf("expected seedable locale repository, got %T", localeRepo)
 	}
 	enLocaleID := uuid.New()
-	memoryLocaleRepo.Put(&content.Locale{ID: enLocaleID, Code: "en", Display: "English"})
+	seedLocales.Put(&content.Locale{ID: enLocaleID, Code: "en", Display: "English"})
 
 	pageRepo := container.PageRepository()
-	memoryPageRepo, ok := pageRepo.(*pages.MemoryPageRepository)
-	if !ok {
-		t.Fatalf("expected memory page repository, got %T", pageRepo)
-	}
 
 	now := workflowClock()
 	record := &pages.Page{
@@ -319,7 +314,7 @@ func TestWorkflowIntegration_SchedulingLogsDeterministic(t *testing.T) {
 			},
 		},
 	}
-	if _, err := memoryPageRepo.Create(context.Background(), record); err != nil {
+	if _, err := pageRepo.Create(context.Background(), record); err != nil {
 		t.Fatalf("seed page: %v", err)
 	}
 
@@ -347,9 +342,6 @@ func TestWorkflowIntegration_SchedulingLogsDeterministic(t *testing.T) {
 	}
 	for _, entry := range rawEntries {
 		if _, ok := allowedMessages[entry.msg]; !ok {
-			continue
-		}
-		if op, ok := entry.fields["operation"].(string); ok && op != "pages.schedule" {
 			continue
 		}
 		captured = append(captured, entry)
@@ -405,7 +397,7 @@ func deriveInitialState(states []workflowStateFixture) string {
 		}
 	}
 	if len(states) == 0 {
-		return domain.WorkflowStateDraft.String()
+		return string(domain.WorkflowStateDraft)
 	}
 	return states[0].Name
 }
