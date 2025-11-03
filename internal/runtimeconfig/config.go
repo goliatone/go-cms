@@ -28,6 +28,8 @@ var ErrLoggingProviderUnknown = errors.New("cms config: logging provider is inva
 var ErrLoggingLevelInvalid = errors.New("cms config: logging level is invalid")
 var ErrLoggingFormatInvalid = errors.New("cms config: logging format is invalid")
 var ErrVersionRetentionLimitInvalid = errors.New("cms config: version retention limit must be zero or positive")
+var ErrWorkflowProviderUnknown = errors.New("cms config: workflow provider is invalid")
+var ErrWorkflowProviderConfiguredWhenDisabled = errors.New("cms config: workflow provider configured while workflow disabled")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -47,6 +49,7 @@ type Config struct {
 	Markdown      MarkdownConfig
 	Generator     GeneratorConfig
 	Logging       LoggingConfig
+	Workflow      WorkflowConfig
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -115,6 +118,38 @@ type LoggingConfig struct {
 	Format    string
 	AddSource bool
 	Focus     []string
+}
+
+// WorkflowConfig captures workflow engine configuration.
+type WorkflowConfig struct {
+	Enabled     bool
+	Provider    string
+	Definitions []WorkflowDefinitionConfig
+}
+
+// WorkflowDefinitionConfig documents a workflow definition sourced from configuration.
+type WorkflowDefinitionConfig struct {
+	Entity      string
+	Description string
+	States      []WorkflowStateConfig
+	Transitions []WorkflowTransitionConfig
+}
+
+// WorkflowStateConfig describes a workflow state.
+type WorkflowStateConfig struct {
+	Name        string
+	Description string
+	Terminal    bool
+	Initial     bool
+}
+
+// WorkflowTransitionConfig describes a workflow transition.
+type WorkflowTransitionConfig struct {
+	Name        string
+	Description string
+	From        string
+	To          string
+	Guard       string
 }
 
 // WidgetConfig controls registry bootstrapping.
@@ -256,6 +291,10 @@ func DefaultConfig() Config {
 			Level:    "info",
 			Format:   "",
 		},
+		Workflow: WorkflowConfig{
+			Enabled:  true,
+			Provider: "simple",
+		},
 	}
 }
 
@@ -314,6 +353,16 @@ func (cfg Config) Validate() error {
 			}
 		}
 	}
+	provider := normalizeWorkflowProvider(cfg.Workflow.Provider)
+	if !cfg.Workflow.Enabled {
+		if provider != "" && provider != "simple" {
+			return ErrWorkflowProviderConfiguredWhenDisabled
+		}
+	} else {
+		if !isSupportedWorkflowProvider(provider) {
+			return fmt.Errorf("%w: %s", ErrWorkflowProviderUnknown, provider)
+		}
+	}
 	return nil
 }
 
@@ -342,6 +391,19 @@ func isSupportedLevel(level string) bool {
 func isSupportedFormat(format string) bool {
 	switch strings.ToLower(strings.TrimSpace(format)) {
 	case "json", "console", "pretty":
+		return true
+	default:
+		return false
+	}
+}
+
+func normalizeWorkflowProvider(provider string) string {
+	return strings.ToLower(strings.TrimSpace(provider))
+}
+
+func isSupportedWorkflowProvider(provider string) bool {
+	switch provider {
+	case "", "simple", "custom":
 		return true
 	default:
 		return false
