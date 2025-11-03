@@ -16,13 +16,13 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - [Requirements & Dependencies](#requirements--dependencies)
 - [Further Reading](#further-reading)
 
-## Why go-cms
-- **Composable services** &mdash; opt into content, page, widget, or menu modules independently.
-- **Storage flexibility** &mdash; switch between in-memory or Bun-backed SQL repositories without touching application code.
-- **Localization first** &mdash; every entity carries locale-aware translations and fallbacks.
-- **Authoring experience** &mdash; versioning, scheduling, visibility rules, and reusable blocks keep editors productive.
-- **Static publishing** &mdash; generate locale-aware static bundles or wire services into a dynamic site.
-- **Observability hooks** &mdash; structured logging interfaces and command callbacks integrate with existing telemetry.
+## Features
+- **Composable services**: opt into content, page, widget, or menu modules independently.
+- **Storage flexibility**: switch between "in memory" or Bun backed SQL repositories without touching application code.
+- **Localization first**: every entity carries locale-aware translations and fallbacks.
+- **Authoring experience**: versioning, scheduling, visibility rules, and reusable blocks keep editors productive.
+- **Static publishing**: generate locale-aware static bundles or wire services into a dynamic site.
+- **Observability hooks**: structured logging interfaces and command callbacks integrate with existing telemetry.
 
 ## Installation
 
@@ -374,7 +374,68 @@ cfg.Navigation.URLKit.LocaleGroups = map[string]string{
 	"es": "frontend.es",
 }
 
-// Workflow engine
+### Managing Storage Profiles at Runtime
+
+Manage storage profiles at runtime through the storage admin service; wire it into your own router or command stack without importing `internal/` packages:
+
+```go
+module, err := cms.New(cfg)
+if err != nil {
+	log.Fatal(err)
+}
+
+storageAdmin := module.StorageAdmin()
+
+profiles, err := storageAdmin.ListProfiles(ctx)
+if err != nil {
+	log.Fatal(err)
+}
+
+preview, err := storageAdmin.PreviewProfile(ctx, storage.Profile{
+	Name:     "rotated",
+	Provider: "bun",
+	Config: storage.Config{
+		Name:   "rotated",
+		Driver: "sqlite3",
+		DSN:    "file:/var/lib/cms/rotated.sqlite?_fk=1",
+	},
+})
+if err != nil {
+	log.Fatalf("preview failed: %v", err)
+}
+
+log.Printf("provider supports reload=%v", preview.Capabilities.SupportsReload)
+
+err = storageAdmin.ApplyConfig(ctx, cms.StorageConfig{
+	Profiles: []storage.Profile{
+		{
+			Name:        "rotated",
+			Provider:    "bun",
+			Description: "Primary writer",
+			Default:     true,
+			Config: storage.Config{
+				Name:   "rotated",
+				Driver: "sqlite3",
+				DSN:    "file:/var/lib/cms/rotated.sqlite?_fk=1",
+			},
+		},
+	},
+	Aliases: map[string]string{"content": "rotated"},
+})
+if err != nil {
+	log.Fatalf("apply config failed: %v", err)
+}
+```
+
+- No routes or controllers ship with the module mount these helpers in your own `go-router`, `chi`, gRPC, or command stacks next to the rest of your admin UI.
+- `Schemas()` returns JSON schemas for profile/config payloads so UIs can validate forms client side.
+- Audit events (`storage_profile_created/updated/deleted`) and container logs (`storage.profile_activated`, `storage.profile_activate_failed`) provide the telemetry required for the dashboards referenced in `TODO_TSK.md`.
+
+### Workflow Engine Configuration
+
+The workflow subsystem externalises lifecycle decisions so hosts can add review, translation, or bespoke approval steps without touching page services. Enable the default engine or register your own through configuration:
+
+```go
 cfg.Workflow.Enabled = true            // enable lifecycle orchestration (default)
 cfg.Workflow.Provider = "simple"       // use the built-in engine
 cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
@@ -396,7 +457,19 @@ cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
 ```
 
 When `cfg.Workflow.Provider` is set to `custom`, provide an `interfaces.WorkflowEngine` via `di.WithWorkflowEngine` during module construction.
-To pull definitions from storage, implement `interfaces.WorkflowDefinitionStore` and pass it to `di.WithWorkflowDefinitionStore`. Store-provided definitions override configuration entries for matching entity types.
+To pull definitions from storage, implement `interfaces.WorkflowDefinitionStore` and pass it to `di.WithWorkflowDefinitionStore`. Store provided definitions override configuration entries for matching entity types.
+
+```go
+engine := myengine.New(customDeps...)
+definitions := mystore.NewWorkflowDefinitionStore(db)
+
+container := di.NewContainer(cfg,
+	di.WithWorkflowEngine(engine),
+	di.WithWorkflowDefinitionStore(definitions),
+)
+
+pageSvc := container.PageService()
+```
 
 Additional guides:
 - Observability & logging: `docs/LOGGING_GUIDE.md`
@@ -421,7 +494,7 @@ pkg/
 └── testsupport/ # Shared fixtures and helpers
 ```
 
-- **Repository pattern** &mdash; every module ships in-memory and Bun-backed repositories; the container picks based on `cfg.Storage.Provider`.
+- **Repository pattern** &mdash; every module ships "in memory" and Bun backed repositories; the container picks based on `cfg.Storage.Provider`.
 - **Dependency injection** &mdash; `di.NewContainer` wires services. Override dependencies with functional options:
 
 ```go
@@ -522,6 +595,24 @@ go test ./internal/generator ./cms
 # Integration tests (require database)
 go test -v ./internal/pages/... -run Integration
 ```
+
+## Verification
+
+Run the workflow regression suite before shipping workflow changes. These commands exercise the externalised workflow engine (including generator integration) and require the full Go binary path provided in the task plan.
+
+```bash
+CMS_WORKFLOW_PROVIDER=custom \
+CMS_WORKFLOW_ENGINE_ADDR=http://localhost:8080 \
+/Users/goliatone/.g/go/bin/go test ./internal/workflow/... ./internal/integration/...
+```
+
+To run the same suite via the task runner:
+
+```bash
+./taskfile workflow:test
+```
+
+When using the built-in engine, the environment variables can be omitted.
 
 ## Requirements & Dependencies
 
