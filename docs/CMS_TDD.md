@@ -187,6 +187,7 @@ Widget functionality:
 - Bun repositories support optional cache decorators (go-repository-cache) for definitions, instances, and translations.
 - Area definitions/placements use Bun transactions to replace locale-specific ordering atomically.
 - Integration tests cover sqlite + cache wiring to ensure parity with blocks/pages/menus.
+- Workflow fixtures in `internal/workflow/testdata` back integration tests (`internal/workflow/integration_test.go`) that execute multi-step page transitions through the DI container.
 
 ### i18n Module (`i18n/`)
 

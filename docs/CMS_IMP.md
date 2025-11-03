@@ -152,6 +152,56 @@ if err != nil {
 
 The generator respects incremental manifests (`internal/generator/manifest.go`) and storage streaming via `pkg/interfaces.StorageProvider`. When no template renderer or generator storage is configured, DI falls back to the defaults wired in `internal/di/container.go`.
 
+### Workflow Configuration
+
+`cms.Config.Workflow` selects the lifecycle engine that coordinates page status transitions:
+
+```go
+cfg := cms.DefaultConfig()
+
+// Built-in simple engine (default behaviour)
+cfg.Workflow.Enabled = true
+cfg.Workflow.Provider = "simple"
+
+module, _ := cms.New(cfg)
+defaultEngine := module.WorkflowEngine() // *simple.Engine
+
+// Custom engine injected through DI
+cfg.Workflow.Provider = "custom"
+
+module, err := cms.New(cfg, di.WithWorkflowEngine(myEngine))
+if err != nil {
+    return err
+}
+```
+
+- When the provider is omitted or set to `simple`, the DI container wires `internal/workflow/simple` automatically.
+- Setting `Provider` to `custom` requires an explicit `interfaces.WorkflowEngine` via `di.WithWorkflowEngine`.
+- Disabling workflows (`cfg.Workflow.Enabled = false`) reverts to legacy status strings without invoking the engine.
+- Register configuration-driven definitions through `cfg.Workflow.Definitions` to replace or extend the default state machine. Definitions are validated and normalised during container construction:
+
+```go
+cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
+	{
+		Entity: "page",
+		States: []cms.WorkflowStateConfig{
+			{Name: "draft", Initial: true},
+			{Name: "review"},
+			{Name: "translated"},
+			{Name: "published", Terminal: true},
+		},
+		Transitions: []cms.WorkflowTransitionConfig{
+			{Name: "submit_review", From: "draft", To: "review"},
+			{Name: "translate", From: "review", To: "translated"},
+			{Name: "publish", From: "translated", To: "published"},
+		},
+	},
+}
+```
+
+- Supply definitions from a backing store (database, files, API) by implementing `interfaces.WorkflowDefinitionStore` and wiring it through `di.WithWorkflowDefinitionStore`. Store-provided definitions override configuration entries when entity types collide.
+- Transition guards are prepared for authorisation callbacks via the placeholder `interfaces.WorkflowAuthorizer`; custom engines can adopt the interface ahead of Phase 5 security work.
+
 ### Template Context Reference
 
 Template authors receive a strongly-typed payload defined in `internal/generator/render.go`:
