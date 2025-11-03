@@ -215,3 +215,167 @@ func TestService_AliasesReturnsCopy(t *testing.T) {
 		t.Fatalf("expected original alias retained, got %q %v", target, ok)
 	}
 }
+
+func TestService_ListProfilesReturnsClones(t *testing.T) {
+	repo := storageconfig.NewMemoryRepository()
+	svc := NewService(repo, nil)
+
+	profile := storage.Profile{
+		Name:     "primary",
+		Provider: "bun",
+		Config: storage.Config{
+			Name:   "primary",
+			Driver: "bun",
+			DSN:    "postgres://primary",
+		},
+		Labels: map[string]string{"tier": "rw"},
+	}
+	if _, err := repo.Upsert(context.Background(), profile); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	list, err := svc.ListProfiles(context.Background())
+	if err != nil {
+		t.Fatalf("ListProfiles() error = %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("expected 1 profile, got %d", len(list))
+	}
+
+	list[0].Config.Name = "mutated"
+	list[0].Labels["tier"] = "ro"
+
+	stored, err := repo.Get(context.Background(), "primary")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if stored.Config.Name != "primary" {
+		t.Fatalf("expected stored config name unchanged, got %q", stored.Config.Name)
+	}
+	if stored.Labels["tier"] != "rw" {
+		t.Fatalf("expected stored labels unchanged, got %v", stored.Labels)
+	}
+}
+
+func TestService_GetProfileReturnsClone(t *testing.T) {
+	repo := storageconfig.NewMemoryRepository()
+	svc := NewService(repo, nil)
+
+	profile := storage.Profile{
+		Name:     "primary",
+		Provider: "bun",
+		Config: storage.Config{
+			Name:   "primary",
+			Driver: "bun",
+			DSN:    "postgres://primary",
+		},
+	}
+	if _, err := repo.Upsert(context.Background(), profile); err != nil {
+		t.Fatalf("Upsert() error = %v", err)
+	}
+
+	got, err := svc.GetProfile(context.Background(), "primary")
+	if err != nil {
+		t.Fatalf("GetProfile() error = %v", err)
+	}
+	got.Config.Name = "mutated"
+	original, err := repo.Get(context.Background(), "primary")
+	if err != nil {
+		t.Fatalf("Get() error = %v", err)
+	}
+	if original.Config.Name != "primary" {
+		t.Fatalf("expected stored profile untouched, got %q", original.Config.Name)
+	}
+}
+
+func TestService_ValidateProfileAliasCollision(t *testing.T) {
+	svc := NewService(storageconfig.NewMemoryRepository(), nil)
+
+	profile := storage.Profile{
+		Name:     "primary",
+		Provider: "bun",
+		Config: storage.Config{
+			Name:   "primary",
+			Driver: "bun",
+			DSN:    "postgres://primary",
+		},
+	}
+	aliases := map[string]string{
+		"primary": "primary",
+	}
+	err := svc.ValidateProfile(profile, aliases)
+	if !errors.Is(err, ErrConfigInvalid) {
+		t.Fatalf("expected ErrConfigInvalid, got %v", err)
+	}
+}
+
+func TestService_PreviewProfileRequiresPreviewer(t *testing.T) {
+	svc := NewService(storageconfig.NewMemoryRepository(), nil)
+	profile := storage.Profile{
+		Name:     "primary",
+		Provider: "bun",
+		Config: storage.Config{
+			Name:   "primary",
+			Driver: "bun",
+			DSN:    "postgres://primary",
+		},
+	}
+
+	_, err := svc.PreviewProfile(context.Background(), profile)
+	if !errors.Is(err, ErrPreviewUnsupported) {
+		t.Fatalf("expected ErrPreviewUnsupported, got %v", err)
+	}
+}
+
+func TestService_PreviewProfileSuccess(t *testing.T) {
+	repo := storageconfig.NewMemoryRepository()
+	invoked := false
+	svc := NewService(repo, nil, WithPreviewer(func(ctx context.Context, profile storage.Profile) (PreviewResult, error) {
+		invoked = true
+		profile.Config.Name = "previewed"
+		return PreviewResult{
+			Profile: profile,
+			Diagnostics: map[string]any{
+				"verified": true,
+			},
+		}, nil
+	}))
+
+	profile := storage.Profile{
+		Name:     "primary",
+		Provider: "bun",
+		Config: storage.Config{
+			Name:   "primary",
+			Driver: "bun",
+			DSN:    "postgres://primary",
+		},
+	}
+
+	result, err := svc.PreviewProfile(context.Background(), profile)
+	if err != nil {
+		t.Fatalf("PreviewProfile() error = %v", err)
+	}
+	if !invoked {
+		t.Fatalf("expected previewer to be invoked")
+	}
+	if result.Profile.Config.Name != "previewed" {
+		t.Fatalf("expected preview result to reflect preview mutation, got %q", result.Profile.Config.Name)
+	}
+	if verified, ok := result.Diagnostics["verified"]; !ok || verified != true {
+		t.Fatalf("expected diagnostics to include verification flag, got %v", result.Diagnostics)
+	}
+	if profile.Config.Name != "primary" {
+		t.Fatalf("expected original profile unchanged, got %q", profile.Config.Name)
+	}
+}
+
+func TestService_Schemas(t *testing.T) {
+	svc := NewService(storageconfig.NewMemoryRepository(), nil)
+	schemas := svc.Schemas()
+	if schemas.Config != storage.ConfigJSONSchema {
+		t.Fatalf("unexpected config schema")
+	}
+	if schemas.Profile != storage.ProfileJSONSchema {
+		t.Fatalf("unexpected profile schema")
+	}
+}
