@@ -1,0 +1,21 @@
+{
+  "definition": {
+    "entity": "page",
+    "states": [
+      {"name": "draft", "initial": true},
+      {"name": "review"},
+      {"name": "translated"},
+      {"name": "published"}
+    ],
+    "transitions": [
+      {"name": "submit_review", "from": "draft", "to": "review"},
+      {"name": "translate", "from": "review", "to": "translated"},
+      {"name": "publish", "from": "translated", "to": "published"}
+    ]
+  },
+  "steps": [
+    {"target_state": "review"},
+    {"target_state": "translated"},
+    {"target_state": "published"}
+  ]
+}

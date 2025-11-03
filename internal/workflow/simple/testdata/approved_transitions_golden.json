@@ -1,0 +1,5 @@
+[
+  {"name": "publish", "from": "approved", "to": "published"},
+  {"name": "schedule", "from": "approved", "to": "scheduled"},
+  {"name": "request_changes", "from": "approved", "to": "review"}
+]

@@ -1,0 +1,15 @@
+{
+  "entity_type": "page",
+  "initial_state": "draft",
+  "steps": [
+    {"transition": "publish", "want_state": "published"},
+    {"transition": "unpublish", "want_state": "draft"},
+    {"transition": "schedule", "want_state": "scheduled"},
+    {"transition": "cancel_schedule", "want_state": "draft"},
+    {"transition": "archive", "want_state": "archived"},
+    {"transition": "restore", "want_state": "draft"},
+    {"transition": "submit_review", "want_state": "review"},
+    {"transition": "approve", "want_state": "approved"},
+    {"transition": "publish", "want_state": "published"}
+  ]
+}

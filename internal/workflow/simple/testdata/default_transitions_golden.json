@@ -1,0 +1,11 @@
+[
+  {"transition": "publish", "from": "draft", "to": "published"},
+  {"transition": "unpublish", "from": "published", "to": "draft"},
+  {"transition": "schedule", "from": "draft", "to": "scheduled"},
+  {"transition": "cancel_schedule", "from": "scheduled", "to": "draft"},
+  {"transition": "archive", "from": "draft", "to": "archived"},
+  {"transition": "restore", "from": "archived", "to": "draft"},
+  {"transition": "submit_review", "from": "draft", "to": "review"},
+  {"transition": "approve", "from": "review", "to": "approved"},
+  {"transition": "publish", "from": "approved", "to": "published"}
+]
