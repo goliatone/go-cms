@@ -17,6 +17,23 @@ CREATE INDEX idx_locales_is_default ON locales(is_default);
 
 ---bun:split
 
+-- Storage profiles: runtime storage configuration
+CREATE TABLE storage_profiles (
+    name TEXT PRIMARY KEY,
+    description TEXT,
+    provider TEXT NOT NULL,
+    config JSONB NOT NULL,
+    fallbacks JSONB,
+    labels JSONB,
+    is_default BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX idx_storage_profiles_is_default ON storage_profiles(is_default);
+
+---bun:split
+
 -- Content types: defines available content schemas
 CREATE TABLE content_types (
     id UUID PRIMARY KEY,

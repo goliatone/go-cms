@@ -1,5 +1,6 @@
 -- Drop tables in reverse order to respect foreign key constraints
 
+DROP TABLE IF EXISTS storage_profiles;
 DROP TABLE IF EXISTS menu_item_translations;
 DROP TABLE IF EXISTS menu_items;
 DROP TABLE IF EXISTS menus;
