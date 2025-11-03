@@ -175,7 +175,7 @@ instance, _ := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
 ```
 
 ### Widgets
-Widgets add behavioural components with scheduling, visibility rules, and per-area placement.
+Widgets add behavioral components with scheduling, visibility rules, and per-area placement.
 
 ```go
 widgetSvc.RegisterAreaDefinition(ctx, widgets.RegisterAreaDefinitionInput{
@@ -373,7 +373,30 @@ cfg.Navigation.URLKit.DefaultGroup = "frontend"
 cfg.Navigation.URLKit.LocaleGroups = map[string]string{
 	"es": "frontend.es",
 }
+
+// Workflow engine
+cfg.Workflow.Enabled = true            // enable lifecycle orchestration (default)
+cfg.Workflow.Provider = "simple"       // use the built-in engine
+cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
+	{
+		Entity: "page",
+		States: []cms.WorkflowStateConfig{
+			{Name: "draft", Initial: true},
+			{Name: "review"},
+			{Name: "translated"},
+			{Name: "published", Terminal: true},
+		},
+		Transitions: []cms.WorkflowTransitionConfig{
+			{Name: "submit_review", From: "draft", To: "review"},
+			{Name: "translate", From: "review", To: "translated"},
+			{Name: "publish", From: "translated", To: "published"},
+		},
+	},
+}
 ```
+
+When `cfg.Workflow.Provider` is set to `custom`, provide an `interfaces.WorkflowEngine` via `di.WithWorkflowEngine` during module construction.
+To pull definitions from storage, implement `interfaces.WorkflowDefinitionStore` and pass it to `di.WithWorkflowDefinitionStore`. Store-provided definitions override configuration entries for matching entity types.
 
 Additional guides:
 - Observability & logging: `docs/LOGGING_GUIDE.md`
@@ -410,6 +433,57 @@ container := di.NewContainer(cfg,
 ```
 
 - **Commands** &mdash; `cmd/static` and `cmd/markdown` expose features through go-command handlers; register additional commands through the same container.
+
+### Database Migrations
+
+When using BunDB as the storage provider, the CMS provides embedded SQL migrations to create all required tables. The migrations follow Bun's naming convention and are embedded in the library binary.
+
+```go
+import (
+	"context"
+	"database/sql"
+
+	"github.com/goliatone/go-cms"
+	persistence "github.com/goliatone/go-persistence-bun"
+	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/uptrace/bun/driver/sqliteshim"
+)
+
+// Open database connection
+db, err := sql.Open(sqliteshim.ShimName, "file:cms.db?cache=shared")
+if err != nil {
+	panic(err)
+}
+
+// Create Bun client with migrations
+client, err := persistence.New(cfg.Persistence, db, sqlitedialect.New())
+if err != nil {
+	panic(err)
+}
+
+// Register CMS migrations
+client.RegisterSQLMigrations(cms.GetMigrationsFS())
+
+// Run migrations
+if err := client.Migrate(context.Background()); err != nil {
+	panic(err)
+}
+
+// Check migration status
+if report := client.Report(); report != nil && !report.IsZero() {
+	fmt.Printf("Applied migrations: %s\n", report.String())
+}
+```
+
+The CMS includes migrations for all core tables:
+- Locales and content types
+- Contents with translations and versions
+- Themes and templates
+- Pages with translations and versions
+- Block definitions, instances, translations, and versions
+- Widget definitions, instances, translations, areas, and placements
+- Menus, menu items, and menu item translations
 
 ## CLI Reference
 
