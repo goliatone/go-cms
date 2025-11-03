@@ -320,6 +320,7 @@ func TestModuleContentRetentionLimitEnforced(t *testing.T) {
 	if !errors.Is(err, content.ErrContentVersionRetentionExceeded) {
 		t.Fatalf("expected ErrContentVersionRetentionExceeded, got %v", err)
 	}
+}
 
 func registerPhase6Models(t *testing.T, db *bun.DB) {
 	t.Helper()

@@ -55,6 +55,168 @@ func (p *singleLoggerProvider) GetLogger(string) interfaces.Logger {
 	return p.logger
 }
 
+type stubWorkflowEngine struct {
+	inputs []interfaces.TransitionInput
+}
+
+func (s *stubWorkflowEngine) Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
+	s.inputs = append(s.inputs, input)
+	to := input.TargetState
+	if strings.TrimSpace(string(to)) == "" {
+		to = input.CurrentState
+	}
+	return &interfaces.TransitionResult{
+		EntityID:    input.EntityID,
+		EntityType:  input.EntityType,
+		Transition:  input.Transition,
+		FromState:   input.CurrentState,
+		ToState:     to,
+		CompletedAt: time.Unix(0, 0),
+		ActorID:     input.ActorID,
+		Metadata:    input.Metadata,
+	}, nil
+}
+
+func (s *stubWorkflowEngine) AvailableTransitions(context.Context, interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
+	return nil, nil
+}
+
+func (s *stubWorkflowEngine) RegisterWorkflow(context.Context, interfaces.WorkflowDefinition) error {
+	return nil
+}
+
+type staticWorkflowDefinitionStore struct {
+	definitions []interfaces.WorkflowDefinition
+	err         error
+}
+
+func (s *staticWorkflowDefinitionStore) ListWorkflowDefinitions(context.Context) ([]interfaces.WorkflowDefinition, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.definitions, nil
+}
+
+func TestContainerDefaultWorkflowEngine(t *testing.T) {
+	cfg := cms.DefaultConfig()
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	if container.WorkflowEngine() == nil {
+		t.Fatal("expected default workflow engine to be configured")
+	}
+}
+
+func TestContainerWorkflowEngineOverride(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Workflow.Provider = "custom"
+
+	stub := &stubWorkflowEngine{}
+	container, err := di.NewContainer(cfg, di.WithWorkflowEngine(stub))
+	if err != nil {
+		t.Fatalf("new container with custom workflow engine: %v", err)
+	}
+
+	if container.WorkflowEngine() != stub {
+		t.Fatal("expected workflow engine to match injected instance")
+	}
+}
+
+func TestContainerWorkflowCustomProviderRequiresEngine(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Workflow.Provider = "custom"
+
+	if _, err := di.NewContainer(cfg); !errors.Is(err, di.ErrWorkflowEngineNotProvided) {
+		t.Fatalf("expected ErrWorkflowEngineNotProvided, got %v", err)
+	}
+}
+
+func TestContainerRegistersWorkflowDefinitionsFromConfig(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
+		{
+			Entity: "page",
+			States: []cms.WorkflowStateConfig{
+				{Name: "draft", Initial: true},
+				{Name: "review"},
+				{Name: "translated"},
+			},
+			Transitions: []cms.WorkflowTransitionConfig{
+				{Name: "submit_review", From: "draft", To: "review"},
+				{Name: "translate", From: "review", To: "translated"},
+			},
+		},
+	}
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	engine := container.WorkflowEngine()
+	if engine == nil {
+		t.Fatalf("expected workflow engine")
+	}
+
+	transitions, err := engine.AvailableTransitions(context.Background(), interfaces.TransitionQuery{
+		EntityType: "page",
+		State:      interfaces.WorkflowState("review"),
+	})
+	if err != nil {
+		t.Fatalf("available transitions: %v", err)
+	}
+	if len(transitions) != 1 {
+		t.Fatalf("expected 1 transition, got %d", len(transitions))
+	}
+	if transitions[0].Name != "translate" {
+		t.Fatalf("expected translate transition, got %s", transitions[0].Name)
+	}
+}
+
+func TestContainerRegistersWorkflowDefinitionsFromStore(t *testing.T) {
+	cfg := cms.DefaultConfig()
+
+	store := &staticWorkflowDefinitionStore{
+		definitions: []interfaces.WorkflowDefinition{
+			{
+				EntityType:   "page",
+				InitialState: interfaces.WorkflowState("draft"),
+				States: []interfaces.WorkflowStateDefinition{
+					{Name: interfaces.WorkflowState("draft")},
+					{Name: interfaces.WorkflowState("localized")},
+				},
+				Transitions: []interfaces.WorkflowTransition{
+					{Name: "localize", From: interfaces.WorkflowState("draft"), To: interfaces.WorkflowState("localized")},
+				},
+			},
+		},
+	}
+
+	container, err := di.NewContainer(cfg, di.WithWorkflowDefinitionStore(store))
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	engine := container.WorkflowEngine()
+	if engine == nil {
+		t.Fatalf("expected workflow engine")
+	}
+
+	transitions, err := engine.AvailableTransitions(context.Background(), interfaces.TransitionQuery{
+		EntityType: "page",
+		State:      interfaces.WorkflowState("draft"),
+	})
+	if err != nil {
+		t.Fatalf("available transitions: %v", err)
+	}
+	if len(transitions) != 1 || transitions[0].Name != "localize" {
+		t.Fatalf("expected store-provided transition, got %+v", transitions)
+	}
+}
+
 func TestContainerWidgetServiceDisabled(t *testing.T) {
 	cfg := cms.DefaultConfig()
 	container, err := di.NewContainer(cfg)

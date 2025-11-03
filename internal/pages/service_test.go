@@ -3,6 +3,8 @@ package pages_test
 import (
 	"context"
 	"errors"
+	"maps"
+	"strings"
 	"testing"
 	"time"
 
@@ -11,8 +13,120 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/internal/workflow"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
+
+type fakeWorkflowEngine struct {
+	states []interfaces.WorkflowState
+	calls  []interfaces.TransitionInput
+	events [][]interfaces.WorkflowEvent
+}
+
+func (f *fakeWorkflowEngine) Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
+	f.calls = append(f.calls, input)
+
+	var target interfaces.WorkflowState
+	if len(f.states) > 0 {
+		target = f.states[0]
+		f.states = f.states[1:]
+	} else if strings.TrimSpace(string(input.TargetState)) != "" {
+		target = interfaces.WorkflowState(domain.NormalizeWorkflowState(string(input.TargetState)))
+	} else {
+		target = input.CurrentState
+	}
+
+	var emitted []interfaces.WorkflowEvent
+	if len(f.events) > 0 {
+		emitted = f.events[0]
+		f.events = f.events[1:]
+	}
+
+	return &interfaces.TransitionResult{
+		EntityID:    input.EntityID,
+		EntityType:  input.EntityType,
+		Transition:  input.Transition,
+		FromState:   input.CurrentState,
+		ToState:     target,
+		CompletedAt: time.Unix(0, 0).UTC(),
+		ActorID:     input.ActorID,
+		Metadata:    input.Metadata,
+		Events:      emitted,
+	}, nil
+}
+
+func (f *fakeWorkflowEngine) AvailableTransitions(ctx context.Context, query interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
+	return nil, nil
+}
+
+func (f *fakeWorkflowEngine) RegisterWorkflow(ctx context.Context, definition interfaces.WorkflowDefinition) error {
+	return nil
+}
+
+type logEntry struct {
+	msg    string
+	fields map[string]any
+}
+
+type logStorage struct {
+	entries []logEntry
+}
+
+type recordingLogger struct {
+	store  *logStorage
+	fields map[string]any
+}
+
+func newRecordingLogger() *recordingLogger {
+	return &recordingLogger{
+		store:  &logStorage{},
+		fields: map[string]any{},
+	}
+}
+
+func (l *recordingLogger) Trace(string, ...any) {}
+func (l *recordingLogger) Debug(string, ...any) {}
+func (l *recordingLogger) Warn(string, ...any)  {}
+func (l *recordingLogger) Error(string, ...any) {}
+func (l *recordingLogger) Fatal(string, ...any) {}
+
+func (l *recordingLogger) Info(msg string, kv ...any) {
+	fields := maps.Clone(l.fields)
+	for i := 0; i+1 < len(kv); i += 2 {
+		key, ok := kv[i].(string)
+		if !ok {
+			continue
+		}
+		fields[key] = kv[i+1]
+	}
+	l.store.entries = append(l.store.entries, logEntry{
+		msg:    msg,
+		fields: fields,
+	})
+}
+
+func (l *recordingLogger) WithFields(fields map[string]any) interfaces.Logger {
+	merged := maps.Clone(l.fields)
+	for k, v := range fields {
+		merged[k] = v
+	}
+	return &recordingLogger{
+		store:  l.store,
+		fields: merged,
+	}
+}
+
+func (l *recordingLogger) WithContext(context.Context) interfaces.Logger {
+	return &recordingLogger{
+		store:  l.store,
+		fields: maps.Clone(l.fields),
+	}
+}
+
+func (l *recordingLogger) entries() []logEntry {
+	return l.store.entries
+}
 
 func TestPageServiceCreateSuccess(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
@@ -347,6 +461,133 @@ func TestPageServiceVersionLifecycle(t *testing.T) {
 	}
 	if updatedPage.CurrentVersion != 3 {
 		t.Fatalf("expected current version 3 got %d", updatedPage.CurrentVersion)
+	}
+}
+
+func TestPageServiceWorkflowCustomEngine(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	typeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: typeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: typeID,
+		Slug:          "workflow",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Workflow",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	fake := &fakeWorkflowEngine{
+		states: []interfaces.WorkflowState{
+			interfaces.WorkflowState("review"),
+			interfaces.WorkflowState("approved"),
+			interfaces.WorkflowState("published"),
+		},
+	}
+
+	actorID := uuid.New()
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithWorkflowEngine(fake))
+
+	createReq := pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "workflow-page",
+		Status:     "review",
+		CreatedBy:  actorID,
+		UpdatedBy:  actorID,
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Workflow Page",
+			Path:   "/workflow",
+		}},
+	}
+
+	createdPage, err := pageSvc.Create(context.Background(), createReq)
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+	if createdPage.Status != "review" {
+		t.Fatalf("expected status review got %s", createdPage.Status)
+	}
+	if createdPage.EffectiveStatus != domain.Status("review") {
+		t.Fatalf("expected effective status review got %s", createdPage.EffectiveStatus)
+	}
+
+	updateReq := pages.UpdatePageRequest{
+		ID:        createdPage.ID,
+		Status:    "approved",
+		UpdatedBy: actorID,
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Workflow Page",
+			Path:   "/workflow",
+		}},
+	}
+
+	updatedPage, err := pageSvc.Update(context.Background(), updateReq)
+	if err != nil {
+		t.Fatalf("update page: %v", err)
+	}
+	if updatedPage.Status != "approved" {
+		t.Fatalf("expected status approved got %s", updatedPage.Status)
+	}
+
+	publishUpdate := pages.UpdatePageRequest{
+		ID:        createdPage.ID,
+		Status:    "published",
+		UpdatedBy: actorID,
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Workflow Page",
+			Path:   "/workflow",
+		}},
+	}
+
+	finalPage, err := pageSvc.Update(context.Background(), publishUpdate)
+	if err != nil {
+		t.Fatalf("final update: %v", err)
+	}
+	if finalPage.Status != "published" {
+		t.Fatalf("expected status published got %s", finalPage.Status)
+	}
+	if finalPage.EffectiveStatus != domain.StatusPublished {
+		t.Fatalf("expected effective status published got %s", finalPage.EffectiveStatus)
+	}
+
+	if len(fake.calls) != 3 {
+		t.Fatalf("expected 3 workflow calls got %d", len(fake.calls))
+	}
+	if fake.calls[0].EntityType != workflow.EntityTypePage {
+		t.Fatalf("expected entity type %s got %s", workflow.EntityTypePage, fake.calls[0].EntityType)
+	}
+	if op, ok := fake.calls[0].Metadata["operation"]; !ok || op != "create" {
+		t.Fatalf("expected first metadata operation create got %v", op)
+	}
+	if fake.calls[1].CurrentState != interfaces.WorkflowState("review") {
+		t.Fatalf("expected second call from review got %s", fake.calls[1].CurrentState)
+	}
+	if fake.calls[2].CurrentState != interfaces.WorkflowState("approved") {
+		t.Fatalf("expected third call from approved got %s", fake.calls[2].CurrentState)
+	}
+	if slug, ok := fake.calls[0].Metadata["slug"].(string); !ok || slug != "workflow-page" {
+		t.Fatalf("expected slug metadata workflow-page got %v", slug)
+	}
+	if len(fake.states) != 0 {
+		t.Fatalf("expected fake workflow states exhausted, remaining %d", len(fake.states))
 	}
 }
 
@@ -721,5 +962,83 @@ func TestPageServiceListIncludesWidgets(t *testing.T) {
 	}
 	if areaWidgets[0].Instance.ID != instance.ID {
 		t.Fatalf("expected widget instance %s, got %s", instance.ID, areaWidgets[0].Instance.ID)
+	}
+}
+
+func TestPageServiceLogsWorkflowEvents(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	typeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: typeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	createdContent, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: typeID,
+		Slug:          "workflow-events",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Workflow events"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	fake := &fakeWorkflowEngine{
+		events: [][]interfaces.WorkflowEvent{
+			{
+				{
+					Name:      "audit.recorded",
+					Timestamp: time.Unix(123, 0).UTC(),
+					Payload:   map[string]any{"scope": "pages"},
+				},
+			},
+		},
+	}
+
+	logger := newRecordingLogger()
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore,
+		pages.WithWorkflowEngine(fake),
+		pages.WithLogger(logger),
+	)
+
+	req := pages.CreatePageRequest{
+		ContentID:  createdContent.ID,
+		TemplateID: uuid.New(),
+		Slug:       "workflow-events",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{
+			{Locale: "en", Title: "Workflow events", Path: "/workflow-events"},
+		},
+	}
+
+	if _, err := pageSvc.Create(context.Background(), req); err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	found := false
+	for _, entry := range logger.entries() {
+		if entry.msg != "workflow event emitted" {
+			continue
+		}
+		if entry.fields["workflow_event"] == "audit.recorded" {
+			payload, ok := entry.fields["workflow_event_payload"].(map[string]any)
+			if !ok || payload["scope"] != "pages" {
+				t.Fatalf("expected payload scope pages, got %+v", entry.fields["workflow_event_payload"])
+			}
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Fatalf("expected workflow event to be logged, got %#v", logger.entries())
 	}
 }

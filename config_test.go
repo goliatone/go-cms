@@ -33,3 +33,22 @@ func TestConfigValidateCommandsCronRequiresScheduling(t *testing.T) {
 		t.Fatalf("expected ErrCommandsCronRequiresScheduling, got %v", err)
 	}
 }
+
+func TestConfigValidateWorkflowProviderUnknown(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Workflow.Provider = "invalid"
+
+	if err := cfg.Validate(); !errors.Is(err, cms.ErrWorkflowProviderUnknown) {
+		t.Fatalf("expected ErrWorkflowProviderUnknown, got %v", err)
+	}
+}
+
+func TestConfigValidateWorkflowProviderConfiguredWhenDisabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Workflow.Enabled = false
+	cfg.Workflow.Provider = "custom"
+
+	if err := cfg.Validate(); !errors.Is(err, cms.ErrWorkflowProviderConfiguredWhenDisabled) {
+		t.Fatalf("expected ErrWorkflowProviderConfiguredWhenDisabled, got %v", err)
+	}
+}
