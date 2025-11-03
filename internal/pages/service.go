@@ -17,6 +17,8 @@ import (
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/internal/workflow"
+	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -215,6 +217,7 @@ type pageService struct {
 	scheduler             interfaces.Scheduler
 	schedulingEnabled     bool
 	logger                interfaces.Logger
+	workflow              interfaces.WorkflowEngine
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -239,6 +242,15 @@ func WithMediaService(svc media.Service) ServiceOption {
 	return func(ps *pageService) {
 		if svc != nil {
 			ps.media = svc
+		}
+	}
+}
+
+// WithWorkflowEngine wires the workflow engine responsible for state transitions.
+func WithWorkflowEngine(engine interfaces.WorkflowEngine) ServiceOption {
+	return func(ps *pageService) {
+		if engine != nil {
+			ps.workflow = engine
 		}
 	}
 }
@@ -295,6 +307,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		media:     media.NewNoOpService(),
 		scheduler: cmsscheduler.NewNoOp(),
 		logger:    logging.PagesLogger(nil),
+		workflow:  workflowsimple.New(),
 	}
 
 	for _, opt := range opts {
@@ -387,7 +400,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		ParentID:     req.ParentID,
 		TemplateID:   req.TemplateID,
 		Slug:         slug,
-		Status:       chooseStatus(req.Status),
+		Status:       string(domain.StatusDraft),
 		CreatedBy:    req.CreatedBy,
 		UpdatedBy:    req.UpdatedBy,
 		CreatedAt:    now,
@@ -453,6 +466,21 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		page.Translations = append(page.Translations, translation)
 		seenLocales[code] = struct{}{}
 	}
+
+	targetState := requestedWorkflowState(req.Status)
+	actorID := selectActor(req.UpdatedBy, req.CreatedBy)
+	status, _, err := s.applyPageWorkflow(ctx, page, pageTransitionOptions{
+		TargetState: targetState,
+		ActorID:     actorID,
+		Metadata: map[string]any{
+			"operation": "create",
+		},
+	})
+	if err != nil {
+		logger.Error("page workflow transition failed", "error", err)
+		return nil, err
+	}
+	page.Status = string(status)
 
 	created, err := s.pages.Create(ctx, page)
 	if err != nil {
@@ -557,12 +585,25 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 		return nil, err
 	}
 
-	existing.Status = chooseStatus(req.Status)
 	if req.UpdatedBy != uuid.Nil {
 		existing.UpdatedBy = req.UpdatedBy
 	}
 	existing.UpdatedAt = now
 	existing.Translations = translations
+
+	targetState := requestedWorkflowState(req.Status)
+	status, _, err := s.applyPageWorkflow(ctx, existing, pageTransitionOptions{
+		TargetState: targetState,
+		ActorID:     req.UpdatedBy,
+		Metadata: map[string]any{
+			"operation": "update",
+		},
+	})
+	if err != nil {
+		logger.Error("page workflow transition failed", "error", err)
+		return nil, err
+	}
+	existing.Status = string(status)
 
 	if err := s.pages.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
 		logger.Error("page translations replace failed", "error", err)
@@ -655,13 +696,28 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 		record.UpdatedBy = req.ScheduledBy
 	}
 
-	if record.PublishAt != nil {
-		record.Status = string(domain.StatusScheduled)
-	} else if record.PublishedVersion != nil {
-		record.Status = string(domain.StatusPublished)
-	} else {
-		record.Status = string(domain.StatusDraft)
+	var targetState interfaces.WorkflowState
+	switch {
+	case record.PublishAt != nil:
+		targetState = interfaces.WorkflowState(domain.WorkflowStateScheduled)
+	case record.PublishedVersion != nil:
+		targetState = interfaces.WorkflowState(domain.WorkflowStatePublished)
+	default:
+		targetState = interfaces.WorkflowState(domain.WorkflowStateDraft)
 	}
+
+	status, _, err := s.applyPageWorkflow(ctx, record, pageTransitionOptions{
+		TargetState: targetState,
+		ActorID:     req.ScheduledBy,
+		Metadata: map[string]any{
+			"operation": "schedule",
+		},
+	})
+	if err != nil {
+		logger.Error("page workflow transition failed", "error", err)
+		return nil, err
+	}
+	record.Status = string(status)
 
 	if s.scheduler != nil {
 		if record.PublishAt != nil {
@@ -801,7 +857,19 @@ func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftReques
 		page.UpdatedBy = req.CreatedBy
 	}
 	if page.PublishedVersion == nil {
-		page.Status = string(domain.StatusDraft)
+		status, _, err := s.applyPageWorkflow(ctx, page, pageTransitionOptions{
+			TargetState: interfaces.WorkflowState(domain.WorkflowStateDraft),
+			ActorID:     selectActor(req.UpdatedBy, req.CreatedBy),
+			Metadata: map[string]any{
+				"operation": "create_draft",
+				"version":   created.Version,
+			},
+		})
+		if err != nil {
+			logger.Error("page workflow transition failed", "error", err)
+			return nil, err
+		}
+		page.Status = string(status)
 	}
 
 	if _, err := s.pages.Update(ctx, page); err != nil {
@@ -882,7 +950,6 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 	if req.PublishedBy != uuid.Nil {
 		page.PublishedBy = &req.PublishedBy
 	}
-	page.Status = string(domain.StatusPublished)
 	if updatedVersion.Version > page.CurrentVersion {
 		page.CurrentVersion = updatedVersion.Version
 	}
@@ -890,6 +957,21 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 	if req.PublishedBy != uuid.Nil {
 		page.UpdatedBy = req.PublishedBy
 	}
+
+	status, _, err := s.applyPageWorkflow(ctx, page, pageTransitionOptions{
+		Transition:  "publish",
+		TargetState: interfaces.WorkflowState(domain.WorkflowStatePublished),
+		ActorID:     req.PublishedBy,
+		Metadata: map[string]any{
+			"operation": "publish_draft",
+			"version":   updatedVersion.Version,
+		},
+	})
+	if err != nil {
+		logger.Error("page workflow transition failed", "error", err)
+		return nil, err
+	}
+	page.Status = string(status)
 
 	if _, err := s.pages.Update(ctx, page); err != nil {
 		logger.Error("page publish update failed", "error", err)
@@ -1230,9 +1312,13 @@ func effectivePageStatus(page *Page, now time.Time) domain.Status {
 	if page == nil {
 		return domain.StatusDraft
 	}
-	status := domain.Status(page.Status)
-	if status == "" {
-		status = domain.StatusDraft
+	state := domain.WorkflowStateFromStatus(domain.Status(page.Status))
+	status := domain.StatusFromWorkflowState(state)
+	if strings.TrimSpace(string(status)) == "" {
+		status = domain.Status(page.Status)
+		if strings.TrimSpace(string(status)) == "" {
+			status = domain.StatusDraft
+		}
 	}
 
 	if page.UnpublishAt != nil && !page.UnpublishAt.After(now) {
@@ -1259,6 +1345,152 @@ func cloneTimePtr(value *time.Time) *time.Time {
 	}
 	cloned := *value
 	return &cloned
+}
+
+type pageTransitionOptions struct {
+	Transition  string
+	TargetState interfaces.WorkflowState
+	ActorID     uuid.UUID
+	Metadata    map[string]any
+}
+
+func (s *pageService) applyPageWorkflow(ctx context.Context, page *Page, opts pageTransitionOptions) (domain.Status, domain.WorkflowState, error) {
+	if page == nil {
+		return "", "", fmt.Errorf("pages: workflow transition requires page context")
+	}
+
+	currentState := domain.WorkflowStateFromStatus(domain.Status(page.Status))
+	desiredState := currentState
+	if strings.TrimSpace(string(opts.TargetState)) != "" {
+		desiredState = domain.WorkflowState(domain.NormalizeWorkflowState(string(opts.TargetState)))
+	}
+
+	if s.workflow == nil {
+		status := domain.StatusFromWorkflowState(desiredState)
+		if strings.TrimSpace(string(status)) == "" {
+			status = domain.Status(desiredState)
+		}
+		if strings.TrimSpace(string(status)) == "" {
+			status = domain.StatusDraft
+		}
+		return status, desiredState, nil
+	}
+
+	context := buildPageContext(page)
+	metadata := mergeMetadata(context.Metadata(), opts.Metadata)
+
+	result, err := s.workflow.Transition(ctx, interfaces.TransitionInput{
+		EntityID:     page.ID,
+		EntityType:   workflow.EntityTypePage,
+		CurrentState: interfaces.WorkflowState(context.WorkflowState),
+		Transition:   opts.Transition,
+		TargetState:  opts.TargetState,
+		ActorID:      opts.ActorID,
+		Metadata:     metadata,
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	newState := domain.WorkflowState(result.ToState)
+	status := domain.StatusFromWorkflowState(newState)
+	if strings.TrimSpace(string(status)) == "" {
+		status = domain.Status(newState)
+		if strings.TrimSpace(string(status)) == "" {
+			status = domain.StatusDraft
+		}
+	}
+	s.recordWorkflowEvents(ctx, page, result, metadata)
+	return status, newState, nil
+}
+
+func (s *pageService) recordWorkflowEvents(ctx context.Context, page *Page, result *interfaces.TransitionResult, metadata map[string]any) {
+	if result == nil || len(result.Events) == 0 {
+		return
+	}
+
+	logger := s.log(ctx)
+	fields := map[string]any{
+		"page_id":             result.EntityID,
+		"workflow_from":       result.FromState,
+		"workflow_to":         result.ToState,
+		"workflow_transition": result.Transition,
+	}
+	if page != nil && strings.TrimSpace(page.Slug) != "" {
+		fields["page_slug"] = page.Slug
+	}
+	if strings.TrimSpace(result.EntityType) != "" {
+		fields["workflow_entity"] = result.EntityType
+	}
+	if result.ActorID != uuid.Nil {
+		fields["actor_id"] = result.ActorID
+	}
+	if !result.CompletedAt.IsZero() {
+		fields["workflow_completed_at"] = result.CompletedAt
+	}
+	if metadata != nil {
+		if op, ok := metadata["operation"]; ok {
+			fields["operation"] = op
+		}
+	}
+
+	for _, event := range result.Events {
+		eventFields := maps.Clone(fields)
+		eventFields["workflow_event"] = event.Name
+		if !event.Timestamp.IsZero() {
+			eventFields["workflow_event_time"] = event.Timestamp
+		}
+		if len(event.Payload) > 0 {
+			eventFields["workflow_event_payload"] = event.Payload
+		}
+		logging.WithFields(logger, eventFields).Info("workflow event emitted")
+	}
+}
+
+func buildPageContext(page *Page) workflow.PageContext {
+	return workflow.PageContext{
+		ID:               page.ID,
+		ContentID:        page.ContentID,
+		TemplateID:       page.TemplateID,
+		ParentID:         page.ParentID,
+		Slug:             page.Slug,
+		Status:           domain.Status(page.Status),
+		WorkflowState:    domain.WorkflowStateFromStatus(domain.Status(page.Status)),
+		CurrentVersion:   page.CurrentVersion,
+		PublishedVersion: page.PublishedVersion,
+		PublishAt:        page.PublishAt,
+		UnpublishAt:      page.UnpublishAt,
+		CreatedBy:        page.CreatedBy,
+		UpdatedBy:        page.UpdatedBy,
+	}
+}
+
+func mergeMetadata(base map[string]any, extra map[string]any) map[string]any {
+	if len(extra) == 0 {
+		return base
+	}
+	if base == nil {
+		base = make(map[string]any, len(extra))
+	}
+	for key, value := range extra {
+		base[key] = value
+	}
+	return base
+}
+
+func requestedWorkflowState(status string) interfaces.WorkflowState {
+	trimmed := strings.TrimSpace(status)
+	if trimmed == "" {
+		return ""
+	}
+	return interfaces.WorkflowState(domain.NormalizeWorkflowState(trimmed))
+}
+
+func selectActor(primary, fallback uuid.UUID) uuid.UUID {
+	if primary != uuid.Nil {
+		return primary
+	}
+	return fallback
 }
 
 func cloneBlockInstances(instances []*blocks.Instance) []*blocks.Instance {
@@ -1341,14 +1573,6 @@ func pathExistsExcept(pages []*Page, localeID uuid.UUID, path string, ignorePage
 		}
 	}
 	return false
-}
-
-func chooseStatus(status string) string {
-	status = strings.TrimSpace(status)
-	if status == "" {
-		return "draft"
-	}
-	return strings.ToLower(status)
 }
 
 func isValidSlug(slug string) bool {
