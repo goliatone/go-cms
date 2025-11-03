@@ -1,0 +1,30 @@
+{
+  "definition": {
+    "entity": "page",
+    "states": [
+      { "name": "draft", "initial": true, "description": "Initial draft state" },
+      { "name": "review", "description": "Under editorial review" },
+      { "name": "approved", "description": "Approved and ready for publish" },
+      { "name": "published", "terminal": false, "description": "Published and visible" }
+    ],
+    "transitions": [
+      { "name": "submit_review", "from": "draft", "to": "review" },
+      { "name": "approve", "from": "review", "to": "approved" },
+      { "name": "publish", "from": "approved", "to": "published" }
+    ]
+  },
+  "page": {
+    "slug": "workflow-integration",
+    "path": "/workflow-integration",
+    "title": "Workflow Integration"
+  },
+  "transitions": [
+    { "status": "review" },
+    { "status": "approved" },
+    { "status": "published" }
+  ],
+  "expectations": {
+    "initial_status": "draft",
+    "route": "/workflow-integration"
+  }
+}
