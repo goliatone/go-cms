@@ -1,6 +1,7 @@
 package di
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"maps"
@@ -34,6 +35,8 @@ import (
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/internal/workflow"
+	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	command "github.com/goliatone/go-command"
 	repocache "github.com/goliatone/go-repository-cache/cache"
@@ -41,6 +44,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
+
+// ErrWorkflowEngineNotProvided is returned when a custom workflow provider is configured without supplying an engine.
+var ErrWorkflowEngineNotProvided = errors.New("di: workflow engine required for custom workflow provider")
 
 // Container wires module dependencies. Phase 1 only returns no-op services.
 type Container struct {
@@ -111,6 +117,9 @@ type Container struct {
 
 	auditRecorder jobs.AuditRecorder
 	jobWorker     *jobs.Worker
+
+	workflowEngine          interfaces.WorkflowEngine
+	workflowDefinitionStore interfaces.WorkflowDefinitionStore
 }
 
 // Option mutates the container before it is finalised.
@@ -199,6 +208,20 @@ func WithGeneratorStorage(sp interfaces.StorageProvider) Option {
 func WithGeneratorAssetResolver(resolver generator.AssetResolver) Option {
 	return func(c *Container) {
 		c.generatorAssetResolver = resolver
+	}
+}
+
+// WithWorkflowEngine overrides the workflow engine used by the module.
+func WithWorkflowEngine(engine interfaces.WorkflowEngine) Option {
+	return func(c *Container) {
+		c.workflowEngine = engine
+	}
+}
+
+// WithWorkflowDefinitionStore registers an external source for workflow definitions.
+func WithWorkflowDefinitionStore(store interfaces.WorkflowDefinitionStore) Option {
+	return func(c *Container) {
+		c.workflowDefinitionStore = store
 	}
 }
 
@@ -389,6 +412,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	c.configureNavigation()
 	c.configureScheduler()
 	c.configureMediaService()
+	if err := c.configureWorkflowEngine(); err != nil {
+		return nil, err
+	}
 
 	if c.contentSvc == nil {
 		contentOpts := []content.ServiceOption{
@@ -460,6 +486,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			pages.WithScheduler(c.scheduler),
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
+			pages.WithWorkflowEngine(c.workflowEngine),
 		}
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
@@ -710,6 +737,61 @@ func (c *Container) configureMediaService() {
 	c.mediaSvc = media.NewService(c.media, options...)
 }
 
+func (c *Container) configureWorkflowEngine() error {
+	if !c.Config.Workflow.Enabled {
+		c.workflowEngine = nil
+		return nil
+	}
+
+	provider := strings.ToLower(strings.TrimSpace(c.Config.Workflow.Provider))
+	switch provider {
+	case "", "simple":
+		if c.workflowEngine == nil {
+			c.workflowEngine = workflowsimple.New()
+		}
+	case "custom":
+		if c.workflowEngine == nil {
+			return ErrWorkflowEngineNotProvided
+		}
+	default:
+		if c.workflowEngine == nil {
+			c.workflowEngine = workflowsimple.New()
+		}
+	}
+
+	if c.workflowEngine == nil {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	configuredDefinitions, err := workflow.CompileDefinitionConfigs(c.Config.Workflow.Definitions)
+	if err != nil {
+		return err
+	}
+
+	definitions := make([]interfaces.WorkflowDefinition, 0, len(configuredDefinitions))
+	definitions = append(definitions, configuredDefinitions...)
+
+	if c.workflowDefinitionStore != nil {
+		storeDefinitions, err := c.workflowDefinitionStore.ListWorkflowDefinitions(ctx)
+		if err != nil {
+			return fmt.Errorf("load workflow definitions: %w", err)
+		}
+		if len(storeDefinitions) > 0 {
+			definitions = append(definitions, storeDefinitions...)
+		}
+	}
+
+	for _, definition := range definitions {
+		if err := c.workflowEngine.RegisterWorkflow(ctx, definition); err != nil {
+			return fmt.Errorf("register workflow definition %s: %w", definition.EntityType, err)
+		}
+	}
+
+	return nil
+}
+
 // StorageProvider exposes the configured storage implementation.
 func (c *Container) StorageProvider() interfaces.StorageProvider {
 	return c.storage
@@ -790,6 +872,11 @@ func (c *Container) MarkdownService() interfaces.MarkdownService {
 
 func (c *Container) Scheduler() interfaces.Scheduler {
 	return c.scheduler
+}
+
+// WorkflowEngine returns the configured workflow engine (may be nil when disabled).
+func (c *Container) WorkflowEngine() interfaces.WorkflowEngine {
+	return c.workflowEngine
 }
 
 // I18nService returns the configured i18n service (lazy).
