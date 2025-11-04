@@ -25,6 +25,8 @@ type ParseOptions struct {
 	Sanitize   bool
 	HardWraps  bool
 	SafeMode   bool
+	ProcessShortcodes bool
+	ShortcodeOptions  ShortcodeProcessOptions
 }
 
 // MarkdownService exposes the high-level file workflows described in
@@ -90,6 +92,7 @@ type ImportOptions struct {
 	DryRun                          bool
 	ContentAllowMissingTranslations bool
 	PageAllowMissingTranslations    bool
+	ProcessShortcodes               bool
 }
 
 // SyncOptions extends ImportOptions to handle update/delete semantics for
