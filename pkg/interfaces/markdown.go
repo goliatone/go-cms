@@ -83,11 +83,13 @@ type LoadOptions struct {
 // ImportOptions controls how Markdown documents are converted into CMS content.
 // UUID fields reference existing CMS entities (content types, authors, etc.).
 type ImportOptions struct {
-	ContentTypeID uuid.UUID
-	AuthorID      uuid.UUID
-	CreatePages   bool
-	TemplateID    *uuid.UUID
-	DryRun        bool
+	ContentTypeID                   uuid.UUID
+	AuthorID                        uuid.UUID
+	CreatePages                     bool
+	TemplateID                      *uuid.UUID
+	DryRun                          bool
+	ContentAllowMissingTranslations bool
+	PageAllowMissingTranslations    bool
 }
 
 // SyncOptions extends ImportOptions to handle update/delete semantics for
