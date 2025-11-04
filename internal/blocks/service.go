@@ -10,6 +10,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -148,6 +149,13 @@ func WithInstanceVersionRepository(repo InstanceVersionRepository) ServiceOption
 	}
 }
 
+// WithShortcodeService wires the shortcode renderer used to process translation content.
+func WithShortcodeService(svc interfaces.ShortcodeService) ServiceOption {
+	return func(s *service) {
+		s.shortcodes = svc
+	}
+}
+
 // WithVersioningEnabled toggles versioning workflows for block instances.
 func WithVersioningEnabled(enabled bool) ServiceOption {
 	return func(s *service) {
@@ -176,6 +184,7 @@ type service struct {
 	media                 media.Service
 	versioningEnabled     bool
 	versionRetentionLimit int
+	shortcodes            interfaces.ShortcodeService
 }
 
 func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRepo TranslationRepository, opts ...ServiceOption) Service {
@@ -563,9 +572,19 @@ func (s *service) hydrateTranslation(ctx context.Context, translation *Translati
 	clone := *translation
 	if translation.Content != nil {
 		clone.Content = maps.Clone(translation.Content)
+		if s.shortcodes != nil {
+			if err := s.renderShortcodesInMap(ctx, clone.Content, ""); err != nil {
+				return nil, err
+			}
+		}
 	}
 	if translation.AttributeOverride != nil {
 		clone.AttributeOverride = maps.Clone(translation.AttributeOverride)
+		if s.shortcodes != nil {
+			if err := s.renderShortcodesInMap(ctx, clone.AttributeOverride, ""); err != nil {
+				return nil, err
+			}
+		}
 	}
 	clone.MediaBindings = media.CloneBindingSet(translation.MediaBindings)
 	if len(clone.MediaBindings) == 0 {
@@ -578,6 +597,76 @@ func (s *service) hydrateTranslation(ctx context.Context, translation *Translati
 	}
 	clone.ResolvedMedia = resolved
 	return &clone, nil
+}
+
+func (s *service) renderShortcodesInMap(ctx context.Context, values map[string]any, locale string) error {
+	if values == nil || s.shortcodes == nil {
+		return nil
+	}
+	for key, value := range values {
+		rendered, err := s.renderShortcodeValue(ctx, value, locale)
+		if err != nil {
+			return err
+		}
+		values[key] = rendered
+	}
+	return nil
+}
+
+func (s *service) renderShortcodeValue(ctx context.Context, value any, locale string) (any, error) {
+	if s.shortcodes == nil {
+		return value, nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		if !containsShortcodeSyntax(v) {
+			return v, nil
+		}
+		output, err := s.shortcodes.Process(ctx, v, interfaces.ShortcodeProcessOptions{Locale: locale})
+		if err != nil {
+			return nil, err
+		}
+		return output, nil
+	case []any:
+		if len(v) == 0 {
+			return v, nil
+		}
+		out := make([]any, len(v))
+		for i, item := range v {
+			rendered, err := s.renderShortcodeValue(ctx, item, locale)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = rendered
+		}
+		return out, nil
+	case []string:
+		out := make([]string, len(v))
+		for i, item := range v {
+			rendered, err := s.renderShortcodeValue(ctx, item, locale)
+			if err != nil {
+				return nil, err
+			}
+			if str, ok := rendered.(string); ok {
+				out[i] = str
+			} else {
+				out[i] = item
+			}
+		}
+		return out, nil
+	case map[string]any:
+		if err := s.renderShortcodesInMap(ctx, v, locale); err != nil {
+			return nil, err
+		}
+		return v, nil
+	default:
+		return value, nil
+	}
+}
+
+func containsShortcodeSyntax(input string) bool {
+	return strings.Contains(input, "{{<") || strings.Contains(input, "{{%") || strings.Contains(input, "[")
 }
 
 func (s *service) SyncRegistry(ctx context.Context) error {
