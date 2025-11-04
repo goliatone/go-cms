@@ -17,25 +17,27 @@ type PageService interface {
 
 // PageCreateRequest captures the required fields to create a page backed by content.
 type PageCreateRequest struct {
-	ContentID    uuid.UUID
-	TemplateID   uuid.UUID
-	ParentID     *uuid.UUID
-	Slug         string
-	Status       string
-	CreatedBy    uuid.UUID
-	UpdatedBy    uuid.UUID
-	Translations []PageTranslationInput
-	Metadata     map[string]any
+	ContentID                uuid.UUID
+	TemplateID               uuid.UUID
+	ParentID                 *uuid.UUID
+	Slug                     string
+	Status                   string
+	CreatedBy                uuid.UUID
+	UpdatedBy                uuid.UUID
+	Translations             []PageTranslationInput
+	Metadata                 map[string]any
+	AllowMissingTranslations bool
 }
 
 // PageUpdateRequest mutates an existing page.
 type PageUpdateRequest struct {
-	ID           uuid.UUID
-	TemplateID   *uuid.UUID
-	Status       string
-	UpdatedBy    uuid.UUID
-	Translations []PageTranslationInput
-	Metadata     map[string]any
+	ID                       uuid.UUID
+	TemplateID               *uuid.UUID
+	Status                   string
+	UpdatedBy                uuid.UUID
+	Translations             []PageTranslationInput
+	Metadata                 map[string]any
+	AllowMissingTranslations bool
 }
 
 // PageDeleteRequest captures the information required to remove a page.
