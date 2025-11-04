@@ -93,6 +93,14 @@ func (m *Module) Widgets() WidgetService {
 	return m.container.WidgetService()
 }
 
+// Shortcodes returns the configured shortcode service.
+func (m *Module) Shortcodes() interfaces.ShortcodeService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.ShortcodeService()
+}
+
 // Themes returns the configured theme service.
 func (m *Module) Themes() ThemeService {
 	return m.container.ThemeService()
