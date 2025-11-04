@@ -106,19 +106,20 @@ type BuildMetrics struct {
 
 // Dependencies lists the services required by the generator.
 type Dependencies struct {
-	Pages    pages.Service
-	Content  content.Service
-	Blocks   blocks.Service
-	Widgets  widgets.Service
-	Menus    menus.Service
-	Themes   themes.Service
-	I18N     i18n.Service
-	Renderer interfaces.TemplateRenderer
-	Storage  interfaces.StorageProvider
-	Locales  LocaleLookup
-	Assets   AssetResolver
-	Hooks    Hooks
-	Logger   interfaces.Logger
+	Pages      pages.Service
+	Content    content.Service
+	Blocks     blocks.Service
+	Widgets    widgets.Service
+	Menus      menus.Service
+	Themes     themes.Service
+	I18N       i18n.Service
+	Renderer   interfaces.TemplateRenderer
+	Storage    interfaces.StorageProvider
+	Locales    LocaleLookup
+	Assets     AssetResolver
+	Hooks      Hooks
+	Logger     interfaces.Logger
+	Shortcodes interfaces.ShortcodeService
 }
 
 // Hooks expose lifecycle callbacks for build operations.
@@ -603,6 +604,8 @@ func (s *service) renderPage(
 		Helpers: newTemplateHelpers(siteMeta.DefaultLocale, data.Locale, siteMeta.BaseURL),
 	}
 
+	s.renderShortcodesInTemplateContext(renderCtx, &templateCtx)
+
 	type renderResult struct {
 		html string
 		err  error
@@ -647,6 +650,101 @@ func (s *service) renderPage(
 		Duration: outcome.diagnostic.Duration,
 	}
 	return outcome
+}
+
+func (s *service) renderShortcodesInTemplateContext(ctx context.Context, tmpl *TemplateContext) {
+	svc := s.deps.Shortcodes
+	if svc == nil || tmpl == nil {
+		return
+	}
+
+	locale := tmpl.Page.Locale.Code
+	if tmpl.Page.ContentTranslation != nil && tmpl.Page.ContentTranslation.Content != nil {
+		_ = s.renderShortcodesInMap(ctx, tmpl.Page.ContentTranslation.Content, locale)
+	}
+
+	if tmpl.Page.ContentTranslation != nil && tmpl.Page.ContentTranslation.Summary != nil {
+		if processed, err := svc.Process(ctx, *tmpl.Page.ContentTranslation.Summary, interfaces.ShortcodeProcessOptions{Locale: locale}); err == nil {
+			summary := processed
+			tmpl.Page.ContentTranslation.Summary = &summary
+		}
+	}
+
+	if tmpl.Page.Translation != nil && tmpl.Page.Translation.Summary != nil {
+		if processed, err := svc.Process(ctx, *tmpl.Page.Translation.Summary, interfaces.ShortcodeProcessOptions{Locale: locale}); err == nil {
+			summary := processed
+			tmpl.Page.Translation.Summary = &summary
+		}
+	}
+}
+
+func (s *service) renderShortcodesInMap(ctx context.Context, values map[string]any, locale string) error {
+	svc := s.deps.Shortcodes
+	if svc == nil || values == nil {
+		return nil
+	}
+	for key, value := range values {
+		rendered, err := s.renderShortcodeValue(ctx, value, locale)
+		if err != nil {
+			return err
+		}
+		values[key] = rendered
+	}
+	return nil
+}
+
+func (s *service) renderShortcodeValue(ctx context.Context, value any, locale string) (any, error) {
+	svc := s.deps.Shortcodes
+	if svc == nil {
+		return value, nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		if !containsShortcodeSyntax(v) {
+			return v, nil
+		}
+		output, err := svc.Process(ctx, v, interfaces.ShortcodeProcessOptions{Locale: locale})
+		if err != nil {
+			return nil, err
+		}
+		return output, nil
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			rendered, err := s.renderShortcodeValue(ctx, item, locale)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = rendered
+		}
+		return out, nil
+	case []string:
+		out := make([]string, len(v))
+		for i, item := range v {
+			rendered, err := s.renderShortcodeValue(ctx, item, locale)
+			if err != nil {
+				return nil, err
+			}
+			if str, ok := rendered.(string); ok {
+				out[i] = str
+			} else {
+				out[i] = item
+			}
+		}
+		return out, nil
+	case map[string]any:
+		if err := s.renderShortcodesInMap(ctx, v, locale); err != nil {
+			return nil, err
+		}
+		return v, nil
+	default:
+		return value, nil
+	}
+}
+
+func containsShortcodeSyntax(input string) bool {
+	return strings.Contains(input, "{{<") || strings.Contains(input, "{{%") || strings.Contains(input, "[")
 }
 
 func (s *service) persistPages(
