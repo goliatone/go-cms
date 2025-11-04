@@ -39,14 +39,15 @@ type Service interface {
 
 // CreatePageRequest captures the payload required to create a page.
 type CreatePageRequest struct {
-	ContentID    uuid.UUID
-	TemplateID   uuid.UUID
-	ParentID     *uuid.UUID
-	Slug         string
-	Status       string
-	CreatedBy    uuid.UUID
-	UpdatedBy    uuid.UUID
-	Translations []PageTranslationInput
+	ContentID                uuid.UUID
+	TemplateID               uuid.UUID
+	ParentID                 *uuid.UUID
+	Slug                     string
+	Status                   string
+	CreatedBy                uuid.UUID
+	UpdatedBy                uuid.UUID
+	Translations             []PageTranslationInput
+	AllowMissingTranslations bool
 }
 
 // PageTranslationInput represents localized routing information.
@@ -60,11 +61,12 @@ type PageTranslationInput struct {
 
 // UpdatePageRequest captures the mutable fields for an existing page.
 type UpdatePageRequest struct {
-	ID           uuid.UUID
-	TemplateID   *uuid.UUID
-	Status       string
-	UpdatedBy    uuid.UUID
-	Translations []PageTranslationInput
+	ID                       uuid.UUID
+	TemplateID               *uuid.UUID
+	Status                   string
+	UpdatedBy                uuid.UUID
+	Translations             []PageTranslationInput
+	AllowMissingTranslations bool
 }
 
 // DeletePageRequest captures the information required to delete a page.
@@ -218,6 +220,8 @@ type pageService struct {
 	schedulingEnabled     bool
 	logger                interfaces.Logger
 	workflow              interfaces.WorkflowEngine
+	requireTranslations   bool
+	translationsEnabled   bool
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -235,6 +239,20 @@ func WithWidgetService(svc widgets.Service) ServiceOption {
 func WithThemeService(svc themes.Service) ServiceOption {
 	return func(ps *pageService) {
 		ps.themes = svc
+	}
+}
+
+// WithRequireTranslations controls whether the service enforces translation presence.
+func WithRequireTranslations(required bool) ServiceOption {
+	return func(ps *pageService) {
+		ps.requireTranslations = required
+	}
+}
+
+// WithTranslationsEnabled toggles translation handling entirely.
+func WithTranslationsEnabled(enabled bool) ServiceOption {
+	return func(ps *pageService) {
+		ps.translationsEnabled = enabled
 	}
 }
 
@@ -299,15 +317,17 @@ func WithPageVersionRetentionLimit(limit int) ServiceOption {
 // NewService constructs a page service with the required dependencies.
 func NewService(pages PageRepository, contentRepo ContentRepository, locales LocaleRepository, opts ...ServiceOption) Service {
 	s := &pageService{
-		pages:     pages,
-		content:   contentRepo,
-		locales:   locales,
-		now:       time.Now,
-		id:        uuid.New,
-		media:     media.NewNoOpService(),
-		scheduler: cmsscheduler.NewNoOp(),
-		logger:    logging.PagesLogger(nil),
-		workflow:  workflowsimple.New(),
+		pages:               pages,
+		content:             contentRepo,
+		locales:             locales,
+		now:                 time.Now,
+		id:                  uuid.New,
+		media:               media.NewNoOpService(),
+		scheduler:           cmsscheduler.NewNoOp(),
+		logger:              logging.PagesLogger(nil),
+		workflow:            workflowsimple.New(),
+		requireTranslations: true,
+		translationsEnabled: true,
 	}
 
 	for _, opt := range opts {
@@ -330,6 +350,10 @@ func (s *pageService) opLogger(ctx context.Context, operation string, extra map[
 		fields[key] = value
 	}
 	return logging.WithFields(s.log(ctx), fields)
+}
+
+func (s *pageService) translationsRequired() bool {
+	return s.translationsEnabled && s.requireTranslations
 }
 
 // Create registers a new page with translations and hierarchy rules.
@@ -359,7 +383,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		return nil, ErrSlugInvalid
 	}
 
-	if len(req.Translations) == 0 {
+	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoPageTranslations
 	}
 
@@ -415,56 +439,61 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		}
 	}
 
-	existingPages, err := s.pages.List(ctx)
-	if err != nil {
-		logger.Error("page list for conflict check failed", "error", err)
-		return nil, err
-	}
-
-	seenLocales := map[string]struct{}{}
-	for _, tr := range req.Translations {
-		code := strings.TrimSpace(tr.Locale)
-		if code == "" {
-			return nil, ErrUnknownLocale
-		}
-		if _, ok := seenLocales[code]; ok {
-			return nil, ErrDuplicateLocale
-		}
-
-		locale, err := s.locales.GetByCode(ctx, code)
+	var (
+		existingPages []*Page
+		err           error
+	)
+	if len(req.Translations) > 0 {
+		existingPages, err = s.pages.List(ctx)
 		if err != nil {
-			logger.Error("page locale lookup failed", "error", err, "locale", code)
-			return nil, ErrUnknownLocale
-		}
-
-		path := sanitizePath(tr.Path)
-		if path == "" {
-			logger.Warn("page path empty", "locale_id", locale.ID)
-			return nil, ErrPathExists
-		}
-		if pathExists(existingPages, locale.ID, path) {
-			logger.Warn("page path already exists", "locale_id", locale.ID, "path", path)
-			return nil, ErrPathExists
-		}
-		if err := validatePageMediaBindings(tr.MediaBindings); err != nil {
-			logger.Error("page media binding validation failed", "error", err)
+			logger.Error("page list for conflict check failed", "error", err)
 			return nil, err
 		}
+		seenLocales := map[string]struct{}{}
+		for _, tr := range req.Translations {
+			code := strings.TrimSpace(tr.Locale)
+			if code == "" {
+				return nil, ErrUnknownLocale
+			}
+			if _, ok := seenLocales[code]; ok {
+				return nil, ErrDuplicateLocale
+			}
 
-		translation := &PageTranslation{
-			ID:            s.id(),
-			PageID:        page.ID,
-			LocaleID:      locale.ID,
-			Title:         tr.Title,
-			Path:          path,
-			Summary:       tr.Summary,
-			MediaBindings: media.CloneBindingSet(tr.MediaBindings),
-			CreatedAt:     now,
-			UpdatedAt:     now,
+			locale, err := s.locales.GetByCode(ctx, code)
+			if err != nil {
+				logger.Error("page locale lookup failed", "error", err, "locale", code)
+				return nil, ErrUnknownLocale
+			}
+
+			path := sanitizePath(tr.Path)
+			if path == "" {
+				logger.Warn("page path empty", "locale_id", locale.ID)
+				return nil, ErrPathExists
+			}
+			if pathExists(existingPages, locale.ID, path) {
+				logger.Warn("page path already exists", "locale_id", locale.ID, "path", path)
+				return nil, ErrPathExists
+			}
+			if err := validatePageMediaBindings(tr.MediaBindings); err != nil {
+				logger.Error("page media binding validation failed", "error", err)
+				return nil, err
+			}
+
+			translation := &PageTranslation{
+				ID:            s.id(),
+				PageID:        page.ID,
+				LocaleID:      locale.ID,
+				Title:         tr.Title,
+				Path:          path,
+				Summary:       tr.Summary,
+				MediaBindings: media.CloneBindingSet(tr.MediaBindings),
+				CreatedAt:     now,
+				UpdatedAt:     now,
+			}
+
+			page.Translations = append(page.Translations, translation)
+			seenLocales[code] = struct{}{}
 		}
-
-		page.Translations = append(page.Translations, translation)
-		seenLocales[code] = struct{}{}
 	}
 
 	targetState := requestedWorkflowState(req.Status)
@@ -538,7 +567,7 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 	if req.ID == uuid.Nil {
 		return nil, ErrPageRequired
 	}
-	if len(req.Translations) == 0 {
+	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoPageTranslations
 	}
 
@@ -572,24 +601,31 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 		existing.TemplateID = *req.TemplateID
 	}
 
-	allPages, err := s.pages.List(ctx)
-	if err != nil {
-		logger.Error("page list failed", "error", err)
-		return nil, err
-	}
-
 	now := s.now()
-	translations, err := s.buildPageTranslations(ctx, existing.ID, req.Translations, allPages, existing.Translations, now)
-	if err != nil {
-		logger.Error("page translations build failed", "error", err)
-		return nil, err
+
+	replaceTranslations := len(req.Translations) > 0
+	var translations []*PageTranslation
+	if replaceTranslations {
+		allPages, err := s.pages.List(ctx)
+		if err != nil {
+			logger.Error("page list failed", "error", err)
+			return nil, err
+		}
+
+		translations, err = s.buildPageTranslations(ctx, existing.ID, req.Translations, allPages, existing.Translations, now)
+		if err != nil {
+			logger.Error("page translations build failed", "error", err)
+			return nil, err
+		}
 	}
 
 	if req.UpdatedBy != uuid.Nil {
 		existing.UpdatedBy = req.UpdatedBy
 	}
 	existing.UpdatedAt = now
-	existing.Translations = translations
+	if replaceTranslations {
+		existing.Translations = translations
+	}
 
 	targetState := requestedWorkflowState(req.Status)
 	status, _, err := s.applyPageWorkflow(ctx, existing, pageTransitionOptions{
@@ -605,9 +641,11 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 	}
 	existing.Status = string(status)
 
-	if err := s.pages.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
-		logger.Error("page translations replace failed", "error", err)
-		return nil, err
+	if replaceTranslations {
+		if err := s.pages.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
+			logger.Error("page translations replace failed", "error", err)
+			return nil, err
+		}
 	}
 
 	updated, err := s.pages.Update(ctx, existing)
@@ -958,9 +996,15 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 		page.UpdatedBy = req.PublishedBy
 	}
 
+	targetState := interfaces.WorkflowState(domain.WorkflowStatePublished)
+	transitionName := "publish"
+	if strings.EqualFold(page.Status, string(targetState)) {
+		transitionName = ""
+	}
+
 	status, _, err := s.applyPageWorkflow(ctx, page, pageTransitionOptions{
-		Transition:  "publish",
-		TargetState: interfaces.WorkflowState(domain.WorkflowStatePublished),
+		Transition:  transitionName,
+		TargetState: targetState,
 		ActorID:     req.PublishedBy,
 		Metadata: map[string]any{
 			"operation": "publish_draft",
