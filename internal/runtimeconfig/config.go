@@ -3,9 +3,11 @@ package runtimeconfig
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/pkg/storage"
 	urlkit "github.com/goliatone/go-urlkit"
 )
 
@@ -20,6 +22,7 @@ var ErrAdvancedCacheRequiresEnabledCache = errors.New("cms config: advanced cach
 
 // ErrCommandsCronRequiresScheduling ensures automatic cron wiring only runs when scheduling is enabled.
 var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron auto-registration requires scheduling to be enabled")
+var ErrDefaultLocaleRequired = errors.New("cms config: default locale is required when translations are enforced")
 var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must be enabled to configure markdown")
 var ErrMarkdownContentDirRequired = errors.New("cms config: markdown content directory is required when markdown is enabled")
 var ErrGeneratorOutputDirRequired = errors.New("cms config: generator output directory is required when generator is enabled")
@@ -30,6 +33,23 @@ var ErrLoggingFormatInvalid = errors.New("cms config: logging format is invalid"
 var ErrVersionRetentionLimitInvalid = errors.New("cms config: version retention limit must be zero or positive")
 var ErrWorkflowProviderUnknown = errors.New("cms config: workflow provider is invalid")
 var ErrWorkflowProviderConfiguredWhenDisabled = errors.New("cms config: workflow provider configured while workflow disabled")
+var ErrStorageProfileNameRequired = errors.New("cms config: storage profile name is required")
+var ErrStorageProfileNameInvalid = errors.New("cms config: storage profile name is invalid")
+var ErrStorageProfileDuplicateName = errors.New("cms config: storage profile name must be unique")
+var ErrStorageProfileProviderRequired = errors.New("cms config: storage profile provider is required")
+var ErrStorageProfileConfigNameRequired = errors.New("cms config: storage profile config name is required")
+var ErrStorageProfileConfigDriverRequired = errors.New("cms config: storage profile config driver is required")
+var ErrStorageProfileConfigDSNRequired = errors.New("cms config: storage profile config DSN is required")
+var ErrStorageProfileMultipleDefaults = errors.New("cms config: storage profile default must be unique")
+var ErrStorageProfileFallbackEmpty = errors.New("cms config: storage profile fallback cannot be empty")
+var ErrStorageProfileFallbackSelf = errors.New("cms config: storage profile fallback cannot reference the same profile")
+var ErrStorageProfileFallbackUnknown = errors.New("cms config: storage profile fallback references unknown profile")
+var ErrStorageProfileAliasNameRequired = errors.New("cms config: storage profile alias name is required")
+var ErrStorageProfileAliasInvalid = errors.New("cms config: storage profile alias is invalid")
+var ErrStorageProfileAliasTargetRequired = errors.New("cms config: storage profile alias target is required")
+var ErrStorageProfileAliasTargetUnknown = errors.New("cms config: storage profile alias target is unknown")
+var ErrStorageProfileAliasDuplicate = errors.New("cms config: storage profile alias must be unique")
+var ErrStorageProfileAliasCollides = errors.New("cms config: storage profile alias collides with existing profile")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -59,13 +79,17 @@ type ContentConfig struct {
 
 // I18NConfig wires go-i18n options through the CMS wrapper.
 type I18NConfig struct {
-	Enabled bool
-	Locales []string
+	Enabled               bool
+	Locales               []string
+	RequireTranslations   bool
+	DefaultLocaleRequired bool
 }
 
 // StorageConfig lists identifiers for storage-related dependencies.
 type StorageConfig struct {
 	Provider string
+	Profiles []storage.Profile
+	Aliases  map[string]string
 }
 
 // CacheConfig captures cache behaviour toggles.
@@ -229,8 +253,10 @@ func DefaultConfig() Config {
 		},
 		Retention: RetentionConfig{},
 		I18N: I18NConfig{
-			Enabled: true,
-			Locales: []string{"en"},
+			Enabled:               true,
+			Locales:               []string{"en"},
+			RequireTranslations:   true,
+			DefaultLocaleRequired: true,
 		},
 		Storage: StorageConfig{
 			Provider: "bun",
@@ -300,6 +326,18 @@ func DefaultConfig() Config {
 
 // Validate performs high-level consistency checks.
 func (cfg Config) Validate() error {
+	if err := cfg.Storage.ValidateProfiles(); err != nil {
+		return err
+	}
+	defaultLocale := strings.TrimSpace(cfg.DefaultLocale)
+	if cfg.I18N.Enabled {
+		if cfg.I18N.DefaultLocaleRequired && defaultLocale == "" {
+			return ErrDefaultLocaleRequired
+		}
+		if cfg.I18N.RequireTranslations && defaultLocale == "" {
+			return ErrDefaultLocaleRequired
+		}
+	}
 	if !cfg.Features.Themes {
 		if strings.TrimSpace(cfg.Themes.DefaultTheme) != "" {
 			return ErrThemesFeatureRequired
@@ -408,4 +446,103 @@ func isSupportedWorkflowProvider(provider string) bool {
 	default:
 		return false
 	}
+}
+
+var storageProfileNamePattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+// ValidateProfiles ensures storage profiles and their aliases are well-formed.
+func (cfg StorageConfig) ValidateProfiles() error {
+	if len(cfg.Profiles) == 0 && len(cfg.Aliases) == 0 {
+		return nil
+	}
+	profilesByName := make(map[string]storage.Profile, len(cfg.Profiles))
+	var defaultSeen bool
+	for _, raw := range cfg.Profiles {
+		name := strings.TrimSpace(raw.Name)
+		if name == "" {
+			return ErrStorageProfileNameRequired
+		}
+		if !storageProfileNamePattern.MatchString(name) {
+			return fmt.Errorf("%w: %s", ErrStorageProfileNameInvalid, name)
+		}
+		if _, exists := profilesByName[name]; exists {
+			return fmt.Errorf("%w: %s", ErrStorageProfileDuplicateName, name)
+		}
+		provider := strings.TrimSpace(raw.Provider)
+		if provider == "" {
+			return fmt.Errorf("%w: %s", ErrStorageProfileProviderRequired, name)
+		}
+		configName := strings.TrimSpace(raw.Config.Name)
+		if configName == "" {
+			return fmt.Errorf("%w: %s", ErrStorageProfileConfigNameRequired, name)
+		}
+		driver := strings.TrimSpace(raw.Config.Driver)
+		if driver == "" {
+			return fmt.Errorf("%w: %s", ErrStorageProfileConfigDriverRequired, name)
+		}
+		dsn := strings.TrimSpace(raw.Config.DSN)
+		if dsn == "" {
+			return fmt.Errorf("%w: %s", ErrStorageProfileConfigDSNRequired, name)
+		}
+		if raw.Default {
+			if defaultSeen {
+				return ErrStorageProfileMultipleDefaults
+			}
+			defaultSeen = true
+		}
+		for _, fallbackRaw := range raw.Fallbacks {
+			fallback := strings.TrimSpace(fallbackRaw)
+			if fallback == "" {
+				return fmt.Errorf("%w: %s", ErrStorageProfileFallbackEmpty, name)
+			}
+			if fallback == name {
+				return fmt.Errorf("%w: %s", ErrStorageProfileFallbackSelf, name)
+			}
+		}
+		profilesByName[name] = raw
+	}
+
+	for _, profile := range cfg.Profiles {
+		for _, fallbackRaw := range profile.Fallbacks {
+			fallback := strings.TrimSpace(fallbackRaw)
+			if fallback == "" {
+				return fmt.Errorf("%w: %s", ErrStorageProfileFallbackEmpty, profile.Name)
+			}
+			if _, ok := profilesByName[fallback]; !ok {
+				return fmt.Errorf("%w: %s -> %s", ErrStorageProfileFallbackUnknown, profile.Name, fallback)
+			}
+		}
+	}
+
+	if len(cfg.Aliases) == 0 {
+		return nil
+	}
+	aliasNames := make(map[string]struct{}, len(cfg.Aliases))
+	for aliasRaw, targetRaw := range cfg.Aliases {
+		alias := strings.TrimSpace(aliasRaw)
+		target := strings.TrimSpace(targetRaw)
+		if alias == "" {
+			return ErrStorageProfileAliasNameRequired
+		}
+		if !storageProfileNamePattern.MatchString(alias) {
+			return fmt.Errorf("%w: %s", ErrStorageProfileAliasInvalid, alias)
+		}
+		if target == "" {
+			return fmt.Errorf("%w: %s", ErrStorageProfileAliasTargetRequired, alias)
+		}
+		if !storageProfileNamePattern.MatchString(target) {
+			return fmt.Errorf("%w: %s", ErrStorageProfileAliasInvalid, target)
+		}
+		if _, ok := profilesByName[target]; !ok {
+			return fmt.Errorf("%w: %s -> %s", ErrStorageProfileAliasTargetUnknown, alias, target)
+		}
+		if _, ok := profilesByName[alias]; ok {
+			return fmt.Errorf("%w: %s", ErrStorageProfileAliasCollides, alias)
+		}
+		if _, exists := aliasNames[alias]; exists {
+			return fmt.Errorf("%w: %s", ErrStorageProfileAliasDuplicate, alias)
+		}
+		aliasNames[alias] = struct{}{}
+	}
+	return nil
 }
