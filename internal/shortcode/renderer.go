@@ -132,7 +132,7 @@ func (r *Renderer) renderTemplate(def interfaces.ShortcodeDefinition, params map
 	for key, value := range params {
 		data[key] = value
 	}
-	data["Inner"] = inner
+	data["Inner"] = template.HTML(inner)
 
 	tmpl, err := template.New(def.Name).Parse(def.Template)
 	if err != nil {
