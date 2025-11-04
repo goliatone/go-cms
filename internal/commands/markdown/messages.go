@@ -27,6 +27,10 @@ type ImportDirectoryCommand struct {
 	TemplateID *uuid.UUID `json:"template_id,omitempty"`
 	// CreatePages instructs the importer to create CMS pages alongside content records.
 	CreatePages bool `json:"create_pages,omitempty"`
+	// ContentAllowMissingTranslations bypasses translation validation when creating content records.
+	ContentAllowMissingTranslations bool `json:"content_allow_missing_translations,omitempty"`
+	// PageAllowMissingTranslations bypasses translation validation when creating companion pages.
+	PageAllowMissingTranslations bool `json:"page_allow_missing_translations,omitempty"`
 	// DryRun toggles preview mode to collect import diffs without persisting changes.
 	DryRun bool `json:"dry_run,omitempty"`
 }
@@ -69,6 +73,10 @@ type SyncDirectoryCommand struct {
 	TemplateID *uuid.UUID `json:"template_id,omitempty"`
 	// CreatePages instructs the importer to create CMS pages alongside content records.
 	CreatePages bool `json:"create_pages,omitempty"`
+	// ContentAllowMissingTranslations bypasses translation validation when creating content records.
+	ContentAllowMissingTranslations bool `json:"content_allow_missing_translations,omitempty"`
+	// PageAllowMissingTranslations bypasses translation validation when creating companion pages.
+	PageAllowMissingTranslations bool `json:"page_allow_missing_translations,omitempty"`
 	// DryRun toggles preview mode to collect import diffs without persisting changes.
 	DryRun bool `json:"dry_run,omitempty"`
 	// DeleteOrphaned removes CMS records without matching Markdown files when true.
