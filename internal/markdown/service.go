@@ -16,24 +16,26 @@ import (
 
 // Config controls how the Markdown service discovers and parses files.
 type Config struct {
-	BasePath       string
-	DefaultLocale  string
-	Locales        []string
-	LocalePatterns map[string]string
-	Pattern        string
-	Recursive      bool
-	Parser         interfaces.ParseOptions
+	BasePath          string
+	DefaultLocale     string
+	Locales           []string
+	LocalePatterns    map[string]string
+	Pattern           string
+	Recursive         bool
+	Parser            interfaces.ParseOptions
+	ProcessShortcodes bool
 }
 
 // Service implements interfaces.MarkdownService for filesystem-backed documents.
 type Service struct {
-	cfg      Config
-	parser   interfaces.MarkdownParser
-	loader   *Loader
-	content  interfaces.ContentService
-	pages    interfaces.PageService
-	logger   interfaces.Logger
-	importer *Importer
+	cfg        Config
+	parser     interfaces.MarkdownParser
+	loader     *Loader
+	content    interfaces.ContentService
+	pages      interfaces.PageService
+	logger     interfaces.Logger
+	importer   *Importer
+	shortcodes interfaces.ShortcodeService
 }
 
 // ServiceOption configures optional dependencies for the markdown service.
@@ -57,6 +59,13 @@ func WithPageService(svc interfaces.PageService) ServiceOption {
 func WithLogger(logger interfaces.Logger) ServiceOption {
 	return func(s *Service) {
 		s.logger = logger
+	}
+}
+
+// WithShortcodeService wires the shortcode renderer used during parsing.
+func WithShortcodeService(svc interfaces.ShortcodeService) ServiceOption {
+	return func(s *Service) {
+		s.shortcodes = svc
 	}
 }
 
@@ -144,7 +153,12 @@ func (s *Service) Render(ctx context.Context, markdown []byte, opts interfaces.P
 		return nil, ctx.Err()
 	default:
 	}
-	return s.parser.ParseWithOptions(markdown, mergeParseOptions(s.cfg.Parser, opts))
+	parseOpts := mergeParseOptions(s.cfg.Parser, opts)
+	processed, err := s.applyShortcodes(ctx, markdown, parseOpts)
+	if err != nil {
+		return nil, err
+	}
+	return s.parser.ParseWithOptions(processed, parseOpts)
 }
 
 // RenderDocument converts the document's Markdown body into HTML using the configured parser.
@@ -172,6 +186,18 @@ func (s *Service) Import(ctx context.Context, doc *interfaces.Document, opts int
 	}
 	logger := logging.WithMarkdownContext(s.logger, doc.FilePath, doc.Locale, "import")
 
+	if err := s.renderDocument(ctx, doc, interfaces.ParseOptions{
+		ProcessShortcodes: opts.ProcessShortcodes,
+		ShortcodeOptions: interfaces.ShortcodeProcessOptions{
+			Locale: doc.Locale,
+		},
+	}); err != nil {
+		logging.WithFields(logger, map[string]any{
+			"error": err,
+		}).Error("markdown.service.import.render_failed")
+		return nil, err
+	}
+
 	result, err := s.importer.ImportDocument(ctx, doc, opts)
 	if err != nil {
 		logging.WithFields(logger, map[string]any{
@@ -195,7 +221,12 @@ func (s *Service) ImportDirectory(ctx context.Context, dir string, opts interfac
 		return nil, errors.New("markdown service: importer not configured")
 	}
 
-	docs, err := s.LoadDirectory(ctx, dir, interfaces.LoadOptions{})
+	loadOpts := interfaces.LoadOptions{
+		Parser: interfaces.ParseOptions{
+			ProcessShortcodes: opts.ProcessShortcodes,
+		},
+	}
+	docs, err := s.LoadDirectory(ctx, dir, loadOpts)
 	if err != nil {
 		logging.WithFields(logging.WithMarkdownContext(s.logger, dir, "", "import_directory"), map[string]any{
 			"error": err,
@@ -227,7 +258,12 @@ func (s *Service) Sync(ctx context.Context, dir string, opts interfaces.SyncOpti
 		return nil, errors.New("markdown service: importer not configured")
 	}
 
-	docs, err := s.LoadDirectory(ctx, dir, interfaces.LoadOptions{})
+	loadOpts := interfaces.LoadOptions{
+		Parser: interfaces.ParseOptions{
+			ProcessShortcodes: opts.ProcessShortcodes,
+		},
+	}
+	docs, err := s.LoadDirectory(ctx, dir, loadOpts)
 	if err != nil {
 		logging.WithFields(logging.WithMarkdownContext(s.logger, dir, "", "sync_directory"), map[string]any{
 			"error": err,
@@ -261,12 +297,35 @@ func (s *Service) renderDocument(ctx context.Context, doc *interfaces.Document, 
 	if doc == nil {
 		return nil
 	}
+	if strings.TrimSpace(overrides.ShortcodeOptions.Locale) == "" && strings.TrimSpace(doc.Locale) != "" {
+		overrides.ShortcodeOptions.Locale = doc.Locale
+	}
 	html, err := s.Render(ctx, doc.Body, overrides)
 	if err != nil {
 		return fmt.Errorf("markdown render document %s: %w", doc.FilePath, err)
 	}
 	doc.BodyHTML = html
 	return nil
+}
+
+func (s *Service) applyShortcodes(ctx context.Context, content []byte, opts interfaces.ParseOptions) ([]byte, error) {
+	if s.shortcodes == nil {
+		return content, nil
+	}
+	if !(s.cfg.ProcessShortcodes || opts.ProcessShortcodes) {
+		return content, nil
+	}
+
+	shortcodeOpts := opts.ShortcodeOptions
+	if strings.TrimSpace(shortcodeOpts.Locale) == "" {
+		shortcodeOpts.Locale = s.cfg.DefaultLocale
+	}
+
+	rendered, err := s.shortcodes.Process(ctx, string(content), shortcodeOpts)
+	if err != nil {
+		return nil, err
+	}
+	return []byte(rendered), nil
 }
 
 func (s *Service) normalisePath(path string) string {
@@ -296,7 +355,27 @@ func mergeParseOptions(base, override interfaces.ParseOptions) interfaces.ParseO
 	if override.SafeMode {
 		result.SafeMode = true
 	}
+	if override.ProcessShortcodes {
+		result.ProcessShortcodes = true
+	}
+	result.ShortcodeOptions = mergeShortcodeOptions(result.ShortcodeOptions, override.ShortcodeOptions)
 	return result
+}
+
+func mergeShortcodeOptions(base, override interfaces.ShortcodeProcessOptions) interfaces.ShortcodeProcessOptions {
+	if strings.TrimSpace(override.Locale) != "" {
+		base.Locale = override.Locale
+	}
+	if override.Cache != nil {
+		base.Cache = override.Cache
+	}
+	if override.Sanitizer != nil {
+		base.Sanitizer = override.Sanitizer
+	}
+	if override.EnableWordPress {
+		base.EnableWordPress = true
+	}
+	return base
 }
 
 func toLoaderParams(opts interfaces.LoadOptions) LoadParams {
