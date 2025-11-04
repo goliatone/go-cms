@@ -50,10 +50,12 @@ func NewImportDirectoryHandler(service interfaces.MarkdownService, logger interf
 		}
 
 		importOpts := interfaces.ImportOptions{
-			ContentTypeID: msg.ContentTypeID,
-			AuthorID:      msg.AuthorID,
-			CreatePages:   msg.CreatePages,
-			DryRun:        msg.DryRun,
+			ContentTypeID:                   msg.ContentTypeID,
+			AuthorID:                        msg.AuthorID,
+			CreatePages:                     msg.CreatePages,
+			DryRun:                          msg.DryRun,
+			ContentAllowMissingTranslations: msg.ContentAllowMissingTranslations,
+			PageAllowMissingTranslations:    msg.PageAllowMissingTranslations,
 		}
 		if tpl := normalizeUUIDPointer(msg.TemplateID); tpl != nil {
 			importOpts.TemplateID = tpl
@@ -93,6 +95,12 @@ func NewImportDirectoryHandler(service interfaces.MarkdownService, logger interf
 			}
 			if msg.CreatePages {
 				fields["create_pages"] = true
+			}
+			if msg.ContentAllowMissingTranslations {
+				fields["content_allow_missing_translations"] = true
+			}
+			if msg.PageAllowMissingTranslations {
+				fields["page_allow_missing_translations"] = true
 			}
 			if msg.DryRun {
 				fields["dry_run"] = true
@@ -137,10 +145,12 @@ func NewSyncDirectoryHandler(service interfaces.MarkdownService, logger interfac
 		}
 
 		importOpts := interfaces.ImportOptions{
-			ContentTypeID: msg.ContentTypeID,
-			AuthorID:      msg.AuthorID,
-			CreatePages:   msg.CreatePages,
-			DryRun:        msg.DryRun,
+			ContentTypeID:                   msg.ContentTypeID,
+			AuthorID:                        msg.AuthorID,
+			CreatePages:                     msg.CreatePages,
+			DryRun:                          msg.DryRun,
+			ContentAllowMissingTranslations: msg.ContentAllowMissingTranslations,
+			PageAllowMissingTranslations:    msg.PageAllowMissingTranslations,
 		}
 		if tpl := normalizeUUIDPointer(msg.TemplateID); tpl != nil {
 			importOpts.TemplateID = tpl
@@ -189,6 +199,12 @@ func NewSyncDirectoryHandler(service interfaces.MarkdownService, logger interfac
 			}
 			if msg.CreatePages {
 				fields["create_pages"] = true
+			}
+			if msg.ContentAllowMissingTranslations {
+				fields["content_allow_missing_translations"] = true
+			}
+			if msg.PageAllowMissingTranslations {
+				fields["page_allow_missing_translations"] = true
 			}
 			if msg.DryRun {
 				fields["dry_run"] = true
