@@ -18,22 +18,24 @@ type ContentService interface {
 
 // ContentCreateRequest captures the details required to create a content record.
 type ContentCreateRequest struct {
-	ContentTypeID uuid.UUID
-	Slug          string
-	Status        string
-	CreatedBy     uuid.UUID
-	UpdatedBy     uuid.UUID
-	Translations  []ContentTranslationInput
-	Metadata      map[string]any
+	ContentTypeID            uuid.UUID
+	Slug                     string
+	Status                   string
+	CreatedBy                uuid.UUID
+	UpdatedBy                uuid.UUID
+	Translations             []ContentTranslationInput
+	Metadata                 map[string]any
+	AllowMissingTranslations bool
 }
 
 // ContentUpdateRequest captures the mutable fields for an existing content record.
 type ContentUpdateRequest struct {
-	ID           uuid.UUID
-	Status       string
-	UpdatedBy    uuid.UUID
-	Translations []ContentTranslationInput
-	Metadata     map[string]any
+	ID                       uuid.UUID
+	Status                   string
+	UpdatedBy                uuid.UUID
+	Translations             []ContentTranslationInput
+	Metadata                 map[string]any
+	AllowMissingTranslations bool
 }
 
 // ContentDeleteRequest captures the information required to remove content. When
