@@ -9,7 +9,6 @@ import (
 	"html/template"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
 )

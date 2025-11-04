@@ -154,6 +154,6 @@ func TestRenderer_EndToEnd(t *testing.T) {
 		t.Fatalf("expected alert markup, got %s", output)
 	}
 	if !strings.Contains(output, "figure") {
-		t.Fatalf("expected figure markup in nested shortcode output")
+		t.Fatalf("expected figure markup in nested shortcode output: %s", output)
 	}
 }
