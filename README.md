@@ -249,7 +249,7 @@ menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 ```
 
 ### Localization Helpers
-Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing.
+Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy “at least one translation” guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback-locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`, matching the behaviour described in `TRANS_FIX.md`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
 
 ## Static Site Generation
 
@@ -598,12 +598,18 @@ go test -v ./internal/pages/... -run Integration
 
 ## Verification
 
-Run the workflow regression suite before shipping workflow changes. These commands exercise the externalised workflow engine (including generator integration) and require the full Go binary path provided in the task plan.
+Run the workflow regression suite before shipping workflow changes. These commands exercise the externalized workflow engine (including generator integration) and require the full Go binary path provided in the task plan.
 
 ```bash
 CMS_WORKFLOW_PROVIDER=custom \
 CMS_WORKFLOW_ENGINE_ADDR=http://localhost:8080 \
-/Users/goliatone/.g/go/bin/go test ./internal/workflow/... ./internal/integration/...
+go test ./internal/workflow/... ./internal/integration/...
+```
+
+Translation-related changes should also pass the full suite with the pinned toolchain:
+
+```bash
+go test ./...
 ```
 
 To run the same suite via the task runner:
@@ -634,4 +640,4 @@ Key modules:
 
 ## License
 
-Licensed under the terms of [LICENSE](LICENSE).
+Copyright © 2025 goliatone - Licensed under the terms of [LICENSE](LICENSE).

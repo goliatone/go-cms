@@ -1,5 +1,12 @@
 # Changelog
 
+## [Unreleased]
+
+### Translation Flexibility
+- Added configuration flags (`I18N.RequireTranslations`, `I18N.DefaultLocaleRequired`) plus DI wiring so operators can opt out of mandatory translations without breaking legacy installs.
+- Enabled per-request overrides (`AllowMissingTranslations`) and end-to-end fixtures, including workflow regression coverage and example updates.
+- Documented migration guidance, QA guardrails, and new verification commands for translation toggles (see `docs/CMS_TDD.md`, `TRANS_FIX.md`, `README.md`, and `TODO.md`).
+
 # [0.1.0](https://github.com/goliatone/go-cms/tree/v0.1.0) - (2025-10-31)
 
 ## <!-- 1 -->🐛 Bug Fixes
@@ -124,5 +131,4 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
-
 

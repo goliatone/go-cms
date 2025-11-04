@@ -7,6 +7,7 @@ var (
 	ErrSchedulingFeatureRequiresVersioning    = runtimeconfig.ErrSchedulingFeatureRequiresVersioning
 	ErrAdvancedCacheRequiresEnabledCache      = runtimeconfig.ErrAdvancedCacheRequiresEnabledCache
 	ErrCommandsCronRequiresScheduling         = runtimeconfig.ErrCommandsCronRequiresScheduling
+	ErrDefaultLocaleRequired                  = runtimeconfig.ErrDefaultLocaleRequired
 	ErrLoggingProviderRequired                = runtimeconfig.ErrLoggingProviderRequired
 	ErrLoggingProviderUnknown                 = runtimeconfig.ErrLoggingProviderUnknown
 	ErrLoggingLevelInvalid                    = runtimeconfig.ErrLoggingLevelInvalid
