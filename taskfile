@@ -92,15 +92,28 @@ function dev:env:load {
 }
 
 function dev:test {
-    "${GO_BIN}" test ./...
+    if [[ "$1" == "race" ]]; then
+       "${GO_BIN}" test ./... -race -count=1
+    else
+        "${GO_BIN}" test -ldflags="-s -w" ./... -count=1
+    fi
 }
 
 function dev:test:regression {
-    "${GO_BIN}" test ./internal/generator ./cms
+    "${GO_BIN}" test -ldflags="-s -w" ./internal/generator ./cms
+}
+
+function workflow:test {
+    echo "Running workflow regression suite..."
+    echo "Required environment variables for host engines:"
+    echo "  CMS_WORKFLOW_PROVIDER   (set to 'custom' when injecting an external engine)"
+    echo "  CMS_WORKFLOW_ENGINE_ADDR (address/url for the host workflow engine broker)"
+    echo ""
+    "${GO_BIN}" test -ldflags="-s -w" ./internal/workflow/... ./internal/integration/...
 }
 
 function command:test {
-    "${GO_BIN}" test ./internal/commands/...
+    "${GO_BIN}" test -ldflags="-s -w" ./internal/commands/...
 }
 
 function command:fmt:check {
@@ -124,6 +137,10 @@ function ci:commands {
     command:fmt:check || return $?
     command:lint || return $?
     command:test
+}
+
+function ci:workflows {
+    workflow:test
 }
 
 function dev:cover {
