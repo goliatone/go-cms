@@ -20,6 +20,29 @@ var ErrRepositoryRequired = errors.New("adminstorage: repository is required")
 // ErrConfigInvalid indicates configuration validation failed.
 var ErrConfigInvalid = errors.New("adminstorage: storage configuration is invalid")
 
+// ErrPreviewUnsupported indicates the service was constructed without a preview helper.
+var ErrPreviewUnsupported = errors.New("adminstorage: preview not supported")
+
+// Validator validates runtime configuration payloads before they are persisted.
+type Validator func(runtimeconfig.StorageConfig) error
+
+// PreviewFunc attempts to initialise a storage profile without mutating runtime state.
+type PreviewFunc func(ctx context.Context, profile storage.Profile) (PreviewResult, error)
+
+// PreviewResult reports metadata gathered during preview initialisation.
+type PreviewResult struct {
+	Profile      storage.Profile      `json:"profile"`
+	Capabilities storage.Capabilities `json:"capabilities"`
+	Diagnostics  map[string]any       `json:"diagnostics,omitempty"`
+	Warnings     []string             `json:"warnings,omitempty"`
+}
+
+// Schemas exposes JSON schema helpers for admin surfaces.
+type Schemas struct {
+	Config  string
+	Profile string
+}
+
 // Option mutates the service configuration.
 type Option func(*Service)
 
@@ -39,12 +62,31 @@ func WithAuditRecorder(recorder jobs.AuditRecorder) Option {
 	}
 }
 
+// WithValidator overrides the configuration validator used by the service.
+func WithValidator(validator Validator) Option {
+	return func(s *Service) {
+		if validator != nil {
+			s.validate = validator
+		}
+	}
+}
+
+// WithPreviewer wires a preview helper used to verify storage profiles before activation.
+func WithPreviewer(preview PreviewFunc) Option {
+	return func(s *Service) {
+		s.preview = preview
+	}
+}
+
 // Service synchronises runtime storage profiles with the backing repository and emits audit events.
 type Service struct {
 	repo  storageconfig.Repository
 	audit jobs.AuditRecorder
 
 	clock func() time.Time
+
+	validate Validator
+	preview  PreviewFunc
 
 	mu      sync.RWMutex
 	aliases map[string]string
@@ -56,6 +98,9 @@ func NewService(repo storageconfig.Repository, recorder jobs.AuditRecorder, opts
 		repo:  repo,
 		audit: recorder,
 		clock: time.Now,
+		validate: func(cfg runtimeconfig.StorageConfig) error {
+			return cfg.ValidateProfiles()
+		},
 	}
 	for _, opt := range opts {
 		opt(svc)
@@ -68,8 +113,8 @@ func (s *Service) ApplyConfig(ctx context.Context, cfg runtimeconfig.StorageConf
 	if s.repo == nil {
 		return ErrRepositoryRequired
 	}
-	if err := cfg.ValidateProfiles(); err != nil {
-		return errors.Join(ErrConfigInvalid, err)
+	if err := s.ValidateConfig(cfg); err != nil {
+		return err
 	}
 
 	existing, err := s.repo.List(ctx)
@@ -120,6 +165,84 @@ func (s *Service) ApplyConfig(ctx context.Context, cfg runtimeconfig.StorageConf
 	s.applyAliases(ctx, cfg.Aliases)
 
 	return nil
+}
+
+// ListProfiles returns the stored profiles ordered by name.
+func (s *Service) ListProfiles(ctx context.Context) ([]storage.Profile, error) {
+	if s.repo == nil {
+		return nil, ErrRepositoryRequired
+	}
+	list, err := s.repo.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]storage.Profile, 0, len(list))
+	for _, profile := range list {
+		out = append(out, cloneProfile(profile))
+	}
+	return out, nil
+}
+
+// GetProfile returns a single profile by name.
+func (s *Service) GetProfile(ctx context.Context, name string) (*storage.Profile, error) {
+	if s.repo == nil {
+		return nil, ErrRepositoryRequired
+	}
+	profile, err := s.repo.Get(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	cloned := cloneProfile(*profile)
+	return &cloned, nil
+}
+
+// ValidateConfig ensures profile collections and aliases are well formed.
+func (s *Service) ValidateConfig(cfg runtimeconfig.StorageConfig) error {
+	if s.validate == nil {
+		if err := cfg.ValidateProfiles(); err != nil {
+			return errors.Join(ErrConfigInvalid, err)
+		}
+		return nil
+	}
+	if err := s.validate(cfg); err != nil {
+		return errors.Join(ErrConfigInvalid, err)
+	}
+	return nil
+}
+
+// ValidateProfile validates a single profile with optional alias mappings.
+func (s *Service) ValidateProfile(profile storage.Profile, aliases map[string]string) error {
+	cfg := runtimeconfig.StorageConfig{
+		Profiles: []storage.Profile{profile},
+		Aliases:  aliases,
+	}
+	return s.ValidateConfig(cfg)
+}
+
+// PreviewProfile initialises the supplied profile using the configured previewer.
+func (s *Service) PreviewProfile(ctx context.Context, profile storage.Profile) (PreviewResult, error) {
+	if s.preview == nil {
+		return PreviewResult{}, ErrPreviewUnsupported
+	}
+	if err := s.ValidateProfile(profile, nil); err != nil {
+		return PreviewResult{}, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	result, err := s.preview(ctx, cloneProfile(profile))
+	if err != nil {
+		return PreviewResult{}, err
+	}
+	return result, nil
+}
+
+// Schemas returns JSON schema helpers for admin integrations.
+func (s *Service) Schemas() Schemas {
+	return Schemas{
+		Config:  storage.ConfigJSONSchema,
+		Profile: storage.ProfileJSONSchema,
+	}
 }
 
 // Aliases returns a copy of the current alias mapping.
@@ -190,4 +313,18 @@ func buildProfileMetadata(profile storage.Profile) map[string]any {
 		"options":   len(profile.Config.Options),
 	}
 	return meta
+}
+
+func cloneProfile(profile storage.Profile) storage.Profile {
+	cloned := profile
+	if profile.Fallbacks != nil {
+		cloned.Fallbacks = append([]string(nil), profile.Fallbacks...)
+	}
+	if profile.Labels != nil {
+		cloned.Labels = maps.Clone(profile.Labels)
+	}
+	if profile.Config.Options != nil {
+		cloned.Config.Options = maps.Clone(profile.Config.Options)
+	}
+	return cloned
 }
