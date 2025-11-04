@@ -151,6 +151,7 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 				"source":    "markdown",
 				"documents": documentMetadata(docs),
 			},
+			AllowMissingTranslations: opts.ContentAllowMissingTranslations,
 		}
 
 		record, createErr := i.content.Create(ctx, createReq)
@@ -181,6 +182,7 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 			"source":    "markdown",
 			"documents": documentMetadata(docs),
 		},
+		AllowMissingTranslations: opts.ContentAllowMissingTranslations,
 	}
 
 	updated, updateErr := i.content.Update(ctx, updateReq)
@@ -250,6 +252,7 @@ func (i *Importer) ensurePage(ctx context.Context, content *interfaces.ContentRe
 			Metadata: map[string]any{
 				"source": "markdown",
 			},
+			AllowMissingTranslations: opts.PageAllowMissingTranslations,
 		}
 		record, createErr := i.pages.Create(ctx, createReq)
 		if createErr != nil {
@@ -278,6 +281,7 @@ func (i *Importer) ensurePage(ctx context.Context, content *interfaces.ContentRe
 		Metadata: map[string]any{
 			"source": "markdown",
 		},
+		AllowMissingTranslations: opts.PageAllowMissingTranslations,
 	}
 	record, updateErr := i.pages.Update(ctx, updateReq)
 	if updateErr != nil {
