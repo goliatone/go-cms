@@ -19,6 +19,7 @@ type Renderer struct {
 	validator *Validator
 	sanitizer interfaces.ShortcodeSanitizer
 	cache     interfaces.CacheProvider
+	metrics   interfaces.ShortcodeMetrics
 }
 
 // RendererOption configures the renderer instance.
@@ -38,12 +39,22 @@ func WithRendererCache(cache interfaces.CacheProvider) RendererOption {
 	}
 }
 
+// WithRendererMetrics attaches a metrics recorder for cache events.
+func WithRendererMetrics(metrics interfaces.ShortcodeMetrics) RendererOption {
+	return func(r *Renderer) {
+		if metrics != nil {
+			r.metrics = metrics
+		}
+	}
+}
+
 // NewRenderer constructs a renderer using the provided registry and validator.
 func NewRenderer(registry interfaces.ShortcodeRegistry, validator *Validator, opts ...RendererOption) *Renderer {
 	r := &Renderer{
 		registry:  registry,
 		validator: validator,
 		sanitizer: NewSanitizer(),
+		metrics:   NoOpMetrics(),
 	}
 	for _, opt := range opts {
 		opt(r)
@@ -69,6 +80,7 @@ func (r *Renderer) Render(ctx interfaces.ShortcodeContext, shortcode string, par
 		cacheKey = r.buildCacheKey(ctx.Locale, shortcode, coerced, inner)
 		if cached, err := cacheProvider.Get(r.background(ctx.Context), cacheKey); err == nil {
 			if cachedHTML, ok := cached.(string); ok {
+				r.metrics.IncrementCacheHit(shortcode)
 				return template.HTML(cachedHTML), nil
 			}
 		}

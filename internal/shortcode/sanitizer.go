@@ -24,6 +24,21 @@ func NewSanitizer() *Sanitizer {
 	}
 }
 
+// NoOpSanitizer bypasses all sanitisation checks and returns input verbatim.
+type NoOpSanitizer struct{}
+
+func (NoOpSanitizer) Sanitize(html string) (string, error) {
+	return html, nil
+}
+
+func (NoOpSanitizer) ValidateURL(string) error {
+	return nil
+}
+
+func (NoOpSanitizer) ValidateAttributes(map[string]any) error {
+	return nil
+}
+
 // Sanitize rejects obvious script injections while preserving safe markup.
 func (s *Sanitizer) Sanitize(html string) (string, error) {
 	lower := strings.ToLower(html)
@@ -62,3 +77,4 @@ func (s *Sanitizer) ValidateAttributes(attrs map[string]any) error {
 }
 
 var _ interfaces.ShortcodeSanitizer = (*Sanitizer)(nil)
+var _ interfaces.ShortcodeSanitizer = NoOpSanitizer{}

@@ -3,6 +3,7 @@ package shortcode
 import (
 	"context"
 	"fmt"
+	"html/template"
 	"strings"
 	"testing"
 	"time"
@@ -111,6 +112,43 @@ func TestRenderer_CacheHit(t *testing.T) {
 
 	if len(cache.store) != 1 {
 		t.Fatalf("expected cache to store 1 item, got %d", len(cache.store))
+	}
+}
+
+func TestRenderer_CacheHitIncrementsMetrics(t *testing.T) {
+	registry := NewRegistry(NewValidator())
+	def := interfaces.ShortcodeDefinition{
+		Name:     "metrics",
+		Schema:   interfaces.ShortcodeSchema{},
+		CacheTTL: time.Minute,
+		Handler: func(interfaces.ShortcodeContext, map[string]any, string) (template.HTML, error) {
+			return template.HTML("<p>metrics</p>"), nil
+		},
+	}
+	if err := registry.Register(def); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	cache := newMemoryCache()
+	metrics := newMetricsStub()
+	renderer := NewRenderer(registry, NewValidator(),
+		WithRendererCache(cache),
+		WithRendererMetrics(metrics),
+	)
+
+	ctx := interfaces.ShortcodeContext{Cache: cache}
+	if _, err := renderer.Render(ctx, "metrics", nil, ""); err != nil {
+		t.Fatalf("Render() error: %v", err)
+	}
+	if hits := metrics.cacheHitCount("metrics"); hits != 0 {
+		t.Fatalf("expected 0 cache hits after first render, got %d", hits)
+	}
+
+	if _, err := renderer.Render(ctx, "metrics", nil, ""); err != nil {
+		t.Fatalf("Render() second call error: %v", err)
+	}
+	if hits := metrics.cacheHitCount("metrics"); hits != 1 {
+		t.Fatalf("expected cache hit to be recorded, got %d", hits)
 	}
 }
 
