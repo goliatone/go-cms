@@ -1,6 +1,7 @@
 package interfaces
 
 import (
+	"context"
 	"html/template"
 	"time"
 )
@@ -93,7 +94,10 @@ type ShortcodeHandler func(ctx ShortcodeContext, params map[string]any, inner st
 
 // ShortcodeContext provides runtime metadata surfaced during rendering.
 type ShortcodeContext struct {
-	Locale string
+	Context   context.Context
+	Locale    string
+	Cache     CacheProvider
+	Sanitizer ShortcodeSanitizer
 }
 
 // ParsedShortcode represents a parsed invocation discovered by the parser layer.
