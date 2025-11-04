@@ -11,6 +11,7 @@ const (
 	rootModule      = "cms"
 	contentModule   = "cms.content"
 	pagesModule     = "cms.pages"
+	storageModule   = "cms.storage"
 	schedulerModule = "cms.scheduler"
 	markdownModule  = "cms.markdown"
 	generatorModule = "cms.generator"
@@ -57,6 +58,11 @@ func ContentLogger(provider interfaces.LoggerProvider) interfaces.Logger {
 // PagesLogger returns the logger namespace reserved for page services.
 func PagesLogger(provider interfaces.LoggerProvider) interfaces.Logger {
 	return ModuleLogger(provider, pagesModule)
+}
+
+// StorageLogger returns the logger namespace reserved for storage orchestration.
+func StorageLogger(provider interfaces.LoggerProvider) interfaces.Logger {
+	return ModuleLogger(provider, storageModule)
 }
 
 // SchedulerLogger returns the logger namespace reserved for scheduler workers.
