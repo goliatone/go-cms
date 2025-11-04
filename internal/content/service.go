@@ -31,12 +31,13 @@ type Service interface {
 
 // CreateContentRequest captures the information required to create content.
 type CreateContentRequest struct {
-	ContentTypeID uuid.UUID
-	Slug          string
-	Status        string
-	CreatedBy     uuid.UUID
-	UpdatedBy     uuid.UUID
-	Translations  []ContentTranslationInput
+	ContentTypeID            uuid.UUID
+	Slug                     string
+	Status                   string
+	CreatedBy                uuid.UUID
+	UpdatedBy                uuid.UUID
+	Translations             []ContentTranslationInput
+	AllowMissingTranslations bool
 }
 
 // ContentTranslationInput represents localized fields supplied during create.
@@ -50,11 +51,12 @@ type ContentTranslationInput struct {
 // UpdateContentRequest captures mutable fields for an existing content entry. Slug
 // and content type remain immutable and are inferred from the existing record.
 type UpdateContentRequest struct {
-	ID           uuid.UUID
-	Status       string
-	UpdatedBy    uuid.UUID
-	Translations []ContentTranslationInput
-	Metadata     map[string]any
+	ID                       uuid.UUID
+	Status                   string
+	UpdatedBy                uuid.UUID
+	Translations             []ContentTranslationInput
+	Metadata                 map[string]any
+	AllowMissingTranslations bool
 }
 
 // DeleteContentRequest captures the information required to remove a content entry.
@@ -221,6 +223,20 @@ func WithLogger(logger interfaces.Logger) ServiceOption {
 	}
 }
 
+// WithRequireTranslations controls whether translations are mandatory.
+func WithRequireTranslations(required bool) ServiceOption {
+	return func(svc *service) {
+		svc.requireTranslations = required
+	}
+}
+
+// WithTranslationsEnabled toggles translation handling.
+func WithTranslationsEnabled(enabled bool) ServiceOption {
+	return func(svc *service) {
+		svc.translationsEnabled = enabled
+	}
+}
+
 // service implements Service.
 type service struct {
 	contents              ContentRepository
@@ -233,18 +249,22 @@ type service struct {
 	scheduler             interfaces.Scheduler
 	schedulingEnabled     bool
 	logger                interfaces.Logger
+	requireTranslations   bool
+	translationsEnabled   bool
 }
 
 // NewService constructs a content service with the required dependencies.
 func NewService(contents ContentRepository, types ContentTypeRepository, locales LocaleRepository, opts ...ServiceOption) Service {
 	s := &service{
-		contents:     contents,
-		contentTypes: types,
-		locales:      locales,
-		now:          time.Now,
-		id:           uuid.New,
-		scheduler:    cmsscheduler.NewNoOp(),
-		logger:       logging.ContentLogger(nil),
+		contents:            contents,
+		contentTypes:        types,
+		locales:             locales,
+		now:                 time.Now,
+		id:                  uuid.New,
+		scheduler:           cmsscheduler.NewNoOp(),
+		logger:              logging.ContentLogger(nil),
+		requireTranslations: true,
+		translationsEnabled: true,
 	}
 
 	for _, opt := range opts {
@@ -269,6 +289,10 @@ func (s *service) opLogger(ctx context.Context, operation string, extra map[stri
 	return logging.WithFields(s.log(ctx), fields)
 }
 
+func (s *service) translationsRequired() bool {
+	return s.translationsEnabled && s.requireTranslations
+}
+
 // Create orchestrates creation of a new content entry with translations.
 func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Content, error) {
 	if (req.ContentTypeID == uuid.UUID{}) {
@@ -288,7 +312,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		return nil, ErrSlugInvalid
 	}
 
-	if len(req.Translations) == 0 {
+	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoTranslations
 	}
 
@@ -307,7 +331,6 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		}
 	}
 
-	seenLocales := map[string]struct{}{}
 	now := s.now()
 
 	record := &Content{
@@ -322,34 +345,37 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		Translations:  []*ContentTranslation{},
 	}
 
-	for _, tr := range req.Translations {
-		code := strings.TrimSpace(tr.Locale)
-		if code == "" {
-			return nil, ErrUnknownLocale
-		}
+	if len(req.Translations) > 0 {
+		seenLocales := map[string]struct{}{}
+		for _, tr := range req.Translations {
+			code := strings.TrimSpace(tr.Locale)
+			if code == "" {
+				return nil, ErrUnknownLocale
+			}
 
-		if _, ok := seenLocales[code]; ok {
-			return nil, ErrDuplicateLocale
-		}
+			if _, ok := seenLocales[code]; ok {
+				return nil, ErrDuplicateLocale
+			}
 
-		loc, err := s.locales.GetByCode(ctx, code)
-		if err != nil {
-			return nil, ErrUnknownLocale
-		}
+			loc, err := s.locales.GetByCode(ctx, code)
+			if err != nil {
+				return nil, ErrUnknownLocale
+			}
 
-		translation := &ContentTranslation{
-			ID:        s.id(),
-			ContentID: record.ID,
-			LocaleID:  loc.ID,
-			Title:     tr.Title,
-			Summary:   tr.Summary,
-			Content:   cloneMap(tr.Content),
-			CreatedAt: now,
-			UpdatedAt: now,
-		}
+			translation := &ContentTranslation{
+				ID:        s.id(),
+				ContentID: record.ID,
+				LocaleID:  loc.ID,
+				Title:     tr.Title,
+				Summary:   tr.Summary,
+				Content:   cloneMap(tr.Content),
+				CreatedAt: now,
+				UpdatedAt: now,
+			}
 
-		record.Translations = append(record.Translations, translation)
-		seenLocales[code] = struct{}{}
+			record.Translations = append(record.Translations, translation)
+			seenLocales[code] = struct{}{}
+		}
 	}
 
 	created, err := s.contents.Create(ctx, record)
@@ -399,7 +425,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	if req.ID == uuid.Nil {
 		return nil, ErrContentIDRequired
 	}
-	if len(req.Translations) == 0 {
+	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoTranslations
 	}
 
@@ -413,13 +439,19 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		return nil, err
 	}
 
-	existingLocales := indexTranslationsByLocaleID(existing.Translations)
 	now := s.now()
 
-	translations, err := s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now)
-	if err != nil {
-		logger.Error("content translations build failed", "error", err)
-		return nil, err
+	replaceTranslations := len(req.Translations) > 0
+	var translations []*ContentTranslation
+	if replaceTranslations {
+		existingLocales := indexTranslationsByLocaleID(existing.Translations)
+
+		var err error
+		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now)
+		if err != nil {
+			logger.Error("content translations build failed", "error", err)
+			return nil, err
+		}
 	}
 
 	existing.Status = chooseStatus(req.Status)
@@ -427,11 +459,15 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		existing.UpdatedBy = req.UpdatedBy
 	}
 	existing.UpdatedAt = now
-	existing.Translations = translations
+	if replaceTranslations {
+		existing.Translations = translations
+	}
 
-	if err := s.contents.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
-		logger.Error("content translations replace failed", "error", err)
-		return nil, err
+	if replaceTranslations {
+		if err := s.contents.ReplaceTranslations(ctx, existing.ID, translations); err != nil {
+			logger.Error("content translations replace failed", "error", err)
+			return nil, err
+		}
 	}
 
 	updated, err := s.contents.Update(ctx, existing)
