@@ -202,6 +202,15 @@ cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
 - Supply definitions from a backing store (database, files, API) by implementing `interfaces.WorkflowDefinitionStore` and wiring it through `di.WithWorkflowDefinitionStore`. Store-provided definitions override configuration entries when entity types collide.
 - Transition guards are prepared for authorisation callbacks via the placeholder `interfaces.WorkflowAuthorizer`; custom engines can adopt the interface ahead of Phase 5 security work.
 
+#### Data Migration Considerations
+
+1. **Inventory legacy statuses** – run a quick report against the `pages` (and `contents`, if applicable) table to list distinct `status` values. Normalise them with `domain.NormalizeWorkflowState` in a scratch script to confirm they collapse to the expected enum (`draft`, `published`, `scheduled`, `archived`, etc.).
+2. **Clean inconsistent data** – trim whitespace and lower-case persisted statuses before enabling the engine. For relational stores, a one-off update such as `UPDATE pages SET status = LOWER(TRIM(status))` keeps values compatible with the enum adapters.
+3. **Review scheduled entries** – ensure records with a `"scheduled"` status also carry a non-null `publish_on`. The simple engine treats missing timestamps as validation errors, so correct or cancel those jobs ahead of the switch.
+4. **Backfill workflow metadata** – if you plan to seed richer workflows, preload definitions into `cfg.Workflow.Definitions` (or your `WorkflowDefinitionStore`) and run `module.WorkflowEngine().RegisterWorkflow(...)` in a maintenance window so the new state machine is active before requests hit the services.
+5. **Dry-run validation** – execute `/Users/goliatone/.g/go/bin/go test ./internal/workflow/... ./internal/pages/...` against a staging copy to verify transitions succeed with the migrated data. For production data sets, run a read-only publish simulation (for example, invoking `PageService.PublishDraft` on representative records) in a staging environment to confirm the engine returns the expected states.
+6. **Cutover safeguards** – enable `cfg.Workflow.Enabled` and deploy behind a feature flag. Monitor audit/event hooks (see `WorkflowResult.Events`) so custom dashboards or log pipelines confirm transitions occur as expected. Keep the legacy status list handy in case you must toggle the feature off; the enum adapters continue to map new engine states back to persisted strings, so fallback simply bypasses the engine.
+
 ### Template Context Reference
 
 Template authors receive a strongly-typed payload defined in `internal/generator/render.go`:
@@ -358,6 +367,14 @@ type Transaction interface {
 ```
 
 Implementations based on `github.com/goliatone/go-persistence-bun` and `github.com/goliatone/go-repository-bun` satisfy `StorageProvider` out of the box; the adapters in `adapters/storage` simply expose those packages through this interface so domain services can remain persistence-agnostic.
+
+### Storage Admin Service
+
+- `internal/admin/storage/service.go` encapsulates storage profile management. The service stays transport-agnostic: it offers `ApplyConfig`, `ListProfiles`, `GetProfile`, `ValidateConfig`, `PreviewProfile`, and `Schemas` so host packages can build their own HTTP/CLI handlers without importing unexported packages.
+- The preview helper accepts a profile payload, runs it through the DI-registered storage factory, and returns a `PreviewResult` containing provider capabilities plus a diagnostics map. Active handles are untouched when previews fail.
+- `di.Container` wires the service automatically by passing the shared storage repository, audit recorder, and a preview closure that reuses registered factories. The container exposes it via `StorageAdminService()`, and `cms.Module.StorageAdmin()` re-exports the pointer so applications can mount it next to other services.
+- Audit integration comes for free: creates, updates, deletes, and alias changes emit `storage_profile_*` audit events. The container already logs `storage.profile_activated` / `storage.profile_activate_failed`, which is enough to feed dashboards for reload success/failure metrics.
+- Integration coverage lives in `internal/integration/storage_admin_test.go`. The test primes two SQLite databases, runs concurrent writes, applies an admin config through the service, and asserts that writes continue against the rotated profile without surfacing errors to callers.
 
 ### Cache Provider
 

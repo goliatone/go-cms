@@ -189,6 +189,34 @@ Widget functionality:
 - Integration tests cover sqlite + cache wiring to ensure parity with blocks/pages/menus.
 - Workflow fixtures in `internal/workflow/testdata` back integration tests (`internal/workflow/integration_test.go`) that execute multi-step page transitions through the DI container.
 
+### Storage Provider Runtime Configuration
+
+Phase 4 completes the runtime storage story while keeping the module headless:
+
+- `pkg/storage` remains the single contract for adapters; reloadable providers advertise capabilities through the optional mix-ins introduced in Phases 1–3.
+- `internal/admin/storage.Service` now surfaces management helpers (`ApplyConfig`, `ListProfiles`, `GetProfile`, `ValidateConfig`, `PreviewProfile`, and `Schemas`) that emit audit events instead of HTTP routes. Hosts plug these methods into their own stacks (`go-router`, `go-command`, gRPC, etc.) without importing `internal/` packages.
+- `cms.Module.StorageAdmin()` exposes the service so outer packages can obtain it directly from the public facade.
+- Preview helpers call the DI-registered storage factories, performing a dry initialisation and returning provider capabilities/diagnostics without touching the active handle. Failures leave the current profile untouched.
+- Observability leans on the existing telemetry surface: audit events (`storage_profile_created/updated/deleted`, `storage_profile_aliases_updated`) plus container logs (`storage.profile_activated`, `storage.profile_activate_failed`, `storage.profile_subscription_failed`) are enough to drive the dashboards referenced in `TODO_TSK.md`. Hosts can forward the preview diagnostics map to their metric system if they need richer charts.
+- Integration coverage lives in `internal/integration/storage_admin_test.go`, which rotates profiles while concurrent writes continue to prove the hot-swap path is transparent to callers.
+
+### Workflow Engine (`workflow/`)
+
+Externalises status transitions so host applications can drive lifecycle policies without patching page internals.
+
+- **Interfaces first** – `pkg/interfaces/workflow.go` declares `WorkflowEngine`, `WorkflowDefinition`, and transition DTOs. Services call the engine with a `workflow.PageContext` payload and never inspect raw status strings.
+- **Domain enums** – `internal/domain/status.go` centralises canonical states (`Draft`, `Published`, `Scheduled`, `Archived`, etc.) and adapters map legacy string constants to the new enum so existing database rows remain valid during rollout.
+- **Default engine** – `internal/workflow/simple` mirrors the historical draft ↔ published behaviour, preserves schedule enforcement, and exposes aggregate `Result.Events` so page and content services can emit audit/telemetry hooks.
+- **Dependency injection** – `cms.Config.Workflow` accepts provider functions and optional definitions. `internal/di/container.go` builds the simple engine when nothing is supplied and injects any host-provided implementation into pages/content services alongside the configured definitions.
+- **Fixtures & contracts** – JSON fixtures under `internal/workflow/testdata` and golden outputs drive both engine contract tests and DI integration suites, ensuring new workflow definitions behave deterministically across services.
+
+#### Migration & Upgrade Path
+
+- Step 1: Align existing data with enums. The legacy status strings (`"draft"`, `"published"`, `"scheduled"`) continue to load via the enum adapters, so no immediate migrations are required; operators should verify custom statuses map cleanly before enabling custom engines.
+- Step 2: Configure definitions. Populate `cms.Config.Workflow.Definitions` (or backing storage) with the desired states and transitions, then inject a custom engine through `di.WithWorkflowEngine`.
+- Step 3: Extend consumers. Page/content services already consume `WorkflowResult.Status`, so once the engine returns custom states (for example, `review`, `localised`), the services surface them without further code changes. Downstream integrations (generators, web UIs) must update their allowed status lists to recognise the new states.
+- Step 4: Audit hooks & authorisation. Emit additional events via `WorkflowResult.Events` and implement `interfaces.WorkflowAuthorizer` callbacks to gate transitions; TODO entries track deeper permission wiring and UI parity for non-default states.
+
 ### i18n Module (`i18n/`)
 
 Internationalization facade:
@@ -197,6 +225,20 @@ Internationalization facade:
 - Exposes a CMS-specific service interface for translators, formatters, and culture data
 - Adds CMS augmentations (template helper wiring, repository-backed loaders, default fallbacks)
 - Provides no-op implementations when the host disables localization
+
+Configuration highlights:
+
+- `cms.Config.DefaultLocale` sets the fallback locale; it must be populated whenever `cms.Config.I18N.DefaultLocaleRequired` or `cms.Config.I18N.RequireTranslations` are true.
+- `cms.Config.I18N.RequireTranslations` (defaults to `true`) preserves the legacy requirement that every entity carries at least one translation. Disable it to support staged rollouts or monolingual publishing; see `TRANS_FIX.md` for the rollout rationale.
+- `cms.Config.I18N.DefaultLocaleRequired` (defaults to `true`) enforces that a fallback locale exists even when translations are optional, allowing hosts to relax the constraint in tightly scoped deployments.
+- When `cms.Config.I18N.Enabled` is `false`, both requirement flags are ignored and services operate in monolingual mode while still accepting explicit translations if provided.
+
+#### Translation Flexibility Migration
+
+1. Keep the defaults (`RequireTranslations = true`, `DefaultLocaleRequired = true`) while upgrading—behaviour remains identical to previous releases.
+2. Use the per-request `AllowMissingTranslations` flag on create/update DTOs when a workflow transition or import step needs to bypass enforcement without changing global defaults.
+3. For systemic monolingual deployments, flip `RequireTranslations` to `false` (and optionally relax `DefaultLocaleRequired`). Services treat empty translation slices as no-ops so the existing locale data is preserved.
+4. When `I18N.Enabled` is disabled entirely, requirement flags are ignored but overrides are still honoured; validate template/rendering fallbacks as outlined in the appendix of `TRANS_FIX.md` before rolling out broadly.
 
 ### Markdown Slice – Phase 6 Closeout
 
