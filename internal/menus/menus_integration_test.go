@@ -179,6 +179,115 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 	}
 }
 
+func TestMenuService_AllowsOptionalTranslations(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerMenuModels(t, bunDB)
+	seedMenuIntegrationEntities(t, bunDB)
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+	pageRepo := pages.NewBunPageRepository(bunDB)
+	menuRepo := menus.NewBunMenuRepository(bunDB)
+	menuItemRepo := menus.NewBunMenuItemRepository(bunDB)
+	menuTranslationRepo := menus.NewBunMenuItemTranslationRepository(bunDB)
+
+	contentSvc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	pageSvc := pages.NewService(
+		pageRepo,
+		contentRepo,
+		localeRepo,
+		pages.WithRequireTranslations(false),
+	)
+
+	menuSvc := menus.NewService(
+		menuRepo,
+		menuItemRepo,
+		menuTranslationRepo,
+		localeRepo,
+		menus.WithRequireTranslations(false),
+	)
+
+	authorID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:          "navigation-optional",
+		Status:        "draft",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Navigation Optional",
+				Content: map[string]any{"body": "Placeholder"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	pageRecord, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+		ContentID:                contentRecord.ID,
+		TemplateID:               mustUUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+		Slug:                     "navigation-optional",
+		Status:                   "draft",
+		CreatedBy:                authorID,
+		UpdatedBy:                authorID,
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create page without translations: %v", err)
+	}
+
+	menuRecord, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: authorID,
+		UpdatedBy: authorID,
+	})
+	if err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+
+	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:                   menuRecord.ID,
+		Position:                 0,
+		Target:                   map[string]any{"type": "page", "slug": pageRecord.Slug},
+		CreatedBy:                authorID,
+		UpdatedBy:                authorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("add menu item without translations: %v", err)
+	}
+
+	navigation, err := menuSvc.ResolveNavigation(ctx, "primary", "en")
+	if err != nil {
+		t.Fatalf("resolve navigation: %v", err)
+	}
+	if len(navigation) != 1 {
+		t.Fatalf("expected 1 navigation node, got %d", len(navigation))
+	}
+	if navigation[0].Label == "" {
+		t.Fatalf("expected navigation label fallback, got empty string")
+	}
+	if navigation[0].URL == "" {
+		t.Fatalf("expected navigation url fallback, got empty string")
+	}
+}
+
 func registerMenuModels(t *testing.T, db *bun.DB) {
 	t.Helper()
 	ctx := context.Background()

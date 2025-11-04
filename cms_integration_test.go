@@ -65,6 +65,13 @@ func TestModule_Phase6FeaturesWithBunAndCache(t *testing.T) {
 		t.Fatalf("new cms module: %v", err)
 	}
 
+	if !module.TranslationsEnabled() {
+		t.Fatalf("expected translations to be enabled")
+	}
+	if !module.TranslationsRequired() {
+		t.Fatalf("expected translations to be required")
+	}
+
 	contentSvc := module.Content()
 	now := time.Now().UTC()
 	authorID := uuid.New()

@@ -62,6 +62,30 @@ func TestConfigValidate_RejectsInvalidLoggingFormat(t *testing.T) {
 	}
 }
 
+func TestConfigValidate_RequiresDefaultLocaleWhenTranslationsRequired(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.DefaultLocale = " "
+	cfg.I18N.RequireTranslations = true
+	cfg.I18N.DefaultLocaleRequired = true
+
+	err := cfg.Validate()
+	if !errors.Is(err, runtimeconfig.ErrDefaultLocaleRequired) {
+		t.Fatalf("expected ErrDefaultLocaleRequired, got %v", err)
+	}
+}
+
+func TestConfigValidate_AllowsMissingDefaultLocaleWhenI18NDisabled(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.DefaultLocale = ""
+	cfg.I18N.Enabled = false
+	cfg.I18N.DefaultLocaleRequired = true
+	cfg.I18N.RequireTranslations = true
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() returned unexpected error: %v", err)
+	}
+}
+
 func TestConfigValidate_AllowsStorageProfiles(t *testing.T) {
 	cfg := runtimeconfig.DefaultConfig()
 	cfg.Storage.Profiles = []storage.Profile{

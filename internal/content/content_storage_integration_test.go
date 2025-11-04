@@ -71,6 +71,75 @@ func TestContentService_WithBunStorageAndCache(t *testing.T) {
 	}
 }
 
+func TestContentService_AllowsOptionalTranslations(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerContentModels(t, bunDB)
+	seedContentEntities(t, bunDB)
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+
+	authorID := mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	svc := content.NewService(
+		contentRepo,
+		contentTypeRepo,
+		localeRepo,
+		content.WithRequireTranslations(false),
+	)
+
+	created, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID:            mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:                     "optional-summary",
+		Status:                   "draft",
+		CreatedBy:                authorID,
+		UpdatedBy:                authorID,
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create content without translations: %v", err)
+	}
+	if created == nil {
+		t.Fatal("expected content record")
+	}
+	if len(created.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(created.Translations))
+	}
+
+	fetched, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get content without translations: %v", err)
+	}
+	if len(fetched.Translations) != 0 {
+		t.Fatalf("expected fetched content to have zero translations, got %d", len(fetched.Translations))
+	}
+
+	if err := contentRepo.ReplaceTranslations(ctx, created.ID, nil); err != nil {
+		t.Fatalf("replace translations with empty set: %v", err)
+	}
+
+	afterReplace, err := svc.Get(ctx, created.ID)
+	if err != nil {
+		t.Fatalf("get content after empty replace: %v", err)
+	}
+	if len(afterReplace.Translations) != 0 {
+		t.Fatalf("expected zero translations after replace, got %d", len(afterReplace.Translations))
+	}
+}
+
 func registerContentModels(t *testing.T, db *bun.DB) {
 	t.Helper()
 	ctx := context.Background()

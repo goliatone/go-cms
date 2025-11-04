@@ -126,12 +126,14 @@ func TestImportDirectoryHandlerInvokesService(t *testing.T) {
 	authorID := uuid.New()
 
 	cmd := ImportDirectoryCommand{
-		Directory:     "content/en",
-		ContentTypeID: contentTypeID,
-		AuthorID:      authorID,
-		TemplateID:    &templateID,
-		CreatePages:   true,
-		DryRun:        true,
+		Directory:                       "content/en",
+		ContentTypeID:                   contentTypeID,
+		AuthorID:                        authorID,
+		TemplateID:                      &templateID,
+		CreatePages:                     true,
+		ContentAllowMissingTranslations: true,
+		PageAllowMissingTranslations:    true,
+		DryRun:                          true,
 	}
 
 	if err := handler.Execute(context.Background(), cmd); err != nil {
@@ -156,6 +158,12 @@ func TestImportDirectoryHandlerInvokesService(t *testing.T) {
 	}
 	if !call.options.CreatePages {
 		t.Fatalf("expected create pages option set")
+	}
+	if !call.options.ContentAllowMissingTranslations {
+		t.Fatalf("expected content allow missing translations option set")
+	}
+	if !call.options.PageAllowMissingTranslations {
+		t.Fatalf("expected page allow missing translations option set")
 	}
 	if !call.options.DryRun {
 		t.Fatalf("expected dry run option set")
@@ -242,14 +250,16 @@ func TestSyncDirectoryHandlerInvokesService(t *testing.T) {
 	authorID := uuid.New()
 
 	cmd := SyncDirectoryCommand{
-		Directory:      "content",
-		ContentTypeID:  contentTypeID,
-		AuthorID:       authorID,
-		TemplateID:     &templateID,
-		CreatePages:    true,
-		DryRun:         true,
-		DeleteOrphaned: true,
-		UpdateExisting: true,
+		Directory:                       "content",
+		ContentTypeID:                   contentTypeID,
+		AuthorID:                        authorID,
+		TemplateID:                      &templateID,
+		CreatePages:                     true,
+		ContentAllowMissingTranslations: true,
+		PageAllowMissingTranslations:    true,
+		DryRun:                          true,
+		DeleteOrphaned:                  true,
+		UpdateExisting:                  true,
 	}
 
 	if err := handler.Execute(context.Background(), cmd); err != nil {
@@ -274,6 +284,12 @@ func TestSyncDirectoryHandlerInvokesService(t *testing.T) {
 	}
 	if !call.options.CreatePages {
 		t.Fatalf("expected create pages option set")
+	}
+	if !call.options.ContentAllowMissingTranslations {
+		t.Fatalf("expected content allow missing translations option set")
+	}
+	if !call.options.PageAllowMissingTranslations {
+		t.Fatalf("expected page allow missing translations option set")
 	}
 	if !call.options.DryRun {
 		t.Fatalf("expected dry run option set")

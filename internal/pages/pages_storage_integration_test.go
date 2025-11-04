@@ -90,6 +90,96 @@ func TestPageService_WithBunStorageAndCache(t *testing.T) {
 	}
 }
 
+func TestPageService_AllowsOptionalTranslations(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerPageModels(t, bunDB)
+	seedPageEntities(t, bunDB)
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+	pageRepo := pages.NewBunPageRepository(bunDB)
+
+	contentSvc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	pageSvc := pages.NewService(
+		pageRepo,
+		contentRepo,
+		localeRepo,
+		pages.WithRequireTranslations(false),
+	)
+
+	authorID := mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:          "translationless-page",
+		Status:        "draft",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Translationless Page",
+				Content: map[string]any{"body": "Placeholder"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content for page: %v", err)
+	}
+
+	pageRecord, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+		ContentID:                contentRecord.ID,
+		TemplateID:               mustUUID("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb"),
+		Slug:                     "translationless-page",
+		Status:                   "draft",
+		CreatedBy:                authorID,
+		UpdatedBy:                authorID,
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create page without translations: %v", err)
+	}
+	if pageRecord == nil {
+		t.Fatal("expected page record")
+	}
+	if len(pageRecord.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(pageRecord.Translations))
+	}
+
+	fetched, err := pageSvc.Get(ctx, pageRecord.ID)
+	if err != nil {
+		t.Fatalf("get page without translations: %v", err)
+	}
+	if len(fetched.Translations) != 0 {
+		t.Fatalf("expected fetched page to have zero translations, got %d", len(fetched.Translations))
+	}
+
+	if err := pageRepo.ReplaceTranslations(ctx, pageRecord.ID, nil); err != nil {
+		t.Fatalf("replace page translations with empty set: %v", err)
+	}
+
+	afterReplace, err := pageSvc.Get(ctx, pageRecord.ID)
+	if err != nil {
+		t.Fatalf("get page after empty replace: %v", err)
+	}
+	if len(afterReplace.Translations) != 0 {
+		t.Fatalf("expected zero translations after replace, got %d", len(afterReplace.Translations))
+	}
+}
+
 func registerPageModels(t *testing.T, db *bun.DB) {
 	t.Helper()
 	ctx := context.Background()

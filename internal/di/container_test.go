@@ -18,6 +18,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -1062,6 +1063,199 @@ func (p *recordingMediaProvider) ResolveBatch(ctx context.Context, reqs []interf
 
 func (p *recordingMediaProvider) Invalidate(context.Context, ...interfaces.MediaReference) error {
 	return nil
+}
+
+func TestContainerTranslationFlagsPropagateToServices(t *testing.T) {
+	t.Parallel()
+
+	type expectation struct {
+		contentErr bool
+		pageErr    bool
+		menuErr    bool
+	}
+
+	cases := []struct {
+		name     string
+		enabled  bool
+		required bool
+		override bool
+		expect   expectation
+	}{
+		{
+			name:     "enabledAndRequired",
+			enabled:  true,
+			required: true,
+			expect: expectation{
+				contentErr: true,
+				pageErr:    true,
+				menuErr:    true,
+			},
+		},
+		{
+			name:     "enabledAndOptional",
+			enabled:  true,
+			required: false,
+			expect: expectation{
+				contentErr: false,
+				pageErr:    false,
+				menuErr:    false,
+			},
+		},
+		{
+			name:     "disabledIgnoresRequirement",
+			enabled:  false,
+			required: true,
+			expect: expectation{
+				contentErr: false,
+				pageErr:    false,
+				menuErr:    false,
+			},
+		},
+		{
+			name:     "overrideBypassesRequirement",
+			enabled:  true,
+			required: true,
+			override: true,
+			expect: expectation{
+				contentErr: false,
+				pageErr:    false,
+				menuErr:    false,
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			cfg := cms.DefaultConfig()
+			cfg.DefaultLocale = "en"
+			cfg.I18N.Enabled = tc.enabled
+			cfg.I18N.RequireTranslations = tc.required
+			cfg.I18N.Locales = []string{"en"}
+
+			container, err := di.NewContainer(cfg)
+			if err != nil {
+				t.Fatalf("new container: %v", err)
+			}
+
+			typeRepo := container.ContentTypeRepository()
+			seeder, ok := typeRepo.(interface{ Put(*content.ContentType) })
+			if !ok {
+				t.Fatalf("content type repository cannot be seeded")
+			}
+			typeID := uuid.New()
+			seeder.Put(&content.ContentType{
+				ID:   typeID,
+				Name: "article",
+			})
+
+			ctx := context.Background()
+			author := uuid.New()
+
+			contentSvc := container.ContentService()
+			pageSvc := container.PageService()
+			menuSvc := container.MenuService()
+
+			contentReq := content.CreateContentRequest{
+				ContentTypeID:            typeID,
+				Slug:                     "content-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+				Status:                   string(domain.StatusDraft),
+				CreatedBy:                author,
+				UpdatedBy:                author,
+				AllowMissingTranslations: tc.override,
+			}
+
+			contentRecord, err := contentSvc.Create(ctx, contentReq)
+			if tc.expect.contentErr {
+				if !errors.Is(err, content.ErrNoTranslations) {
+					t.Fatalf("expected ErrNoTranslations, got %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("create content without translations: %v", err)
+				}
+				if contentRecord == nil {
+					t.Fatalf("expected content record, got nil")
+				}
+				if len(contentRecord.Translations) != 0 {
+					t.Fatalf("expected no translations, got %d", len(contentRecord.Translations))
+				}
+			}
+
+			seedContent, err := contentSvc.Create(ctx, content.CreateContentRequest{
+				ContentTypeID: typeID,
+				Slug:          "seed-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+				Status:        string(domain.StatusDraft),
+				CreatedBy:     author,
+				UpdatedBy:     author,
+				Translations: []content.ContentTranslationInput{
+					{
+						Locale: "en",
+						Title:  "Seed",
+					},
+				},
+			})
+			if err != nil {
+				t.Fatalf("seed content: %v", err)
+			}
+
+			pageReq := pages.CreatePageRequest{
+				ContentID:                seedContent.ID,
+				TemplateID:               uuid.New(),
+				Slug:                     "page-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+				Status:                   string(domain.StatusDraft),
+				CreatedBy:                author,
+				UpdatedBy:                author,
+				AllowMissingTranslations: tc.override,
+			}
+
+			pageRecord, err := pageSvc.Create(ctx, pageReq)
+			if tc.expect.pageErr {
+				if !errors.Is(err, pages.ErrNoPageTranslations) {
+					t.Fatalf("expected ErrNoPageTranslations, got %v", err)
+				}
+			} else {
+				if err != nil {
+					t.Fatalf("create page without translations: %v", err)
+				}
+				if pageRecord == nil {
+					t.Fatalf("expected page record, got nil")
+				}
+				if len(pageRecord.Translations) != 0 {
+					t.Fatalf("expected no page translations, got %d", len(pageRecord.Translations))
+				}
+			}
+
+			menuDesc := "test"
+			menu, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+				Code:        "menu-" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+				Description: &menuDesc,
+				CreatedBy:   author,
+				UpdatedBy:   author,
+			})
+			if err != nil {
+				t.Fatalf("create menu: %v", err)
+			}
+
+			_, err = menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+				MenuID:                   menu.ID,
+				Position:                 0,
+				Target:                   map[string]any{"type": "external", "url": "https://example.com"},
+				CreatedBy:                author,
+				UpdatedBy:                author,
+				AllowMissingTranslations: tc.override,
+			})
+			if tc.expect.menuErr {
+				if !errors.Is(err, menus.ErrMenuItemTranslations) {
+					t.Fatalf("expected ErrMenuItemTranslations, got %v", err)
+				}
+			} else if err != nil {
+				t.Fatalf("add menu item without translations: %v", err)
+			}
+		})
+	}
 }
 
 type fakeMarkdownService struct{}

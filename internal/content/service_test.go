@@ -72,6 +72,134 @@ func TestServiceCreateSuccess(t *testing.T) {
 	}
 }
 
+func TestServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithRequireTranslations(false),
+	)
+
+	ctx := context.Background()
+	record, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "optional",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("create content without translations: %v", err)
+	}
+	if len(record.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(record.Translations))
+	}
+
+	updated, err := svc.Update(ctx, content.UpdateContentRequest{
+		ID:        record.ID,
+		Status:    string(domain.StatusPublished),
+		UpdatedBy: uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("update content without translations: %v", err)
+	}
+	if updated.Status != string(domain.StatusPublished) {
+		t.Fatalf("expected status %q got %q", domain.StatusPublished, updated.Status)
+	}
+	if len(updated.Translations) != 0 {
+		t.Fatalf("expected zero translations after update, got %d", len(updated.Translations))
+	}
+}
+
+func TestServiceCreateAllowMissingTranslationsOverride(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+
+	ctx := context.Background()
+	record, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID:            contentTypeID,
+		Slug:                     "allow-override",
+		Status:                   string(domain.StatusDraft),
+		CreatedBy:                uuid.New(),
+		UpdatedBy:                uuid.New(),
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create content with allow missing: %v", err)
+	}
+	if len(record.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(record.Translations))
+	}
+
+	if _, err := svc.Update(ctx, content.UpdateContentRequest{
+		ID:                       record.ID,
+		Status:                   string(domain.StatusPublished),
+		UpdatedBy:                uuid.New(),
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("update content with allow missing: %v", err)
+	}
+
+	_, err = svc.Update(ctx, content.UpdateContentRequest{
+		ID:        record.ID,
+		Status:    string(domain.StatusDraft),
+		UpdatedBy: uuid.New(),
+	})
+	if !errors.Is(err, content.ErrNoTranslations) {
+		t.Fatalf("expected ErrNoTranslations without override, got %v", err)
+	}
+}
+
+func TestServiceListVersionsWithTranslationlessContent(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithRequireTranslations(false),
+		content.WithVersioningEnabled(true),
+	)
+
+	ctx := context.Background()
+	record, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "optional",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	versions, err := svc.ListVersions(ctx, record.ID)
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected zero versions, got %d", len(versions))
+	}
+}
+
 func TestServiceCreateDuplicateSlug(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	typeStore := content.NewMemoryContentTypeRepository()

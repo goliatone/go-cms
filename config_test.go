@@ -52,3 +52,26 @@ func TestConfigValidateWorkflowProviderConfiguredWhenDisabled(t *testing.T) {
 		t.Fatalf("expected ErrWorkflowProviderConfiguredWhenDisabled, got %v", err)
 	}
 }
+
+func TestConfigValidate_DefaultLocaleRequiredWhenTranslationsEnforced(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.DefaultLocale = ""
+	cfg.I18N.RequireTranslations = true
+	cfg.I18N.DefaultLocaleRequired = true
+
+	if err := cfg.Validate(); !errors.Is(err, cms.ErrDefaultLocaleRequired) {
+		t.Fatalf("expected ErrDefaultLocaleRequired, got %v", err)
+	}
+}
+
+func TestConfigValidate_AllowsMissingDefaultLocaleWhenI18NDisabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.DefaultLocale = ""
+	cfg.I18N.Enabled = false
+	cfg.I18N.RequireTranslations = true
+	cfg.I18N.DefaultLocaleRequired = true
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() returned unexpected error: %v", err)
+	}
+}

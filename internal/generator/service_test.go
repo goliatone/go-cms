@@ -114,6 +114,101 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 	}
 }
 
+func TestBuildSkipsPagesWithoutTranslations(t *testing.T) {
+	t.Parallel()
+
+	ctx := context.Background()
+	now := time.Date(2024, 8, 12, 9, 0, 0, 0, time.UTC)
+
+	localeID := uuid.New()
+	contentID := uuid.New()
+	pageID := uuid.New()
+
+	contentRecord := &content.Content{
+		ID:        contentID,
+		Slug:      "translation-optional",
+		Status:    "published",
+		CreatedAt: now.Add(-2 * time.Hour),
+		UpdatedAt: now.Add(-time.Hour),
+	}
+
+	pageRecord := &pages.Page{
+		ID:         pageID,
+		ContentID:  contentID,
+		TemplateID: uuid.Nil,
+		Slug:       "translation-optional",
+		Status:     "published",
+		IsVisible:  true,
+		CreatedAt:  now.Add(-2 * time.Hour),
+		UpdatedAt:  now.Add(-time.Hour),
+		Blocks:     nil,
+		Widgets:    nil,
+		// Translations intentionally omitted to mimic optional translation mode.
+	}
+
+	cfg := Config{
+		OutputDir:       "dist",
+		DefaultLocale:   "en",
+		Locales:         []string{"en"},
+		CopyAssets:      false,
+		GenerateSitemap: false,
+		GenerateRobots:  false,
+		GenerateFeeds:   false,
+	}
+
+	renderer := &recordingRenderer{}
+	storage := &recordingStorage{}
+
+	svc := NewService(cfg, Dependencies{
+		Pages: &stubPagesService{
+			records: map[uuid.UUID]*pages.Page{
+				pageID: pageRecord,
+			},
+			listing: []*pages.Page{pageRecord},
+		},
+		Content: &stubContentService{
+			records: map[uuid.UUID]*content.Content{
+				contentID: contentRecord,
+			},
+		},
+		Menus:  newStubMenuService(),
+		Themes: &stubThemesService{},
+		Locales: &stubLocaleLookup{
+			records: map[string]*content.Locale{
+				"en": {
+					ID:   localeID,
+					Code: "en",
+				},
+			},
+		},
+		Renderer: renderer,
+		Storage:  storage,
+		Logger:   logging.NoOp(),
+	}).(*service)
+	svc.now = func() time.Time { return now }
+
+	result, err := svc.Build(ctx, BuildOptions{})
+	if err != nil {
+		t.Fatalf("build: %v", err)
+	}
+
+	if result.PagesBuilt != 0 {
+		t.Fatalf("expected no pages built, got %d", result.PagesBuilt)
+	}
+	if result.PagesSkipped != 0 {
+		t.Fatalf("expected no skipped pages, got %d", result.PagesSkipped)
+	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("expected no diagnostics, got %d", len(result.Diagnostics))
+	}
+	if len(result.Errors) != 0 {
+		t.Fatalf("expected no build errors, got %d", len(result.Errors))
+	}
+	if len(result.Rendered) != 0 {
+		t.Fatalf("expected no rendered pages, got %d", len(result.Rendered))
+	}
+}
+
 func TestBuildUsesWorkerPool(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 3, 18, 9, 45, 0, 0, time.UTC)

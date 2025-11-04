@@ -190,6 +190,201 @@ func TestPageServiceCreateSuccess(t *testing.T) {
 	}
 }
 
+func TestPageServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	typeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: typeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	createdContent, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: typeID,
+		Slug:          "landing",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Landing"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	pageSvc := pages.NewService(
+		pageStore,
+		contentStore,
+		localeStore,
+		pages.WithPageClock(func() time.Time { return time.Unix(0, 0) }),
+		pages.WithRequireTranslations(false),
+	)
+
+	createReq := pages.CreatePageRequest{
+		ContentID:  createdContent.ID,
+		TemplateID: uuid.New(),
+		Slug:       "landing",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+	}
+
+	ctx := context.Background()
+	page, err := pageSvc.Create(ctx, createReq)
+	if err != nil {
+		t.Fatalf("create page without translations: %v", err)
+	}
+	if len(page.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(page.Translations))
+	}
+
+	updateReq := pages.UpdatePageRequest{
+		ID:        page.ID,
+		Status:    string(domain.StatusPublished),
+		UpdatedBy: uuid.New(),
+	}
+
+	updated, err := pageSvc.Update(ctx, updateReq)
+	if err != nil {
+		t.Fatalf("update page without translations: %v", err)
+	}
+	if updated.Status != string(domain.StatusPublished) {
+		t.Fatalf("expected status %q got %q", domain.StatusPublished, updated.Status)
+	}
+	if len(updated.Translations) != 0 {
+		t.Fatalf("expected zero translations after update, got %d", len(updated.Translations))
+	}
+}
+
+func TestPageServiceAllowMissingTranslationsOverride(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	typeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: typeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: typeID,
+		Slug:          "override",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale: "en",
+				Title:  "Override Content",
+				Content: map[string]any{
+					"body": "Draft body",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed content: %v", err)
+	}
+
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithPageClock(func() time.Time {
+		return time.Unix(0, 0)
+	}))
+
+	page, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:                contentRecord.ID,
+		TemplateID:               uuid.New(),
+		Slug:                     "override",
+		Status:                   string(domain.StatusDraft),
+		CreatedBy:                uuid.New(),
+		UpdatedBy:                uuid.New(),
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create page with allow missing: %v", err)
+	}
+	if len(page.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(page.Translations))
+	}
+
+	if _, err := pageSvc.Update(context.Background(), pages.UpdatePageRequest{
+		ID:                       page.ID,
+		Status:                   string(domain.StatusPublished),
+		UpdatedBy:                uuid.New(),
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("update page with allow missing: %v", err)
+	}
+
+	_, err = pageSvc.Update(context.Background(), pages.UpdatePageRequest{
+		ID:        page.ID,
+		Status:    string(domain.StatusDraft),
+		UpdatedBy: uuid.New(),
+	})
+	if !errors.Is(err, pages.ErrNoPageTranslations) {
+		t.Fatalf("expected ErrNoPageTranslations without override, got %v", err)
+	}
+}
+
+func TestPageServiceListVersionsWithTranslationlessPage(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	typeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: typeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	createdContent, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: typeID,
+		Slug:          "landing",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Landing"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	pageSvc := pages.NewService(
+		pageStore,
+		contentStore,
+		localeStore,
+		pages.WithRequireTranslations(false),
+		pages.WithPageVersioningEnabled(true),
+	)
+
+	page, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  createdContent.ID,
+		TemplateID: uuid.New(),
+		Slug:       "landing",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	versions, err := pageSvc.ListVersions(context.Background(), page.ID)
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) != 0 {
+		t.Fatalf("expected zero versions, got %d", len(versions))
+	}
+}
+
 func TestPageServiceCreateDuplicateSlug(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	contentTypeStore := content.NewMemoryContentTypeRepository()

@@ -169,6 +169,146 @@ func TestWorkflowIntegration_MultiStepPageLifecycle(t *testing.T) {
 	}
 }
 
+func TestWorkflowIntegration_StatusTransitionsWithoutTranslations(t *testing.T) {
+	ctx := context.Background()
+
+	baseStates := []cms.WorkflowStateConfig{
+		{Name: "draft", Description: "Draft", Initial: true},
+		{Name: "published", Description: "Published", Terminal: true},
+	}
+	baseTransitions := []cms.WorkflowTransitionConfig{
+		{Name: "publish", Description: "Publish draft", From: "draft", To: "published"},
+	}
+
+	testCases := []struct {
+		name         string
+		configure    func(cfg *cms.Config)
+		allowMissing bool
+	}{
+		{
+			name: "per_request_override",
+			configure: func(cfg *cms.Config) {
+				cfg.I18N.RequireTranslations = true
+			},
+			allowMissing: true,
+		},
+		{
+			name: "global_optional",
+			configure: func(cfg *cms.Config) {
+				cfg.I18N.RequireTranslations = false
+			},
+			allowMissing: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := cms.DefaultConfig()
+			cfg.DefaultLocale = "en"
+			cfg.I18N.Locales = []string{"en"}
+			cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
+				{
+					Entity:      "page",
+					States:      baseStates,
+					Transitions: baseTransitions,
+				},
+			}
+			if tc.configure != nil {
+				tc.configure(&cfg)
+			}
+
+			module, err := cms.New(cfg)
+			if err != nil {
+				t.Fatalf("new cms module: %v", err)
+			}
+
+			typeRepo := module.Container().ContentTypeRepository()
+			seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) })
+			if !ok {
+				t.Fatalf("expected seedable content type repository, got %T", typeRepo)
+			}
+			contentTypeID := uuid.New()
+			seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration"})
+
+			localeRepo := module.Container().LocaleRepository()
+			seedLocales, ok := localeRepo.(interface{ Put(*content.Locale) })
+			if !ok {
+				t.Fatalf("expected seedable locale repository, got %T", localeRepo)
+			}
+			localeID := uuid.New()
+			seedLocales.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+			contentSvc := module.Content()
+			authorID := uuid.New()
+			contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
+				ContentTypeID: contentTypeID,
+				Slug:          "workflow-no-i18n",
+				Status:        "draft",
+				CreatedBy:     authorID,
+				UpdatedBy:     authorID,
+				Translations: []content.ContentTranslationInput{
+					{Locale: "en", Title: "Workflow Without Translations"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("create content: %v", err)
+			}
+
+			pageSvc := module.Pages()
+			page, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+				ContentID:  contentRecord.ID,
+				TemplateID: uuid.New(),
+				Slug:       "workflow-no-i18n",
+				Status:     "draft",
+				CreatedBy:  authorID,
+				UpdatedBy:  authorID,
+				Translations: []pages.PageTranslationInput{
+					{Locale: "en", Title: "Workflow Without Translations", Path: "/workflow-no-i18n"},
+				},
+			})
+			if err != nil {
+				t.Fatalf("create page: %v", err)
+			}
+
+			engine := module.Container().WorkflowEngine()
+			if engine == nil {
+				t.Fatalf("expected workflow engine to be configured")
+			}
+
+			result, err := engine.Transition(ctx, interfaces.TransitionInput{
+				EntityID:     page.ID,
+				EntityType:   "page",
+				CurrentState: interfaces.WorkflowState(page.Status),
+				Transition:   "publish",
+				ActorID:      authorID,
+			})
+			if err != nil {
+				t.Fatalf("transition draft->publish: %v", err)
+			}
+
+			updated, err := pageSvc.Update(ctx, pages.UpdatePageRequest{
+				ID:                       page.ID,
+				Status:                   string(result.ToState),
+				UpdatedBy:                authorID,
+				AllowMissingTranslations: tc.allowMissing,
+			})
+			if err != nil {
+				t.Fatalf("update page without translations (allow=%v): %v", tc.allowMissing, err)
+			}
+
+			if !strings.EqualFold(updated.Status, string(result.ToState)) {
+				t.Fatalf("expected status %q, got %q", result.ToState, updated.Status)
+			}
+			if len(updated.Translations) == 0 {
+				t.Fatalf("expected existing translations to be preserved")
+			}
+			if updated.Translations[0].LocaleID != localeID {
+				t.Fatalf("expected translation locale %s, got %s", localeID, updated.Translations[0].LocaleID)
+			}
+		})
+	}
+}
+
 func convertFixtureStates(states []workflowStateFixture) []cms.WorkflowStateConfig {
 	result := make([]cms.WorkflowStateConfig, len(states))
 	for i, state := range states {

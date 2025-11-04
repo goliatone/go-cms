@@ -162,6 +162,74 @@ func TestService_AddMenuItem_ShiftsSiblings(t *testing.T) {
 	}
 }
 
+func TestService_AddMenuItemWithoutTranslationsWhenOptional(t *testing.T) {
+	ctx := context.Background()
+	locale := content.Locale{ID: uuid.New(), Code: "en", Display: "English"}
+	service := newServiceWithLocales(t, []content.Locale{locale}, uuid.New, nil, menus.WithRequireTranslations(false))
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	item, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "home",
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem without translations: %v", err)
+	}
+	if len(item.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(item.Translations))
+	}
+}
+
+func TestService_AddMenuItemAllowsMissingTranslationsOverride(t *testing.T) {
+	ctx := context.Background()
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	item, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:                   menu.ID,
+		Position:                 0,
+		Target:                   map[string]any{"type": "page", "slug": "home"},
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem with allow missing: %v", err)
+	}
+	if len(item.Translations) != 0 {
+		t.Fatalf("expected zero translations, got %d", len(item.Translations))
+	}
+
+	if _, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 1,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "about",
+		},
+	}); !errors.Is(err, menus.ErrMenuItemTranslations) {
+		t.Fatalf("expected ErrMenuItemTranslations without override, got %v", err)
+	}
+}
+
 func TestService_AddMenuItem_UnknownLocale(t *testing.T) {
 	ctx := context.Background()
 	service := newService(t)
