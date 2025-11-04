@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -220,6 +221,15 @@ func WithRegistry(reg *Registry) ServiceOption {
 	}
 }
 
+// WithShortcodeService wires the shortcode renderer used for widget translations.
+func WithShortcodeService(svc interfaces.ShortcodeService) ServiceOption {
+	return func(s *service) {
+		if svc != nil {
+			s.shortcodes = svc
+		}
+	}
+}
+
 // WithAreaDefinitionRepository wires the area definition repository.
 func WithAreaDefinitionRepository(repo AreaDefinitionRepository) ServiceOption {
 	return func(s *service) {
@@ -247,6 +257,7 @@ type service struct {
 	now          func() time.Time
 	id           IDGenerator
 	registry     *Registry
+	shortcodes   interfaces.ShortcodeService
 }
 
 // NewService constructs a widget service instance.
@@ -921,7 +932,23 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 			}
 		}
 		if translations != nil {
-			clone.Translations = translations
+			hydrated := make([]*Translation, 0, len(translations))
+			for _, tr := range translations {
+				if tr == nil {
+					continue
+				}
+				cloned := *tr
+				if tr.Content != nil {
+					cloned.Content = deepCloneMap(tr.Content)
+					if s.shortcodes != nil {
+						if err := s.renderShortcodesInMap(ctx, cloned.Content, \"\"); err != nil {
+							return nil, err
+						}
+					}
+				}
+				hydrated = append(hydrated, &cloned)
+			}
+			clone.Translations = hydrated
 		}
 		enriched = append(enriched, &clone)
 	}
@@ -965,6 +992,73 @@ func validateConfiguration(schema map[string]any, configuration map[string]any) 
 		}
 	}
 	return nil
+}
+
+func (s *service) renderShortcodesInMap(ctx context.Context, values map[string]any, locale string) error {
+	if values == nil || s.shortcodes == nil {
+		return nil
+	}
+	for key, value := range values {
+		rendered, err := s.renderShortcodeValue(ctx, value, locale)
+		if err != nil {
+			return err
+		}
+		values[key] = rendered
+	}
+	return nil
+}
+
+func (s *service) renderShortcodeValue(ctx context.Context, value any, locale string) (any, error) {
+	if s.shortcodes == nil {
+		return value, nil
+	}
+
+	switch v := value.(type) {
+	case string:
+		if !containsShortcodeSyntax(v) {
+			return v, nil
+		}
+		output, err := s.shortcodes.Process(ctx, v, interfaces.ShortcodeProcessOptions{Locale: locale})
+		if err != nil {
+			return nil, err
+		}
+		return output, nil
+	case []any:
+		out := make([]any, len(v))
+		for i, item := range v {
+			rendered, err := s.renderShortcodeValue(ctx, item, locale)
+			if err != nil {
+				return nil, err
+			}
+			out[i] = rendered
+		}
+		return out, nil
+	case []string:
+		out := make([]string, len(v))
+		for i, item := range v {
+			rendered, err := s.renderShortcodeValue(ctx, item, locale)
+			if err != nil {
+				return nil, err
+			}
+			if str, ok := rendered.(string); ok {
+				out[i] = str
+			} else {
+				out[i] = item
+			}
+		}
+		return out, nil
+	case map[string]any:
+		if err := s.renderShortcodesInMap(ctx, v, locale); err != nil {
+			return nil, err
+		}
+		return v, nil
+	default:
+		return value, nil
+	}
+}
+
+func containsShortcodeSyntax(input string) bool {
+	return strings.Contains(input, "{{<") || strings.Contains(input, "{{%") || strings.Contains(input, "[")
 }
 
 func validateDefaultsAgainstSchema(schema map[string]any, defaults map[string]any) error {
