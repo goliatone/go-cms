@@ -133,13 +133,21 @@ func TestRenderer_EndToEnd(t *testing.T) {
 
 	ctx := interfaces.ShortcodeContext{Locale: "en"}
 	output := transformed
+	replacements := make([]string, len(parsed))
 	for idx, sc := range parsed {
 		html, err := renderer.Render(ctx, sc.Name, sc.Params, sc.Inner)
 		if err != nil {
 			t.Fatalf("Render shortcode %s: %v", sc.Name, err)
 		}
 		placeholder := fmt.Sprintf("<!-- shortcode:%d -->", idx)
-		output = strings.ReplaceAll(output, placeholder, string(html))
+		rendered := string(html)
+		replacements[idx] = rendered
+		output = strings.ReplaceAll(output, placeholder, rendered)
+	}
+
+	for idx, rendered := range replacements {
+		placeholder := fmt.Sprintf("<!-- shortcode:%d -->", idx)
+		output = strings.ReplaceAll(output, placeholder, rendered)
 	}
 
 	if !strings.Contains(output, "shortcode--alert") {
