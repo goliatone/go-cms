@@ -46,7 +46,8 @@ type AddMenuItemInput struct {
 	CreatedBy uuid.UUID
 	UpdatedBy uuid.UUID
 
-	Translations []MenuItemTranslationInput
+	Translations             []MenuItemTranslationInput
+	AllowMissingTranslations bool
 }
 
 // UpdateMenuItemInput captures mutable fields for a menu item.
@@ -156,15 +157,31 @@ func WithPageRepository(repo PageRepository) ServiceOption {
 	}
 }
 
+// WithRequireTranslations controls whether menu items must include translations.
+func WithRequireTranslations(required bool) ServiceOption {
+	return func(s *service) {
+		s.requireTranslations = required
+	}
+}
+
+// WithTranslationsEnabled toggles translation handling.
+func WithTranslationsEnabled(enabled bool) ServiceOption {
+	return func(s *service) {
+		s.translationsEnabled = enabled
+	}
+}
+
 type service struct {
-	menus        MenuRepository
-	items        MenuItemRepository
-	translations MenuItemTranslationRepository
-	locales      LocaleRepository
-	pageRepo     PageRepository
-	now          func() time.Time
-	id           IDGenerator
-	urlResolver  URLResolver
+	menus               MenuRepository
+	items               MenuItemRepository
+	translations        MenuItemTranslationRepository
+	locales             LocaleRepository
+	pageRepo            PageRepository
+	now                 func() time.Time
+	id                  IDGenerator
+	urlResolver         URLResolver
+	requireTranslations bool
+	translationsEnabled bool
 }
 
 type cacheInvalidator interface {
@@ -174,12 +191,14 @@ type cacheInvalidator interface {
 // NewService constructs a menu service instance.
 func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo MenuItemTranslationRepository, localeRepo LocaleRepository, opts ...ServiceOption) Service {
 	s := &service{
-		menus:        menuRepo,
-		items:        itemRepo,
-		translations: trRepo,
-		locales:      localeRepo,
-		now:          time.Now,
-		id:           uuid.New,
+		menus:               menuRepo,
+		items:               itemRepo,
+		translations:        trRepo,
+		locales:             localeRepo,
+		now:                 time.Now,
+		id:                  uuid.New,
+		requireTranslations: true,
+		translationsEnabled: true,
 	}
 
 	s.urlResolver = &defaultURLResolver{service: s}
@@ -189,6 +208,10 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 	}
 
 	return s
+}
+
+func (s *service) translationsRequired() bool {
+	return s.translationsEnabled && s.requireTranslations
 }
 
 // CreateMenu registers a new menu ensuring code uniqueness.
@@ -264,7 +287,7 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 
-	if len(input.Translations) == 0 {
+	if s.translationsRequired() && len(input.Translations) == 0 && !input.AllowMissingTranslations {
 		return nil, ErrMenuItemTranslations
 	}
 
