@@ -1,6 +1,7 @@
 package cms
 
 import (
+	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
@@ -37,6 +38,9 @@ type MediaService = media.Service
 // GeneratorService exports the static site generator contract.
 type GeneratorService = generator.Service
 
+// StorageAdminService exports the storage admin helper contract.
+type StorageAdminService = *adminstorage.Service
+
 // Module represents the top level CMS runtime façade.
 type Module struct {
 	container *di.Container
@@ -59,6 +63,14 @@ func (m *Module) Container() *di.Container {
 // Content returns the configured content service.
 func (m *Module) Content() ContentService {
 	return m.container.ContentService()
+}
+
+// StorageAdmin returns the storage admin helper service.
+func (m *Module) StorageAdmin() StorageAdminService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.StorageAdminService()
 }
 
 // Pages returns the configured page service.
@@ -104,6 +116,27 @@ func (m *Module) Markdown() interfaces.MarkdownService {
 // Scheduler returns the scheduler used for publish automation.
 func (m *Module) Scheduler() interfaces.Scheduler {
 	return m.container.Scheduler()
+}
+
+// WorkflowEngine returns the configured workflow engine.
+func (m *Module) WorkflowEngine() interfaces.WorkflowEngine {
+	return m.container.WorkflowEngine()
+}
+
+// TranslationsEnabled reports whether translations are globally enabled.
+func (m *Module) TranslationsEnabled() bool {
+	if m == nil || m.container == nil {
+		return false
+	}
+	return m.container.TranslationsEnabled()
+}
+
+// TranslationsRequired reports whether translations are required when enabled.
+func (m *Module) TranslationsRequired() bool {
+	if m == nil || m.container == nil {
+		return false
+	}
+	return m.container.TranslationsRequired()
 }
 
 // CommandHandlers returns copies of the registered command handlers, allowing callers
