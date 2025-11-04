@@ -31,6 +31,32 @@ type ShortcodeRenderer interface {
 	RenderAsync(ctx ShortcodeContext, shortcode string, params map[string]any, inner string) (<-chan template.HTML, <-chan error)
 }
 
+// ShortcodeService exposes high-level helpers for rendering shortcodes embedded in arbitrary content.
+type ShortcodeService interface {
+	// Process scans the provided content, rendering any shortcode invocations using the supplied options.
+	Process(ctx context.Context, content string, opts ShortcodeProcessOptions) (string, error)
+	// Render executes a single shortcode directly via the renderer pipeline.
+	Render(ctx ShortcodeContext, shortcode string, params map[string]any, inner string) (template.HTML, error)
+}
+
+// ShortcodeMetrics records telemetry emitted during shortcode rendering.
+type ShortcodeMetrics interface {
+	// ObserveRenderDuration captures the elapsed time for a single shortcode render attempt.
+	ObserveRenderDuration(shortcode string, duration time.Duration)
+	// IncrementRenderError increments a counter tracking render failures.
+	IncrementRenderError(shortcode string)
+	// IncrementCacheHit records when a cached value satisfied a render request.
+	IncrementCacheHit(shortcode string)
+}
+
+// ShortcodeProcessOptions customises shortcode processing behaviour for a given invocation.
+type ShortcodeProcessOptions struct {
+	Locale          string
+	Cache           CacheProvider
+	Sanitizer       ShortcodeSanitizer
+	EnableWordPress bool
+}
+
 // ShortcodeParser extracts shortcode invocations from arbitrary content.
 type ShortcodeParser interface {
 	Parse(content string) ([]ParsedShortcode, error)
