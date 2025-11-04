@@ -73,12 +73,13 @@ func (a *cmsContentServiceAdapter) Create(ctx context.Context, req interfaces.Co
 	}
 
 	result, err := a.service.Create(ctx, content.CreateContentRequest{
-		ContentTypeID: req.ContentTypeID,
-		Slug:          req.Slug,
-		Status:        req.Status,
-		CreatedBy:     req.CreatedBy,
-		UpdatedBy:     req.UpdatedBy,
-		Translations:  translations,
+		ContentTypeID:            req.ContentTypeID,
+		Slug:                     req.Slug,
+		Status:                   req.Status,
+		CreatedBy:                req.CreatedBy,
+		UpdatedBy:                req.UpdatedBy,
+		Translations:             translations,
+		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
 	if err != nil {
 		return nil, err
@@ -102,11 +103,12 @@ func (a *cmsContentServiceAdapter) Update(ctx context.Context, req interfaces.Co
 	}
 
 	record, err := a.service.Update(ctx, content.UpdateContentRequest{
-		ID:           req.ID,
-		Status:       req.Status,
-		UpdatedBy:    req.UpdatedBy,
-		Translations: translations,
-		Metadata:     cloneFieldMap(req.Metadata),
+		ID:                       req.ID,
+		Status:                   req.Status,
+		UpdatedBy:                req.UpdatedBy,
+		Translations:             translations,
+		Metadata:                 cloneFieldMap(req.Metadata),
+		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
 	if err != nil {
 		return nil, err
@@ -242,14 +244,15 @@ func (a *cmsPageServiceAdapter) Create(ctx context.Context, req interfaces.PageC
 	}
 
 	record, err := a.service.Create(ctx, pages.CreatePageRequest{
-		ContentID:    req.ContentID,
-		TemplateID:   req.TemplateID,
-		ParentID:     req.ParentID,
-		Slug:         req.Slug,
-		Status:       req.Status,
-		CreatedBy:    req.CreatedBy,
-		UpdatedBy:    req.UpdatedBy,
-		Translations: translations,
+		ContentID:                req.ContentID,
+		TemplateID:               req.TemplateID,
+		ParentID:                 req.ParentID,
+		Slug:                     req.Slug,
+		Status:                   req.Status,
+		CreatedBy:                req.CreatedBy,
+		UpdatedBy:                req.UpdatedBy,
+		Translations:             translations,
+		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
 	if err != nil {
 		return nil, err
@@ -302,14 +305,15 @@ func (a *cmsPageServiceAdapter) Update(ctx context.Context, req interfaces.PageU
 	}
 
 	created, err := a.service.Create(ctx, pages.CreatePageRequest{
-		ContentID:    existing.ContentID,
-		TemplateID:   templateID,
-		ParentID:     existing.ParentID,
-		Slug:         existing.Slug,
-		Status:       req.Status,
-		CreatedBy:    req.UpdatedBy,
-		UpdatedBy:    req.UpdatedBy,
-		Translations: translations,
+		ContentID:                existing.ContentID,
+		TemplateID:               templateID,
+		ParentID:                 existing.ParentID,
+		Slug:                     existing.Slug,
+		Status:                   req.Status,
+		CreatedBy:                req.UpdatedBy,
+		UpdatedBy:                req.UpdatedBy,
+		Translations:             translations,
+		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
 	if err != nil {
 		return nil, err
@@ -907,6 +911,110 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 
 		return ctx.JSON(200, navigation)
 	})
+
+	// Workflow API: Get available transitions for a page
+	r.Get("/api/pages/:id/transitions", func(ctx router.Context) error {
+		id := ctx.Param("id")
+		pageID, err := uuid.Parse(id)
+		if err != nil {
+			return ctx.JSON(400, map[string]string{"error": "invalid page id"})
+		}
+
+		page, err := pageSvc.Get(ctx.Context(), pageID)
+		if err != nil {
+			return ctx.JSON(404, map[string]string{"error": "page not found"})
+		}
+
+		workflowEngine := module.WorkflowEngine()
+		if workflowEngine == nil {
+			return ctx.JSON(503, map[string]string{"error": "workflow engine unavailable"})
+		}
+
+		transitions, err := workflowEngine.AvailableTransitions(ctx.Context(), interfaces.TransitionQuery{
+			EntityType: "page",
+			State:      interfaces.WorkflowState(page.Status),
+		})
+		if err != nil {
+			return ctx.JSON(500, map[string]any{"error": err.Error()})
+		}
+
+		return ctx.JSON(200, map[string]any{
+			"page_id":     page.ID,
+			"slug":        page.Slug,
+			"status":      page.Status,
+			"transitions": transitions,
+		})
+	})
+
+	// Workflow API: Transition a page to a new state
+	r.Post("/api/pages/:id/transition", func(ctx router.Context) error {
+		id := ctx.Param("id")
+		pageID, err := uuid.Parse(id)
+		if err != nil {
+			return ctx.JSON(400, map[string]string{"error": "invalid page id"})
+		}
+
+		page, err := pageSvc.Get(ctx.Context(), pageID)
+		if err != nil {
+			return ctx.JSON(404, map[string]string{"error": "page not found"})
+		}
+
+		var req struct {
+			Transition  string `json:"transition"`
+			TargetState string `json:"target_state"`
+		}
+
+		// Parse JSON body
+		if err := ctx.Bind(&req); err != nil {
+			return ctx.JSON(400, map[string]string{"error": "invalid request body"})
+		}
+
+		workflowEngine := module.WorkflowEngine()
+		if workflowEngine == nil {
+			return ctx.JSON(503, map[string]string{"error": "workflow engine unavailable"})
+		}
+
+		// Perform workflow transition
+		result, err := workflowEngine.Transition(ctx.Context(), interfaces.TransitionInput{
+			EntityID:     pageID,
+			EntityType:   "page",
+			CurrentState: interfaces.WorkflowState(page.Status),
+			Transition:   req.Transition,
+			TargetState:  interfaces.WorkflowState(req.TargetState),
+			ActorID:      demoAuthorID,
+			Metadata:     map[string]any{},
+		})
+		if err != nil {
+			return ctx.JSON(400, map[string]any{"error": err.Error()})
+		}
+
+		// Update the page with the new status
+		_, err = pageSvc.Update(ctx.Context(), pages.UpdatePageRequest{
+			ID:                       pageID,
+			Status:                   string(result.ToState),
+			UpdatedBy:                demoAuthorID,
+			AllowMissingTranslations: true,
+		})
+		if err != nil {
+			return ctx.JSON(500, map[string]any{"error": err.Error()})
+		}
+
+		// Fetch the updated page
+		updatedPage, err := pageSvc.Get(ctx.Context(), pageID)
+		if err != nil {
+			return ctx.JSON(500, map[string]string{"error": "failed to fetch updated page"})
+		}
+
+		return ctx.JSON(200, map[string]any{
+			"success":    true,
+			"page_id":    updatedPage.ID,
+			"slug":       updatedPage.Slug,
+			"from_state": result.FromState,
+			"to_state":   result.ToState,
+			"transition": result.Transition,
+			"status":     updatedPage.Status,
+		})
+	})
 }
 
 func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Config, pageTemplateID uuid.UUID) error {
@@ -1379,6 +1487,171 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 		return uuid.Nil, fmt.Errorf("create blog page 1: %w", err)
 	}
 
+	// Create a draft page to demonstrate workflow transitions
+	enExcerpt2 := "Learn about the workflow engine and state transitions"
+	esExcerpt2 := "Aprende sobre el motor de flujo de trabajo y las transiciones de estado"
+
+	draftContent, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID:            blogTypeID,
+		Slug:                     "workflow-demo",
+		Status:                   "draft",
+		CreatedBy:                authorID,
+		UpdatedBy:                authorID,
+		AllowMissingTranslations: true,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Workflow Engine Demo - Try It Now!",
+				Summary: &enExcerpt2,
+				Content: map[string]any{
+					"body": `<h2>🚀 Interactive Workflow Demo</h2>
+<p>This page is currently in <strong>draft</strong> status. Use the commands below to transition it through different workflow states!</p>
+<p><em>New:</em> Translation enforcement is optional during these transitions. The demo applies the per-request <code>AllowMissingTranslations</code> override so you can promote the draft before localisation is ready.</p>
+
+<h3>Step 1: Set the Page ID</h3>
+<pre><code>PAGE_ID=$(curl -s http://localhost:3000/api/pages | jq -r '.[] | select(.slug=="workflow-demo") | .id')
+echo "Page ID: $PAGE_ID"</code></pre>
+
+<h3>Step 2: Check Available Transitions</h3>
+<pre><code>curl -s http://localhost:3000/api/pages/$PAGE_ID/transitions | jq '.'</code></pre>
+
+<h3>Step 3: Publish Without Translations</h3>
+<p>This request omits the translations array. The server sets <code>AllowMissingTranslations</code> for you, so the workflow update succeeds even though no locale payloads are sent.</p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "publish"}' | jq '.'</code></pre>
+
+<h3>Other Workflow Transitions</h3>
+<p><strong>Submit for Review:</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "submit_review"}' | jq '.'</code></pre>
+
+<p><strong>Approve (after review):</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "approve"}' | jq '.'</code></pre>
+
+<p><strong>Unpublish (back to draft):</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "unpublish"}' | jq '.'</code></pre>
+
+<p><strong>Archive:</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "archive"}' | jq '.'</code></pre>
+
+<h3>Workflow States</h3>
+<ul>
+  <li><strong>draft</strong> - Initial state, not visible to public</li>
+  <li><strong>review</strong> - Submitted for editorial review</li>
+  <li><strong>approved</strong> - Approved and ready to publish</li>
+  <li><strong>published</strong> - Live and visible to everyone</li>
+  <li><strong>scheduled</strong> - Scheduled for future publication</li>
+  <li><strong>archived</strong> - Archived and hidden</li>
+</ul>
+
+<p>See the full workflow documentation in <code>examples/web/WORKFLOW_DEMO.md</code> for more examples!</p>`,
+					"excerpt":        "Learn about the workflow engine and state transitions",
+					"author":         "CMS Demo",
+					"tags":           []string{"workflow", "demo", "interactive"},
+					"featured_image": "/static/images/workflow.jpg",
+				},
+			},
+			{
+				Locale:  "es",
+				Title:   "Demo del Motor de Flujo - ¡Pruébalo Ahora!",
+				Summary: &esExcerpt2,
+				Content: map[string]any{
+					"body": `<h2>🚀 Demo Interactiva del Flujo de Trabajo</h2>
+<p>Esta página está actualmente en estado <strong>borrador</strong>. ¡Usa los comandos a continuación para transicionarla a través de diferentes estados!</p>
+<p><em>Novedad:</em> La verificación de traducciones es opcional durante estas transiciones. La demo activa la anulación por solicitud <code>AllowMissingTranslations</code> para que puedas promocionar el borrador antes de contar con localizaciones completas.</p>
+
+<h3>Paso 1: Establecer el ID de la Página</h3>
+<pre><code>PAGE_ID=$(curl -s http://localhost:3000/api/pages | jq -r '.[] | select(.slug=="workflow-demo") | .id')
+echo "ID de Página: $PAGE_ID"</code></pre>
+
+<h3>Paso 2: Verifica Transiciones Disponibles</h3>
+<pre><code>curl -s http://localhost:3000/api/pages/$PAGE_ID/transitions | jq '.'</code></pre>
+
+<h3>Paso 3: Publicar sin Traducciones</h3>
+<p>Esta petición omite el arreglo de traducciones. El servidor configura <code>AllowMissingTranslations</code> por ti, así que la transición se completa aunque no envíes contenido localizado.</p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "publish"}' | jq '.'</code></pre>
+
+<h3>Otras Transiciones de Flujo</h3>
+<p><strong>Enviar para Revisión:</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "submit_review"}' | jq '.'</code></pre>
+
+<p><strong>Aprobar (después de revisión):</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "approve"}' | jq '.'</code></pre>
+
+<p><strong>Despublicar (volver a borrador):</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "unpublish"}' | jq '.'</code></pre>
+
+<p><strong>Archivar:</strong></p>
+<pre><code>curl -sX POST http://localhost:3000/api/pages/$PAGE_ID/transition \
+  -H "Content-Type: application/json" \
+  -d '{"transition": "archive"}' | jq '.'</code></pre>
+
+<h3>Estados del Flujo de Trabajo</h3>
+<ul>
+  <li><strong>draft</strong> - Estado inicial, no visible al público</li>
+  <li><strong>review</strong> - Enviado para revisión editorial</li>
+  <li><strong>approved</strong> - Aprobado y listo para publicar</li>
+  <li><strong>published</strong> - En vivo y visible para todos</li>
+  <li><strong>scheduled</strong> - Programado para publicación futura</li>
+  <li><strong>archived</strong> - Archivado y oculto</li>
+</ul>
+
+<p>¡Consulta la documentación completa en <code>examples/web/WORKFLOW_DEMO.md</code> para más ejemplos!</p>`,
+					"excerpt":        "Aprende sobre el motor de flujo de trabajo y las transiciones de estado",
+					"author":         "Demo CMS",
+					"tags":           []string{"flujo-trabajo", "demo", "interactivo"},
+					"featured_image": "/static/images/workflow.jpg",
+				},
+			},
+		},
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("create draft content: %w", err)
+	}
+
+	draftPage, err := pageSvc.Create(ctx, pages.CreatePageRequest{
+		ContentID:                draftContent.ID,
+		TemplateID:               templateID,
+		Slug:                     "workflow-demo",
+		Status:                   "draft",
+		CreatedBy:                authorID,
+		UpdatedBy:                authorID,
+		AllowMissingTranslations: true,
+		Translations: []pages.PageTranslationInput{
+			{
+				Locale: "en",
+				Title:  "Understanding Workflow Transitions",
+				Path:   "/blog/workflow-demo",
+			},
+			{
+				Locale: "es",
+				Title:  "Entendiendo las Transiciones de Flujo de Trabajo",
+				Path:   "/es/blog/transiciones-flujo",
+			},
+		},
+	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("create draft page: %w", err)
+	}
+
+	log.Printf("Created draft page for workflow demo: %s (status: %s, allow_missing_translations enabled)", draftPage.ID, draftPage.Status)
+
 	// Add CTA block to blog post
 	if err := createLocalizedBlock(ctx, blockSvc, container, ctaBlockDef, &blogPage1.ID, "content", 0, map[string]map[string]any{
 		"en": {
@@ -1666,12 +1939,18 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	log.Println("Demo data setup complete")
 	log.Printf("  - Content Types: 3 (page, blog_post, product)")
 	log.Printf("  - Block Definitions: 3 (hero, features_grid, call_to_action)")
-	log.Printf("  - Pages: 3 (about, getting-started blog, markdown-sync-demo)")
+	log.Printf("  - Pages: 4 (about, getting-started, workflow-demo [draft], markdown-sync-demo)")
 	log.Printf("  - Widgets: 2 (newsletter, promo_banner)")
+	log.Printf("  - Workflow: Draft page 'workflow-demo' ready for state transitions (missing translations permitted via override)")
+	log.Printf("    Try: GET /api/pages/{id}/transitions to see available transitions")
+	log.Printf("    Try: POST /api/pages/{id}/transition with {\"transition\":\"publish\"} or {\"target_state\":\"published\"}")
 	return templateID, nil
 }
 
 func getPageTitle(page *pages.Page, localeCode string, container *di.Container) string {
+	if page == nil {
+		return "Page"
+	}
 	localeID := getLocaleIDByCode(container, localeCode)
 	for _, tr := range page.Translations {
 		if tr.LocaleID == localeID && tr.Title != "" {
@@ -1683,6 +1962,9 @@ func getPageTitle(page *pages.Page, localeCode string, container *di.Container) 
 		if tr.Title != "" {
 			return tr.Title
 		}
+	}
+	if slug := strings.TrimSpace(page.Slug); slug != "" {
+		return slug
 	}
 	return "Page"
 }

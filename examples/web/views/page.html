@@ -130,7 +130,7 @@
                 <dd><span class="status {{ page.status }}">{{ page.status }}</span></dd>
                 <dt>Locale:</dt>
                 <dd><span class="locale-badge">{{ locale }}</span></dd>
-                {% if translation.path %}
+                {% if translation and translation.path %}
                     <dt>Path:</dt>
                     <dd><code>{{ translation.path }}</code></dd>
                 {% endif %}
