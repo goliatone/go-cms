@@ -3,8 +3,10 @@ package di
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"html/template"
 	"maps"
 	"strings"
 	"sync"
@@ -31,11 +33,13 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/logging/console"
 	"github.com/goliatone/go-cms/internal/logging/gologger"
+	"github.com/goliatone/go-cms/internal/markdown"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	shortcode "github.com/goliatone/go-cms/internal/shortcode"
 	"github.com/goliatone/go-cms/internal/storageconfig"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -128,16 +132,23 @@ type Container struct {
 	themeRepo    themes.ThemeRepository
 	templateRepo themes.TemplateRepository
 
-	contentSvc     content.Service
-	pageSvc        pages.Service
-	blockSvc       blocks.Service
-	i18nSvc        i18n.Service
-	menuSvc        menus.Service
-	widgetSvc      widgets.Service
-	themeSvc       themes.Service
-	mediaSvc       media.Service
-	markdownSvc    interfaces.MarkdownService
-	loggerProvider interfaces.LoggerProvider
+	contentSvc        content.Service
+	pageSvc           pages.Service
+	blockSvc          blocks.Service
+	i18nSvc           i18n.Service
+	menuSvc           menus.Service
+	widgetSvc         widgets.Service
+	themeSvc          themes.Service
+	mediaSvc          media.Service
+	markdownSvc       interfaces.MarkdownService
+	loggerProvider    interfaces.LoggerProvider
+	shortcodeRegistry interfaces.ShortcodeRegistry
+	shortcodeService  interfaces.ShortcodeService
+	shortcodeRenderer interfaces.ShortcodeRenderer
+	shortcodeCache    interfaces.CacheProvider
+	shortcodeMetrics  interfaces.ShortcodeMetrics
+	shortcodeCaches   map[string]interfaces.CacheProvider
+	shortcodeCacheResolved bool
 
 	commandRegistry      CommandRegistry
 	commandDispatcher    CommandDispatcher
@@ -229,6 +240,34 @@ func WithCache(service repocache.CacheService, serializer repocache.KeySerialize
 func WithCacheProvider(provider interfaces.CacheProvider) Option {
 	return func(c *Container) {
 		c.cache = provider
+	}
+}
+
+// WithShortcodeMetrics overrides the metrics recorder used by the shortcode service.
+func WithShortcodeMetrics(metrics interfaces.ShortcodeMetrics) Option {
+	return func(c *Container) {
+		if metrics != nil {
+			c.shortcodeMetrics = metrics
+		}
+	}
+}
+
+// WithShortcodeCacheProvider registers a cache provider that can be selected for shortcodes.
+// When name is empty, the provider is used as the default shortcode cache.
+func WithShortcodeCacheProvider(name string, provider interfaces.CacheProvider) Option {
+	return func(c *Container) {
+		if provider == nil {
+			return
+		}
+		key := strings.TrimSpace(name)
+		if key == "" {
+			c.shortcodeCache = provider
+			return
+		}
+		if c.shortcodeCaches == nil {
+			c.shortcodeCaches = map[string]interfaces.CacheProvider{}
+		}
+		c.shortcodeCaches[key] = provider
 	}
 }
 
@@ -469,6 +508,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		auth:             noop.Auth(),
 		cache:            noop.Cache(),
 		cacheTTL:         cacheTTL,
+		shortcodeMetrics: shortcode.NoOpMetrics(),
+		shortcodeCaches:  map[string]interfaces.CacheProvider{},
 
 		memoryContentRepo:     memoryContentRepo,
 		memoryContentTypeRepo: memoryContentTypeRepo,
@@ -568,6 +609,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		if c.blockVersionRepo != nil {
 			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
 		}
+		if c.Config.Features.Shortcodes {
+			blockOpts = append(blockOpts, blocks.WithShortcodeService(c.ShortcodeService()))
+		}
 		c.blockSvc = blocks.NewService(
 			c.blockDefinitionRepo,
 			c.blockRepo,
@@ -599,6 +643,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			}
 			if c.widgetPlacementRepo != nil {
 				serviceOptions = append(serviceOptions, widgets.WithAreaPlacementRepository(c.widgetPlacementRepo))
+			}
+			if c.Config.Features.Shortcodes {
+				serviceOptions = append(serviceOptions, widgets.WithShortcodeService(c.ShortcodeService()))
 			}
 
 			c.widgetSvc = widgets.NewService(
@@ -691,25 +738,27 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				AssetCopyTimeout: c.Config.Generator.AssetCopyTimeout,
 			}
 			genDeps := generator.Dependencies{
-				Pages:    c.PageService(),
-				Content:  c.ContentService(),
-				Blocks:   c.BlockService(),
-				Widgets:  c.WidgetService(),
-				Menus:    c.MenuService(),
-				Themes:   c.ThemeService(),
-				I18N:     c.I18nService(),
-				Renderer: c.template,
-				Storage:  c.generatorStorage,
-				Locales:  c.localeRepo,
-				Assets:   c.generatorAssetResolver,
-				Hooks:    c.generatorHooks,
-				Logger:   logging.GeneratorLogger(c.loggerProvider),
+				Pages:      c.PageService(),
+				Content:    c.ContentService(),
+				Blocks:     c.BlockService(),
+				Widgets:    c.WidgetService(),
+				Menus:      c.MenuService(),
+				Themes:     c.ThemeService(),
+				I18N:       c.I18nService(),
+				Renderer:   c.template,
+				Storage:    c.generatorStorage,
+				Locales:    c.localeRepo,
+				Assets:     c.generatorAssetResolver,
+				Hooks:      c.generatorHooks,
+				Logger:     logging.GeneratorLogger(c.loggerProvider),
+				Shortcodes: c.ShortcodeService(),
 			}
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}
 	}
 
 	c.subscribeStorageEvents()
+	c.registerShortcodeTemplateHelpers()
 
 	return c, nil
 }
@@ -1282,6 +1331,200 @@ func (c *Container) configureStorageAdminService() {
 	c.storageAdminSvc = adminstorage.NewService(c.storageRepo, c.auditRecorder, options...)
 }
 
+func (c *Container) initShortcodeRegistry() interfaces.ShortcodeRegistry {
+	if !c.Config.Features.Shortcodes {
+		return nil
+	}
+
+	validator := shortcode.NewValidator()
+	registry := shortcode.NewRegistry(validator)
+	logger := logging.ModuleLogger(c.loggerProvider, "cms.shortcodes")
+
+	if err := shortcode.RegisterBuiltIns(registry, c.Config.Shortcodes.BuiltIns); err != nil {
+		logger.Error("shortcodes: failed to register built-ins", "error", err)
+	}
+
+	for _, defCfg := range c.Config.Shortcodes.CustomDefinitions {
+		definition, err := convertShortcodeDefinition(defCfg)
+		if err != nil {
+			logger.Warn("shortcodes: failed to parse custom definition", "name", defCfg.Name, "error", err)
+			continue
+		}
+		if strings.TrimSpace(definition.Name) == "" {
+			logger.Warn("shortcodes: skipping custom definition without name")
+			continue
+		}
+		if err := registry.Register(definition); err != nil {
+			logger.Warn("shortcodes: failed to register custom definition", "name", definition.Name, "error", err)
+		}
+	}
+
+	return registry
+}
+
+func (c *Container) initShortcodeRenderer() interfaces.ShortcodeRenderer {
+	if c.shortcodeRenderer != nil {
+		return c.shortcodeRenderer
+	}
+	if !c.Config.Features.Shortcodes {
+		return nil
+	}
+
+	registry := c.ShortcodeRegistry()
+	if registry == nil {
+		return nil
+	}
+
+	validator := shortcode.NewValidator()
+	rendererOpts := []shortcode.RendererOption{}
+	if cacheProvider := c.resolveShortcodeCache(); cacheProvider != nil {
+		rendererOpts = append(rendererOpts, shortcode.WithRendererCache(cacheProvider))
+	}
+	if metrics := c.shortcodeMetrics; metrics != nil {
+		rendererOpts = append(rendererOpts, shortcode.WithRendererMetrics(metrics))
+	}
+	sanitizer := interfaces.ShortcodeSanitizer(shortcode.NewSanitizer())
+	if !c.Config.Shortcodes.Security.SanitizeOutput {
+		sanitizer = shortcode.NoOpSanitizer{}
+	}
+	rendererOpts = append(rendererOpts, shortcode.WithRendererSanitizer(sanitizer))
+
+	c.shortcodeRenderer = shortcode.NewRenderer(registry, validator, rendererOpts...)
+	return c.shortcodeRenderer
+}
+
+func (c *Container) initShortcodeService() interfaces.ShortcodeService {
+	if !c.Config.Features.Shortcodes {
+		return shortcode.NewNoOpService()
+	}
+
+	registry := c.ShortcodeRegistry()
+	if registry == nil {
+		return shortcode.NewNoOpService()
+	}
+	renderer := c.initShortcodeRenderer()
+	if renderer == nil {
+		return shortcode.NewNoOpService()
+	}
+
+	logger := logging.ModuleLogger(c.loggerProvider, "cms.shortcodes")
+	metrics := c.shortcodeMetrics
+	if metrics == nil {
+		metrics = shortcode.NoOpMetrics()
+		c.shortcodeMetrics = metrics
+	}
+
+	serviceOpts := []shortcode.ServiceOption{
+		shortcode.WithLogger(logger),
+		shortcode.WithMetrics(metrics),
+	}
+	if c.Config.Shortcodes.EnableWordPressSyntax {
+		serviceOpts = append(serviceOpts, shortcode.WithWordPressSyntax(true))
+	}
+	if cacheProvider := c.resolveShortcodeCache(); cacheProvider != nil {
+		serviceOpts = append(serviceOpts, shortcode.WithDefaultCache(cacheProvider))
+	}
+
+	c.shortcodeService = shortcode.NewService(registry, renderer, serviceOpts...)
+	return c.shortcodeService
+}
+
+func (c *Container) resolveShortcodeCache() interfaces.CacheProvider {
+	if c.shortcodeCacheResolved {
+		return c.shortcodeCache
+	}
+
+	if !c.Config.Features.Shortcodes || !c.Config.Shortcodes.Enabled || !c.Config.Shortcodes.Cache.Enabled {
+		c.shortcodeCacheResolved = true
+		return nil
+	}
+
+	if c.shortcodeCache != nil {
+		c.shortcodeCacheResolved = true
+		return c.shortcodeCache
+	}
+
+	if key := strings.TrimSpace(c.Config.Shortcodes.Cache.Provider); key != "" {
+		if provider, ok := c.shortcodeCaches[key]; ok {
+			c.shortcodeCache = provider
+		} else {
+			logging.ModuleLogger(c.loggerProvider, "cms.shortcodes").Warn("shortcodes: cache provider not found", "provider", key)
+		}
+	}
+
+	if c.shortcodeCache == nil {
+		if c.cache != nil {
+			c.shortcodeCache = c.cache
+		} else {
+			logging.ModuleLogger(c.loggerProvider, "cms.shortcodes").Debug("shortcodes: cache disabled (provider unavailable)")
+		}
+	}
+
+	c.shortcodeCacheResolved = true
+	return c.shortcodeCache
+}
+
+func (c *Container) registerShortcodeTemplateHelpers() {
+	if !c.Config.Features.Shortcodes {
+		return
+	}
+	if c.template == nil {
+		return
+	}
+
+	helper := map[string]any{
+		"shortcode": c.shortcodeTemplateFunc(),
+	}
+	if err := c.template.GlobalContext(helper); err != nil {
+		logging.ModuleLogger(c.loggerProvider, "cms.shortcodes").Warn("shortcodes: failed to register template helper", "error", err)
+	}
+}
+
+func (c *Container) shortcodeTemplateFunc() func(string, ...any) (template.HTML, error) {
+	return func(name string, args ...any) (template.HTML, error) {
+		svc := c.ShortcodeService()
+		if svc == nil {
+			return template.HTML(""), nil
+		}
+
+		trimmed := strings.TrimSpace(name)
+		if trimmed == "" {
+			return template.HTML(""), fmt.Errorf("shortcode: name required")
+		}
+
+		var params map[string]any
+		var inner string
+
+		for _, arg := range args {
+			switch v := arg.(type) {
+			case map[string]any:
+				params = v
+			case map[string]string:
+				if params == nil {
+					params = map[string]any{}
+				}
+				for key, value := range v {
+					params[key] = value
+				}
+			case string:
+				if inner == "" {
+					inner = v
+				} else {
+					inner += v
+				}
+			default:
+				continue
+			}
+		}
+
+		result, err := svc.Render(interfaces.ShortcodeContext{}, trimmed, params, inner)
+		if err != nil {
+			return template.HTML(""), err
+		}
+		return result, nil
+	}
+}
+
 func (c *Container) configureWorkflowEngine() error {
 	if !c.Config.Workflow.Enabled {
 		c.workflowEngine = nil
@@ -1340,6 +1583,22 @@ func (c *Container) configureWorkflowEngine() error {
 // StorageProvider exposes the configured storage implementation.
 func (c *Container) StorageProvider() interfaces.StorageProvider {
 	return c.storage
+}
+
+// ShortcodeRegistry exposes the shortcode registry when the feature is enabled.
+func (c *Container) ShortcodeRegistry() interfaces.ShortcodeRegistry {
+	if c.shortcodeRegistry == nil {
+		c.shortcodeRegistry = c.initShortcodeRegistry()
+	}
+	return c.shortcodeRegistry
+}
+
+// ShortcodeService exposes the shortcode rendering service when enabled.
+func (c *Container) ShortcodeService() interfaces.ShortcodeService {
+	if c.shortcodeService == nil {
+		c.shortcodeService = c.initShortcodeService()
+	}
+	return c.shortcodeService
 }
 
 // TemplateRenderer exposes the configured template renderer.
@@ -1436,6 +1695,47 @@ func (c *Container) MediaService() media.Service {
 
 // MarkdownService returns the configured markdown service.
 func (c *Container) MarkdownService() interfaces.MarkdownService {
+	if c.markdownSvc != nil {
+		return c.markdownSvc
+	}
+	if !c.Config.Features.Markdown {
+		return nil
+	}
+
+	parserCfg := c.Config.Markdown.Parser
+	parseOpts := interfaces.ParseOptions{
+		Extensions: append([]string(nil), parserCfg.Extensions...),
+		Sanitize:   parserCfg.Sanitize,
+		HardWraps:  parserCfg.HardWraps,
+		SafeMode:   parserCfg.SafeMode,
+	}
+
+	mdCfg := markdown.Config{
+		BasePath:          c.Config.Markdown.ContentDir,
+		DefaultLocale:     c.Config.Markdown.DefaultLocale,
+		Locales:           append([]string(nil), c.Config.Markdown.Locales...),
+		LocalePatterns:    maps.Clone(c.Config.Markdown.LocalePatterns),
+		Pattern:           c.Config.Markdown.Pattern,
+		Recursive:         c.Config.Markdown.Recursive,
+		Parser:            parseOpts,
+		ProcessShortcodes: c.Config.Markdown.ProcessShortcodes,
+	}
+
+	service, err := markdown.NewService(
+		mdCfg,
+		nil,
+		markdown.WithContentService(c.ContentService()),
+		markdown.WithPageService(c.PageService()),
+		markdown.WithLogger(logging.MarkdownLogger(c.loggerProvider)),
+		markdown.WithShortcodeService(c.ShortcodeService()),
+	)
+	if err != nil {
+		logging.MarkdownLogger(c.loggerProvider).Error("markdown: failed to initialise service", "error", err)
+		return nil
+	}
+
+	// Ensure importer mirrors current dependencies.
+	c.markdownSvc = service
 	return c.markdownSvc
 }
 
@@ -1446,6 +1746,24 @@ func (c *Container) Scheduler() interfaces.Scheduler {
 // WorkflowEngine returns the configured workflow engine (may be nil when disabled).
 func (c *Container) WorkflowEngine() interfaces.WorkflowEngine {
 	return c.workflowEngine
+}
+
+func convertShortcodeDefinition(cfg runtimeconfig.ShortcodeDefinitionConfig) (interfaces.ShortcodeDefinition, error) {
+	definition := interfaces.ShortcodeDefinition{
+		Name:     strings.TrimSpace(cfg.Name),
+		Template: cfg.Template,
+	}
+	if len(cfg.Schema) == 0 {
+		return definition, nil
+	}
+	data, err := json.Marshal(cfg.Schema)
+	if err != nil {
+		return definition, err
+	}
+	if err := json.Unmarshal(data, &definition.Schema); err != nil {
+		return definition, err
+	}
+	return definition, nil
 }
 
 // I18nService returns the configured i18n service (lazy).
