@@ -2,14 +2,17 @@ package di
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"maps"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/goliatone/go-cms/internal/adapters/noop"
-	"github.com/goliatone/go-cms/internal/adapters/storage"
+	storageadapter "github.com/goliatone/go-cms/internal/adapters/storage"
+	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
 	"github.com/goliatone/go-cms/internal/blocks"
 	cmscommands "github.com/goliatone/go-cms/internal/commands"
 	auditcmd "github.com/goliatone/go-cms/internal/commands/audit"
@@ -33,16 +36,20 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	"github.com/goliatone/go-cms/internal/storageconfig"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/storage"
 	command "github.com/goliatone/go-command"
 	repocache "github.com/goliatone/go-repository-cache/cache"
 	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect/pgdialect"
+	"github.com/uptrace/bun/dialect/sqlitedialect"
 )
 
 // ErrWorkflowEngineNotProvided is returned when a custom workflow provider is configured without supplying an engine.
@@ -52,7 +59,17 @@ var ErrWorkflowEngineNotProvided = errors.New("di: workflow engine required for 
 type Container struct {
 	Config runtimeconfig.Config
 
-	storage   interfaces.StorageProvider
+	storage          interfaces.StorageProvider
+	storageRepo      storageconfig.Repository
+	storageFactories map[string]StorageFactory
+	storageProfiles  map[string]storage.Profile
+	storageMu        sync.RWMutex
+	storageHandle    *storageHandle
+	storageCancel    context.CancelFunc
+	storageLogger    interfaces.Logger
+	storageAdminSvc  *adminstorage.Service
+	activeProfile    string
+
 	cache     interfaces.CacheProvider
 	template  interfaces.TemplateRenderer
 	media     interfaces.MediaProvider
@@ -64,17 +81,37 @@ type Container struct {
 	cacheService  repocache.CacheService
 	keySerializer repocache.KeySerializer
 
-	contentRepo     content.ContentRepository
-	contentTypeRepo content.ContentTypeRepository
+	memoryContentRepo     *content.MemoryContentRepository
+	memoryContentTypeRepo *content.MemoryContentTypeRepository
+	memoryLocaleRepo      *content.MemoryLocaleRepository
 
-	localeRepo content.LocaleRepository
+	contentRepo     *contentRepositoryProxy
+	contentTypeRepo *contentTypeRepositoryProxy
+	localeRepo      *localeRepositoryProxy
 
-	pageRepo pages.PageRepository
+	memoryPageRepo *pages.MemoryPageRepository
+	pageRepo       *pageRepositoryProxy
 
-	blockRepo            blocks.InstanceRepository
-	blockDefinitionRepo  blocks.DefinitionRepository
-	blockTranslationRepo blocks.TranslationRepository
-	blockVersionRepo     blocks.InstanceVersionRepository
+	memoryBlockDefinitionRepo  blocks.DefinitionRepository
+	memoryBlockRepo            blocks.InstanceRepository
+	memoryBlockTranslationRepo blocks.TranslationRepository
+	memoryBlockVersionRepo     blocks.InstanceVersionRepository
+
+	blockRepo            *blockInstanceRepositoryProxy
+	blockDefinitionRepo  *blockDefinitionRepositoryProxy
+	blockTranslationRepo *blockTranslationRepositoryProxy
+	blockVersionRepo     *blockVersionRepositoryProxy
+
+	memoryMenuRepo              menus.MenuRepository
+	memoryMenuItemRepo          menus.MenuItemRepository
+	memoryMenuTranslationRepo   menus.MenuItemTranslationRepository
+	memoryWidgetDefinitionRepo  widgets.DefinitionRepository
+	memoryWidgetInstanceRepo    widgets.InstanceRepository
+	memoryWidgetTranslationRepo widgets.TranslationRepository
+	memoryWidgetAreaRepo        widgets.AreaDefinitionRepository
+	memoryWidgetPlacementRepo   widgets.AreaPlacementRepository
+	memoryThemeRepo             themes.ThemeRepository
+	memoryTemplateRepo          themes.TemplateRepository
 
 	menuRepo            menus.MenuRepository
 	menuItemRepo        menus.MenuItemRepository
@@ -90,8 +127,6 @@ type Container struct {
 
 	themeRepo    themes.ThemeRepository
 	templateRepo themes.TemplateRepository
-
-	memoryLocaleRepo *content.MemoryLocaleRepository
 
 	contentSvc     content.Service
 	pageSvc        pages.Service
@@ -125,6 +160,30 @@ type Container struct {
 // Option mutates the container before it is finalised.
 type Option func(*Container)
 
+// StorageFactory constructs storage providers and their backing handles for a profile.
+type StorageFactory func(ctx context.Context, profile storage.Profile) (StorageFactoryResult, error)
+
+// StorageFactoryResult captures the outcome of a storage factory invocation.
+type StorageFactoryResult struct {
+	Provider interfaces.StorageProvider
+	BunDB    *bun.DB
+	Closer   func(context.Context) error
+}
+
+type storageHandle struct {
+	profile  storage.Profile
+	provider interfaces.StorageProvider
+	bunDB    *bun.DB
+	closer   func(context.Context) error
+}
+
+func (h *storageHandle) Close(ctx context.Context) {
+	if h == nil || h.closer == nil {
+		return
+	}
+	_ = h.closer(ctx)
+}
+
 // CommandRegistry records command handlers so hosts can expose them via CLI or cron.
 type CommandRegistry interface {
 	RegisterCommand(handler any) error
@@ -147,6 +206,15 @@ type CronRegistrar func(command.HandlerConfig, any) error
 func WithStorage(sp interfaces.StorageProvider) Option {
 	return func(c *Container) {
 		c.storage = sp
+		if sp != nil {
+			c.storageHandle = &storageHandle{
+				profile: storage.Profile{
+					Name:     "manual",
+					Provider: "manual",
+				},
+				provider: sp,
+			}
+		}
 	}
 }
 
@@ -319,6 +387,29 @@ func WithCronRegistrar(registrar CronRegistrar) Option {
 	}
 }
 
+// WithStorageRepository overrides the storage profile repository used for runtime configuration.
+func WithStorageRepository(repo storageconfig.Repository) Option {
+	return func(c *Container) {
+		if repo != nil {
+			c.storageRepo = repo
+		}
+	}
+}
+
+// WithStorageFactory registers a storage provider factory under the given kind.
+func WithStorageFactory(kind string, factory StorageFactory) Option {
+	return func(c *Container) {
+		trimmed := strings.ToLower(strings.TrimSpace(kind))
+		if trimmed == "" || factory == nil {
+			return
+		}
+		if c.storageFactories == nil {
+			c.storageFactories = map[string]StorageFactory{}
+		}
+		c.storageFactories[trimmed] = factory
+	}
+}
+
 // WithAuditRecorder overrides the audit recorder used by audit commands and worker instrumentation.
 func WithAuditRecorder(recorder jobs.AuditRecorder) Option {
 	return func(c *Container) {
@@ -368,21 +459,48 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryTemplateRepo := themes.NewMemoryTemplateRepository()
 
 	c := &Container{
-		Config:                cfg,
-		storage:               storage.NewNoOpProvider(),
-		template:              noop.Template(),
-		media:                 noop.Media(),
-		auth:                  noop.Auth(),
-		cache:                 noop.Cache(),
-		cacheTTL:              cacheTTL,
-		contentRepo:           memoryContentRepo,
-		contentTypeRepo:       memoryContentTypeRepo,
-		localeRepo:            memoryLocaleRepo,
-		pageRepo:              memoryPageRepo,
-		blockDefinitionRepo:   memoryBlockDefRepo,
-		blockRepo:             memoryBlockRepo,
-		blockTranslationRepo:  memoryBlockTranslationRepo,
-		blockVersionRepo:      memoryBlockVersionRepo,
+		Config:           cfg,
+		storage:          storageadapter.NewNoOpProvider(),
+		storageRepo:      storageconfig.NewMemoryRepository(),
+		storageFactories: map[string]StorageFactory{},
+		storageProfiles:  map[string]storage.Profile{},
+		template:         noop.Template(),
+		media:            noop.Media(),
+		auth:             noop.Auth(),
+		cache:            noop.Cache(),
+		cacheTTL:         cacheTTL,
+
+		memoryContentRepo:     memoryContentRepo,
+		memoryContentTypeRepo: memoryContentTypeRepo,
+		memoryLocaleRepo:      memoryLocaleRepo,
+		memoryPageRepo:        memoryPageRepo,
+
+		contentRepo:     newContentRepositoryProxy(memoryContentRepo),
+		contentTypeRepo: newContentTypeRepositoryProxy(memoryContentTypeRepo),
+		localeRepo:      newLocaleRepositoryProxy(memoryLocaleRepo),
+		pageRepo:        newPageRepositoryProxy(memoryPageRepo),
+
+		memoryBlockDefinitionRepo:  memoryBlockDefRepo,
+		memoryBlockRepo:            memoryBlockRepo,
+		memoryBlockTranslationRepo: memoryBlockTranslationRepo,
+		memoryBlockVersionRepo:     memoryBlockVersionRepo,
+
+		memoryMenuRepo:              memoryMenuRepo,
+		memoryMenuItemRepo:          memoryMenuItemRepo,
+		memoryMenuTranslationRepo:   memoryMenuTranslationRepo,
+		memoryWidgetDefinitionRepo:  memoryWidgetDefinitionRepo,
+		memoryWidgetInstanceRepo:    memoryWidgetInstanceRepo,
+		memoryWidgetTranslationRepo: memoryWidgetTranslationRepo,
+		memoryWidgetAreaRepo:        memoryWidgetAreaRepo,
+		memoryWidgetPlacementRepo:   memoryWidgetPlacementRepo,
+		memoryThemeRepo:             memoryThemeRepo,
+		memoryTemplateRepo:          memoryTemplateRepo,
+
+		blockDefinitionRepo:  newBlockDefinitionRepositoryProxy(memoryBlockDefRepo),
+		blockRepo:            newBlockInstanceRepositoryProxy(memoryBlockRepo),
+		blockTranslationRepo: newBlockTranslationRepositoryProxy(memoryBlockTranslationRepo),
+		blockVersionRepo:     newBlockVersionRepositoryProxy(memoryBlockVersionRepo),
+
 		menuRepo:              memoryMenuRepo,
 		menuItemRepo:          memoryMenuItemRepo,
 		menuTranslationRepo:   memoryMenuTranslationRepo,
@@ -393,9 +511,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		widgetPlacementRepo:   memoryWidgetPlacementRepo,
 		themeRepo:             memoryThemeRepo,
 		templateRepo:          memoryTemplateRepo,
-		memoryLocaleRepo:      memoryLocaleRepo,
-		mediaSvc:              media.NewNoOpService(),
-		generatorStorage:      storage.NewNoOpProvider(),
+
+		mediaSvc:         media.NewNoOpService(),
+		generatorStorage: storageadapter.NewNoOpProvider(),
 	}
 
 	c.seedLocales()
@@ -407,13 +525,23 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if err := c.configureLoggerProvider(); err != nil {
 		return nil, err
 	}
+	c.storageLogger = logging.StorageLogger(c.loggerProvider)
 	c.configureCacheDefaults()
-	c.configureRepositories()
+	if err := c.initializeStorage(context.Background()); err != nil {
+		return nil, err
+	}
 	c.configureNavigation()
 	c.configureScheduler()
 	c.configureMediaService()
 	if err := c.configureWorkflowEngine(); err != nil {
 		return nil, err
+	}
+	c.configureStorageAdminService()
+
+	requireTranslations := c.Config.I18N.RequireTranslations
+	translationsEnabled := c.Config.I18N.Enabled
+	if !translationsEnabled && requireTranslations {
+		requireTranslations = false
 	}
 
 	if c.contentSvc == nil {
@@ -424,6 +552,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
 		}
+		contentOpts = append(contentOpts,
+			content.WithRequireTranslations(requireTranslations),
+			content.WithTranslationsEnabled(translationsEnabled),
+		)
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
 	}
 
@@ -488,6 +620,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
 			pages.WithWorkflowEngine(c.workflowEngine),
 		}
+		pageOpts = append(pageOpts,
+			pages.WithRequireTranslations(requireTranslations),
+			pages.WithTranslationsEnabled(translationsEnabled),
+		)
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
 		}
@@ -502,6 +638,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 
 	if c.menuSvc == nil {
 		menuOpts := []menus.ServiceOption{}
+		menuOpts = append(menuOpts,
+			menus.WithRequireTranslations(requireTranslations),
+			menus.WithTranslationsEnabled(translationsEnabled),
+		)
 		if c.pageRepo != nil {
 			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
 		}
@@ -568,6 +708,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}
 	}
+
+	c.subscribeStorageEvents()
 
 	return c, nil
 }
@@ -653,16 +795,30 @@ func (c *Container) configureCacheDefaults() {
 
 func (c *Container) configureRepositories() {
 	if c.bunDB != nil {
-		c.contentRepo = content.NewBunContentRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-		c.contentTypeRepo = content.NewBunContentTypeRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-		c.localeRepo = content.NewBunLocaleRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-
-		c.pageRepo = pages.NewBunPageRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-
-		c.blockDefinitionRepo = blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-		c.blockRepo = blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-		c.blockTranslationRepo = blocks.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
-		c.blockVersionRepo = blocks.NewBunInstanceVersionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		if c.contentRepo != nil {
+			c.contentRepo.swap(content.NewBunContentRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.contentTypeRepo != nil {
+			c.contentTypeRepo.swap(content.NewBunContentTypeRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.localeRepo != nil {
+			c.localeRepo.swap(content.NewBunLocaleRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.pageRepo != nil {
+			c.pageRepo.swap(pages.NewBunPageRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.blockDefinitionRepo != nil {
+			c.blockDefinitionRepo.swap(blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.blockRepo != nil {
+			c.blockRepo.swap(blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.blockTranslationRepo != nil {
+			c.blockTranslationRepo.swap(blocks.NewBunTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
+		if c.blockVersionRepo != nil {
+			c.blockVersionRepo.swap(blocks.NewBunInstanceVersionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
 
 		c.menuRepo = menus.NewBunMenuRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.menuItemRepo = menus.NewBunMenuItemRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
@@ -677,8 +833,386 @@ func (c *Container) configureRepositories() {
 		c.themeRepo = themes.NewBunThemeRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.templateRepo = themes.NewBunTemplateRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 
-		c.memoryLocaleRepo = nil
+		return
 	}
+
+	if c.contentRepo != nil && c.memoryContentRepo != nil {
+		c.contentRepo.swap(c.memoryContentRepo)
+	}
+	if c.contentTypeRepo != nil && c.memoryContentTypeRepo != nil {
+		c.contentTypeRepo.swap(c.memoryContentTypeRepo)
+	}
+	if c.localeRepo != nil && c.memoryLocaleRepo != nil {
+		c.localeRepo.swap(c.memoryLocaleRepo)
+	}
+	if c.pageRepo != nil && c.memoryPageRepo != nil {
+		c.pageRepo.swap(c.memoryPageRepo)
+	}
+	if c.blockDefinitionRepo != nil && c.memoryBlockDefinitionRepo != nil {
+		c.blockDefinitionRepo.swap(c.memoryBlockDefinitionRepo)
+	}
+	if c.blockRepo != nil && c.memoryBlockRepo != nil {
+		c.blockRepo.swap(c.memoryBlockRepo)
+	}
+	if c.blockTranslationRepo != nil && c.memoryBlockTranslationRepo != nil {
+		c.blockTranslationRepo.swap(c.memoryBlockTranslationRepo)
+	}
+	if c.blockVersionRepo != nil && c.memoryBlockVersionRepo != nil {
+		c.blockVersionRepo.swap(c.memoryBlockVersionRepo)
+	}
+
+	if c.memoryMenuRepo != nil {
+		c.menuRepo = c.memoryMenuRepo
+	}
+	if c.memoryMenuItemRepo != nil {
+		c.menuItemRepo = c.memoryMenuItemRepo
+	}
+	if c.memoryMenuTranslationRepo != nil {
+		c.menuTranslationRepo = c.memoryMenuTranslationRepo
+	}
+	if c.memoryWidgetDefinitionRepo != nil {
+		c.widgetDefinitionRepo = c.memoryWidgetDefinitionRepo
+	}
+	if c.memoryWidgetInstanceRepo != nil {
+		c.widgetInstanceRepo = c.memoryWidgetInstanceRepo
+	}
+	if c.memoryWidgetTranslationRepo != nil {
+		c.widgetTranslationRepo = c.memoryWidgetTranslationRepo
+	}
+	if c.memoryWidgetAreaRepo != nil {
+		c.widgetAreaRepo = c.memoryWidgetAreaRepo
+	}
+	if c.memoryWidgetPlacementRepo != nil {
+		c.widgetPlacementRepo = c.memoryWidgetPlacementRepo
+	}
+	if c.memoryThemeRepo != nil {
+		c.themeRepo = c.memoryThemeRepo
+	}
+	if c.memoryTemplateRepo != nil {
+		c.templateRepo = c.memoryTemplateRepo
+	}
+}
+
+func (c *Container) registerDefaultStorageFactories() {
+	if c.storageFactories == nil {
+		c.storageFactories = map[string]StorageFactory{}
+	}
+	if _, ok := c.storageFactories["bun"]; !ok {
+		c.storageFactories["bun"] = c.bunStorageFactory
+	}
+}
+
+func (c *Container) bunStorageFactory(ctx context.Context, profile storage.Profile) (StorageFactoryResult, error) {
+	cfg := profile.Config
+	driver := strings.ToLower(strings.TrimSpace(cfg.Driver))
+	dsn := strings.TrimSpace(cfg.DSN)
+	if driver == "" {
+		return StorageFactoryResult{}, errors.New("di: storage profile driver required for bun provider")
+	}
+	if dsn == "" {
+		return StorageFactoryResult{}, errors.New("di: storage profile DSN required for bun provider")
+	}
+
+	sqlDB, err := sql.Open(driver, dsn)
+	if err != nil {
+		return StorageFactoryResult{}, fmt.Errorf("di: open storage driver %s: %w", driver, err)
+	}
+
+	var bunDB *bun.DB
+	switch driver {
+	case "sqlite3", "sqlite":
+		bunDB = bun.NewDB(sqlDB, sqlitedialect.New())
+	case "postgres", "pgx", "pg":
+		bunDB = bun.NewDB(sqlDB, pgdialect.New())
+	default:
+		_ = sqlDB.Close()
+		return StorageFactoryResult{}, fmt.Errorf("di: unsupported bun driver %q", driver)
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := sqlDB.PingContext(ctx); err != nil {
+		_ = sqlDB.Close()
+		return StorageFactoryResult{}, fmt.Errorf("di: ping storage driver %s: %w", driver, err)
+	}
+
+	provider := storageadapter.NewBunStorageAdapter(sqlDB)
+
+	return StorageFactoryResult{
+		Provider: provider,
+		BunDB:    bunDB,
+		Closer: func(context.Context) error {
+			return sqlDB.Close()
+		},
+	}, nil
+}
+
+func (c *Container) initializeStorage(ctx context.Context) error {
+	c.registerDefaultStorageFactories()
+
+	c.storageMu.Lock()
+	if c.storageHandle != nil && c.storageHandle.provider != nil {
+		c.storageMu.Unlock()
+		c.configureRepositories()
+		return nil
+	}
+	if len(c.storageProfiles) == 0 && c.storageRepo != nil {
+		if stored, err := c.storageRepo.List(ctx); err == nil {
+			for _, profile := range stored {
+				cloned := cloneStorageProfile(profile)
+				c.storageProfiles[strings.TrimSpace(cloned.Name)] = cloned
+			}
+		} else {
+			c.storageLog().Error("storage.profile_list_failed", "error", err)
+		}
+	}
+	if len(c.storageProfiles) == 0 && len(c.Config.Storage.Profiles) > 0 {
+		for _, profile := range c.Config.Storage.Profiles {
+			cloned := cloneStorageProfile(profile)
+			if c.storageRepo != nil {
+				if _, err := c.storageRepo.Upsert(ctx, cloned); err != nil {
+					c.storageMu.Unlock()
+					return fmt.Errorf("di: upsert storage profile %s: %w", cloned.Name, err)
+				}
+			}
+			c.storageProfiles[strings.TrimSpace(cloned.Name)] = cloned
+		}
+	}
+
+	activeProfile := strings.TrimSpace(c.activeProfile)
+	if activeProfile == "" {
+		for name, profile := range c.storageProfiles {
+			if profile.Default {
+				activeProfile = name
+				break
+			}
+		}
+	}
+	if activeProfile == "" {
+		if _, ok := c.storageProfiles[strings.TrimSpace(c.Config.Storage.Provider)]; ok {
+			activeProfile = strings.TrimSpace(c.Config.Storage.Provider)
+		}
+	}
+	if activeProfile == "" && len(c.storageProfiles) > 0 {
+		for name := range c.storageProfiles {
+			activeProfile = name
+			break
+		}
+	}
+	c.storageMu.Unlock()
+
+	if profile, ok := c.storageProfiles[activeProfile]; ok {
+		if err := c.activateStorageProfile(ctx, profile); err != nil {
+			c.storageLog().Error("storage.profile_activate_failed", "profile", profile.Name, "error", err)
+			return err
+		}
+		return nil
+	}
+
+	if c.bunDB != nil {
+		c.storageMu.Lock()
+		c.storage = storageadapter.NewBunStorageAdapter(c.bunDB.DB)
+		c.storageHandle = &storageHandle{
+			profile: storage.Profile{
+				Name:     strings.TrimSpace(c.Config.Storage.Provider),
+				Provider: "bun",
+			},
+			provider: c.storage,
+			bunDB:    c.bunDB,
+		}
+		c.storageMu.Unlock()
+		c.configureRepositories()
+		return nil
+	}
+
+	c.configureRepositories()
+	return nil
+}
+
+func (c *Container) storagePreviewer() adminstorage.PreviewFunc {
+	if len(c.storageFactories) == 0 {
+		return nil
+	}
+	return func(ctx context.Context, profile storage.Profile) (adminstorage.PreviewResult, error) {
+		if ctx == nil {
+			ctx = context.Background()
+		}
+		cloned := cloneStorageProfile(profile)
+		kind := strings.ToLower(strings.TrimSpace(cloned.Provider))
+		if kind == "" {
+			return adminstorage.PreviewResult{}, fmt.Errorf("di: storage preview provider required")
+		}
+		factory, ok := c.storageFactories[kind]
+		if !ok {
+			return adminstorage.PreviewResult{}, fmt.Errorf("di: no storage factory registered for provider %q", cloned.Provider)
+		}
+		result, err := factory(ctx, cloned)
+		if err != nil {
+			return adminstorage.PreviewResult{}, err
+		}
+		if result.Closer != nil {
+			defer result.Closer(ctx)
+		}
+		diagnostics := map[string]any{
+			"provider": cloned.Provider,
+			"verified": true,
+		}
+		if driver := strings.TrimSpace(cloned.Config.Driver); driver != "" {
+			diagnostics["driver"] = driver
+		}
+		if result.BunDB != nil {
+			diagnostics["dialect"] = result.BunDB.Dialect().Name()
+		}
+		preview := adminstorage.PreviewResult{
+			Profile:     cloneStorageProfile(cloned),
+			Diagnostics: diagnostics,
+		}
+		if reporter, ok := any(result.Provider).(storage.CapabilityReporter); ok {
+			preview.Capabilities = reporter.Capabilities()
+		}
+		if _, ok := any(result.Provider).(storage.Reloadable); ok && !preview.Capabilities.SupportsReload {
+			preview.Capabilities.SupportsReload = true
+		}
+		return preview, nil
+	}
+}
+
+func (c *Container) activateStorageProfile(ctx context.Context, profile storage.Profile) error {
+	kind := strings.ToLower(strings.TrimSpace(profile.Provider))
+	factory, ok := c.storageFactories[kind]
+	if !ok {
+		return fmt.Errorf("di: no storage factory registered for provider %q", profile.Provider)
+	}
+
+	result, err := factory(ctx, profile)
+	if err != nil {
+		return err
+	}
+
+	handle := &storageHandle{
+		profile:  cloneStorageProfile(profile),
+		provider: result.Provider,
+		bunDB:    result.BunDB,
+		closer:   result.Closer,
+	}
+
+	c.swapStorageHandle(ctx, handle)
+	c.storageMu.Lock()
+	c.activeProfile = handle.profile.Name
+	c.storageMu.Unlock()
+	c.storageLog().Info("storage.profile_activated", "profile", handle.profile.Name, "provider", handle.profile.Provider)
+	return nil
+}
+
+func (c *Container) swapStorageHandle(ctx context.Context, handle *storageHandle) {
+	c.storageMu.Lock()
+	prev := c.storageHandle
+	c.storageHandle = handle
+	if handle != nil {
+		c.storage = handle.provider
+		c.bunDB = handle.bunDB
+	} else {
+		c.storage = storageadapter.NewNoOpProvider()
+		c.bunDB = nil
+	}
+	c.storageMu.Unlock()
+
+	c.configureRepositories()
+
+	if prev != nil && prev != handle {
+		prev.Close(ctx)
+	}
+}
+
+func (c *Container) selectFallbackProfile(ctx context.Context) {
+	c.storageMu.Lock()
+	var fallback storage.Profile
+	for _, profile := range c.storageProfiles {
+		fallback = profile
+		if profile.Default {
+			break
+		}
+	}
+	c.storageMu.Unlock()
+	if fallback.Name == "" {
+		c.swapStorageHandle(ctx, nil)
+		c.storageLog().Warn("storage.profile_cleared")
+		return
+	}
+	if err := c.activateStorageProfile(ctx, fallback); err != nil {
+		c.storageLog().Error("storage.profile_activate_failed", "profile", fallback.Name, "error", err)
+		c.swapStorageHandle(ctx, nil)
+	}
+}
+
+func (c *Container) subscribeStorageEvents() {
+	if c.storageRepo == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := c.storageRepo.Subscribe(ctx)
+	if err != nil {
+		cancel()
+		c.storageLog().Error("storage.subscription_failed", "error", err)
+		return
+	}
+	c.storageCancel = cancel
+	go func() {
+		for evt := range events {
+			c.handleStorageEvent(ctx, evt)
+		}
+	}()
+}
+
+func (c *Container) handleStorageEvent(ctx context.Context, evt storageconfig.ChangeEvent) {
+	name := strings.TrimSpace(evt.Profile.Name)
+	switch evt.Type {
+	case storageconfig.ChangeCreated, storageconfig.ChangeUpdated:
+		if name == "" {
+			return
+		}
+		cloned := cloneStorageProfile(evt.Profile)
+		c.storageMu.Lock()
+		c.storageProfiles[name] = cloned
+		c.storageMu.Unlock()
+		if cloned.Default || name == c.activeProfile {
+			if err := c.activateStorageProfile(ctx, cloned); err != nil {
+				c.storageLog().Error("storage.profile_activate_failed", "profile", cloned.Name, "error", err)
+			}
+		}
+	case storageconfig.ChangeDeleted:
+		c.storageMu.Lock()
+		delete(c.storageProfiles, name)
+		shouldFallback := name == c.activeProfile
+		if shouldFallback {
+			c.storageMu.Unlock()
+			c.selectFallbackProfile(ctx)
+			return
+		}
+		c.storageMu.Unlock()
+	}
+}
+
+func cloneStorageProfile(profile storage.Profile) storage.Profile {
+	cloned := profile
+	if profile.Config.Options != nil {
+		cloned.Config.Options = maps.Clone(profile.Config.Options)
+	}
+	if profile.Fallbacks != nil {
+		cloned.Fallbacks = append([]string(nil), profile.Fallbacks...)
+	}
+	if profile.Labels != nil {
+		cloned.Labels = maps.Clone(profile.Labels)
+	}
+	return cloned
+}
+
+func (c *Container) storageLog() interfaces.Logger {
+	if c.storageLogger != nil {
+		return c.storageLogger
+	}
+	return logging.NoOp()
 }
 
 func (c *Container) configureNavigation() {
@@ -735,6 +1269,17 @@ func (c *Container) configureMediaService() {
 		options = append(options, media.WithCache(c.cache, c.cacheTTL))
 	}
 	c.mediaSvc = media.NewService(c.media, options...)
+}
+
+func (c *Container) configureStorageAdminService() {
+	if c.storageRepo == nil || c.storageAdminSvc != nil {
+		return
+	}
+	options := []adminstorage.Option{}
+	if previewer := c.storagePreviewer(); previewer != nil {
+		options = append(options, adminstorage.WithPreviewer(previewer))
+	}
+	c.storageAdminSvc = adminstorage.NewService(c.storageRepo, c.auditRecorder, options...)
 }
 
 func (c *Container) configureWorkflowEngine() error {
@@ -831,9 +1376,33 @@ func (c *Container) PageRepository() pages.PageRepository {
 	return c.pageRepo
 }
 
+// TranslationsEnabled reports whether translation handling is globally enabled.
+func (c *Container) TranslationsEnabled() bool {
+	if c == nil {
+		return false
+	}
+	return c.Config.I18N.Enabled
+}
+
+// TranslationsRequired reports whether translations must be provided when enabled.
+func (c *Container) TranslationsRequired() bool {
+	if c == nil {
+		return false
+	}
+	if !c.Config.I18N.Enabled {
+		return false
+	}
+	return c.Config.I18N.RequireTranslations
+}
+
 // ContentService returns the configured content service.
 func (c *Container) ContentService() content.Service {
 	return c.contentSvc
+}
+
+// StorageAdminService exposes the storage admin helper.
+func (c *Container) StorageAdminService() *adminstorage.Service {
+	return c.storageAdminSvc
 }
 
 // PageService returns the configured page service.
