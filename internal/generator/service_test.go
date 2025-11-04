@@ -17,6 +17,7 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
+	shortcodepkg "github.com/goliatone/go-cms/internal/shortcode"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -111,6 +112,47 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 		if base := call.ctx.Helpers.WithBaseURL("company"); base != "https://example.com/company" {
 			t.Fatalf("expected helper base URL to return %q, got %q", "https://example.com/company", base)
 		}
+	}
+}
+
+func TestRenderShortcodesInTemplateContext(t *testing.T) {
+	svc := &service{
+		deps: Dependencies{Shortcodes: newGeneratorShortcodeService(t)},
+	}
+
+	contentSummary := "Summary {{< alert type=\"success\" >}}Done{{< /alert >}}"
+	pageSummary := "Page {{< alert type=\"info\" >}}Notice{{< /alert >}}"
+	contentMap := map[string]any{
+		"body": "Intro {{< alert type=\"warning\" >}}Check{{< /alert >}}",
+	}
+
+	tmpl := TemplateContext{
+		Page: PageRenderingContext{
+			Locale: LocaleSpec{Code: "en"},
+			ContentTranslation: &content.ContentTranslation{
+				Content: contentMap,
+				Summary: &contentSummary,
+			},
+			Translation: &pages.PageTranslation{
+				Summary: &pageSummary,
+			},
+		},
+	}
+
+	svc.renderShortcodesInTemplateContext(context.Background(), &tmpl)
+
+	body, ok := tmpl.Page.ContentTranslation.Content["body"].(string)
+	if !ok {
+		t.Fatalf("expected body string, got %T", tmpl.Page.ContentTranslation.Content[\"body\"])
+	}
+	if !strings.Contains(body, "shortcode--alert") {
+		t.Fatalf("expected shortcode render in body, got %s", body)
+	}
+	if tmpl.Page.ContentTranslation.Summary == nil || !strings.Contains(*tmpl.Page.ContentTranslation.Summary, "shortcode--alert") {
+		t.Fatalf("expected shortcode render in content summary, got %v", tmpl.Page.ContentTranslation.Summary)
+	}
+	if tmpl.Page.Translation == nil || tmpl.Page.Translation.Summary == nil || !strings.Contains(*tmpl.Page.Translation.Summary, "shortcode--alert") {
+		t.Fatalf("expected shortcode render in page summary, got %v", tmpl.Page.Translation)
 	}
 }
 
@@ -1376,6 +1418,16 @@ func newRenderFixtures(now time.Time) renderFixtures {
 		Template: templateRecord,
 		PageIDs:  []uuid.UUID{page1.ID, page2.ID},
 	}
+}
+
+func newGeneratorShortcodeService(tb testing.TB) interfaces.ShortcodeService {
+	validator := shortcodepkg.NewValidator()
+	registry := shortcodepkg.NewRegistry(validator)
+	if err := shortcodepkg.RegisterBuiltIns(registry, nil); err != nil {
+		tb.Fatalf("RegisterBuiltIns: %v", err)
+	}
+	renderer := shortcodepkg.NewRenderer(registry, validator)
+	return shortcodepkg.NewService(registry, renderer)
 }
 
 func (f renderFixtures) LocalizedCount() int {

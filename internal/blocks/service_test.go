@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/media"
+	shortcodepkg "github.com/goliatone/go-cms/internal/shortcode"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -142,6 +144,50 @@ func TestAddTranslationResolvesMedia(t *testing.T) {
 	gotTranslations := instances[0].Translations
 	if len(gotTranslations) != 1 || gotTranslations[0].ResolvedMedia["image"][0].Metadata.ID != "asset-1" {
 		t.Fatalf("expected resolved media propagated in list")
+	}
+}
+
+func TestBlockTranslationShortcodes(t *testing.T) {
+	svc := newBlockService(blocks.WithShortcodeService(newTestShortcodeService(t)))
+	def, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "notice",
+		Schema: map[string]any{"fields": []any{"body"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	instance, err := svc.CreateInstance(context.Background(), blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "main",
+		Position:     0,
+		Configuration: map[string]any{
+			"layout": "single",
+		},
+		CreatedBy: uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+		UpdatedBy: uuid.MustParse("11111111-1111-1111-1111-111111111111"),
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	translation, err := svc.AddTranslation(context.Background(), blocks.AddTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        uuid.MustParse("22222222-2222-2222-2222-222222222222"),
+		Content: map[string]any{
+			"body": "Check this {{< alert type=\"info\" >}}Important{{< /alert >}}",
+		},
+	})
+	if err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	body, ok := translation.Content["body"].(string)
+	if !ok {
+		t.Fatalf("expected body string, got %T", translation.Content["body"])
+	}
+	if !strings.Contains(body, "shortcode--alert") {
+		t.Fatalf("expected rendered shortcode in body, got %s", body)
 	}
 }
 
@@ -373,6 +419,16 @@ func newBlockService(opts ...blocks.ServiceOption) blocks.Service {
 	}
 	baseOpts = append(baseOpts, opts...)
 	return blocks.NewService(defRepo, instRepo, trRepo, baseOpts...)
+}
+
+func newTestShortcodeService(tb testing.TB) interfaces.ShortcodeService {
+	validator := shortcodepkg.NewValidator()
+	registry := shortcodepkg.NewRegistry(validator)
+	if err := shortcodepkg.RegisterBuiltIns(registry, nil); err != nil {
+		tb.Fatalf("RegisterBuiltIns: %v", err)
+	}
+	renderer := shortcodepkg.NewRenderer(registry, validator)
+	return shortcodepkg.NewService(registry, renderer)
 }
 
 type blockMediaProvider struct {

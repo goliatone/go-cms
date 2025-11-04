@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
+	shortcodepkg "github.com/goliatone/go-cms/internal/shortcode"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
@@ -83,6 +85,31 @@ func TestServiceLoadDirectory_NonRecursiveOverride(t *testing.T) {
 	}
 	if docs[0].FilePath != "en/about.md" {
 		t.Fatalf("expected en/about.md, got %s", docs[0].FilePath)
+	}
+}
+
+func TestServiceRenderShortcodes(t *testing.T) {
+	validator := shortcodepkg.NewValidator()
+	registry := shortcodepkg.NewRegistry(validator)
+	if err := shortcodepkg.RegisterBuiltIns(registry, nil); err != nil {
+		t.Fatalf("RegisterBuiltIns: %v", err)
+	}
+	renderer := shortcodepkg.NewRenderer(registry, validator)
+	shortcodes := shortcodepkg.NewService(registry, renderer)
+
+	svc, err := NewService(Config{ProcessShortcodes: true}, nil, WithShortcodeService(shortcodes))
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	input := []byte("Notice {{< alert type=\"info\" >}}Hello{{< /alert >}}")
+	output, err := svc.Render(context.Background(), input, interfaces.ParseOptions{ProcessShortcodes: true})
+	if err != nil {
+		t.Fatalf("Render: %v", err)
+	}
+	result := string(output)
+	if !strings.Contains(result, "shortcode--alert") {
+		t.Fatalf("expected rendered alert shortcode, got %s", result)
 	}
 }
 

@@ -1287,3 +1287,92 @@ func (fakeMarkdownService) ImportDirectory(context.Context, string, interfaces.I
 func (fakeMarkdownService) Sync(context.Context, string, interfaces.SyncOptions) (*interfaces.SyncResult, error) {
 	return &interfaces.SyncResult{}, nil
 }
+
+func TestContainerShortcodeCacheProviderSelection(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Shortcodes = true
+	cfg.Shortcodes.Enabled = true
+	cfg.Shortcodes.Cache.Enabled = true
+	cfg.Shortcodes.Cache.Provider = "shortcodes"
+
+	cache := &trackingCache{store: map[string]any{}}
+	metrics := &shortcodeTestMetrics{cacheHits: map[string]int{}}
+
+	container, err := di.NewContainer(cfg,
+		di.WithShortcodeCacheProvider("shortcodes", cache),
+		di.WithShortcodeMetrics(metrics),
+	)
+	if err != nil {
+		t.Fatalf("NewContainer error: %v", err)
+	}
+
+	svc := container.ShortcodeService()
+	if svc == nil {
+		t.Fatal("expected shortcode service to be configured")
+	}
+
+	ctx := interfaces.ShortcodeContext{}
+	if _, err := svc.Render(ctx, "youtube", map[string]any{"id": "dQw4w9WgXcQ"}, ""); err != nil {
+		t.Fatalf("first render error: %v", err)
+	}
+	if cache.setCount != 1 {
+		t.Fatalf("expected cache Set to be called once, got %d", cache.setCount)
+	}
+
+	if _, err := svc.Render(ctx, "youtube", map[string]any{"id": "dQw4w9WgXcQ"}, ""); err != nil {
+		t.Fatalf("second render error: %v", err)
+	}
+	if cache.hitCount != 1 {
+		t.Fatalf("expected cache hit on second render, got %d", cache.hitCount)
+	}
+	if metrics.cacheHits["youtube"] != 1 {
+		t.Fatalf("expected metrics to record cache hit, got %d", metrics.cacheHits["youtube"])
+	}
+}
+
+type trackingCache struct {
+	store    map[string]any
+	setCount int
+	hitCount int
+}
+
+func (c *trackingCache) Get(_ context.Context, key string) (any, error) {
+	if value, ok := c.store[key]; ok {
+		c.hitCount++
+		return value, nil
+	}
+	return nil, errors.New("miss")
+}
+
+func (c *trackingCache) Set(_ context.Context, key string, value any, _ time.Duration) error {
+	if c.store == nil {
+		c.store = map[string]any{}
+	}
+	c.store[key] = value
+	c.setCount++
+	return nil
+}
+
+func (c *trackingCache) Delete(_ context.Context, key string) error {
+	delete(c.store, key)
+	return nil
+}
+
+func (c *trackingCache) Clear(_ context.Context) error {
+	for key := range c.store {
+		delete(c.store, key)
+	}
+	return nil
+}
+
+type shortcodeTestMetrics struct {
+	cacheHits map[string]int
+}
+
+func (m *shortcodeTestMetrics) ObserveRenderDuration(string, time.Duration) {}
+
+func (m *shortcodeTestMetrics) IncrementRenderError(string) {}
+
+func (m *shortcodeTestMetrics) IncrementCacheHit(shortcode string) {
+	m.cacheHits[shortcode]++
+}

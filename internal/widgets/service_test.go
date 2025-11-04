@@ -5,9 +5,12 @@ import (
 	"errors"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
+	shortcodepkg "github.com/goliatone/go-cms/internal/shortcode"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
 )
@@ -268,6 +271,49 @@ func TestServiceTranslationLifecycle(t *testing.T) {
 		t.Fatalf("expected updated headline, got %v", updated.Content["headline"])
 	}
 
+}
+
+func TestWidgetTranslationShortcodes(t *testing.T) {
+	ctx := context.Background()
+	svc := newServiceWithAreas(WithShortcodeService(newWidgetShortcodeService(t)))
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name: "notice",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "body"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		CreatedBy:    uuid.MustParse("00000000-0000-0000-0000-000000000555"),
+		UpdatedBy:    uuid.MustParse("00000000-0000-0000-0000-000000000555"),
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	translation, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   uuid.MustParse("00000000-0000-0000-0000-000000000556"),
+		Content: map[string]any{
+			"body": "Hi {{< alert type=\"info\" >}}Widgets{{< /alert >}}",
+		},
+	})
+	if err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	body, ok := translation.Content["body"].(string)
+	if !ok {
+		t.Fatalf("expected body string, got %T", translation.Content["body"])
+	}
+	if !strings.Contains(body, "shortcode--alert") {
+		t.Fatalf("expected shortcode to render, got %s", body)
+	}
 }
 
 func TestServiceUpdateInstance(t *testing.T) {
@@ -844,4 +890,14 @@ func newServiceWithAreas(options ...ServiceOption) Service {
 	)
 
 	return NewService(memDef, memInst, memTr, opts...)
+}
+
+func newWidgetShortcodeService(tb testing.TB) interfaces.ShortcodeService {
+	validator := shortcodepkg.NewValidator()
+	registry := shortcodepkg.NewRegistry(validator)
+	if err := shortcodepkg.RegisterBuiltIns(registry, nil); err != nil {
+		tb.Fatalf("RegisterBuiltIns: %v", err)
+	}
+	renderer := shortcodepkg.NewRenderer(registry, validator)
+	return shortcodepkg.NewService(registry, renderer)
 }

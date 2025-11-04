@@ -28,6 +28,33 @@ func TestConfigValidate_RequiresOutputDirWhenGeneratorEnabled(t *testing.T) {
 	}
 }
 
+func TestConfigValidate_RequiresShortcodesFeature(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.Shortcodes.Enabled = true
+
+	err := cfg.Validate()
+	if !errors.Is(err, runtimeconfig.ErrShortcodesFeatureRequired) {
+		t.Fatalf("expected ErrShortcodesFeatureRequired, got %v", err)
+	}
+
+	cfg = runtimeconfig.DefaultConfig()
+	cfg.Shortcodes.EnableWordPressSyntax = true
+	err = cfg.Validate()
+	if !errors.Is(err, runtimeconfig.ErrShortcodesFeatureRequired) {
+		t.Fatalf("expected ErrShortcodesFeatureRequired with WordPress syntax, got %v", err)
+	}
+}
+
+func TestConfigValidate_AllowsShortcodesWhenFeatureEnabled(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.Features.Shortcodes = true
+	cfg.Shortcodes.Enabled = true
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() returned unexpected error: %v", err)
+	}
+}
+
 func TestConfigValidate_RequiresLoggingProviderWhenFeatureEnabled(t *testing.T) {
 	cfg := runtimeconfig.DefaultConfig()
 	cfg.Features.Logger = true
