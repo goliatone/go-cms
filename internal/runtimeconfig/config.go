@@ -23,6 +23,7 @@ var ErrAdvancedCacheRequiresEnabledCache = errors.New("cms config: advanced cach
 // ErrCommandsCronRequiresScheduling ensures automatic cron wiring only runs when scheduling is enabled.
 var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron auto-registration requires scheduling to be enabled")
 var ErrDefaultLocaleRequired = errors.New("cms config: default locale is required when translations are enforced")
+var ErrShortcodesFeatureRequired = errors.New("cms config: shortcodes feature must be enabled to configure shortcodes")
 var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must be enabled to configure markdown")
 var ErrMarkdownContentDirRequired = errors.New("cms config: markdown content directory is required when markdown is enabled")
 var ErrGeneratorOutputDirRequired = errors.New("cms config: generator output directory is required when generator is enabled")
@@ -65,6 +66,7 @@ type Config struct {
 	Widgets       WidgetConfig
 	Retention     RetentionConfig
 	Features      Features
+	Shortcodes    ShortcodeConfig
 	Commands      CommandsConfig
 	Markdown      MarkdownConfig
 	Generator     GeneratorConfig
@@ -133,6 +135,7 @@ type Features struct {
 	AdvancedCache bool
 	Markdown      bool
 	Logger        bool
+	Shortcodes    bool
 }
 
 // LoggingConfig captures provider-specific options for runtime logging.
@@ -208,14 +211,15 @@ type CommandsConfig struct {
 
 // MarkdownConfig captures filesystem and parser behaviour for Markdown ingestion.
 type MarkdownConfig struct {
-	Enabled        bool
-	ContentDir     string
-	Pattern        string
-	Recursive      bool
-	LocalePatterns map[string]string
-	DefaultLocale  string
-	Locales        []string
-	Parser         MarkdownParserConfig
+	Enabled           bool
+	ContentDir        string
+	Pattern           string
+	Recursive         bool
+	LocalePatterns    map[string]string
+	DefaultLocale     string
+	Locales           []string
+	Parser            MarkdownParserConfig
+	ProcessShortcodes bool
 }
 
 // MarkdownParserConfig mirrors interfaces.ParseOptions for runtime configuration.
@@ -224,6 +228,41 @@ type MarkdownParserConfig struct {
 	Sanitize   bool
 	HardWraps  bool
 	SafeMode   bool
+}
+
+// ShortcodeConfig captures runtime toggles for shortcode processing.
+type ShortcodeConfig struct {
+	Enabled               bool
+	EnableWordPressSyntax bool
+	BuiltIns              []string
+	CustomDefinitions     []ShortcodeDefinitionConfig
+	Security              ShortcodeSecurityConfig
+	Cache                 ShortcodeCacheConfig
+}
+
+// ShortcodeDefinitionConfig allows hosts to register additional shortcode templates via configuration.
+type ShortcodeDefinitionConfig struct {
+	Name     string
+	Template string
+	Schema   map[string]any
+}
+
+// ShortcodeSecurityConfig wires sanitisation and execution-guard controls.
+type ShortcodeSecurityConfig struct {
+	AllowedDomains     []string
+	MaxNestingDepth    int
+	MaxExecutionTime   time.Duration
+	SanitizeOutput     bool
+	CSPEnabled         bool
+	RateLimitPerMinute int
+}
+
+// ShortcodeCacheConfig configures caching hints for shortcode output.
+type ShortcodeCacheConfig struct {
+	Enabled      bool
+	Provider     string
+	DefaultTTL   time.Duration
+	PerShortcode map[string]time.Duration
 }
 
 // GeneratorConfig captures behaviour for the static site generator.
@@ -257,6 +296,24 @@ func DefaultConfig() Config {
 			Locales:               []string{"en"},
 			RequireTranslations:   true,
 			DefaultLocaleRequired: true,
+		},
+		Shortcodes: ShortcodeConfig{
+			Enabled:               false,
+			EnableWordPressSyntax: false,
+			BuiltIns:              []string{"youtube", "alert", "gallery", "figure", "code"},
+			Security: ShortcodeSecurityConfig{
+				MaxNestingDepth:    5,
+				MaxExecutionTime:   5 * time.Second,
+				SanitizeOutput:     true,
+				CSPEnabled:         false,
+				RateLimitPerMinute: 0,
+			},
+			Cache: ShortcodeCacheConfig{
+				Enabled:      false,
+				Provider:     "",
+				DefaultTTL:   time.Hour,
+				PerShortcode: map[string]time.Duration{},
+			},
 		},
 		Storage: StorageConfig{
 			Provider: "bun",
@@ -359,6 +416,13 @@ func (cfg Config) Validate() error {
 		if strings.TrimSpace(cfg.Markdown.ContentDir) == "" {
 			return ErrMarkdownContentDirRequired
 		}
+	}
+	if cfg.Shortcodes.Enabled {
+		if !cfg.Features.Shortcodes {
+			return ErrShortcodesFeatureRequired
+		}
+	} else if cfg.Shortcodes.EnableWordPressSyntax && !cfg.Features.Shortcodes {
+		return ErrShortcodesFeatureRequired
 	}
 	if cfg.Generator.Enabled {
 		if strings.TrimSpace(cfg.Generator.OutputDir) == "" {
