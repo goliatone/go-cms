@@ -552,7 +552,11 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 		UpdatedAt:        s.now(),
 	}
 
-	return s.translations.Create(ctx, translation)
+	created, err := s.translations.Create(ctx, translation)
+	if err != nil {
+		return nil, err
+	}
+	return s.cloneAndRenderTranslation(ctx, created)
 }
 
 func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslationInput) (*Translation, error) {
@@ -574,11 +578,19 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 	translation.Content = deepCloneMap(input.Content)
 	translation.UpdatedAt = s.now()
 
-	return s.translations.Update(ctx, translation)
+	updated, err := s.translations.Update(ctx, translation)
+	if err != nil {
+		return nil, err
+	}
+	return s.cloneAndRenderTranslation(ctx, updated)
 }
 
 func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error) {
-	return s.translations.GetByInstanceAndLocale(ctx, instanceID, localeID)
+	record, err := s.translations.GetByInstanceAndLocale(ctx, instanceID, localeID)
+	if err != nil {
+		return nil, err
+	}
+	return s.cloneAndRenderTranslation(ctx, record)
 }
 
 func (s *service) RegisterAreaDefinition(ctx context.Context, input RegisterAreaDefinitionInput) (*AreaDefinition, error) {
@@ -934,25 +946,35 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 		if translations != nil {
 			hydrated := make([]*Translation, 0, len(translations))
 			for _, tr := range translations {
-				if tr == nil {
-					continue
+				cloned, err := s.cloneAndRenderTranslation(ctx, tr)
+				if err != nil {
+					return nil, err
 				}
-				cloned := *tr
-				if tr.Content != nil {
-					cloned.Content = deepCloneMap(tr.Content)
-					if s.shortcodes != nil {
-						if err := s.renderShortcodesInMap(ctx, cloned.Content, \"\"); err != nil {
-							return nil, err
-						}
-					}
+				if cloned != nil {
+					hydrated = append(hydrated, cloned)
 				}
-				hydrated = append(hydrated, &cloned)
 			}
 			clone.Translations = hydrated
 		}
 		enriched = append(enriched, &clone)
 	}
 	return enriched, nil
+}
+
+func (s *service) cloneAndRenderTranslation(ctx context.Context, tr *Translation) (*Translation, error) {
+	if tr == nil {
+		return nil, nil
+	}
+	cloned := *tr
+	if tr.Content != nil {
+		cloned.Content = deepCloneMap(tr.Content)
+		if s.shortcodes != nil {
+			if err := s.renderShortcodesInMap(ctx, cloned.Content, ""); err != nil {
+				return nil, err
+			}
+		}
+	}
+	return &cloned, nil
 }
 
 func (s *service) SyncRegistry(ctx context.Context) error {

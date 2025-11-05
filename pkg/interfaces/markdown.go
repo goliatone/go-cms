@@ -21,10 +21,10 @@ type MarkdownParser interface {
 // ParseOptions customises Markdown parsing behaviour, keeping option names
 // readable for configuration unmarshalling and CLI flags.
 type ParseOptions struct {
-	Extensions []string
-	Sanitize   bool
-	HardWraps  bool
-	SafeMode   bool
+	Extensions        []string
+	Sanitize          bool
+	HardWraps         bool
+	SafeMode          bool
 	ProcessShortcodes bool
 	ShortcodeOptions  ShortcodeProcessOptions
 }
