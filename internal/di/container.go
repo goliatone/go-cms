@@ -132,22 +132,24 @@ type Container struct {
 	themeRepo    themes.ThemeRepository
 	templateRepo themes.TemplateRepository
 
-	contentSvc        content.Service
-	pageSvc           pages.Service
-	blockSvc          blocks.Service
-	i18nSvc           i18n.Service
-	menuSvc           menus.Service
-	widgetSvc         widgets.Service
-	themeSvc          themes.Service
-	mediaSvc          media.Service
-	markdownSvc       interfaces.MarkdownService
-	loggerProvider    interfaces.LoggerProvider
-	shortcodeRegistry interfaces.ShortcodeRegistry
-	shortcodeService  interfaces.ShortcodeService
-	shortcodeRenderer interfaces.ShortcodeRenderer
-	shortcodeCache    interfaces.CacheProvider
-	shortcodeMetrics  interfaces.ShortcodeMetrics
-	shortcodeCaches   map[string]interfaces.CacheProvider
+	contentSvc             content.Service
+	pageSvc                pages.Service
+	blockSvc               blocks.Service
+	i18nSvc                i18n.Service
+	menuSvc                menus.Service
+	widgetSvc              widgets.Service
+	themeSvc               themes.Service
+	mediaSvc               media.Service
+	markdownSvc            interfaces.MarkdownService
+	markdownContentSvc     interfaces.ContentService
+	markdownPageSvc        interfaces.PageService
+	loggerProvider         interfaces.LoggerProvider
+	shortcodeRegistry      interfaces.ShortcodeRegistry
+	shortcodeService       interfaces.ShortcodeService
+	shortcodeRenderer      interfaces.ShortcodeRenderer
+	shortcodeCache         interfaces.CacheProvider
+	shortcodeMetrics       interfaces.ShortcodeMetrics
+	shortcodeCaches        map[string]interfaces.CacheProvider
 	shortcodeCacheResolved bool
 
 	commandRegistry      CommandRegistry
@@ -1721,14 +1723,18 @@ func (c *Container) MarkdownService() interfaces.MarkdownService {
 		ProcessShortcodes: c.Config.Markdown.ProcessShortcodes,
 	}
 
-	service, err := markdown.NewService(
-		mdCfg,
-		nil,
-		markdown.WithContentService(c.ContentService()),
-		markdown.WithPageService(c.PageService()),
+	options := []markdown.ServiceOption{
 		markdown.WithLogger(logging.MarkdownLogger(c.loggerProvider)),
 		markdown.WithShortcodeService(c.ShortcodeService()),
-	)
+	}
+	if contentSvc := c.markdownContentService(); contentSvc != nil {
+		options = append(options, markdown.WithContentService(contentSvc))
+	}
+	if pageSvc := c.markdownPageService(); pageSvc != nil {
+		options = append(options, markdown.WithPageService(pageSvc))
+	}
+
+	service, err := markdown.NewService(mdCfg, nil, options...)
 	if err != nil {
 		logging.MarkdownLogger(c.loggerProvider).Error("markdown: failed to initialise service", "error", err)
 		return nil
@@ -1737,6 +1743,30 @@ func (c *Container) MarkdownService() interfaces.MarkdownService {
 	// Ensure importer mirrors current dependencies.
 	c.markdownSvc = service
 	return c.markdownSvc
+}
+
+func (c *Container) markdownContentService() interfaces.ContentService {
+	if c.markdownContentSvc != nil {
+		return c.markdownContentSvc
+	}
+	svc := c.ContentService()
+	if svc == nil {
+		return nil
+	}
+	c.markdownContentSvc = newMarkdownContentServiceAdapter(svc)
+	return c.markdownContentSvc
+}
+
+func (c *Container) markdownPageService() interfaces.PageService {
+	if c.markdownPageSvc != nil {
+		return c.markdownPageSvc
+	}
+	svc := c.PageService()
+	if svc == nil {
+		return nil
+	}
+	c.markdownPageSvc = newMarkdownPageServiceAdapter(svc)
+	return c.markdownPageSvc
 }
 
 func (c *Container) Scheduler() interfaces.Scheduler {
