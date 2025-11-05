@@ -143,7 +143,7 @@ func TestRenderShortcodesInTemplateContext(t *testing.T) {
 
 	body, ok := tmpl.Page.ContentTranslation.Content["body"].(string)
 	if !ok {
-		t.Fatalf("expected body string, got %T", tmpl.Page.ContentTranslation.Content[\"body\"])
+		t.Fatalf("expected body string, got %T", tmpl.Page.ContentTranslation.Content["body"])
 	}
 	if !strings.Contains(body, "shortcode--alert") {
 		t.Fatalf("expected shortcode render in body, got %s", body)
