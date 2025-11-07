@@ -1,0 +1,13 @@
+[
+  {
+    "collection": "async_fragments",
+    "slug": "brands-fragment",
+    "name": "Brands Fragment",
+    "asset": "brands.html",
+    "metadata": {
+      "order": 1,
+      "placeholder": "brands-async-fragment",
+      "loading_text": "Loading content..."
+    }
+  }
+]

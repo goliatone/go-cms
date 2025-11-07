@@ -1,0 +1,107 @@
+{
+  "site_name": "Collective Labs",
+  "tagline": "Transforming ideas into products",
+  "default_locale": "en",
+  "logo_path": "/img/logo/colabs_logotype_light_v6.svg",
+  "logo_alt": "logo",
+  "footer_pattern": "/img/pattern_003.svg",
+  "footer_logo": "/img/logo/logo_light_v6.svg",
+  "meta": {
+    "title": "Collective Labs",
+    "description": "Human centered Technology solutions",
+    "keywords": [
+      "collective labs",
+      "c8e",
+      "co-technology"
+    ],
+    "author": "Collective Labs",
+    "og_title": "Collective Labs",
+    "og_description": "Human centered Technology solutions",
+    "og_image": "https://c8e.io/logo.png",
+    "og_url": "https://c8e.io",
+    "og_type": "website",
+    "favicon": "/favicon.ico",
+    "font_preloads": [
+      "https://fonts.googleapis.com/css2?family=Montserrat:ital,wght@0,100..900;1,100..900&display=swap"
+    ]
+  },
+  "cta": {
+    "headline_lines": [
+      "Collective",
+      "Labs"
+    ],
+    "subheading": "Partnership tailored to you.",
+    "cta_secondary": "Let's work — together.",
+    "cta_label": "Contact Us",
+    "cta_href": "mailto:hello@c8e.io?subject=Inquiry"
+  },
+  "footer": {
+    "contact_channels": [
+      {
+        "label": "Email",
+        "value": "hello@c8e.io",
+        "href": "mailto:hello@c8e.io"
+      },
+      {
+        "label": "Phone",
+        "value": "+1 (323) 486-0220",
+        "href": "tel:+13234860220"
+      },
+      {
+        "label": "Phone",
+        "value": "+ 977 (984) 135-0171",
+        "href": "tel:+9779841350171"
+      }
+    ],
+    "copyright": "© 2024 Collective Labs, LLC"
+  },
+  "office_locations": [
+    {
+      "name": "San Francisco",
+      "address_lines": [
+        "415 Mission Street",
+        "CA 94105, U.S.A"
+      ]
+    },
+    {
+      "name": "Buenos Aires",
+      "address_lines": [
+        "Av. Coronel Niceto Vega 4736",
+        "C1414BED CABA, Argentina"
+      ]
+    },
+    {
+      "name": "Nepal",
+      "address_lines": [
+        "Harisiddhi-28",
+        "Lalitpur, Nepal"
+      ]
+    }
+  ],
+  "workflow_steps": [
+    {
+      "order": 1,
+      "title": "Discover",
+      "description": "Immerse ourselves in understanding your goals, challenges, and aspirations. Through in-depth research, stakeholder interviews, engaging domain experts, we uncover valuable insights that form the foundation of our strategy."
+    },
+    {
+      "order": 2,
+      "title": "Define",
+      "description": "Distill our findings into actionable goals and criteria for success, synthesizing the information gathered to pinpoint opportunities and define the scope of the project."
+    },
+    {
+      "order": 3,
+      "title": "Develop",
+      "description": "Collaborate to ideate and prototype solutions, co-designing with different perspectives ensures that we consider all angles and develop solutions that are both creative and practical."
+    },
+    {
+      "order": 4,
+      "title": "Deliver",
+      "description": "Refining prototypes based on feedback and rigorous testing, bringing ideas to life."
+    }
+  ],
+  "collections": {
+    "brand_collection_slug": "brands",
+    "logo_collection_slug": "logos"
+  }
+}

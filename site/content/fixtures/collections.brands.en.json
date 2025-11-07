@@ -1,0 +1,23 @@
+[
+  { "collection": "brands", "slug": "uniqlo", "name": "uniqlo", "asset": "assets/brands/uniqlo.svg", "alt_text": "Uniqlo logo", "metadata": { "order": 1 } },
+  { "collection": "brands", "slug": "nyu", "name": "NYU", "asset": "assets/brands/nyu.svg", "alt_text": "New York University logo", "metadata": { "order": 2 } },
+  { "collection": "brands", "slug": "vodafone", "name": "vodafone", "asset": "assets/brands/vodafone.svg", "alt_text": "Vodafone logo", "metadata": { "order": 3 } },
+  { "collection": "brands", "slug": "westfield", "name": "Westfield", "asset": "assets/brands/westfield.svg", "alt_text": "Westfield logo", "metadata": { "order": 4 } },
+  { "collection": "brands", "slug": "aclu", "name": "ACLU", "asset": "assets/brands/aclu.svg", "alt_text": "ACLU logo", "metadata": { "order": 5 } },
+  { "collection": "brands", "slug": "amex", "name": "amex", "asset": "assets/brands/amex.svg", "alt_text": "American Express logo", "metadata": { "order": 6 } },
+  { "collection": "brands", "slug": "brookfield", "name": "Brookfield", "asset": "assets/brands/brookfield.svg", "alt_text": "Brookfield logo", "metadata": { "order": 7 } },
+  { "collection": "brands", "slug": "citibank", "name": "CityBank", "asset": "assets/brands/citibank.svg", "alt_text": "Citi bank logo", "metadata": { "order": 8 } },
+  { "collection": "brands", "slug": "comcast", "name": "Comcast", "asset": "assets/brands/comcast.svg", "alt_text": "Comcast logo", "metadata": { "order": 9 } },
+  { "collection": "brands", "slug": "gagosian-gallery", "name": "Gagosian Gallery", "asset": "assets/brands/gagosian.svg", "alt_text": "Gagosian Gallery logo", "metadata": { "order": 10 } },
+  { "collection": "brands", "slug": "google", "name": "Google", "asset": "assets/brands/google.svg", "alt_text": "Google logo", "metadata": { "order": 11 } },
+  { "collection": "brands", "slug": "hudson-yards", "name": "Hudson Yards", "asset": "assets/brands/hudson_yards.svg", "alt_text": "Hudson Yards logo", "metadata": { "order": 12 } },
+  { "collection": "brands", "slug": "kate-spade", "name": "Kate Spade", "asset": "assets/brands/kate_spade.svg", "alt_text": "Kate Spade logo", "metadata": { "order": 13 } },
+  { "collection": "brands", "slug": "moma", "name": "MoMA", "asset": "assets/brands/moma.svg", "alt_text": "Museum of Modern Art logo", "metadata": { "order": 14 } },
+  { "collection": "brands", "slug": "mta", "name": "MTA", "asset": "assets/brands/mta.svg", "alt_text": "Metropolitan Transportation Authority logo", "metadata": { "order": 15 } },
+  { "collection": "brands", "slug": "related", "name": "Related", "asset": "assets/brands/related.svg", "alt_text": "Related Companies logo", "metadata": { "order": 16 } },
+  { "collection": "brands", "slug": "royal-caribbean", "name": "Royal Caribbean", "asset": "assets/brands/royal_caribbean.svg", "alt_text": "Royal Caribbean logo", "metadata": { "order": 17 } },
+  { "collection": "brands", "slug": "travelocity", "name": "Travelocity", "asset": "assets/brands/travelocity.svg", "alt_text": "Travelocity logo", "metadata": { "order": 18 } },
+  { "collection": "brands", "slug": "wmata", "name": "WMATA", "asset": "assets/brands/wmata.svg", "alt_text": "Washington Metropolitan Area Transit Authority logo", "metadata": { "order": 19 } },
+  { "collection": "brands", "slug": "emki", "name": "EMKI", "asset": "assets/brands/emki.svg", "alt_text": "EMKI logo", "metadata": { "order": 20 } },
+  { "collection": "brands", "slug": "wework", "name": "WeWork", "asset": "assets/brands/wework.svg", "alt_text": "WeWork logo", "metadata": { "order": 21 } }
+]

@@ -1,0 +1,26 @@
+[
+  {
+    "collection": "logos",
+    "slug": "colabs-dot-light",
+    "name": "co•labs (light)",
+    "asset": "assets/logos/colabs-dot-light.svg",
+    "alt_text": "Collective Labs dot logotype on light background",
+    "metadata": { "order": 1, "variant": "light" }
+  },
+  {
+    "collection": "logos",
+    "slug": "colabs-dot-dark",
+    "name": "co•labs (dark)",
+    "asset": "assets/logos/colabs-dot-dark.svg",
+    "alt_text": "Collective Labs dot logotype on dark background",
+    "metadata": { "order": 2, "variant": "dark" }
+  },
+  {
+    "collection": "logos",
+    "slug": "colabs-mark-square",
+    "name": "co•labs mark",
+    "asset": "assets/logos/colabs-mark.svg",
+    "alt_text": "Collective Labs square mark",
+    "metadata": { "order": 3, "variant": "mark" }
+  }
+]

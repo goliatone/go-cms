@@ -1,0 +1,50 @@
+{
+  "title": "Collective Labs",
+  "slug": "home",
+  "hero": {
+    "heading": "Transforming ideas into products",
+    "subheading": "We are a collective of strategists, designers, and engineers embracing Applied Innovation to shape ideas into reality. Together, we solve complex problems through technology making new futures happen — we thrive at the intersection where digital meets physical.",
+    "highlighted_text": "Applied Innovation",
+    "divider_enabled": true
+  },
+  "intro_sections": [
+    {
+      "label": "How we help",
+      "body": "Collective Labs provides comprehensive development services, covering everything from ideation and prototyping to building scalable solutions end-to-end.",
+      "headline": "Digital technology to transform the physical world"
+    }
+  ],
+  "offerings": [
+    {
+      "slug": "labs",
+      "name": "Labs",
+      "headline": "Research, innovate, and validate.",
+      "description": "The Labs offering combines business strategy with product innovation, merging design thinking with iterative tech cycles to discover feasible paths and emphasize solutions.",
+      "cta_label": null,
+      "cta_href": null
+    },
+    {
+      "slug": "studio",
+      "name": "Studio",
+      "headline": "Define, design, and build.",
+      "description": "The Studio offering is where the making process happens. Working with founder teams, product leadership, or partner’s CTOs, we design and build products and experiences",
+      "cta_label": null,
+      "cta_href": null
+    }
+  ],
+  "workflow_ref": {
+    "use_site_settings": true,
+    "override_steps": []
+  },
+  "collections": {
+    "brands_slug": "brands",
+    "logos_slug": "logos"
+  },
+  "footer_cta_override": {
+    "enabled": false,
+    "headline_lines": [],
+    "subheading": "",
+    "cta_label": "",
+    "cta_href": ""
+  }
+}
