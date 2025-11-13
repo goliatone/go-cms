@@ -18,13 +18,20 @@ type Service interface {
 	RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error)
 	ListDefinitions(ctx context.Context) ([]*Definition, error)
+	UpdateDefinition(ctx context.Context, input UpdateDefinitionInput) (*Definition, error)
+	DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error
 	SyncRegistry(ctx context.Context) error
 
 	CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error)
 	ListPageInstances(ctx context.Context, pageID uuid.UUID) ([]*Instance, error)
 	ListGlobalInstances(ctx context.Context) ([]*Instance, error)
+	UpdateInstance(ctx context.Context, input UpdateInstanceInput) (*Instance, error)
+	DeleteInstance(ctx context.Context, req DeleteInstanceRequest) error
 
 	AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error)
+	UpdateTranslation(ctx context.Context, input UpdateTranslationInput) (*Translation, error)
+	DeleteTranslation(ctx context.Context, req DeleteTranslationRequest) error
+
 	GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error)
 	CreateDraft(ctx context.Context, req CreateInstanceDraftRequest) (*InstanceVersion, error)
 	PublishDraft(ctx context.Context, req PublishInstanceDraftRequest) (*InstanceVersion, error)
@@ -42,6 +49,22 @@ type RegisterDefinitionInput struct {
 	FrontendStyleURL *string
 }
 
+type UpdateDefinitionInput struct {
+	ID               uuid.UUID
+	Name             *string
+	Description      *string
+	Icon             *string
+	Schema           map[string]any
+	Defaults         map[string]any
+	EditorStyleURL   *string
+	FrontendStyleURL *string
+}
+
+type DeleteDefinitionRequest struct {
+	ID         uuid.UUID
+	HardDelete bool
+}
+
 type CreateInstanceInput struct {
 	DefinitionID  uuid.UUID
 	PageID        *uuid.UUID
@@ -53,12 +76,43 @@ type CreateInstanceInput struct {
 	UpdatedBy     uuid.UUID
 }
 
+type UpdateInstanceInput struct {
+	InstanceID    uuid.UUID
+	PageID        *uuid.UUID
+	Region        *string
+	Position      *int
+	Configuration map[string]any
+	IsGlobal      *bool
+	UpdatedBy     uuid.UUID
+}
+
+type DeleteInstanceRequest struct {
+	ID         uuid.UUID
+	HardDelete bool
+}
+
 type AddTranslationInput struct {
 	BlockInstanceID    uuid.UUID
 	LocaleID           uuid.UUID
 	Content            map[string]any
 	AttributeOverrides map[string]any
 	MediaBindings      media.BindingSet
+}
+
+type UpdateTranslationInput struct {
+	BlockInstanceID    uuid.UUID
+	LocaleID           uuid.UUID
+	Content            map[string]any
+	AttributeOverrides map[string]any
+	MediaBindings      media.BindingSet
+	UpdatedBy          uuid.UUID
+}
+
+type DeleteTranslationRequest struct {
+	BlockInstanceID          uuid.UUID
+	LocaleID                 uuid.UUID
+	DeletedBy                uuid.UUID
+	AllowMissingTranslations bool
 }
 
 // CreateInstanceDraftRequest captures the payload required to create a block instance draft snapshot.
@@ -86,16 +140,24 @@ type RestoreInstanceVersionRequest struct {
 }
 
 var (
-	ErrDefinitionNameRequired   = errors.New("blocks: definition name required")
-	ErrDefinitionSchemaRequired = errors.New("blocks: definition schema required")
-	ErrDefinitionExists         = errors.New("blocks: definition already exists")
+	ErrDefinitionNameRequired          = errors.New("blocks: definition name required")
+	ErrDefinitionSchemaRequired        = errors.New("blocks: definition schema required")
+	ErrDefinitionExists                = errors.New("blocks: definition already exists")
+	ErrDefinitionIDRequired            = errors.New("blocks: definition id required")
+	ErrDefinitionInUse                 = errors.New("blocks: definition has active instances")
+	ErrDefinitionSoftDeleteUnsupported = errors.New("blocks: soft delete not supported for definitions")
 
-	ErrInstanceDefinitionRequired = errors.New("blocks: definition id required")
-	ErrInstanceRegionRequired     = errors.New("blocks: region required")
-	ErrInstancePositionInvalid    = errors.New("blocks: position cannot be negative")
+	ErrInstanceDefinitionRequired    = errors.New("blocks: definition id required")
+	ErrInstanceRegionRequired        = errors.New("blocks: region required")
+	ErrInstancePositionInvalid       = errors.New("blocks: position cannot be negative")
+	ErrInstanceUpdaterRequired       = errors.New("blocks: updated_by is required")
+	ErrInstanceSoftDeleteUnsupported = errors.New("blocks: soft delete not supported for instances")
 
 	ErrTranslationContentRequired       = errors.New("blocks: translation content required")
 	ErrTranslationExists                = errors.New("blocks: translation already exists for locale")
+	ErrTranslationLocaleRequired        = errors.New("blocks: translation locale required")
+	ErrTranslationNotFound              = errors.New("blocks: translation not found")
+	ErrTranslationMinimum               = errors.New("blocks: at least one translation is required")
 	ErrInstanceIDRequired               = errors.New("blocks: instance id required")
 	ErrVersioningDisabled               = errors.New("blocks: versioning feature disabled")
 	ErrInstanceVersionRequired          = errors.New("blocks: version identifier required")
@@ -173,6 +235,13 @@ func WithVersionRetentionLimit(limit int) ServiceOption {
 	}
 }
 
+// WithRequireTranslations toggles whether at least one translation must remain attached to an instance.
+func WithRequireTranslations(required bool) ServiceOption {
+	return func(s *service) {
+		s.requireTranslations = required
+	}
+}
+
 type service struct {
 	definitions           DefinitionRepository
 	instances             InstanceRepository
@@ -185,6 +254,7 @@ type service struct {
 	versioningEnabled     bool
 	versionRetentionLimit int
 	shortcodes            interfaces.ShortcodeService
+	requireTranslations   bool
 }
 
 func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRepo TranslationRepository, opts ...ServiceOption) Service {
@@ -244,6 +314,76 @@ func (s *service) ListDefinitions(ctx context.Context) ([]*Definition, error) {
 	return s.definitions.List(ctx)
 }
 
+func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionInput) (*Definition, error) {
+	if input.ID == uuid.Nil {
+		return nil, ErrDefinitionIDRequired
+	}
+	definition, err := s.definitions.GetByID(ctx, input.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.Name != nil {
+		name := strings.TrimSpace(*input.Name)
+		if name == "" {
+			return nil, ErrDefinitionNameRequired
+		}
+		if !strings.EqualFold(name, definition.Name) {
+			if _, err := s.definitions.GetByName(ctx, name); err == nil {
+				return nil, ErrDefinitionExists
+			} else {
+				var nf *NotFoundError
+				if !errors.As(err, &nf) {
+					return nil, err
+				}
+			}
+		}
+		definition.Name = name
+	}
+	if input.Description != nil {
+		definition.Description = cloneStringValue(input.Description)
+	}
+	if input.Icon != nil {
+		definition.Icon = cloneStringValue(input.Icon)
+	}
+	if input.Schema != nil {
+		if len(input.Schema) == 0 {
+			return nil, ErrDefinitionSchemaRequired
+		}
+		definition.Schema = maps.Clone(input.Schema)
+	}
+	if input.Defaults != nil {
+		definition.Defaults = maps.Clone(input.Defaults)
+	}
+	if input.EditorStyleURL != nil {
+		definition.EditorStyleURL = cloneStringValue(input.EditorStyleURL)
+	}
+	if input.FrontendStyleURL != nil {
+		definition.FrontendStyleURL = cloneStringValue(input.FrontendStyleURL)
+	}
+	definition.UpdatedAt = s.now()
+
+	return s.definitions.Update(ctx, definition)
+}
+
+func (s *service) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error {
+	if req.ID == uuid.Nil {
+		return ErrDefinitionIDRequired
+	}
+	if !req.HardDelete {
+		return ErrDefinitionSoftDeleteUnsupported
+	}
+
+	instances, err := s.instances.ListByDefinition(ctx, req.ID)
+	if err != nil {
+		return err
+	}
+	if len(instances) > 0 {
+		return ErrDefinitionInUse
+	}
+	return s.definitions.Delete(ctx, req.ID)
+}
+
 func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error) {
 	if input.DefinitionID == uuid.Nil {
 		return nil, ErrInstanceDefinitionRequired
@@ -298,9 +438,111 @@ func (s *service) ListGlobalInstances(ctx context.Context) ([]*Instance, error) 
 	return s.attachTranslations(ctx, instances)
 }
 
+func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput) (*Instance, error) {
+	if input.InstanceID == uuid.Nil {
+		return nil, ErrInstanceIDRequired
+	}
+	if input.UpdatedBy == uuid.Nil {
+		return nil, ErrInstanceUpdaterRequired
+	}
+
+	instance, err := s.instances.GetByID(ctx, input.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.PageID != nil {
+		if *input.PageID == uuid.Nil {
+			instance.PageID = nil
+		} else {
+			pageID := *input.PageID
+			instance.PageID = &pageID
+		}
+	}
+	if input.Region != nil {
+		region := strings.TrimSpace(*input.Region)
+		if region == "" {
+			return nil, ErrInstanceRegionRequired
+		}
+		instance.Region = region
+	}
+	if input.Position != nil {
+		if *input.Position < 0 {
+			return nil, ErrInstancePositionInvalid
+		}
+		instance.Position = *input.Position
+	}
+	if input.Configuration != nil {
+		instance.Configuration = maps.Clone(input.Configuration)
+	}
+	if input.IsGlobal != nil {
+		instance.IsGlobal = *input.IsGlobal
+		if *input.IsGlobal {
+			instance.PageID = nil
+		}
+	}
+
+	now := s.now()
+	instance.UpdatedBy = input.UpdatedBy
+	instance.UpdatedAt = now
+
+	preparedVersion, err := s.prepareInstanceVersion(ctx, instance, input.UpdatedBy, now)
+	if err != nil {
+		return nil, err
+	}
+
+	updated, err := s.instances.Update(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.persistVersion(ctx, preparedVersion); err != nil {
+		return nil, err
+	}
+
+	withTranslations, err := s.attachTranslations(ctx, []*Instance{updated})
+	if err != nil {
+		return nil, err
+	}
+	if len(withTranslations) == 0 {
+		return updated, nil
+	}
+	return withTranslations[0], nil
+}
+
+func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest) error {
+	if req.ID == uuid.Nil {
+		return ErrInstanceIDRequired
+	}
+	if !req.HardDelete {
+		return ErrInstanceSoftDeleteUnsupported
+	}
+
+	if _, err := s.instances.GetByID(ctx, req.ID); err != nil {
+		return err
+	}
+
+	translations, err := s.translations.ListByInstance(ctx, req.ID)
+	if err != nil {
+		var nf *NotFoundError
+		if !errors.As(err, &nf) {
+			return err
+		}
+	}
+	for _, tr := range translations {
+		if err := s.translations.Delete(ctx, tr.ID); err != nil {
+			return err
+		}
+	}
+	return s.instances.Delete(ctx, req.ID)
+}
+
 func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error) {
 	if input.Content == nil {
 		return nil, ErrTranslationContentRequired
+	}
+	if input.LocaleID == uuid.Nil {
+		return nil, ErrTranslationLocaleRequired
 	}
 	if err := validateMediaBindings(input.MediaBindings); err != nil {
 		return nil, err
@@ -334,6 +576,23 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	if err != nil {
 		return nil, err
 	}
+	instance, err := s.instances.GetByID(ctx, input.BlockInstanceID)
+	if err != nil {
+		return nil, err
+	}
+	instance.UpdatedAt = translation.UpdatedAt
+
+	preparedVersion, err := s.prepareInstanceVersion(ctx, instance, uuid.Nil, translation.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.instances.Update(ctx, instance); err != nil {
+		return nil, err
+	}
+	if err := s.persistVersion(ctx, preparedVersion); err != nil {
+		return nil, err
+	}
+
 	return s.hydrateTranslation(ctx, created)
 }
 
@@ -343,6 +602,116 @@ func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, loca
 		return nil, err
 	}
 	return s.hydrateTranslation(ctx, record)
+}
+
+func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslationInput) (*Translation, error) {
+	if input.BlockInstanceID == uuid.Nil {
+		return nil, ErrInstanceIDRequired
+	}
+	if input.LocaleID == uuid.Nil {
+		return nil, ErrTranslationLocaleRequired
+	}
+	if input.Content == nil {
+		return nil, ErrTranslationContentRequired
+	}
+	if input.UpdatedBy == uuid.Nil {
+		return nil, ErrInstanceUpdaterRequired
+	}
+	if input.MediaBindings != nil {
+		if err := validateMediaBindings(input.MediaBindings); err != nil {
+			return nil, err
+		}
+	}
+
+	translation, err := s.translations.GetByInstanceAndLocale(ctx, input.BlockInstanceID, input.LocaleID)
+	if err != nil {
+		return nil, err
+	}
+
+	if input.AttributeOverrides != nil {
+		translation.AttributeOverride = maps.Clone(input.AttributeOverrides)
+	}
+	if input.MediaBindings != nil {
+		translation.MediaBindings = media.CloneBindingSet(input.MediaBindings)
+	}
+	translation.Content = maps.Clone(input.Content)
+	translation.UpdatedAt = s.now()
+
+	updated, err := s.translations.Update(ctx, translation)
+	if err != nil {
+		return nil, err
+	}
+
+	instance, err := s.instances.GetByID(ctx, input.BlockInstanceID)
+	if err != nil {
+		return nil, err
+	}
+	instance.UpdatedBy = input.UpdatedBy
+	instance.UpdatedAt = translation.UpdatedAt
+
+	preparedVersion, err := s.prepareInstanceVersion(ctx, instance, input.UpdatedBy, translation.UpdatedAt)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := s.instances.Update(ctx, instance); err != nil {
+		return nil, err
+	}
+	if err := s.persistVersion(ctx, preparedVersion); err != nil {
+		return nil, err
+	}
+
+	return s.hydrateTranslation(ctx, updated)
+}
+
+func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRequest) error {
+	if req.BlockInstanceID == uuid.Nil {
+		return ErrInstanceIDRequired
+	}
+	if req.LocaleID == uuid.Nil {
+		return ErrTranslationLocaleRequired
+	}
+
+	translations, err := s.translations.ListByInstance(ctx, req.BlockInstanceID)
+	if err != nil {
+		return err
+	}
+
+	var target *Translation
+	for _, tr := range translations {
+		if tr.LocaleID == req.LocaleID {
+			target = tr
+			break
+		}
+	}
+	if target == nil {
+		return ErrTranslationNotFound
+	}
+	if s.requireTranslations && !req.AllowMissingTranslations && len(translations) <= 1 {
+		return ErrTranslationMinimum
+	}
+
+	if err := s.translations.Delete(ctx, target.ID); err != nil {
+		return err
+	}
+
+	instance, err := s.instances.GetByID(ctx, req.BlockInstanceID)
+	if err != nil {
+		return err
+	}
+	if req.DeletedBy != uuid.Nil {
+		instance.UpdatedBy = req.DeletedBy
+	}
+	now := s.now()
+	instance.UpdatedAt = now
+
+	preparedVersion, err := s.prepareInstanceVersion(ctx, instance, req.DeletedBy, now)
+	if err != nil {
+		return err
+	}
+	if _, err := s.instances.Update(ctx, instance); err != nil {
+		return err
+	}
+	return s.persistVersion(ctx, preparedVersion)
 }
 
 func (s *service) CreateDraft(ctx context.Context, req CreateInstanceDraftRequest) (*InstanceVersion, error) {
@@ -553,6 +922,71 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 	return enriched, nil
 }
 
+func (s *service) prepareInstanceVersion(ctx context.Context, instance *Instance, actor uuid.UUID, timestamp time.Time) (*InstanceVersion, error) {
+	if !s.versioningEnabled || s.versions == nil {
+		return nil, nil
+	}
+	records, err := s.versions.ListByInstance(ctx, instance.ID)
+	if err != nil {
+		return nil, err
+	}
+	if s.versionRetentionLimit > 0 && len(records) >= s.versionRetentionLimit {
+		return nil, ErrInstanceVersionRetentionExceeded
+	}
+
+	snapshot, err := s.buildInstanceSnapshot(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+
+	next := nextInstanceVersionNumber(records)
+	instance.CurrentVersion = next
+
+	version := &InstanceVersion{
+		ID:              s.id(),
+		BlockInstanceID: instance.ID,
+		Version:         next,
+		Status:          domain.StatusDraft,
+		Snapshot:        snapshot,
+		CreatedAt:       timestamp,
+		CreatedBy:       actor,
+	}
+	if version.CreatedBy == uuid.Nil {
+		version.CreatedBy = instance.UpdatedBy
+	}
+	return version, nil
+}
+
+func (s *service) persistVersion(ctx context.Context, version *InstanceVersion) error {
+	if version == nil || s.versions == nil {
+		return nil
+	}
+	_, err := s.versions.Create(ctx, version)
+	return err
+}
+
+func (s *service) buildInstanceSnapshot(ctx context.Context, instance *Instance) (BlockVersionSnapshot, error) {
+	snapshot := BlockVersionSnapshot{
+		Configuration: maps.Clone(instance.Configuration),
+	}
+	translations, err := s.translations.ListByInstance(ctx, instance.ID)
+	if err != nil {
+		return BlockVersionSnapshot{}, err
+	}
+	if len(translations) > 0 {
+		snaps := make([]BlockVersionTranslationSnapshot, 0, len(translations))
+		for _, tr := range translations {
+			snaps = append(snaps, BlockVersionTranslationSnapshot{
+				Locale:             tr.LocaleID.String(),
+				Content:            maps.Clone(tr.Content),
+				AttributeOverrides: maps.Clone(tr.AttributeOverride),
+			})
+		}
+		snapshot.Translations = snaps
+	}
+	return snapshot, nil
+}
+
 func validateMediaBindings(bindings media.BindingSet) error {
 	for slot, entries := range bindings {
 		for _, binding := range entries {
@@ -667,6 +1101,14 @@ func (s *service) renderShortcodeValue(ctx context.Context, value any, locale st
 
 func containsShortcodeSyntax(input string) bool {
 	return strings.Contains(input, "{{<") || strings.Contains(input, "{{%") || strings.Contains(input, "[")
+}
+
+func cloneStringValue(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	cloned := strings.Clone(*value)
+	return &cloned
 }
 
 func (s *service) SyncRegistry(ctx context.Context) error {

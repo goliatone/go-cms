@@ -235,6 +235,280 @@ func TestServiceAddTranslation(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateDefinition(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	description := "Updated hero copy"
+	updated, err := svc.UpdateDefinition(ctx, blocks.UpdateDefinitionInput{
+		ID:          def.ID,
+		Description: &description,
+		Schema: map[string]any{
+			"fields": []any{"title", "body"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("update definition: %v", err)
+	}
+	if updated.Description == nil || *updated.Description != description {
+		t.Fatalf("definition description not updated: %+v", updated.Description)
+	}
+	if fields, ok := updated.Schema["fields"].([]any); !ok || len(fields) != 2 {
+		t.Fatalf("expected schema update, got %v", updated.Schema)
+	}
+}
+
+func TestServiceDeleteDefinitionPreventsInUse(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	authorID := uuid.New()
+	if _, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "hero",
+		CreatedBy:    authorID,
+		UpdatedBy:    authorID,
+	}); err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	err = svc.DeleteDefinition(ctx, blocks.DeleteDefinitionRequest{ID: def.ID, HardDelete: true})
+	if !errors.Is(err, blocks.ErrDefinitionInUse) {
+		t.Fatalf("expected ErrDefinitionInUse, got %v", err)
+	}
+}
+
+func TestServiceUpdateInstanceCreatesVersion(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService(blocks.WithVersioningEnabled(true), blocks.WithVersionRetentionLimit(5))
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	authorID := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "hero",
+		Configuration: map[string]any{
+			"variant": "primary",
+		},
+		CreatedBy: authorID,
+		UpdatedBy: authorID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	updated, err := svc.UpdateInstance(ctx, blocks.UpdateInstanceInput{
+		InstanceID: instance.ID,
+		Configuration: map[string]any{
+			"variant": "secondary",
+		},
+		UpdatedBy: authorID,
+	})
+	if err != nil {
+		t.Fatalf("update instance: %v", err)
+	}
+	if updated.Configuration["variant"] != "secondary" {
+		t.Fatalf("instance configuration not updated: %v", updated.Configuration)
+	}
+
+	versions, err := svc.ListVersions(ctx, instance.ID)
+	if err != nil {
+		t.Fatalf("list versions: %v", err)
+	}
+	if len(versions) != 1 {
+		t.Fatalf("expected 1 version after update, got %d", len(versions))
+	}
+}
+
+func TestServiceDeleteInstance(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	pageID := uuid.MustParse("00000000-0000-0000-0000-00000000bbbb")
+	author := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		PageID:       &pageID,
+		Region:       "hero",
+		CreatedBy:    author,
+		UpdatedBy:    author,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	if err := svc.DeleteInstance(ctx, blocks.DeleteInstanceRequest{ID: instance.ID, HardDelete: true}); err != nil {
+		t.Fatalf("delete instance: %v", err)
+	}
+
+	instances, err := svc.ListPageInstances(ctx, pageID)
+	if err != nil {
+		t.Fatalf("list page instances: %v", err)
+	}
+	if len(instances) != 0 {
+		t.Fatalf("expected instances to be removed, got %d", len(instances))
+	}
+}
+
+func TestServiceDeleteInstanceRequiresHardDelete(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	author := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "hero",
+		CreatedBy:    author,
+		UpdatedBy:    author,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	err = svc.DeleteInstance(ctx, blocks.DeleteInstanceRequest{ID: instance.ID, HardDelete: false})
+	if !errors.Is(err, blocks.ErrInstanceSoftDeleteUnsupported) {
+		t.Fatalf("expected ErrInstanceSoftDeleteUnsupported, got %v", err)
+	}
+}
+
+func TestServiceUpdateTranslation(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService(blocks.WithVersioningEnabled(true))
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	author := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "hero",
+		CreatedBy:    author,
+		UpdatedBy:    author,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	localeID := uuid.New()
+	if _, err := svc.AddTranslation(ctx, blocks.AddTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		Content: map[string]any{
+			"title": "Hero block",
+		},
+	}); err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	translation, err := svc.UpdateTranslation(ctx, blocks.UpdateTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		UpdatedBy:       author,
+		Content: map[string]any{
+			"title": "Updated hero",
+		},
+	})
+	if err != nil {
+		t.Fatalf("update translation: %v", err)
+	}
+	if translation.Content["title"] != "Updated hero" {
+		t.Fatalf("expected translation to update, got %v", translation.Content)
+	}
+}
+
+func TestServiceDeleteTranslationRequiresMinimum(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService(blocks.WithRequireTranslations(true))
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	author := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "hero",
+		CreatedBy:    author,
+		UpdatedBy:    author,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	localeID := uuid.New()
+	if _, err := svc.AddTranslation(ctx, blocks.AddTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		Content: map[string]any{
+			"title": "Hero",
+		},
+	}); err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	err = svc.DeleteTranslation(ctx, blocks.DeleteTranslationRequest{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		DeletedBy:       author,
+	})
+	if !errors.Is(err, blocks.ErrTranslationMinimum) {
+		t.Fatalf("expected ErrTranslationMinimum, got %v", err)
+	}
+
+	if err := svc.DeleteTranslation(ctx, blocks.DeleteTranslationRequest{
+		BlockInstanceID:          instance.ID,
+		LocaleID:                 localeID,
+		DeletedBy:                author,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("delete translation with override: %v", err)
+	}
+}
+
 func TestRegistrySeedsDefinitions(t *testing.T) {
 	reg := blocks.NewRegistry()
 	reg.Register(blocks.RegisterDefinitionInput{

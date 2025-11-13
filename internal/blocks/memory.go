@@ -70,6 +70,37 @@ func (m *memoryDefinitionRepository) List(_ context.Context) ([]*Definition, err
 	return defs, nil
 }
 
+func (m *memoryDefinitionRepository) Update(_ context.Context, definition *Definition) (*Definition, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.byID[definition.ID]; !ok {
+		return nil, &NotFoundError{Resource: "block_definition", Key: definition.ID.String()}
+	}
+
+	cloned := cloneDefinition(definition)
+	m.byID[cloned.ID] = cloned
+	if cloned.Name != "" {
+		m.byName[cloned.Name] = cloned.ID
+	}
+	return cloneDefinition(cloned), nil
+}
+
+func (m *memoryDefinitionRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "block_definition", Key: id.String()}
+	}
+	delete(m.byID, id)
+	if record.Name != "" {
+		delete(m.byName, record.Name)
+	}
+	return nil
+}
+
 // NewMemoryInstanceRepository constructs an "in memory" instance repository.
 func NewMemoryInstanceRepository() InstanceRepository {
 	return &memoryInstanceRepository{
@@ -137,6 +168,19 @@ func (m *memoryInstanceRepository) ListGlobal(_ context.Context) ([]*Instance, e
 	return instances, nil
 }
 
+func (m *memoryInstanceRepository) ListByDefinition(_ context.Context, definitionID uuid.UUID) ([]*Instance, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	out := make([]*Instance, 0)
+	for _, instance := range m.byID {
+		if instance.DefinitionID == definitionID {
+			out = append(out, cloneInstance(instance))
+		}
+	}
+	return out, nil
+}
+
 func (m *memoryInstanceRepository) Update(_ context.Context, instance *Instance) (*Instance, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -147,6 +191,28 @@ func (m *memoryInstanceRepository) Update(_ context.Context, instance *Instance)
 	}
 
 	updated := cloneInstance(current)
+	if instance.PageID != nil {
+		pageID := *instance.PageID
+		updated.PageID = &pageID
+	} else {
+		updated.PageID = nil
+	}
+	if current.PageID != nil && (updated.PageID == nil || *current.PageID != *updated.PageID) {
+		m.byPageID[*current.PageID] = removeUUID(m.byPageID[*current.PageID], instance.ID)
+	}
+	if updated.PageID != nil {
+		m.byPageID[*updated.PageID] = appendUniqueUUID(m.byPageID[*updated.PageID], instance.ID)
+	}
+
+	updated.Region = instance.Region
+	updated.Position = instance.Position
+	updated.Configuration = maps.Clone(instance.Configuration)
+	updated.IsGlobal = instance.IsGlobal
+	if updated.IsGlobal {
+		m.globalIDs = appendUniqueUUID(m.globalIDs, instance.ID)
+	} else {
+		m.globalIDs = removeUUID(m.globalIDs, instance.ID)
+	}
 	updated.CurrentVersion = instance.CurrentVersion
 	updated.PublishedVersion = cloneIntPointer(instance.PublishedVersion)
 	updated.PublishedAt = cloneTimePointer(instance.PublishedAt)
@@ -156,6 +222,24 @@ func (m *memoryInstanceRepository) Update(_ context.Context, instance *Instance)
 
 	m.byID[instance.ID] = updated
 	return cloneInstance(updated), nil
+}
+
+func (m *memoryInstanceRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	instance, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "block_instance", Key: id.String()}
+	}
+
+	if instance.PageID != nil {
+		pageID := *instance.PageID
+		m.byPageID[pageID] = removeUUID(m.byPageID[pageID], id)
+	}
+	m.globalIDs = removeUUID(m.globalIDs, id)
+	delete(m.byID, id)
+	return nil
 }
 
 // NewMemoryInstanceVersionRepository constructs an "in memory" instance version repository.
@@ -280,6 +364,47 @@ func (m *memoryTranslationRepository) ListByInstance(_ context.Context, instance
 	return translations, nil
 }
 
+func (m *memoryTranslationRepository) Update(_ context.Context, translation *Translation) (*Translation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[translation.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_translation", Key: translation.ID.String()}
+	}
+
+	oldKey := translationKey(existing.BlockInstanceID, existing.LocaleID)
+
+	cloned := cloneTranslation(translation)
+	m.byID[cloned.ID] = cloned
+
+	newKey := translationKey(cloned.BlockInstanceID, cloned.LocaleID)
+	if oldKey != newKey {
+		delete(m.byInstanceLocale, oldKey)
+		m.byInstanceLocale[newKey] = cloned.ID
+		m.byInstance[existing.BlockInstanceID] = removeUUID(m.byInstance[existing.BlockInstanceID], cloned.ID)
+		m.byInstance[cloned.BlockInstanceID] = appendUniqueUUID(m.byInstance[cloned.BlockInstanceID], cloned.ID)
+	}
+
+	return cloneTranslation(cloned), nil
+}
+
+func (m *memoryTranslationRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	translation, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "block_translation", Key: id.String()}
+	}
+	delete(m.byID, id)
+
+	key := translationKey(translation.BlockInstanceID, translation.LocaleID)
+	delete(m.byInstanceLocale, key)
+	m.byInstance[translation.BlockInstanceID] = removeUUID(m.byInstance[translation.BlockInstanceID], id)
+	return nil
+}
+
 func cloneDefinition(src *Definition) *Definition {
 	if src == nil {
 		return nil
@@ -400,4 +525,26 @@ func cloneUUIDPointer(src *uuid.UUID) *uuid.UUID {
 	}
 	value := *src
 	return &value
+}
+
+func removeUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
+	if len(list) == 0 {
+		return list
+	}
+	out := make([]uuid.UUID, 0, len(list))
+	for _, item := range list {
+		if item != id {
+			out = append(out, item)
+		}
+	}
+	return out
+}
+
+func appendUniqueUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
+	for _, item := range list {
+		if item == id {
+			return list
+		}
+	}
+	return append(list, id)
 }
