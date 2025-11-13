@@ -438,6 +438,14 @@ func (s *stubContentService) Delete(context.Context, content.DeleteContentReques
 	return errUnsupported
 }
 
+func (s *stubContentService) UpdateTranslation(context.Context, content.UpdateContentTranslationRequest) (*content.ContentTranslation, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubContentService) DeleteTranslation(context.Context, content.DeleteContentTranslationRequest) error {
+	return errUnsupported
+}
+
 func (s *stubContentService) Schedule(context.Context, content.ScheduleContentRequest) (*content.Content, error) {
 	return nil, errUnsupported
 }
@@ -485,6 +493,22 @@ func (s *stubPagesService) Update(context.Context, pages.UpdatePageRequest) (*pa
 
 func (s *stubPagesService) Delete(context.Context, pages.DeletePageRequest) error {
 	return errUnsupported
+}
+
+func (s *stubPagesService) UpdateTranslation(context.Context, pages.UpdatePageTranslationRequest) (*pages.PageTranslation, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubPagesService) DeleteTranslation(context.Context, pages.DeletePageTranslationRequest) error {
+	return errUnsupported
+}
+
+func (s *stubPagesService) Move(context.Context, pages.MovePageRequest) (*pages.Page, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubPagesService) Duplicate(context.Context, pages.DuplicatePageRequest) (*pages.Page, error) {
+	return nil, errUnsupported
 }
 
 func (s *stubPagesService) Schedule(context.Context, pages.SchedulePageRequest) (*pages.Page, error) {
@@ -537,10 +561,6 @@ func (s *stubMenusService) UpdateMenuItem(context.Context, menus.UpdateMenuItemI
 	return nil, errUnsupported
 }
 
-func (s *stubMenusService) ReorderMenuItems(context.Context, menus.ReorderMenuItemsInput) ([]*menus.MenuItem, error) {
-	return nil, errUnsupported
-}
-
 func (s *stubMenusService) AddMenuItemTranslation(context.Context, menus.AddMenuItemTranslationInput) (*menus.MenuItemTranslation, error) {
 	return nil, errUnsupported
 }
@@ -559,6 +579,18 @@ func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string,
 
 func (s *stubMenusService) InvalidateCache(context.Context) error {
 	return nil
+}
+
+func (s *stubMenusService) DeleteMenu(context.Context, menus.DeleteMenuRequest) error {
+	return errUnsupported
+}
+
+func (s *stubMenusService) DeleteMenuItem(context.Context, menus.DeleteMenuItemRequest) error {
+	return errUnsupported
+}
+
+func (s *stubMenusService) BulkReorderMenuItems(context.Context, menus.BulkReorderMenuItemsInput) ([]*menus.MenuItem, error) {
+	return nil, errUnsupported
 }
 
 type errorMenuService struct {

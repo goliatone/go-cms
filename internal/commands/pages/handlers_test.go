@@ -49,6 +49,22 @@ func (s *stubPageService) Delete(ctx context.Context, req pages.DeletePageReques
 	return nil
 }
 
+func (s *stubPageService) UpdateTranslation(context.Context, pages.UpdatePageTranslationRequest) (*pages.PageTranslation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) DeleteTranslation(context.Context, pages.DeletePageTranslationRequest) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubPageService) Move(context.Context, pages.MovePageRequest) (*pages.Page, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) Duplicate(context.Context, pages.DuplicatePageRequest) (*pages.Page, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (s *stubPageService) Schedule(ctx context.Context, req pages.SchedulePageRequest) (*pages.Page, error) {
 	s.scheduleRequests = append(s.scheduleRequests, req)
 	if s.scheduleErr != nil {

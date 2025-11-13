@@ -22,6 +22,8 @@ type Service interface {
 	List(ctx context.Context) ([]*Content, error)
 	Update(ctx context.Context, req UpdateContentRequest) (*Content, error)
 	Delete(ctx context.Context, req DeleteContentRequest) error
+	UpdateTranslation(ctx context.Context, req UpdateContentTranslationRequest) (*ContentTranslation, error)
+	DeleteTranslation(ctx context.Context, req DeleteContentTranslationRequest) error
 	Schedule(ctx context.Context, req ScheduleContentRequest) (*Content, error)
 	CreateDraft(ctx context.Context, req CreateContentDraftRequest) (*ContentVersion, error)
 	PublishDraft(ctx context.Context, req PublishContentDraftRequest) (*ContentVersion, error)
@@ -66,6 +68,23 @@ type DeleteContentRequest struct {
 	ID         uuid.UUID
 	DeletedBy  uuid.UUID
 	HardDelete bool
+}
+
+// UpdateContentTranslationRequest captures the payload required to mutate a single translation.
+type UpdateContentTranslationRequest struct {
+	ContentID uuid.UUID
+	Locale    string
+	Title     string
+	Summary   *string
+	Content   map[string]any
+	UpdatedBy uuid.UUID
+}
+
+// DeleteContentTranslationRequest captures the payload required to drop a translation.
+type DeleteContentTranslationRequest struct {
+	ContentID uuid.UUID
+	Locale    string
+	DeletedBy uuid.UUID
 }
 
 // CreateContentDraftRequest captures the payload needed to record a draft snapshot.
@@ -118,6 +137,8 @@ var (
 	ErrSchedulingDisabled              = errors.New("content: scheduling feature disabled")
 	ErrScheduleWindowInvalid           = errors.New("content: publish_at must be before unpublish_at")
 	ErrScheduleTimestampInvalid        = errors.New("content: schedule timestamp is invalid")
+	ErrContentTranslationsDisabled     = errors.New("content: translations feature disabled")
+	ErrContentTranslationNotFound      = errors.New("content: translation not found")
 )
 
 // ContentRepository abstracts storage operations for content entities.
@@ -512,6 +533,170 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 	}
 
 	logger.Info("content deleted")
+	return nil
+}
+
+// UpdateTranslation mutates a single translation without replacing the entire set.
+func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTranslationRequest) (*ContentTranslation, error) {
+	if !s.translationsEnabled {
+		return nil, ErrContentTranslationsDisabled
+	}
+	if req.ContentID == uuid.Nil {
+		return nil, ErrContentIDRequired
+	}
+	localeCode := strings.TrimSpace(req.Locale)
+	if localeCode == "" {
+		return nil, ErrUnknownLocale
+	}
+
+	logger := s.opLogger(ctx, "content.translation.update", map[string]any{
+		"content_id": req.ContentID,
+		"locale":     localeCode,
+	})
+
+	record, err := s.contents.GetByID(ctx, req.ContentID)
+	if err != nil {
+		logger.Error("content lookup failed", "error", err)
+		return nil, err
+	}
+
+	loc, err := s.locales.GetByCode(ctx, localeCode)
+	if err != nil {
+		logger.Error("locale lookup failed", "error", err)
+		return nil, ErrUnknownLocale
+	}
+
+	var target *ContentTranslation
+	targetIdx := -1
+	for idx, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		if tr.LocaleID == loc.ID {
+			target = tr
+			targetIdx = idx
+			break
+		}
+	}
+	if target == nil {
+		return nil, ErrContentTranslationNotFound
+	}
+
+	if req.Content == nil {
+		req.Content = map[string]any{}
+	}
+
+	now := s.now()
+	updatedTranslation := &ContentTranslation{
+		ID:        target.ID,
+		ContentID: req.ContentID,
+		LocaleID:  loc.ID,
+		Title:     req.Title,
+		Summary:   cloneString(req.Summary),
+		Content:   cloneMap(req.Content),
+		CreatedAt: target.CreatedAt,
+		UpdatedAt: now,
+		Locale:    target.Locale,
+	}
+
+	translations := make([]*ContentTranslation, len(record.Translations))
+	for i, tr := range record.Translations {
+		if i == targetIdx {
+			translations[i] = updatedTranslation
+			continue
+		}
+		translations[i] = tr
+	}
+
+	if err := s.contents.ReplaceTranslations(ctx, req.ContentID, translations); err != nil {
+		logger.Error("content translation replace failed", "error", err)
+		return nil, err
+	}
+
+	record.Translations = translations
+	record.UpdatedAt = now
+	if req.UpdatedBy != uuid.Nil {
+		record.UpdatedBy = req.UpdatedBy
+	}
+	if _, err := s.contents.Update(ctx, record); err != nil {
+		logger.Error("content update failed after translation mutate", "error", err)
+		return nil, err
+	}
+
+	logger.Info("content translation updated")
+	return updatedTranslation, nil
+}
+
+// DeleteTranslation removes a locale from the translation set.
+func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTranslationRequest) error {
+	if !s.translationsEnabled {
+		return ErrContentTranslationsDisabled
+	}
+	if req.ContentID == uuid.Nil {
+		return ErrContentIDRequired
+	}
+	localeCode := strings.TrimSpace(req.Locale)
+	if localeCode == "" {
+		return ErrUnknownLocale
+	}
+
+	logger := s.opLogger(ctx, "content.translation.delete", map[string]any{
+		"content_id": req.ContentID,
+		"locale":     localeCode,
+	})
+
+	record, err := s.contents.GetByID(ctx, req.ContentID)
+	if err != nil {
+		logger.Error("content lookup failed", "error", err)
+		return err
+	}
+
+	if len(record.Translations) == 0 {
+		return ErrContentTranslationNotFound
+	}
+
+	loc, err := s.locales.GetByCode(ctx, localeCode)
+	if err != nil {
+		logger.Error("locale lookup failed", "error", err)
+		return ErrUnknownLocale
+	}
+
+	var removed bool
+	translations := make([]*ContentTranslation, 0, len(record.Translations))
+	for _, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		if tr.LocaleID == loc.ID {
+			removed = true
+			continue
+		}
+		translations = append(translations, tr)
+	}
+	if !removed {
+		return ErrContentTranslationNotFound
+	}
+
+	if s.translationsRequired() && len(translations) == 0 {
+		return ErrNoTranslations
+	}
+
+	if err := s.contents.ReplaceTranslations(ctx, req.ContentID, translations); err != nil {
+		logger.Error("content translation replace failed", "error", err)
+		return err
+	}
+
+	record.Translations = translations
+	record.UpdatedAt = s.now()
+	if req.DeletedBy != uuid.Nil {
+		record.UpdatedBy = req.DeletedBy
+	}
+	if _, err := s.contents.Update(ctx, record); err != nil {
+		logger.Error("content update failed after translation delete", "error", err)
+		return err
+	}
+
+	logger.Info("content translation deleted")
 	return nil
 }
 
@@ -983,6 +1168,14 @@ func cloneMap(src map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func cloneString(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
 }
 
 func nextContentVersionNumber(records []*ContentVersion) int {

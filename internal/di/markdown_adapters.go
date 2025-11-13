@@ -125,6 +125,36 @@ func (a *markdownContentServiceAdapter) Delete(ctx context.Context, req interfac
 	})
 }
 
+func (a *markdownContentServiceAdapter) UpdateTranslation(ctx context.Context, req interfaces.ContentUpdateTranslationRequest) (*interfaces.ContentTranslation, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+
+	translation, err := a.service.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
+		ContentID: req.ContentID,
+		Locale:    req.Locale,
+		Title:     req.Title,
+		Summary:   req.Summary,
+		Content:   cloneFieldMap(req.Fields),
+		UpdatedBy: req.UpdatedBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toInterfacesContentTranslation(translation), nil
+}
+
+func (a *markdownContentServiceAdapter) DeleteTranslation(ctx context.Context, req interfaces.ContentDeleteTranslationRequest) error {
+	if a == nil || a.service == nil {
+		return errors.New("content service unavailable")
+	}
+	return a.service.DeleteTranslation(ctx, content.DeleteContentTranslationRequest{
+		ContentID: req.ContentID,
+		Locale:    req.Locale,
+		DeletedBy: req.DeletedBy,
+	})
+}
+
 func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 	if record == nil {
 		return nil
@@ -153,6 +183,23 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 		Status:       record.Status,
 		Translations: translations,
 		Metadata:     nil,
+	}
+}
+
+func toInterfacesContentTranslation(record *content.ContentTranslation) *interfaces.ContentTranslation {
+	if record == nil {
+		return nil
+	}
+	locale := ""
+	if record.Locale != nil {
+		locale = record.Locale.Code
+	}
+	return &interfaces.ContentTranslation{
+		ID:      record.ID,
+		Locale:  locale,
+		Title:   record.Title,
+		Summary: record.Summary,
+		Fields:  cloneFieldMap(record.Content),
 	}
 }
 
@@ -319,6 +366,108 @@ func (a *markdownPageServiceAdapter) Delete(ctx context.Context, req interfaces.
 	}
 	a.clearPageMeta(req.ID)
 	return nil
+}
+
+func (a *markdownPageServiceAdapter) UpdateTranslation(ctx context.Context, req interfaces.PageUpdateTranslationRequest) (*interfaces.PageTranslation, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	translation, err := a.service.UpdateTranslation(ctx, pages.UpdatePageTranslationRequest{
+		PageID:    req.PageID,
+		Locale:    req.Locale,
+		Title:     req.Title,
+		Path:      req.Path,
+		Summary:   req.Summary,
+		UpdatedBy: req.UpdatedBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	a.mu.Lock()
+	if a.translationMeta == nil {
+		a.translationMeta = map[uuid.UUID]map[uuid.UUID]pageTranslationMeta{}
+	}
+	meta := a.translationMeta[req.PageID]
+	if meta == nil {
+		meta = map[uuid.UUID]pageTranslationMeta{}
+	}
+	meta[translation.ID] = pageTranslationMeta{
+		Locale: req.Locale,
+		Fields: cloneFieldMap(req.Fields),
+	}
+	a.translationMeta[req.PageID] = meta
+	a.mu.Unlock()
+
+	return &interfaces.PageTranslation{
+		ID:      translation.ID,
+		Locale:  req.Locale,
+		Title:   translation.Title,
+		Path:    translation.Path,
+		Summary: translation.Summary,
+		Fields:  cloneFieldMap(req.Fields),
+	}, nil
+}
+
+func (a *markdownPageServiceAdapter) DeleteTranslation(ctx context.Context, req interfaces.PageDeleteTranslationRequest) error {
+	if a == nil || a.service == nil {
+		return errors.New("page service unavailable")
+	}
+	if err := a.service.DeleteTranslation(ctx, pages.DeletePageTranslationRequest{
+		PageID:    req.PageID,
+		Locale:    req.Locale,
+		DeletedBy: req.DeletedBy,
+	}); err != nil {
+		return err
+	}
+
+	a.mu.Lock()
+	if a.translationMeta != nil {
+		meta := a.translationMeta[req.PageID]
+		for id, info := range meta {
+			if strings.EqualFold(info.Locale, req.Locale) {
+				delete(meta, id)
+			}
+		}
+		a.translationMeta[req.PageID] = meta
+	}
+	a.mu.Unlock()
+	return nil
+}
+
+func (a *markdownPageServiceAdapter) Move(ctx context.Context, req interfaces.PageMoveRequest) (*interfaces.PageRecord, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	record, err := a.service.Move(ctx, pages.MovePageRequest{
+		PageID:      req.PageID,
+		NewParentID: req.NewParentID,
+		ActorID:     req.ActorID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a.toPageRecord(record), nil
+}
+
+func (a *markdownPageServiceAdapter) Duplicate(ctx context.Context, req interfaces.PageDuplicateRequest) (*interfaces.PageRecord, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	record, err := a.service.Duplicate(ctx, pages.DuplicatePageRequest{
+		PageID:    req.PageID,
+		Slug:      req.Slug,
+		ParentID:  req.ParentID,
+		Status:    req.Status,
+		CreatedBy: req.CreatedBy,
+		UpdatedBy: req.UpdatedBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	// No translation metadata available for duplicates; ensure clean slate.
+	a.clearPageMeta(record.ID)
+	return a.toPageRecord(record), nil
 }
 
 func (a *markdownPageServiceAdapter) toPageRecord(record *pages.Page) *interfaces.PageRecord {

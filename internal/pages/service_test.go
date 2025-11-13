@@ -190,6 +190,257 @@ func TestPageServiceCreateSuccess(t *testing.T) {
 	}
 }
 
+func TestPageServiceUpdateTranslation(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "update-page-translation",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Body",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	svc := pages.NewService(pageStore, contentStore, localeStore)
+	page, err := svc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:    contentRecord.ID,
+		TemplateID:   uuid.New(),
+		Slug:         "update-translation",
+		Status:       string(domain.StatusDraft),
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+		Translations: []pages.PageTranslationInput{{Locale: "en", Title: "Hello", Path: "/hello"}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	editor := uuid.New()
+	translation, err := svc.UpdateTranslation(context.Background(), pages.UpdatePageTranslationRequest{
+		PageID:    page.ID,
+		Locale:    "en",
+		Title:     "Updated Title",
+		Path:      "/hello-updated",
+		Summary:   ptr("Updated summary"),
+		UpdatedBy: editor,
+	})
+	if err != nil {
+		t.Fatalf("update translation: %v", err)
+	}
+	if translation.Path != "/hello-updated" {
+		t.Fatalf("expected updated path, got %s", translation.Path)
+	}
+	if translation.Title != "Updated Title" {
+		t.Fatalf("expected updated title, got %s", translation.Title)
+	}
+
+	reloaded, err := svc.Get(context.Background(), page.ID)
+	if err != nil {
+		t.Fatalf("get page: %v", err)
+	}
+	if reloaded.UpdatedBy != editor {
+		t.Fatalf("expected updated_by %s got %s", editor, reloaded.UpdatedBy)
+	}
+	if reloaded.Translations[0].Path != "/hello-updated" {
+		t.Fatalf("expected stored translation path to update")
+	}
+}
+
+func TestPageServiceDeleteTranslationRequiresMinimum(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "delete-page-translation",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Body",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	svc := pages.NewService(pageStore, contentStore, localeStore)
+	page, err := svc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:    contentRecord.ID,
+		TemplateID:   uuid.New(),
+		Slug:         "delete-translation",
+		Status:       string(domain.StatusDraft),
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+		Translations: []pages.PageTranslationInput{{Locale: "en", Title: "Hello", Path: "/delete"}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	err = svc.DeleteTranslation(context.Background(), pages.DeletePageTranslationRequest{
+		PageID:    page.ID,
+		Locale:    "en",
+		DeletedBy: uuid.New(),
+	})
+	if !errors.Is(err, pages.ErrNoPageTranslations) {
+		t.Fatalf("expected ErrNoPageTranslations got %v", err)
+	}
+}
+
+func TestPageServiceMovePreventsCycle(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	parentContent, _ := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "parent-content",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Parent Body"}},
+	})
+	childContent, _ := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "child-content",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Child Body"}},
+	})
+
+	svc := pages.NewService(pageStore, contentStore, localeStore)
+	parentPage, err := svc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:    parentContent.ID,
+		TemplateID:   uuid.New(),
+		Slug:         "parent",
+		Status:       string(domain.StatusDraft),
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+		Translations: []pages.PageTranslationInput{{Locale: "en", Title: "Parent", Path: "/parent"}},
+	})
+	if err != nil {
+		t.Fatalf("create parent page: %v", err)
+	}
+
+	childPage, err := svc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:    childContent.ID,
+		TemplateID:   uuid.New(),
+		ParentID:     &parentPage.ID,
+		Slug:         "child",
+		Status:       string(domain.StatusDraft),
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+		Translations: []pages.PageTranslationInput{{Locale: "en", Title: "Child", Path: "/parent/child"}},
+	})
+	if err != nil {
+		t.Fatalf("create child page: %v", err)
+	}
+
+	err = svc.Move(context.Background(), pages.MovePageRequest{
+		PageID:      parentPage.ID,
+		NewParentID: &childPage.ID,
+		ActorID:     uuid.New(),
+	})
+	if !errors.Is(err, pages.ErrPageParentCycle) {
+		t.Fatalf("expected ErrPageParentCycle got %v", err)
+	}
+}
+
+func TestPageServiceDuplicateCreatesUniqueSlug(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	contentTypeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, _ := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "duplicate-content",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Body"}},
+	})
+
+	svc := pages.NewService(pageStore, contentStore, localeStore)
+	original, err := svc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:    contentRecord.ID,
+		TemplateID:   uuid.New(),
+		Slug:         "landing",
+		Status:       string(domain.StatusDraft),
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+		Translations: []pages.PageTranslationInput{{Locale: "en", Title: "Landing", Path: "/landing"}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	clone, err := svc.Duplicate(context.Background(), pages.DuplicatePageRequest{
+		PageID:    original.ID,
+		CreatedBy: uuid.New(),
+		UpdatedBy: uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("duplicate page: %v", err)
+	}
+
+	if clone.ID == original.ID {
+		t.Fatalf("expected new page id, got same")
+	}
+	if clone.Slug == original.Slug {
+		t.Fatalf("expected slug change, both %s", clone.Slug)
+	}
+	if !strings.HasSuffix(clone.Slug, "-copy") {
+		t.Fatalf("expected slug to include -copy suffix, got %s", clone.Slug)
+	}
+	if len(clone.Translations) != len(original.Translations) {
+		t.Fatalf("expected translation count match, got %d vs %d", len(clone.Translations), len(original.Translations))
+	}
+	if clone.Translations[0].Path == original.Translations[0].Path {
+		t.Fatalf("expected duplicated path to differ")
+	}
+}
+
+func ptr(value string) *string {
+	return &value
+}
+
 func TestPageServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	contentTypeStore := content.NewMemoryContentTypeRepository()

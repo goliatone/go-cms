@@ -30,6 +30,10 @@ type Service interface {
 	List(ctx context.Context) ([]*Page, error)
 	Update(ctx context.Context, req UpdatePageRequest) (*Page, error)
 	Delete(ctx context.Context, req DeletePageRequest) error
+	UpdateTranslation(ctx context.Context, req UpdatePageTranslationRequest) (*PageTranslation, error)
+	DeleteTranslation(ctx context.Context, req DeletePageTranslationRequest) error
+	Move(ctx context.Context, req MovePageRequest) (*Page, error)
+	Duplicate(ctx context.Context, req DuplicatePageRequest) (*Page, error)
 	Schedule(ctx context.Context, req SchedulePageRequest) (*Page, error)
 	CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error)
 	PublishDraft(ctx context.Context, req PublishPagePublishRequest) (*PageVersion, error)
@@ -74,6 +78,41 @@ type DeletePageRequest struct {
 	ID         uuid.UUID
 	DeletedBy  uuid.UUID
 	HardDelete bool
+}
+
+// UpdatePageTranslationRequest mutates a specific translation for a page.
+type UpdatePageTranslationRequest struct {
+	PageID        uuid.UUID
+	Locale        string
+	Title         string
+	Path          string
+	Summary       *string
+	MediaBindings media.BindingSet
+	UpdatedBy     uuid.UUID
+}
+
+// DeletePageTranslationRequest removes a locale from a page.
+type DeletePageTranslationRequest struct {
+	PageID    uuid.UUID
+	Locale    string
+	DeletedBy uuid.UUID
+}
+
+// MovePageRequest updates the hierarchical parent for a page.
+type MovePageRequest struct {
+	PageID      uuid.UUID
+	NewParentID *uuid.UUID
+	ActorID     uuid.UUID
+}
+
+// DuplicatePageRequest clones a page, allowing optional overrides.
+type DuplicatePageRequest struct {
+	PageID    uuid.UUID
+	Slug      string
+	ParentID  *uuid.UUID
+	Status    string
+	CreatedBy uuid.UUID
+	UpdatedBy uuid.UUID
 }
 
 // CreatePageDraftRequest captures the data required to create a page version draft.
@@ -131,6 +170,10 @@ var (
 	ErrScheduleTimestampInvalid   = errors.New("pages: schedule timestamp is invalid")
 	ErrPageMediaReferenceRequired = errors.New("pages: media reference requires id or path")
 	ErrPageSoftDeleteUnsupported  = errors.New("pages: soft delete not supported")
+	ErrPageTranslationsDisabled   = errors.New("pages: translations feature disabled")
+	ErrPageTranslationNotFound    = errors.New("pages: translation not found")
+	ErrPageParentCycle            = errors.New("pages: parent assignment creates hierarchy cycle")
+	ErrPageDuplicateSlug          = errors.New("pages: unable to determine unique duplicate slug")
 )
 
 // PageRepository abstracts storage operations for pages.
@@ -698,6 +741,417 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 
 	logger.Info("page deleted")
 	return nil
+}
+
+// UpdateTranslation mutates a single localized entry without replacing the full set.
+func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTranslationRequest) (*PageTranslation, error) {
+	if !s.translationsEnabled {
+		return nil, ErrPageTranslationsDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+	localeCode := strings.TrimSpace(req.Locale)
+	if localeCode == "" {
+		return nil, ErrUnknownLocale
+	}
+
+	logger := s.opLogger(ctx, "pages.translation.update", map[string]any{
+		"page_id": req.PageID,
+		"locale":  localeCode,
+	})
+
+	record, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return nil, err
+	}
+
+	locale, err := s.locales.GetByCode(ctx, localeCode)
+	if err != nil {
+		logger.Error("locale lookup failed", "error", err)
+		return nil, ErrUnknownLocale
+	}
+
+	var target *PageTranslation
+	targetIdx := -1
+	for idx, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		if tr.LocaleID == locale.ID {
+			target = tr
+			targetIdx = idx
+			break
+		}
+	}
+	if target == nil {
+		return nil, ErrPageTranslationNotFound
+	}
+
+	allPages, err := s.pages.List(ctx)
+	if err != nil {
+		logger.Error("page list failed", "error", err)
+		return nil, err
+	}
+
+	title := strings.TrimSpace(req.Title)
+	if title == "" {
+		title = target.Title
+	}
+
+	pathInput := strings.TrimSpace(req.Path)
+	if pathInput == "" {
+		pathInput = target.Path
+	}
+	path := sanitizePath(pathInput)
+	if path == "" {
+		return nil, ErrPathExists
+	}
+	if pathExistsExcept(allPages, locale.ID, path, req.PageID) {
+		return nil, ErrPathExists
+	}
+
+	var summary *string
+	if req.Summary != nil {
+		summary = cloneStringPtr(req.Summary)
+	} else {
+		summary = cloneStringPtr(target.Summary)
+	}
+
+	bindings := target.MediaBindings
+	if req.MediaBindings != nil {
+		if err := validatePageMediaBindings(req.MediaBindings); err != nil {
+			return nil, err
+		}
+		bindings = media.CloneBindingSet(req.MediaBindings)
+	} else {
+		bindings = media.CloneBindingSet(target.MediaBindings)
+	}
+
+	now := s.now()
+	updatedTranslation := &PageTranslation{
+		ID:             target.ID,
+		PageID:         req.PageID,
+		LocaleID:       locale.ID,
+		Title:          title,
+		Path:           path,
+		Summary:        summary,
+		MediaBindings:  bindings,
+		SEOTitle:       target.SEOTitle,
+		SEODescription: target.SEODescription,
+		CreatedAt:      target.CreatedAt,
+		UpdatedAt:      now,
+		Locale:         target.Locale,
+	}
+
+	translations := make([]*PageTranslation, len(record.Translations))
+	for i, tr := range record.Translations {
+		if i == targetIdx {
+			translations[i] = updatedTranslation
+			continue
+		}
+		translations[i] = tr
+	}
+
+	if err := s.pages.ReplaceTranslations(ctx, req.PageID, translations); err != nil {
+		logger.Error("page translation replace failed", "error", err)
+		return nil, err
+	}
+
+	record.Translations = translations
+	record.UpdatedAt = now
+	if req.UpdatedBy != uuid.Nil {
+		record.UpdatedBy = req.UpdatedBy
+	}
+	if _, err := s.pages.Update(ctx, record); err != nil {
+		logger.Error("page update failed after translation mutate", "error", err)
+		return nil, err
+	}
+
+	logger.Info("page translation updated")
+	return updatedTranslation, nil
+}
+
+// DeleteTranslation removes a translation for a page.
+func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTranslationRequest) error {
+	if !s.translationsEnabled {
+		return ErrPageTranslationsDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return ErrPageRequired
+	}
+	localeCode := strings.TrimSpace(req.Locale)
+	if localeCode == "" {
+		return ErrUnknownLocale
+	}
+
+	logger := s.opLogger(ctx, "pages.translation.delete", map[string]any{
+		"page_id": req.PageID,
+		"locale":  localeCode,
+	})
+
+	record, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return err
+	}
+	if len(record.Translations) == 0 {
+		return ErrPageTranslationNotFound
+	}
+
+	locale, err := s.locales.GetByCode(ctx, localeCode)
+	if err != nil {
+		logger.Error("locale lookup failed", "error", err)
+		return ErrUnknownLocale
+	}
+
+	newTranslations := make([]*PageTranslation, 0, len(record.Translations))
+	removed := false
+	for _, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		if tr.LocaleID == locale.ID {
+			removed = true
+			continue
+		}
+		newTranslations = append(newTranslations, tr)
+	}
+
+	if !removed {
+		return ErrPageTranslationNotFound
+	}
+	if s.translationsRequired() && len(newTranslations) == 0 {
+		return ErrNoPageTranslations
+	}
+
+	if err := s.pages.ReplaceTranslations(ctx, req.PageID, newTranslations); err != nil {
+		logger.Error("page translation replace failed", "error", err)
+		return err
+	}
+
+	record.Translations = newTranslations
+	record.UpdatedAt = s.now()
+	if req.DeletedBy != uuid.Nil {
+		record.UpdatedBy = req.DeletedBy
+	}
+	if _, err := s.pages.Update(ctx, record); err != nil {
+		logger.Error("page update failed after translation delete", "error", err)
+		return err
+	}
+
+	logger.Info("page translation deleted")
+	return nil
+}
+
+// Move updates the parent of a page while preventing hierarchy cycles.
+func (s *pageService) Move(ctx context.Context, req MovePageRequest) (*Page, error) {
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+
+	fields := map[string]any{
+		"page_id": req.PageID,
+	}
+	if req.NewParentID != nil {
+		fields["parent_id"] = *req.NewParentID
+	}
+	logger := s.opLogger(ctx, "pages.move", fields)
+
+	record, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return nil, err
+	}
+
+	if err := s.ensureValidParent(ctx, req.PageID, req.NewParentID); err != nil {
+		logger.Error("page parent validation failed", "error", err)
+		return nil, err
+	}
+
+	currentParent := uuid.Nil
+	if record.ParentID != nil {
+		currentParent = *record.ParentID
+	}
+	newParent := uuid.Nil
+	if req.NewParentID != nil {
+		newParent = *req.NewParentID
+	}
+	if currentParent == newParent {
+		enriched, err := s.enrichPages(ctx, []*Page{record})
+		if err != nil {
+			return nil, err
+		}
+		return enriched[0], nil
+	}
+
+	if req.NewParentID == nil {
+		record.ParentID = nil
+	} else {
+		parent := *req.NewParentID
+		record.ParentID = &parent
+	}
+	record.UpdatedAt = s.now()
+	if req.ActorID != uuid.Nil {
+		record.UpdatedBy = req.ActorID
+	}
+
+	updated, err := s.pages.Update(ctx, record)
+	if err != nil {
+		logger.Error("page repository update failed", "error", err)
+		return nil, err
+	}
+
+	enriched, err := s.enrichPages(ctx, []*Page{updated})
+	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
+		return nil, err
+	}
+
+	logger.Info("page moved")
+	return enriched[0], nil
+}
+
+// Duplicate clones an existing page with a unique slug and paths.
+func (s *pageService) Duplicate(ctx context.Context, req DuplicatePageRequest) (*Page, error) {
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+
+	logger := s.opLogger(ctx, "pages.duplicate", map[string]any{
+		"page_id": req.PageID,
+	})
+
+	source, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return nil, err
+	}
+
+	slug, err := s.generateDuplicateSlug(ctx, req.Slug, source.Slug)
+	if err != nil {
+		logger.Error("duplicate slug resolution failed", "error", err)
+		return nil, err
+	}
+
+	parentID := source.ParentID
+	if req.ParentID != nil {
+		parentID = req.ParentID
+	}
+
+	newPageID := s.id()
+
+	if err := s.ensureValidParent(ctx, newPageID, parentID); err != nil {
+		logger.Error("duplicate parent validation failed", "error", err)
+		return nil, err
+	}
+
+	if _, err := s.content.GetByID(ctx, source.ContentID); err != nil {
+		logger.Error("duplicate content lookup failed", "error", err)
+		return nil, ErrContentRequired
+	}
+
+	if s.themes != nil {
+		if _, err := s.themes.GetTemplate(ctx, source.TemplateID); err != nil {
+			if errors.Is(err, themes.ErrFeatureDisabled) {
+				// ignore when themes disabled
+			} else {
+				logger.Error("duplicate template lookup failed", "error", err)
+				return nil, err
+			}
+		}
+	}
+
+	allPages, err := s.pages.List(ctx)
+	if err != nil {
+		logger.Error("page list failed", "error", err)
+		return nil, err
+	}
+
+	now := s.now()
+	createdBy := selectActor(req.CreatedBy, source.CreatedBy)
+	updatedBy := selectActor(req.UpdatedBy, createdBy)
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = string(domain.StatusDraft)
+	}
+
+	var parentPtr *uuid.UUID
+	if parentID != nil {
+		parentValue := *parentID
+		parentPtr = &parentValue
+	}
+
+	cloned := &Page{
+		ID:         newPageID,
+		ContentID:  source.ContentID,
+		ParentID:   parentPtr,
+		TemplateID: source.TemplateID,
+		Slug:       slug,
+		Status:     status,
+		CreatedBy:  createdBy,
+		UpdatedBy:  updatedBy,
+		CreatedAt:  now,
+		UpdatedAt:  now,
+	}
+
+	if len(source.Translations) == 0 && s.translationsRequired() {
+		return nil, ErrNoPageTranslations
+	}
+
+	for _, tr := range source.Translations {
+		if tr == nil {
+			continue
+		}
+		path := deriveDuplicatePath(allPages, tr.LocaleID, tr.Path)
+		clonedTranslation := &PageTranslation{
+			ID:            s.id(),
+			PageID:        newPageID,
+			LocaleID:      tr.LocaleID,
+			Title:         tr.Title,
+			Path:          path,
+			Summary:       cloneStringPtr(tr.Summary),
+			MediaBindings: media.CloneBindingSet(tr.MediaBindings),
+			CreatedAt:     now,
+			UpdatedAt:     now,
+			Locale:        tr.Locale,
+		}
+		cloned.Translations = append(cloned.Translations, clonedTranslation)
+	}
+
+	if s.translationsRequired() && len(cloned.Translations) == 0 {
+		return nil, ErrNoPageTranslations
+	}
+
+	targetState := requestedWorkflowState(status)
+	state, _, err := s.applyPageWorkflow(ctx, cloned, pageTransitionOptions{
+		TargetState: targetState,
+		ActorID:     updatedBy,
+		Metadata: map[string]any{
+			"operation": "duplicate",
+		},
+	})
+	if err != nil {
+		logger.Error("duplicate workflow transition failed", "error", err)
+		return nil, err
+	}
+	cloned.Status = string(state)
+
+	created, err := s.pages.Create(ctx, cloned)
+	if err != nil {
+		logger.Error("page repository create failed", "error", err)
+		return nil, err
+	}
+
+	enriched, err := s.enrichPages(ctx, []*Page{created})
+	if err != nil {
+		logger.Error("page enrichment failed", "error", err)
+		return nil, err
+	}
+
+	logger.Info("page duplicated")
+	return enriched[0], nil
 }
 
 // Schedule registers publish/unpublish windows for a page and enqueues scheduler jobs.
@@ -1623,6 +2077,131 @@ func isValidSlug(slug string) bool {
 	const pattern = "^[a-z0-9\\-]+$"
 	matched, _ := regexp.MatchString(pattern, slug)
 	return matched
+}
+
+func cloneStringPtr(value *string) *string {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
+func (s *pageService) ensureValidParent(ctx context.Context, pageID uuid.UUID, parentID *uuid.UUID) error {
+	if parentID == nil || *parentID == uuid.Nil {
+		return nil
+	}
+	if *parentID == pageID {
+		return ErrPageParentCycle
+	}
+
+	parent, err := s.pages.GetByID(ctx, *parentID)
+	if err != nil {
+		var notFound *PageNotFoundError
+		if errors.As(err, &notFound) {
+			return ErrParentNotFound
+		}
+		return err
+	}
+
+	current := parent.ParentID
+	for current != nil && *current != uuid.Nil {
+		if *current == pageID {
+			return ErrPageParentCycle
+		}
+		next, err := s.pages.GetByID(ctx, *current)
+		if err != nil {
+			return err
+		}
+		current = next.ParentID
+	}
+
+	return nil
+}
+
+func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fallback string) (string, error) {
+	candidate := strings.TrimSpace(requested)
+	if candidate != "" {
+		if !isValidSlug(candidate) {
+			return "", ErrSlugInvalid
+		}
+		if _, err := s.pages.GetBySlug(ctx, candidate); err == nil {
+			return "", ErrSlugExists
+		} else {
+			var notFound *PageNotFoundError
+			if !errors.As(err, &notFound) {
+				return "", err
+			}
+		}
+		return candidate, nil
+	}
+
+	base := strings.TrimSpace(fallback)
+	if base == "" {
+		base = fmt.Sprintf("page-%s", uuid.NewString())
+	}
+
+	for attempt := 0; attempt < 100; attempt++ {
+		next := appendCopySuffix(base, attempt)
+		if _, err := s.pages.GetBySlug(ctx, next); err != nil {
+			var notFound *PageNotFoundError
+			if errors.As(err, &notFound) {
+				return next, nil
+			}
+			return "", err
+		}
+	}
+	return "", ErrPageDuplicateSlug
+}
+
+func appendCopySuffix(base string, attempt int) string {
+	suffix := "-copy"
+	if attempt > 0 {
+		suffix = fmt.Sprintf("-copy-%d", attempt+1)
+	}
+	return base + suffix
+}
+
+func deriveDuplicatePath(existing []*Page, localeID uuid.UUID, base string) string {
+	base = sanitizePath(base)
+	if base == "" || base == "/" {
+		base = "/page"
+	}
+	attempt := 0
+	for {
+		candidate := appendPathCopySuffix(base, attempt)
+		if !pathExists(existing, localeID, candidate) {
+			return candidate
+		}
+		attempt++
+	}
+}
+
+func appendPathCopySuffix(path string, attempt int) string {
+	suffix := "-copy"
+	if attempt > 0 {
+		suffix = fmt.Sprintf("-copy-%d", attempt+1)
+	}
+	if path == "/" {
+		return "/" + strings.TrimPrefix(suffix, "-")
+	}
+	segments := strings.Split(path, "/")
+	last := len(segments) - 1
+	if last < 0 {
+		return "/" + strings.TrimPrefix(suffix, "-")
+	}
+	if segments[last] == "" {
+		last--
+	}
+	if last < 0 {
+		return "/" + strings.TrimPrefix(suffix, "-")
+	}
+	segments[last] = segments[last] + suffix
+	result := strings.Join(segments, "/")
+	if !strings.HasPrefix(result, "/") {
+		result = "/" + result
+	}
+	return result
 }
 
 func (s *pageService) buildPageTranslations(ctx context.Context, pageID uuid.UUID, inputs []PageTranslationInput, existingPages []*Page, existing []*PageTranslation, now time.Time) ([]*PageTranslation, error) {

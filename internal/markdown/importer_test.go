@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -307,6 +308,50 @@ func (s *stubContentService) Delete(_ context.Context, req interfaces.ContentDel
 	return nil
 }
 
+func (s *stubContentService) UpdateTranslation(_ context.Context, req interfaces.ContentUpdateTranslationRequest) (*interfaces.ContentTranslation, error) {
+	for _, record := range s.records {
+		if record.ID != req.ContentID {
+			continue
+		}
+		for idx, tr := range record.Translations {
+			if strings.EqualFold(tr.Locale, req.Locale) {
+				updated := interfaces.ContentTranslation{
+					ID:      tr.ID,
+					Locale:  req.Locale,
+					Title:   req.Title,
+					Summary: req.Summary,
+					Fields:  cloneMapAny(req.Fields),
+				}
+				record.Translations[idx] = updated
+				return cloneContentTranslation(updated), nil
+			}
+		}
+		return nil, errors.New("translation not found")
+	}
+	return nil, errors.New("content not found")
+}
+
+func (s *stubContentService) DeleteTranslation(_ context.Context, req interfaces.ContentDeleteTranslationRequest) error {
+	for _, record := range s.records {
+		if record.ID != req.ContentID {
+			continue
+		}
+		newTranslations := make([]interfaces.ContentTranslation, 0, len(record.Translations))
+		for _, tr := range record.Translations {
+			if strings.EqualFold(tr.Locale, req.Locale) {
+				continue
+			}
+			newTranslations = append(newTranslations, tr)
+		}
+		if len(newTranslations) == len(record.Translations) {
+			return errors.New("translation not found")
+		}
+		record.Translations = newTranslations
+		return nil
+	}
+	return errors.New("content not found")
+}
+
 type stubPageService struct {
 	records map[string]*interfaces.PageRecord
 }
@@ -398,6 +443,22 @@ func (s *stubPageService) Delete(_ context.Context, req interfaces.PageDeleteReq
 	return nil
 }
 
+func (s *stubPageService) UpdateTranslation(context.Context, interfaces.PageUpdateTranslationRequest) (*interfaces.PageTranslation, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) DeleteTranslation(context.Context, interfaces.PageDeleteTranslationRequest) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubPageService) Move(context.Context, interfaces.PageMoveRequest) (*interfaces.PageRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) Duplicate(context.Context, interfaces.PageDuplicateRequest) (*interfaces.PageRecord, error) {
+	return nil, errors.New("not implemented")
+}
+
 // Helper cloning functions ---------------------------------------------------
 
 func cloneContentRecord(record *interfaces.ContentRecord) *interfaces.ContentRecord {
@@ -422,6 +483,16 @@ func cloneContentRecord(record *interfaces.ContentRecord) *interfaces.ContentRec
 		}
 	}
 	return out
+}
+
+func cloneContentTranslation(tr interfaces.ContentTranslation) *interfaces.ContentTranslation {
+	return &interfaces.ContentTranslation{
+		ID:      tr.ID,
+		Locale:  tr.Locale,
+		Title:   tr.Title,
+		Summary: tr.Summary,
+		Fields:  cloneMapAny(tr.Fields),
+	}
 }
 
 func clonePageRecord(record *interfaces.PageRecord) *interfaces.PageRecord {
