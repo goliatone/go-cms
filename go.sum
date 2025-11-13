@@ -36,6 +36,8 @@ github.com/goliatone/go-repository-bun v0.7.0 h1:0K+bhVn1r7PtK3dEBnGOLRlaefsd4mI
 github.com/goliatone/go-repository-bun v0.7.0/go.mod h1:ZG2ZKOpbHhgi81rUtVgdtNCCApu49ihPhHpce4qjaOI=
 github.com/goliatone/go-repository-cache v0.5.0 h1:NIYtv7G9z+CJC0ryoLpKf0TZOnGppJTidnGx+Uh5zSY=
 github.com/goliatone/go-repository-cache v0.5.0/go.mod h1:SaGDxDSI2ZOmQWUo5VMHlkqroU4BkDopMDVs4nUJy7U=
+github.com/goliatone/go-urlkit v0.3.0 h1:U0lG3ksfwGXgFwyTEPXbhQ8XmQD2HwTx6DW8bqivGpw=
+github.com/goliatone/go-urlkit v0.3.0/go.mod h1:QVCju3Z9io9mX+t2D7RCp+ja9PYrLNJoucWc124siFQ=
 github.com/google/go-cmp v0.6.0 h1:ofyhxvXcZhMsU5ulbFiLKl/XBFqE1GSq7atu8tAmTRI=
 github.com/google/go-cmp v0.6.0/go.mod h1:17dUlkBOakJ0+DkrSSNjCkIjxS6bF9zb3elmeNGIjoY=
 github.com/google/uuid v1.6.0 h1:NIvaJDMOsjHA8n1jAhLSgzrAzy1Hgr+hNrb57e+94F0=

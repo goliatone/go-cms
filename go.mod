@@ -41,5 +41,3 @@ require (
 	golang.org/x/sys v0.34.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
 )
-
-replace github.com/goliatone/go-urlkit => ../go-urlkit
