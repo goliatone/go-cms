@@ -13,6 +13,10 @@ type PageService interface {
 	GetBySlug(ctx context.Context, slug string) (*PageRecord, error)
 	List(ctx context.Context) ([]*PageRecord, error)
 	Delete(ctx context.Context, req PageDeleteRequest) error
+	UpdateTranslation(ctx context.Context, req PageUpdateTranslationRequest) (*PageTranslation, error)
+	DeleteTranslation(ctx context.Context, req PageDeleteTranslationRequest) error
+	Move(ctx context.Context, req PageMoveRequest) (*PageRecord, error)
+	Duplicate(ctx context.Context, req PageDuplicateRequest) (*PageRecord, error)
 }
 
 // PageCreateRequest captures the required fields to create a page backed by content.
@@ -45,6 +49,41 @@ type PageDeleteRequest struct {
 	ID         uuid.UUID
 	DeletedBy  uuid.UUID
 	HardDelete bool
+}
+
+// PageUpdateTranslationRequest mutates a single translation entry.
+type PageUpdateTranslationRequest struct {
+	PageID    uuid.UUID
+	Locale    string
+	Title     string
+	Path      string
+	Summary   *string
+	Fields    map[string]any
+	UpdatedBy uuid.UUID
+}
+
+// PageDeleteTranslationRequest removes a translation entry.
+type PageDeleteTranslationRequest struct {
+	PageID    uuid.UUID
+	Locale    string
+	DeletedBy uuid.UUID
+}
+
+// PageMoveRequest updates the parent relationship.
+type PageMoveRequest struct {
+	PageID      uuid.UUID
+	NewParentID *uuid.UUID
+	ActorID     uuid.UUID
+}
+
+// PageDuplicateRequest clones an existing page with overrides.
+type PageDuplicateRequest struct {
+	PageID    uuid.UUID
+	Slug      string
+	ParentID  *uuid.UUID
+	Status    string
+	CreatedBy uuid.UUID
+	UpdatedBy uuid.UUID
 }
 
 // PageTranslationInput describes localized routing attributes.

@@ -14,6 +14,8 @@ type ContentService interface {
 	GetBySlug(ctx context.Context, slug string) (*ContentRecord, error)
 	List(ctx context.Context) ([]*ContentRecord, error)
 	Delete(ctx context.Context, req ContentDeleteRequest) error
+	UpdateTranslation(ctx context.Context, req ContentUpdateTranslationRequest) (*ContentTranslation, error)
+	DeleteTranslation(ctx context.Context, req ContentDeleteTranslationRequest) error
 }
 
 // ContentCreateRequest captures the details required to create a content record.
@@ -44,6 +46,23 @@ type ContentDeleteRequest struct {
 	ID         uuid.UUID
 	DeletedBy  uuid.UUID
 	HardDelete bool
+}
+
+// ContentUpdateTranslationRequest updates a single locale entry.
+type ContentUpdateTranslationRequest struct {
+	ContentID uuid.UUID
+	Locale    string
+	Title     string
+	Summary   *string
+	Fields    map[string]any
+	UpdatedBy uuid.UUID
+}
+
+// ContentDeleteTranslationRequest removes a locale entry.
+type ContentDeleteTranslationRequest struct {
+	ContentID uuid.UUID
+	Locale    string
+	DeletedBy uuid.UUID
 }
 
 // ContentTranslationInput represents localized fields provided during create/update.
