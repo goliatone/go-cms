@@ -103,6 +103,10 @@ function dev:test:regression {
     "${GO_BIN}" test -ldflags="-s -w" ./internal/generator ./cms
 }
 
+function readiness:crud {
+    "${GO_BIN}" test ./internal/blocks ./internal/widgets ./internal/menus .
+}
+
 function workflow:test {
     echo "Running workflow regression suite..."
     echo "Required environment variables for host engines:"
@@ -133,6 +137,66 @@ function command:lint {
     golangci-lint run ./internal/commands/...
 }
 
+function colabs:fmt:check {
+    local formatted
+    formatted=$(gofmt -l site/cmd site/internal | tr '\n' ' ')
+    if [[ -n "${formatted}" ]]; then
+        echo "gofmt required for site module files:${formatted}"
+        return 1
+    fi
+}
+
+function colabs:vet {
+    (cd site && "${GO_BIN}" vet ./...)
+}
+
+function colabs:test {
+    (cd site && "${GO_BIN}" test ./...)
+}
+
+function colabs:install:node {
+    (
+        cd site || exit $?
+        local need_install=1
+        if [[ -d node_modules && -z "$CI" ]]; then
+            if ls -A node_modules >/dev/null 2>&1; then
+                need_install=0
+            fi
+        fi
+
+        if [[ $need_install -eq 1 ]]; then
+            npm ci
+        else
+            echo "node_modules detected; skipping npm ci (set CI=1 to force reinstall)."
+        fi
+
+        local playwright_cache="node_modules/.cache/ms-playwright"
+        if [[ -n "$CI" || ! -d "${playwright_cache}" ]]; then
+            if [[ -n "$CI" ]]; then
+                npx playwright install --with-deps chromium
+            else
+                npx playwright install chromium
+            fi
+        else
+            echo "Playwright browsers already installed; skipping install."
+        fi
+    )
+}
+
+function colabs:build:static {
+    (
+        cd site || exit $?
+        GOCACHE=${GOCACHE:-$(pwd)/.gocache} ./taskfile build:static
+    )
+}
+
+function colabs:verify:regressions {
+    (
+        cd site || exit $?
+        GOCACHE=${GOCACHE:-$(pwd)/.gocache} ./taskfile verify:regressions
+    )
+}
+
 function ci:commands {
     command:fmt:check || return $?
     command:lint || return $?
@@ -141,6 +205,21 @@ function ci:commands {
 
 function ci:workflows {
     workflow:test
+}
+
+function ci:colabs {
+    colabs:fmt:check || return $?
+    colabs:vet || return $?
+    colabs:test || return $?
+    colabs:install:node || return $?
+    colabs:build:static || return $?
+    colabs:verify:regressions
+}
+
+function ci {
+    ci:commands || return $?
+    ci:workflows || return $?
+    ci:colabs
 }
 
 function dev:cover {
