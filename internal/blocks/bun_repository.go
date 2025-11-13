@@ -60,6 +60,30 @@ func (r *BunDefinitionRepository) List(ctx context.Context) ([]*Definition, erro
 	return records, err
 }
 
+func (r *BunDefinitionRepository) Update(ctx context.Context, definition *Definition) (*Definition, error) {
+	updated, err := r.repo.Update(ctx, definition,
+		repository.UpdateByID(definition.ID.String()),
+		repository.UpdateColumns(
+			"name",
+			"description",
+			"icon",
+			"schema",
+			"defaults",
+			"editor_style_url",
+			"frontend_style_url",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (r *BunDefinitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Definition{ID: id})
+}
+
 // BunInstanceRepository implements InstanceRepository with optional caching.
 type BunInstanceRepository struct {
 	repo repository.Repository[*Instance]
@@ -109,10 +133,22 @@ func (r *BunInstanceRepository) ListGlobal(ctx context.Context) ([]*Instance, er
 	return records, err
 }
 
+func (r *BunInstanceRepository) ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]*Instance, error) {
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.Where("?TableAlias.definition_id = ?", definitionID)
+	}))
+	return records, err
+}
+
 func (r *BunInstanceRepository) Update(ctx context.Context, instance *Instance) (*Instance, error) {
 	updated, err := r.repo.Update(ctx, instance,
 		repository.UpdateByID(instance.ID.String()),
 		repository.UpdateColumns(
+			"page_id",
+			"region",
+			"position",
+			"configuration",
+			"is_global",
 			"current_version",
 			"published_version",
 			"published_at",
@@ -125,6 +161,10 @@ func (r *BunInstanceRepository) Update(ctx context.Context, instance *Instance) 
 		return nil, err
 	}
 	return updated, nil
+}
+
+func (r *BunInstanceRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Instance{ID: id})
 }
 
 // BunInstanceVersionRepository implements InstanceVersionRepository with optional caching.
@@ -267,6 +307,26 @@ func (r *BunTranslationRepository) ListByInstance(ctx context.Context, instanceI
 		return q.Where("?TableAlias.block_instance_id = ?", instanceID)
 	}))
 	return records, err
+}
+
+func (r *BunTranslationRepository) Update(ctx context.Context, translation *Translation) (*Translation, error) {
+	updated, err := r.repo.Update(ctx, translation,
+		repository.UpdateByID(translation.ID.String()),
+		repository.UpdateColumns(
+			"content",
+			"attribute_overrides",
+			"media_bindings",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (r *BunTranslationRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Translation{ID: id})
 }
 
 func mapRepositoryError(err error, resource, key string) error {
