@@ -68,6 +68,36 @@ func (m *memoryDefinitionRepository) List(_ context.Context) ([]*Definition, err
 	return records, nil
 }
 
+func (m *memoryDefinitionRepository) Update(_ context.Context, definition *Definition) (*Definition, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.byID[definition.ID]; !ok {
+		return nil, &NotFoundError{Resource: "widget_definition", Key: definition.ID.String()}
+	}
+	cloned := cloneDefinition(definition)
+	m.byID[cloned.ID] = cloned
+	if cloned.Name != "" {
+		m.byName[cloned.Name] = cloned.ID
+	}
+	return cloneDefinition(cloned), nil
+}
+
+func (m *memoryDefinitionRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "widget_definition", Key: id.String()}
+	}
+	delete(m.byID, id)
+	if record.Name != "" {
+		delete(m.byName, record.Name)
+	}
+	return nil
+}
+
 // NewMemoryInstanceRepository constructs an in-memory widget instance repository.
 func NewMemoryInstanceRepository() InstanceRepository {
 	return &memoryInstanceRepository{
@@ -184,6 +214,25 @@ func (m *memoryInstanceRepository) Update(_ context.Context, instance *Instance)
 	}
 
 	return cloneInstance(cloned), nil
+}
+
+func (m *memoryInstanceRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	instance, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "widget_instance", Key: id.String()}
+	}
+
+	delete(m.byID, id)
+	m.byDefinition[instance.DefinitionID] = removeUUID(m.byDefinition[instance.DefinitionID], id)
+	if instance.AreaCode != nil {
+		area := *instance.AreaCode
+		m.byArea[area] = removeUUID(m.byArea[area], id)
+	}
+	m.insertionOrder = removeUUID(m.insertionOrder, id)
+	return nil
 }
 
 // NewMemoryTranslationRepository constructs an in-memory widget translation repository.
@@ -372,6 +421,32 @@ func (m *memoryAreaPlacementRepository) DeleteByAreaLocaleInstance(_ context.Con
 	return nil
 }
 
+func (m *memoryAreaPlacementRepository) DeleteByInstance(_ context.Context, instanceID uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for key, records := range m.byKey {
+		next := make([]*AreaPlacement, 0, len(records))
+		changed := false
+		for _, record := range records {
+			if record.InstanceID == instanceID {
+				delete(m.byID, record.ID)
+				changed = true
+				continue
+			}
+			next = append(next, record)
+		}
+		if !changed {
+			continue
+		}
+		for idx, record := range next {
+			record.Position = idx
+		}
+		m.byKey[key] = next
+	}
+	return nil
+}
+
 func (m *memoryTranslationRepository) Update(_ context.Context, translation *Translation) (*Translation, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -396,6 +471,21 @@ func (m *memoryTranslationRepository) Update(_ context.Context, translation *Tra
 	m.byInstance[cloned.WidgetInstanceID] = appendUniqueUUID(m.byInstance[cloned.WidgetInstanceID], cloned.ID)
 
 	return cloneTranslation(cloned), nil
+}
+
+func (m *memoryTranslationRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	translation, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "widget_translation", Key: id.String()}
+	}
+	delete(m.byID, id)
+	key := translationKey(translation.WidgetInstanceID, translation.LocaleID)
+	delete(m.byInstanceLocale, key)
+	m.byInstance[translation.WidgetInstanceID] = removeUUID(m.byInstance[translation.WidgetInstanceID], id)
+	return nil
 }
 
 func cloneDefinition(src *Definition) *Definition {

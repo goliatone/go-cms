@@ -17,6 +17,7 @@ type Service interface {
 	RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error)
 	ListDefinitions(ctx context.Context) ([]*Definition, error)
+	DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error
 	SyncRegistry(ctx context.Context) error
 
 	CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error)
@@ -25,10 +26,12 @@ type Service interface {
 	ListInstancesByDefinition(ctx context.Context, definitionID uuid.UUID) ([]*Instance, error)
 	ListInstancesByArea(ctx context.Context, areaCode string) ([]*Instance, error)
 	ListAllInstances(ctx context.Context) ([]*Instance, error)
+	DeleteInstance(ctx context.Context, req DeleteInstanceRequest) error
 
 	AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error)
 	UpdateTranslation(ctx context.Context, input UpdateTranslationInput) (*Translation, error)
 	GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error)
+	DeleteTranslation(ctx context.Context, req DeleteTranslationRequest) error
 
 	RegisterAreaDefinition(ctx context.Context, input RegisterAreaDefinitionInput) (*AreaDefinition, error)
 	ListAreaDefinitions(ctx context.Context) ([]*AreaDefinition, error)
@@ -47,6 +50,11 @@ type RegisterDefinitionInput struct {
 	Defaults    map[string]any
 	Category    *string
 	Icon        *string
+}
+
+type DeleteDefinitionRequest struct {
+	ID         uuid.UUID
+	HardDelete bool
 }
 
 // CreateInstanceInput defines the payload required to create a widget instance.
@@ -77,6 +85,11 @@ type UpdateInstanceInput struct {
 	AreaCode        *string
 }
 
+type DeleteInstanceRequest struct {
+	InstanceID uuid.UUID
+	HardDelete bool
+}
+
 // AddTranslationInput describes the payload to add localized widget content.
 type AddTranslationInput struct {
 	InstanceID uuid.UUID
@@ -89,6 +102,11 @@ type UpdateTranslationInput struct {
 	InstanceID uuid.UUID
 	LocaleID   uuid.UUID
 	Content    map[string]any
+}
+
+type DeleteTranslationRequest struct {
+	InstanceID uuid.UUID
+	LocaleID   uuid.UUID
 }
 
 // RegisterAreaDefinitionInput captures metadata for a widget area.
@@ -156,23 +174,28 @@ type VisibilityContext struct {
 }
 
 var (
-	ErrDefinitionNameRequired    = errors.New("widgets: definition name required")
-	ErrDefinitionSchemaRequired  = errors.New("widgets: definition schema required")
-	ErrDefinitionExists          = errors.New("widgets: definition already exists")
-	ErrDefinitionDefaultsInvalid = errors.New("widgets: defaults contain unknown fields")
+	ErrDefinitionNameRequired          = errors.New("widgets: definition name required")
+	ErrDefinitionSchemaRequired        = errors.New("widgets: definition schema required")
+	ErrDefinitionExists                = errors.New("widgets: definition already exists")
+	ErrDefinitionDefaultsInvalid       = errors.New("widgets: defaults contain unknown fields")
+	ErrDefinitionInUse                 = errors.New("widgets: definition has active instances")
+	ErrDefinitionSoftDeleteUnsupported = errors.New("widgets: soft delete not supported for definitions")
 
-	ErrInstanceDefinitionRequired   = errors.New("widgets: definition id required")
-	ErrInstanceCreatorRequired      = errors.New("widgets: created_by is required")
-	ErrInstanceUpdaterRequired      = errors.New("widgets: updated_by is required")
-	ErrInstancePositionInvalid      = errors.New("widgets: position cannot be negative")
-	ErrInstanceConfigurationInvalid = errors.New("widgets: configuration contains unknown fields")
-	ErrInstanceScheduleInvalid      = errors.New("widgets: publish_on must be before unpublish_on")
-	ErrVisibilityRulesInvalid       = errors.New("widgets: visibility_rules contains unsupported keys")
-	ErrVisibilityScheduleInvalid    = errors.New("widgets: visibility schedule timestamps must be RFC3339")
+	ErrInstanceDefinitionRequired    = errors.New("widgets: definition id required")
+	ErrInstanceCreatorRequired       = errors.New("widgets: created_by is required")
+	ErrInstanceUpdaterRequired       = errors.New("widgets: updated_by is required")
+	ErrInstanceIDRequired            = errors.New("widgets: instance id required")
+	ErrInstancePositionInvalid       = errors.New("widgets: position cannot be negative")
+	ErrInstanceConfigurationInvalid  = errors.New("widgets: configuration contains unknown fields")
+	ErrInstanceScheduleInvalid       = errors.New("widgets: publish_on must be before unpublish_on")
+	ErrVisibilityRulesInvalid        = errors.New("widgets: visibility_rules contains unsupported keys")
+	ErrVisibilityScheduleInvalid     = errors.New("widgets: visibility schedule timestamps must be RFC3339")
+	ErrInstanceSoftDeleteUnsupported = errors.New("widgets: soft delete not supported for instances")
 
 	ErrTranslationContentRequired = errors.New("widgets: translation content required")
 	ErrTranslationLocaleRequired  = errors.New("widgets: translation locale required")
 	ErrTranslationExists          = errors.New("widgets: translation already exists for locale")
+	ErrTranslationNotFound        = errors.New("widgets: translation not found")
 
 	ErrAreaCodeRequired           = errors.New("widgets: area code required")
 	ErrAreaCodeInvalid            = errors.New("widgets: area code must contain letters, numbers, dot, or underscore")
@@ -323,6 +346,23 @@ func (s *service) GetDefinition(ctx context.Context, id uuid.UUID) (*Definition,
 
 func (s *service) ListDefinitions(ctx context.Context) ([]*Definition, error) {
 	return s.definitions.List(ctx)
+}
+
+func (s *service) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error {
+	if req.ID == uuid.Nil {
+		return &NotFoundError{Resource: "widget_definition", Key: ""}
+	}
+	if !req.HardDelete {
+		return ErrDefinitionSoftDeleteUnsupported
+	}
+	instances, err := s.instances.ListByDefinition(ctx, req.ID)
+	if err != nil {
+		return err
+	}
+	if len(instances) > 0 {
+		return ErrDefinitionInUse
+	}
+	return s.definitions.Delete(ctx, req.ID)
 }
 
 func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error) {
@@ -519,6 +559,33 @@ func (s *service) ListAllInstances(ctx context.Context) ([]*Instance, error) {
 	return s.attachTranslations(ctx, instances)
 }
 
+func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest) error {
+	if req.InstanceID == uuid.Nil {
+		return ErrInstanceIDRequired
+	}
+	if !req.HardDelete {
+		return ErrInstanceSoftDeleteUnsupported
+	}
+	if _, err := s.instances.GetByID(ctx, req.InstanceID); err != nil {
+		return err
+	}
+	if s.placements != nil {
+		if err := s.placements.DeleteByInstance(ctx, req.InstanceID); err != nil {
+			return err
+		}
+	}
+	translations, err := s.translations.ListByInstance(ctx, req.InstanceID)
+	if err != nil {
+		return err
+	}
+	for _, tr := range translations {
+		if err := s.translations.Delete(ctx, tr.ID); err != nil {
+			return err
+		}
+	}
+	return s.instances.Delete(ctx, req.InstanceID)
+}
+
 func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error) {
 	if input.InstanceID == uuid.Nil {
 		return nil, &NotFoundError{Resource: "widget_instance", Key: ""}
@@ -591,6 +658,24 @@ func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, loca
 		return nil, err
 	}
 	return s.cloneAndRenderTranslation(ctx, record)
+}
+
+func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRequest) error {
+	if req.InstanceID == uuid.Nil {
+		return ErrInstanceIDRequired
+	}
+	if req.LocaleID == uuid.Nil {
+		return ErrTranslationLocaleRequired
+	}
+
+	translation, err := s.translations.GetByInstanceAndLocale(ctx, req.InstanceID, req.LocaleID)
+	if err != nil {
+		return err
+	}
+	if err := s.translations.Delete(ctx, translation.ID); err != nil {
+		return err
+	}
+	return nil
 }
 
 func (s *service) RegisterAreaDefinition(ctx context.Context, input RegisterAreaDefinitionInput) (*AreaDefinition, error) {

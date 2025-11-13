@@ -29,6 +29,10 @@ func (noOpService) ListDefinitions(context.Context) ([]*Definition, error) {
 	return nil, ErrFeatureDisabled
 }
 
+func (noOpService) DeleteDefinition(context.Context, DeleteDefinitionRequest) error {
+	return ErrFeatureDisabled
+}
+
 func (noOpService) SyncRegistry(context.Context) error {
 	return ErrFeatureDisabled
 }
@@ -57,6 +61,10 @@ func (noOpService) ListAllInstances(context.Context) ([]*Instance, error) {
 	return nil, ErrFeatureDisabled
 }
 
+func (noOpService) DeleteInstance(context.Context, DeleteInstanceRequest) error {
+	return ErrFeatureDisabled
+}
+
 func (noOpService) AddTranslation(context.Context, AddTranslationInput) (*Translation, error) {
 	return nil, ErrFeatureDisabled
 }
@@ -67,6 +75,10 @@ func (noOpService) UpdateTranslation(context.Context, UpdateTranslationInput) (*
 
 func (noOpService) GetTranslation(context.Context, uuid.UUID, uuid.UUID) (*Translation, error) {
 	return nil, ErrFeatureDisabled
+}
+
+func (noOpService) DeleteTranslation(context.Context, DeleteTranslationRequest) error {
+	return ErrFeatureDisabled
 }
 
 func (noOpService) RegisterAreaDefinition(context.Context, RegisterAreaDefinitionInput) (*AreaDefinition, error) {

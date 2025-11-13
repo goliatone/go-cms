@@ -61,6 +61,29 @@ func (r *BunDefinitionRepository) List(ctx context.Context) ([]*Definition, erro
 	return records, err
 }
 
+func (r *BunDefinitionRepository) Update(ctx context.Context, definition *Definition) (*Definition, error) {
+	updated, err := r.repo.Update(ctx, definition,
+		repository.UpdateByID(definition.ID.String()),
+		repository.UpdateColumns(
+			"name",
+			"description",
+			"icon",
+			"schema",
+			"defaults",
+			"category",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+func (r *BunDefinitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Definition{ID: id})
+}
+
 // BunInstanceRepository implements InstanceRepository with optional caching.
 type BunInstanceRepository struct {
 	repo repository.Repository[*Instance]
@@ -123,6 +146,10 @@ func (r *BunInstanceRepository) Update(ctx context.Context, instance *Instance) 
 	return record, nil
 }
 
+func (r *BunInstanceRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Instance{ID: id})
+}
+
 // BunTranslationRepository implements TranslationRepository with optional caching.
 type BunTranslationRepository struct {
 	repo repository.Repository[*Translation]
@@ -182,6 +209,10 @@ func (r *BunTranslationRepository) Update(ctx context.Context, translation *Tran
 		return nil, mapRepositoryError(err, "widget_translation", translation.ID.String())
 	}
 	return record, nil
+}
+
+func (r *BunTranslationRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Translation{ID: id})
 }
 
 // BunAreaDefinitionRepository implements AreaDefinitionRepository.
@@ -300,6 +331,11 @@ func (r *BunAreaPlacementRepository) DeleteByAreaLocaleInstance(ctx context.Cont
 		query.Where("locale_id = ?", *localeID)
 	}
 	_, err := query.Exec(ctx)
+	return err
+}
+
+func (r *BunAreaPlacementRepository) DeleteByInstance(ctx context.Context, instanceID uuid.UUID) error {
+	_, err := r.db.NewDelete().Model((*AreaPlacement)(nil)).Where("instance_id = ?", instanceID).Exec(ctx)
 	return err
 }
 

@@ -859,6 +859,158 @@ func TestEnsureAreaDefinitions(t *testing.T) {
 	}
 }
 
+func TestServiceDeleteDefinitionPreventsInUse(t *testing.T) {
+	ctx := context.Background()
+	svc := newService()
+
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.New()
+	if _, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	}); err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	err = svc.DeleteDefinition(ctx, DeleteDefinitionRequest{ID: def.ID, HardDelete: true})
+	if !errors.Is(err, ErrDefinitionInUse) {
+		t.Fatalf("expected ErrDefinitionInUse, got %v", err)
+	}
+}
+
+func TestServiceDeleteInstanceRemovesPlacements(t *testing.T) {
+	ctx := context.Background()
+	userID := uuid.New()
+	idGen := sequentialIDs(
+		"00000000-0000-0000-0000-00000000aa10",
+		"00000000-0000-0000-0000-00000000bb10",
+		"00000000-0000-0000-0000-00000000cc10",
+		"00000000-0000-0000-0000-00000000dd10",
+	)
+
+	svc := newServiceWithAreas(WithIDGenerator(idGen))
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{Code: "sidebar.primary", Name: "Primary Sidebar"}); err != nil {
+		t.Fatalf("register area: %v", err)
+	}
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	if _, err := svc.AssignWidgetToArea(ctx, AssignWidgetToAreaInput{
+		AreaCode:   "sidebar.primary",
+		InstanceID: instance.ID,
+	}); err != nil {
+		t.Fatalf("assign widget: %v", err)
+	}
+
+	if err := svc.DeleteInstance(ctx, DeleteInstanceRequest{InstanceID: instance.ID, HardDelete: true}); err != nil {
+		t.Fatalf("delete instance: %v", err)
+	}
+
+	resolved, err := svc.ResolveArea(ctx, ResolveAreaInput{AreaCode: "sidebar.primary", Now: time.Now()})
+	if err != nil {
+		t.Fatalf("resolve area: %v", err)
+	}
+	if len(resolved) != 0 {
+		t.Fatalf("expected placements cleared, got %d", len(resolved))
+	}
+}
+
+func TestServiceDeleteInstanceRequiresHardDelete(t *testing.T) {
+	ctx := context.Background()
+	svc := newService()
+
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	userID := uuid.New()
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	err = svc.DeleteInstance(ctx, DeleteInstanceRequest{InstanceID: instance.ID, HardDelete: false})
+	if !errors.Is(err, ErrInstanceSoftDeleteUnsupported) {
+		t.Fatalf("expected ErrInstanceSoftDeleteUnsupported, got %v", err)
+	}
+}
+
+func TestServiceDeleteTranslation(t *testing.T) {
+	ctx := context.Background()
+	svc := newService()
+
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	userID := uuid.New()
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+	localeID := uuid.New()
+	if _, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+		Content: map[string]any{
+			"title": "Hero",
+		},
+	}); err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	if err := svc.DeleteTranslation(ctx, DeleteTranslationRequest{InstanceID: instance.ID, LocaleID: localeID}); err != nil {
+		t.Fatalf("delete translation: %v", err)
+	}
+	if _, err := svc.GetTranslation(ctx, instance.ID, localeID); err == nil {
+		t.Fatalf("expected translation removal to return error")
+	}
+}
+
+func newService(options ...ServiceOption) Service {
+	return NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		options...,
+	)
+}
+
 func sequentialIDs(values ...string) IDGenerator {
 	ids := make([]uuid.UUID, len(values))
 	for i, value := range values {
