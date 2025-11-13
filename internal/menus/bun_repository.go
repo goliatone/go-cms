@@ -82,6 +82,10 @@ func (r *BunMenuRepository) Update(ctx context.Context, menu *Menu) (*Menu, erro
 	return record, nil
 }
 
+func (r *BunMenuRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &Menu{ID: id})
+}
+
 func (r *BunMenuRepository) InvalidateCache(ctx context.Context) error {
 	if r.cacheService == nil || r.cachePrefix == "" {
 		return nil
@@ -162,6 +166,20 @@ func (r *BunMenuItemRepository) Update(ctx context.Context, item *MenuItem) (*Me
 	return record, nil
 }
 
+func (r *BunMenuItemRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &MenuItem{ID: id})
+}
+
+func (r *BunMenuItemRepository) BulkUpdateHierarchy(ctx context.Context, items []*MenuItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	_, err := r.repo.UpdateMany(ctx, items,
+		repository.UpdateColumns("parent_id", "position", "updated_at", "updated_by"),
+	)
+	return err
+}
+
 func (r *BunMenuItemRepository) InvalidateCache(ctx context.Context) error {
 	if r.cacheService == nil || r.cachePrefix == "" {
 		return nil
@@ -240,6 +258,10 @@ func (r *BunMenuItemTranslationRepository) Update(ctx context.Context, translati
 		return nil, err
 	}
 	return record, nil
+}
+
+func (r *BunMenuItemTranslationRepository) Delete(ctx context.Context, id uuid.UUID) error {
+	return r.repo.Delete(ctx, &MenuItemTranslation{ID: id})
 }
 
 func (r *BunMenuItemTranslationRepository) InvalidateCache(ctx context.Context) error {

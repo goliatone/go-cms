@@ -549,7 +549,7 @@ func (s *stubPageRepository) GetBySlug(ctx context.Context, slug string) (*pages
 	return nil, &pages.PageNotFoundError{Key: strings.TrimSpace(slug)}
 }
 
-func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
+func TestService_BulkReorderMenuItems_ValidatesCycles(t *testing.T) {
 	ctx := context.Background()
 	fixture := loadServiceFixture(t)
 	service := newService(t)
@@ -590,7 +590,7 @@ func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
 		t.Fatalf("AddMenuItem child: %v", err)
 	}
 
-	_, err = service.ReorderMenuItems(ctx, menus.ReorderMenuItemsInput{
+	_, err = service.BulkReorderMenuItems(ctx, menus.ReorderMenuItemsInput{
 		MenuID: menu.ID,
 		Items: []menus.ItemOrder{
 			{ItemID: parent.ID, ParentID: &child.ID, Position: 0},
@@ -602,7 +602,7 @@ func TestService_ReorderMenuItems_ValidatesCycles(t *testing.T) {
 	}
 }
 
-func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
+func TestService_BulkReorderMenuItems_AppliesNewOrder(t *testing.T) {
 	ctx := context.Background()
 	fixture := loadServiceFixture(t)
 	service := newService(t)
@@ -642,7 +642,7 @@ func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 		t.Fatalf("add second: %v", err)
 	}
 
-	result, err := service.ReorderMenuItems(ctx, menus.ReorderMenuItemsInput{
+	result, err := service.BulkReorderMenuItems(ctx, menus.ReorderMenuItemsInput{
 		MenuID: menu.ID,
 		Items: []menus.ItemOrder{
 			{ItemID: first.ID, Position: 1},
@@ -650,7 +650,7 @@ func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 		},
 	})
 	if err != nil {
-		t.Fatalf("ReorderMenuItems: %v", err)
+		t.Fatalf("BulkReorderMenuItems: %v", err)
 	}
 	if len(result) != 2 {
 		t.Fatalf("expected 2 items, got %d", len(result))
@@ -660,6 +660,376 @@ func TestService_ReorderMenuItems_AppliesNewOrder(t *testing.T) {
 	}
 	if result[1].ID != first.ID || result[1].Position != 1 {
 		t.Fatalf("expected first to be second with position 1, got %+v", result[1])
+	}
+}
+
+func TestService_DeleteMenu_RemovesMenuAndItems(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	menuRepo := menus.NewMemoryMenuRepository()
+	itemRepo := menus.NewMemoryMenuItemRepository()
+	trRepo := menus.NewMemoryMenuItemTranslationRepository()
+	localeRepo := content.NewMemoryLocaleRepository()
+	for _, loc := range fixture.locales() {
+		locale := loc
+		localeRepo.Put(&locale)
+	}
+
+	service := menus.NewService(
+		menuRepo,
+		itemRepo,
+		trRepo,
+		localeRepo,
+		menus.WithIDGenerator(uuid.New),
+		menus.WithClock(func() time.Time { return time.Unix(0, 0) }),
+	)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	parent, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "parent"},
+		Translations: fixture.translations("parent"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem parent: %v", err)
+	}
+
+	child, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		ParentID:     &parent.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "child"},
+		Translations: fixture.translations("child"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	if err := service.DeleteMenu(ctx, menus.DeleteMenuRequest{
+		MenuID:    menu.ID,
+		DeletedBy: uuid.Nil,
+	}); err != nil {
+		t.Fatalf("DeleteMenu: %v", err)
+	}
+
+	if _, err := service.GetMenu(ctx, menu.ID); !errors.Is(err, menus.ErrMenuNotFound) {
+		t.Fatalf("expected ErrMenuNotFound, got %v", err)
+	}
+
+	if menusLeft, err := menuRepo.List(ctx); err != nil {
+		t.Fatalf("menu repo list: %v", err)
+	} else if len(menusLeft) != 0 {
+		t.Fatalf("expected zero menus, got %d", len(menusLeft))
+	}
+
+	if items, err := itemRepo.ListByMenu(ctx, menu.ID); err != nil {
+		t.Fatalf("item repo list: %v", err)
+	} else if len(items) != 0 {
+		t.Fatalf("expected zero items, got %d", len(items))
+	}
+
+	if translations, err := trRepo.ListByMenuItem(ctx, parent.ID); err != nil {
+		t.Fatalf("parent translations: %v", err)
+	} else if len(translations) != 0 {
+		t.Fatalf("expected parent translations removed, got %d", len(translations))
+	}
+
+	if translations, err := trRepo.ListByMenuItem(ctx, child.ID); err != nil {
+		t.Fatalf("child translations: %v", err)
+	} else if len(translations) != 0 {
+		t.Fatalf("expected child translations removed, got %d", len(translations))
+	}
+}
+
+func TestService_DeleteMenu_GuardrailsRequireForce(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	menuRepo := menus.NewMemoryMenuRepository()
+	itemRepo := menus.NewMemoryMenuItemRepository()
+	trRepo := menus.NewMemoryMenuItemTranslationRepository()
+	localeRepo := content.NewMemoryLocaleRepository()
+	for _, loc := range fixture.locales() {
+		locale := loc
+		localeRepo.Put(&locale)
+	}
+
+	resolver := &stubMenuUsageResolver{
+		bindings: []menus.MenuUsageBinding{
+			{ThemeName: "aurora", LocationCode: "primary"},
+		},
+	}
+
+	service := menus.NewService(
+		menuRepo,
+		itemRepo,
+		trRepo,
+		localeRepo,
+		menus.WithMenuUsageResolver(resolver),
+	)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	err = service.DeleteMenu(ctx, menus.DeleteMenuRequest{
+		MenuID:    menu.ID,
+		DeletedBy: uuid.Nil,
+	})
+	if !errors.Is(err, menus.ErrMenuInUse) {
+		t.Fatalf("expected ErrMenuInUse, got %v", err)
+	}
+	var usageErr *menus.MenuInUseError
+	if !errors.As(err, &usageErr) || len(usageErr.Bindings) != 1 {
+		t.Fatalf("expected MenuInUseError with bindings, got %v", err)
+	}
+
+	if err := service.DeleteMenu(ctx, menus.DeleteMenuRequest{
+		MenuID:    menu.ID,
+		DeletedBy: uuid.Nil,
+		Force:     true,
+	}); err != nil {
+		t.Fatalf("DeleteMenu force: %v", err)
+	}
+}
+
+func TestService_DeleteMenuItem_RequiresCascade(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	parent, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "parent"},
+		Translations: fixture.translations("parent"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem parent: %v", err)
+	}
+
+	if _, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		ParentID:     &parent.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "child"},
+		Translations: fixture.translations("child"),
+	}); err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	err = service.DeleteMenuItem(ctx, menus.DeleteMenuItemRequest{
+		ItemID:          parent.ID,
+		DeletedBy:       uuid.Nil,
+		CascadeChildren: false,
+	})
+	if !errors.Is(err, menus.ErrMenuItemHasChildren) {
+		t.Fatalf("expected ErrMenuItemHasChildren, got %v", err)
+	}
+
+	menuState, err := service.GetMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("GetMenu: %v", err)
+	}
+	if len(menuState.Items) != 1 || len(menuState.Items[0].Children) != 1 {
+		t.Fatalf("expected parent and child to remain, got %+v", menuState.Items)
+	}
+}
+
+func TestService_DeleteMenuItem_CascadeRemovesChildrenAndReorders(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	menuRepo := menus.NewMemoryMenuRepository()
+	itemRepo := menus.NewMemoryMenuItemRepository()
+	trRepo := menus.NewMemoryMenuItemTranslationRepository()
+	localeRepo := content.NewMemoryLocaleRepository()
+	for _, loc := range fixture.locales() {
+		locale := loc
+		localeRepo.Put(&locale)
+	}
+
+	service := menus.NewService(
+		menuRepo,
+		itemRepo,
+		trRepo,
+		localeRepo,
+	)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	parent, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "parent"},
+		Translations: fixture.translations("parent"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem parent: %v", err)
+	}
+
+	child, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		ParentID:     &parent.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "child"},
+		Translations: fixture.translations("child"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	sibling, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     1,
+		Target:       map[string]any{"type": "page", "slug": "sibling"},
+		Translations: fixture.translations("sibling"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem sibling: %v", err)
+	}
+
+	if err := service.DeleteMenuItem(ctx, menus.DeleteMenuItemRequest{
+		ItemID:          parent.ID,
+		DeletedBy:       uuid.Nil,
+		CascadeChildren: true,
+	}); err != nil {
+		t.Fatalf("DeleteMenuItem: %v", err)
+	}
+
+	if _, err := itemRepo.GetByID(ctx, parent.ID); err == nil {
+		t.Fatalf("expected parent to be removed")
+	}
+	if _, err := itemRepo.GetByID(ctx, child.ID); err == nil {
+		t.Fatalf("expected child to be removed")
+	}
+
+	items, err := itemRepo.ListByMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("ListByMenu: %v", err)
+	}
+	if len(items) != 1 || items[0].ID != sibling.ID {
+		t.Fatalf("expected only sibling to remain, got %+v", items)
+	}
+	if items[0].Position != 0 {
+		t.Fatalf("expected sibling position reset to 0, got %d", items[0].Position)
+	}
+
+	if translations, err := trRepo.ListByMenuItem(ctx, parent.ID); err != nil {
+		t.Fatalf("parent translations: %v", err)
+	} else if len(translations) != 0 {
+		t.Fatalf("expected parent translations removed, got %d", len(translations))
+	}
+	if translations, err := trRepo.ListByMenuItem(ctx, child.ID); err != nil {
+		t.Fatalf("child translations: %v", err)
+	} else if len(translations) != 0 {
+		t.Fatalf("expected child translations removed, got %d", len(translations))
+	}
+}
+
+func TestService_BulkReorderMenuItems_MovesBetweenParents(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	first, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "first"},
+		Translations: fixture.translations("first"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem first: %v", err)
+	}
+
+	second, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     1,
+		Target:       map[string]any{"type": "page", "slug": "second"},
+		Translations: fixture.translations("second"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem second: %v", err)
+	}
+
+	child, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		ParentID:     &first.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "child"},
+		Translations: fixture.translations("child"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	if _, err := service.BulkReorderMenuItems(ctx, menus.BulkReorderMenuItemsInput{
+		MenuID:    menu.ID,
+		UpdatedBy: uuid.Nil,
+		Items: []menus.ItemOrder{
+			{ItemID: second.ID, Position: 0},
+			{ItemID: first.ID, Position: 1},
+			{ItemID: child.ID, ParentID: &second.ID, Position: 0},
+		},
+	}); err != nil {
+		t.Fatalf("BulkReorderMenuItems move: %v", err)
+	}
+
+	reloaded, err := service.GetMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("GetMenu: %v", err)
+	}
+	if len(reloaded.Items) != 2 {
+		t.Fatalf("expected 2 root items, got %d", len(reloaded.Items))
+	}
+	if reloaded.Items[0].ID != second.ID {
+		t.Fatalf("expected second to be first root, got %s", reloaded.Items[0].ID)
+	}
+	if len(reloaded.Items[0].Children) != 1 || reloaded.Items[0].Children[0].ID != child.ID {
+		t.Fatalf("expected child to move under second, got %+v", reloaded.Items[0].Children)
+	}
+	if len(reloaded.Items[0].Children[0].Translations) == 0 {
+		t.Fatalf("expected child translations to remain")
 	}
 }
 
@@ -710,6 +1080,18 @@ func TestService_UpdateMenuItem_TargetValidation(t *testing.T) {
 	if updated.Target["type"] != "external" {
 		t.Fatalf("expected target type external, got %v", updated.Target["type"])
 	}
+}
+
+type stubMenuUsageResolver struct {
+	bindings []menus.MenuUsageBinding
+	err      error
+}
+
+func (s *stubMenuUsageResolver) ResolveMenuUsage(context.Context, uuid.UUID) ([]menus.MenuUsageBinding, error) {
+	if s.err != nil {
+		return nil, s.err
+	}
+	return s.bindings, nil
 }
 
 func newService(t *testing.T) menus.Service {

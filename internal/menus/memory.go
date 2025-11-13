@@ -91,6 +91,21 @@ func (m *memoryMenuRepository) Update(_ context.Context, menu *Menu) (*Menu, err
 	return cloneMenu(cloned), nil
 }
 
+func (m *memoryMenuRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "menu", Key: id.String()}
+	}
+	delete(m.byID, id)
+	if existing.Code != "" {
+		delete(m.byCode, existing.Code)
+	}
+	return nil
+}
+
 // NewMemoryMenuItemRepository constructs an in-memory repository for menu items.
 func NewMemoryMenuItemRepository() MenuItemRepository {
 	return &memoryMenuItemRepository{
@@ -194,6 +209,54 @@ func (m *memoryMenuItemRepository) Update(_ context.Context, item *MenuItem) (*M
 	return cloneMenuItem(cloned), nil
 }
 
+func (m *memoryMenuItemRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	item, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "menu_item", Key: id.String()}
+	}
+
+	delete(m.byID, id)
+	m.byMenuID[item.MenuID] = removeUUID(m.byMenuID[item.MenuID], id)
+	if item.ParentID != nil {
+		m.byParent[*item.ParentID] = removeUUID(m.byParent[*item.ParentID], id)
+	}
+	return nil
+}
+
+func (m *memoryMenuItemRepository) BulkUpdateHierarchy(_ context.Context, items []*MenuItem) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, record := range items {
+		existing, ok := m.byID[record.ID]
+		if !ok {
+			return &NotFoundError{Resource: "menu_item", Key: record.ID.String()}
+		}
+		var oldParent *uuid.UUID
+		if existing.ParentID != nil {
+			tmp := *existing.ParentID
+			oldParent = &tmp
+		}
+
+		cloned := cloneMenuItem(record)
+		m.byID[cloned.ID] = cloned
+
+		if !uuidPtrEqual(oldParent, cloned.ParentID) {
+			if oldParent != nil {
+				m.byParent[*oldParent] = removeUUID(m.byParent[*oldParent], cloned.ID)
+			}
+			if cloned.ParentID != nil {
+				m.byParent[*cloned.ParentID] = appendUniqueUUID(m.byParent[*cloned.ParentID], cloned.ID)
+			}
+		}
+	}
+
+	return nil
+}
+
 // NewMemoryMenuItemTranslationRepository constructs an in-memory repository for menu item translations.
 func NewMemoryMenuItemTranslationRepository() MenuItemTranslationRepository {
 	return &memoryMenuItemTranslationRepository{
@@ -272,6 +335,20 @@ func (m *memoryMenuItemTranslationRepository) Update(_ context.Context, translat
 	}
 
 	return cloneMenuItemTranslation(cloned), nil
+}
+
+func (m *memoryMenuItemTranslationRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	translation, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "menu_item_translation", Key: id.String()}
+	}
+	delete(m.byID, id)
+	m.byItem[translation.MenuItemID] = removeUUID(m.byItem[translation.MenuItemID], id)
+	delete(m.byItemLocale, translationKey(translation.MenuItemID, translation.LocaleID))
+	return nil
 }
 
 func cloneMenu(src *Menu) *Menu {

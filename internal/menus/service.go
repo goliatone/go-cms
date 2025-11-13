@@ -19,10 +19,12 @@ type Service interface {
 	CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
 	GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error)
 	GetMenuByCode(ctx context.Context, code string) (*Menu, error)
+	DeleteMenu(ctx context.Context, req DeleteMenuRequest) error
 
 	AddMenuItem(ctx context.Context, input AddMenuItemInput) (*MenuItem, error)
 	UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput) (*MenuItem, error)
-	ReorderMenuItems(ctx context.Context, input ReorderMenuItemsInput) ([]*MenuItem, error)
+	DeleteMenuItem(ctx context.Context, req DeleteMenuItemRequest) error
+	BulkReorderMenuItems(ctx context.Context, input BulkReorderMenuItemsInput) ([]*MenuItem, error)
 
 	AddMenuItemTranslation(ctx context.Context, input AddMenuItemTranslationInput) (*MenuItemTranslation, error)
 	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
@@ -60,10 +62,19 @@ type UpdateMenuItemInput struct {
 }
 
 // ReorderMenuItemsInput defines a new hierarchical ordering for menu items.
-type ReorderMenuItemsInput struct {
+// BulkReorderMenuItemsInput defines a new hierarchical ordering for menu items.
+type BulkReorderMenuItemsInput struct {
 	MenuID uuid.UUID
 	Items  []ItemOrder
+	// UpdatedBy records the actor requesting the reorder for auditing purposes.
+	UpdatedBy uuid.UUID
+	// Version optionally captures optimistic-lock metadata for future use.
+	Version *int
 }
+
+// ReorderMenuItemsInput is retained for backward compatibility but mirrors BulkReorderMenuItemsInput.
+// Deprecated: use BulkReorderMenuItemsInput instead.
+type ReorderMenuItemsInput = BulkReorderMenuItemsInput
 
 // ItemOrder describes the desired parent/position for a menu item.
 type ItemOrder struct {
@@ -87,11 +98,27 @@ type AddMenuItemTranslationInput struct {
 	URLOverride *string
 }
 
+// DeleteMenuRequest captures the data required to remove a menu.
+type DeleteMenuRequest struct {
+	MenuID    uuid.UUID
+	DeletedBy uuid.UUID
+	// Force bypasses guard rails such as theme bindings when true.
+	Force bool
+}
+
+// DeleteMenuItemRequest captures the data required to remove a menu item.
+type DeleteMenuItemRequest struct {
+	ItemID          uuid.UUID
+	DeletedBy       uuid.UUID
+	CascadeChildren bool
+}
+
 var (
 	ErrMenuCodeRequired         = errors.New("menus: code is required")
 	ErrMenuCodeInvalid          = errors.New("menus: code must contain only letters, numbers, hyphen, or underscore")
 	ErrMenuCodeExists           = errors.New("menus: code already exists")
 	ErrMenuNotFound             = errors.New("menus: menu not found")
+	ErrMenuInUse                = errors.New("menus: menu is assigned to an active theme")
 	ErrMenuItemNotFound         = errors.New("menus: menu item not found")
 	ErrMenuItemParentInvalid    = errors.New("menus: parent menu item invalid")
 	ErrMenuItemCycle            = errors.New("menus: hierarchy creates a cycle")
@@ -99,6 +126,7 @@ var (
 	ErrMenuItemTargetMissing    = errors.New("menus: target type is required")
 	ErrMenuItemTranslations     = errors.New("menus: at least one translation is required")
 	ErrMenuItemDuplicateLocale  = errors.New("menus: duplicate translation locale provided")
+	ErrMenuItemHasChildren      = errors.New("menus: menu item has children; enable cascade to delete")
 	ErrUnknownLocale            = errors.New("menus: locale is unknown")
 	ErrTranslationExists        = errors.New("menus: translation already exists for locale")
 	ErrTranslationLabelRequired = errors.New("menus: translation label is required")
@@ -124,6 +152,46 @@ type NavigationNode struct {
 	URL      string           `json:"url"`
 	Target   map[string]any   `json:"target,omitempty"`
 	Children []NavigationNode `json:"children,omitempty"`
+}
+
+// MenuUsageResolver reports whether menus are currently bound to active themes/locations.
+type MenuUsageResolver interface {
+	ResolveMenuUsage(ctx context.Context, menuID uuid.UUID) ([]MenuUsageBinding, error)
+}
+
+// MenuUsageBinding describes an active menu reference inside a theme/location pair.
+type MenuUsageBinding struct {
+	ThemeID      uuid.UUID
+	ThemeName    string
+	LocationCode string
+}
+
+// MenuInUseError surfaces guard-rail failures for menu deletions.
+type MenuInUseError struct {
+	MenuID   uuid.UUID
+	Bindings []MenuUsageBinding
+}
+
+func (e *MenuInUseError) Error() string {
+	if len(e.Bindings) == 0 {
+		return fmt.Sprintf("menu %s is in use", e.MenuID)
+	}
+
+	parts := make([]string, 0, len(e.Bindings))
+	for _, binding := range e.Bindings {
+		if binding.ThemeName != "" && binding.LocationCode != "" {
+			parts = append(parts, fmt.Sprintf("%s:%s", binding.ThemeName, binding.LocationCode))
+		} else if binding.ThemeName != "" {
+			parts = append(parts, binding.ThemeName)
+		} else {
+			parts = append(parts, binding.LocationCode)
+		}
+	}
+	return fmt.Sprintf("menu %s is in use (%s)", e.MenuID, strings.Join(parts, ", "))
+}
+
+func (e *MenuInUseError) Unwrap() error {
+	return ErrMenuInUse
 }
 
 // IDGenerator produces unique identifiers.
@@ -171,12 +239,22 @@ func WithTranslationsEnabled(enabled bool) ServiceOption {
 	}
 }
 
+// WithMenuUsageResolver injects a dependency that reports active menu bindings.
+func WithMenuUsageResolver(resolver MenuUsageResolver) ServiceOption {
+	return func(s *service) {
+		if resolver != nil {
+			s.usageResolver = resolver
+		}
+	}
+}
+
 type service struct {
 	menus               MenuRepository
 	items               MenuItemRepository
 	translations        MenuItemTranslationRepository
 	locales             LocaleRepository
 	pageRepo            PageRepository
+	usageResolver       MenuUsageResolver
 	now                 func() time.Time
 	id                  IDGenerator
 	urlResolver         URLResolver
@@ -274,6 +352,59 @@ func (s *service) GetMenuByCode(ctx context.Context, code string) (*Menu, error)
 		return nil, err
 	}
 	return s.hydrateMenu(ctx, menu)
+}
+
+// DeleteMenu removes a menu after enforcing usage guard rails.
+func (s *service) DeleteMenu(ctx context.Context, req DeleteMenuRequest) error {
+	if req.MenuID == uuid.Nil {
+		return ErrMenuNotFound
+	}
+
+	menu, err := s.menus.GetByID(ctx, req.MenuID)
+	if err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return ErrMenuNotFound
+		}
+		return err
+	}
+
+	if err := s.ensureMenuDeletionAllowed(ctx, menu.ID, req.Force); err != nil {
+		return err
+	}
+
+	items, err := s.items.ListByMenu(ctx, menu.ID)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		if item.ParentID != nil {
+			continue
+		}
+		if err := s.deleteMenuItemRecursive(ctx, item, req.DeletedBy, true); err != nil {
+			return err
+		}
+	}
+
+	// Safety net in case of corrupted hierarchies.
+	remaining, err := s.items.ListByMenu(ctx, menu.ID)
+	if err != nil {
+		return err
+	}
+	for _, item := range remaining {
+		if err := s.deleteMenuItemRecursive(ctx, item, req.DeletedBy, true); err != nil {
+			if errors.Is(err, ErrMenuItemNotFound) {
+				continue
+			}
+			return err
+		}
+	}
+
+	if err := s.menus.Delete(ctx, menu.ID); err != nil {
+		return err
+	}
+
+	return s.InvalidateCache(ctx)
 }
 
 // AddMenuItem registers a new menu item at the specified position.
@@ -430,8 +561,30 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 	return updated, nil
 }
 
-// ReorderMenuItems overwrites the hierarchy/positions for a menu's items.
-func (s *service) ReorderMenuItems(ctx context.Context, input ReorderMenuItemsInput) ([]*MenuItem, error) {
+// DeleteMenuItem removes the requested menu item, optionally cascading to children.
+func (s *service) DeleteMenuItem(ctx context.Context, req DeleteMenuItemRequest) error {
+	if req.ItemID == uuid.Nil {
+		return ErrMenuItemNotFound
+	}
+
+	item, err := s.items.GetByID(ctx, req.ItemID)
+	if err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return ErrMenuItemNotFound
+		}
+		return err
+	}
+
+	if err := s.deleteMenuItemRecursive(ctx, item, req.DeletedBy, req.CascadeChildren); err != nil {
+		return err
+	}
+
+	return s.InvalidateCache(ctx)
+}
+
+// BulkReorderMenuItems overwrites the hierarchy/positions for a menu's items atomically.
+func (s *service) BulkReorderMenuItems(ctx context.Context, input BulkReorderMenuItemsInput) ([]*MenuItem, error) {
 	if input.MenuID == uuid.Nil {
 		return nil, ErrMenuNotFound
 	}
@@ -498,6 +651,7 @@ func (s *service) ReorderMenuItems(ctx context.Context, input ReorderMenuItemsIn
 		return nil, ErrMenuItemCycle
 	}
 
+	dirty := make([]*MenuItem, 0, len(items))
 	// Apply ordering per parent
 	for key, entries := range positionMap {
 		slices.SortFunc(entries, func(a, b ItemOrder) int {
@@ -505,15 +659,24 @@ func (s *service) ReorderMenuItems(ctx context.Context, input ReorderMenuItemsIn
 		})
 		for idx, entry := range entries {
 			item := itemIndex[entry.ItemID]
-			item.ParentID = normalizeUUIDPtr(entry.ParentID)
+			parent := normalizeUUIDPtr(entry.ParentID)
+			needsUpdate := item.Position != idx || !uuidPtrEqual(item.ParentID, parent)
+			item.ParentID = parent
 			item.Position = idx
 			item.UpdatedAt = s.now()
-			if err := s.persistMenuItem(ctx, item); err != nil {
-				return nil, err
+			item.UpdatedBy = input.UpdatedBy
+			if needsUpdate {
+				dirty = append(dirty, item)
 			}
 		}
 		// Update map after reorder
 		positionMap[key] = entries
+	}
+
+	if len(dirty) > 0 {
+		if err := s.items.BulkUpdateHierarchy(ctx, dirty); err != nil {
+			return nil, err
+		}
 	}
 
 	// Return items ordered by parent and position for convenience.
@@ -770,6 +933,89 @@ func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, inpu
 	return translations, nil
 }
 
+func (s *service) ensureMenuDeletionAllowed(ctx context.Context, menuID uuid.UUID, force bool) error {
+	if force || s.usageResolver == nil {
+		return nil
+	}
+	bindings, err := s.usageResolver.ResolveMenuUsage(ctx, menuID)
+	if err != nil {
+		return err
+	}
+	if len(bindings) == 0 {
+		return nil
+	}
+	return &MenuInUseError{MenuID: menuID, Bindings: bindings}
+}
+
+func (s *service) deleteMenuItemRecursive(ctx context.Context, item *MenuItem, deletedBy uuid.UUID, cascade bool) error {
+	if item == nil {
+		return ErrMenuItemNotFound
+	}
+
+	children, err := s.items.ListChildren(ctx, item.ID)
+	if err != nil {
+		return err
+	}
+	if len(children) > 0 {
+		if !cascade {
+			return ErrMenuItemHasChildren
+		}
+		for _, child := range children {
+			if err := s.deleteMenuItemRecursive(ctx, child, deletedBy, true); err != nil {
+				return err
+			}
+		}
+	}
+
+	if err := s.deleteMenuItemTranslations(ctx, item.ID); err != nil {
+		return err
+	}
+
+	if err := s.items.Delete(ctx, item.ID); err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return ErrMenuItemNotFound
+		}
+		return err
+	}
+
+	return s.compactSiblingPositions(ctx, item.MenuID, item.ParentID, deletedBy)
+}
+
+func (s *service) deleteMenuItemTranslations(ctx context.Context, itemID uuid.UUID) error {
+	translations, err := s.translations.ListByMenuItem(ctx, itemID)
+	if err != nil {
+		return err
+	}
+	for _, tr := range translations {
+		if err := s.translations.Delete(ctx, tr.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *service) compactSiblingPositions(ctx context.Context, menuID uuid.UUID, parentID *uuid.UUID, actor uuid.UUID) error {
+	siblings, err := s.fetchSiblings(ctx, menuID, parentID)
+	if err != nil {
+		return err
+	}
+	updated := make([]*MenuItem, 0, len(siblings))
+	for idx, sibling := range siblings {
+		if sibling.Position == idx {
+			continue
+		}
+		sibling.Position = idx
+		sibling.UpdatedAt = s.now()
+		sibling.UpdatedBy = actor
+		updated = append(updated, sibling)
+	}
+	if len(updated) == 0 {
+		return nil
+	}
+	return s.items.BulkUpdateHierarchy(ctx, updated)
+}
+
 func (s *service) lookupLocale(ctx context.Context, code string) (*content.Locale, error) {
 	if strings.TrimSpace(code) == "" {
 		return nil, ErrUnknownLocale
@@ -854,11 +1100,6 @@ func (s *service) repositionItem(ctx context.Context, item *MenuItem, siblings [
 	}
 
 	return nil
-}
-
-func (s *service) persistMenuItem(ctx context.Context, item *MenuItem) error {
-	_, err := s.items.Update(ctx, item)
-	return err
 }
 
 func buildHierarchy(items []*MenuItem, translations map[uuid.UUID][]*MenuItemTranslation) []*MenuItem {

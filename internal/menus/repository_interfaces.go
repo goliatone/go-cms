@@ -14,6 +14,7 @@ type MenuRepository interface {
 	GetByCode(ctx context.Context, code string) (*Menu, error)
 	List(ctx context.Context) ([]*Menu, error)
 	Update(ctx context.Context, menu *Menu) (*Menu, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // MenuItemRepository exposes persistence operations for menu items.
@@ -23,6 +24,9 @@ type MenuItemRepository interface {
 	ListByMenu(ctx context.Context, menuID uuid.UUID) ([]*MenuItem, error)
 	ListChildren(ctx context.Context, parentID uuid.UUID) ([]*MenuItem, error)
 	Update(ctx context.Context, item *MenuItem) (*MenuItem, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+	// BulkUpdateHierarchy persists parent/position updates for multiple items atomically.
+	BulkUpdateHierarchy(ctx context.Context, items []*MenuItem) error
 }
 
 // MenuItemTranslationRepository exposes persistence operations for menu item translations.
@@ -31,6 +35,7 @@ type MenuItemTranslationRepository interface {
 	GetByMenuItemAndLocale(ctx context.Context, menuItemID uuid.UUID, localeID uuid.UUID) (*MenuItemTranslation, error)
 	ListByMenuItem(ctx context.Context, menuItemID uuid.UUID) ([]*MenuItemTranslation, error)
 	Update(ctx context.Context, translation *MenuItemTranslation) (*MenuItemTranslation, error)
+	Delete(ctx context.Context, id uuid.UUID) error
 }
 
 // NotFoundError is returned when a menu resource cannot be located.

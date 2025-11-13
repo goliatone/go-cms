@@ -288,6 +288,120 @@ func TestMenuService_AllowsOptionalTranslations(t *testing.T) {
 	}
 }
 
+func TestMenuService_BulkReorderMaintainsHierarchy(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerMenuModels(t, bunDB)
+	seedMenuIntegrationEntities(t, bunDB)
+
+	menuRepo := menus.NewBunMenuRepository(bunDB)
+	itemRepo := menus.NewBunMenuItemRepository(bunDB)
+	translationRepo := menus.NewBunMenuItemTranslationRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+
+	menuSvc := menus.NewService(
+		menuRepo,
+		itemRepo,
+		translationRepo,
+		localeRepo,
+	)
+
+	menu, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+
+	rootA, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:    menu.ID,
+		Position:  0,
+		Target:    map[string]any{"type": "external", "url": "/a"},
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Root A"},
+			{Locale: "es", Label: "Raíz A"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add rootA: %v", err)
+	}
+
+	rootB, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:    menu.ID,
+		Position:  1,
+		Target:    map[string]any{"type": "external", "url": "/b"},
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Root B"},
+			{Locale: "es", Label: "Raíz B"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add rootB: %v", err)
+	}
+
+	child, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:    menu.ID,
+		ParentID:  &rootA.ID,
+		Position:  0,
+		Target:    map[string]any{"type": "external", "url": "/child"},
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Child"},
+			{Locale: "es", Label: "Hijo"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add child: %v", err)
+	}
+
+	if _, err := menuSvc.BulkReorderMenuItems(ctx, menus.BulkReorderMenuItemsInput{
+		MenuID:    menu.ID,
+		UpdatedBy: uuid.Nil,
+		Items: []menus.ItemOrder{
+			{ItemID: rootB.ID, Position: 0},
+			{ItemID: rootA.ID, Position: 1},
+			{ItemID: child.ID, ParentID: &rootB.ID, Position: 0},
+		},
+	}); err != nil {
+		t.Fatalf("bulk reorder: %v", err)
+	}
+
+	reloaded, err := menuSvc.GetMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("get menu: %v", err)
+	}
+	if len(reloaded.Items) != 2 {
+		t.Fatalf("expected 2 root items, got %d", len(reloaded.Items))
+	}
+	if reloaded.Items[0].ID != rootB.ID {
+		t.Fatalf("expected rootB first, got %s", reloaded.Items[0].ID)
+	}
+	if len(reloaded.Items[0].Children) != 1 || reloaded.Items[0].Children[0].ID != child.ID {
+		t.Fatalf("expected child under rootB, got %+v", reloaded.Items[0].Children)
+	}
+	if len(reloaded.Items[0].Children[0].Translations) != 2 {
+		t.Fatalf("expected child translations preserved, got %d", len(reloaded.Items[0].Children[0].Translations))
+	}
+}
+
 func registerMenuModels(t *testing.T, db *bun.DB) {
 	t.Helper()
 	ctx := context.Background()
