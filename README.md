@@ -9,6 +9,7 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - [Core Concepts](#core-concepts)
 - [Static Site Generation](#static-site-generation)
 - [Markdown Import & Sync](#markdown-import--sync)
+- [COLABS Site Module](#colabs-site-module)
 - [Configuration](#configuration)
 - [Architecture & Extensibility](#architecture--extensibility)
 - [CLI Reference](#cli-reference)
@@ -249,7 +250,7 @@ menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 ```
 
 ### Localization Helpers
-Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy “at least one translation” guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback-locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`, matching the behaviour described in `TRANS_FIX.md`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
+Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy “at least one translation” guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback-locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
 
 ## Static Site Generation
 
@@ -374,6 +375,16 @@ cfg.Navigation.URLKit.LocaleGroups = map[string]string{
 	"es": "frontend.es",
 }
 
+cfg.Features.Shortcodes = true
+cfg.Shortcodes.Enabled = true
+cfg.Shortcodes.Cache.Enabled = true
+cfg.Shortcodes.Cache.Provider = "shortcodes" // resolve via di.WithShortcodeCacheProvider
+cfg.Markdown.ProcessShortcodes = true
+
+```
+
+Use `di.WithShortcodeCacheProvider` to register named cache implementations (Redis, in-memory) for shortcodes and `di.WithShortcodeMetrics` to feed render telemetry into your monitoring stack.
+
 ### Managing Storage Profiles at Runtime
 
 Manage storage profiles at runtime through the storage admin service; wire it into your own router or command stack without importing `internal/` packages:
@@ -469,6 +480,28 @@ container := di.NewContainer(cfg,
 )
 
 pageSvc := container.PageService()
+```
+
+For go-command/flow-powered state machines, wrap the external engine with the CMS adapter in `internal/workflow/adapter` to preserve DTOs, guard hooks, and action-generated events/notifications:
+
+```go
+import (
+	cmsadapter "github.com/goliatone/go-cms/internal/workflow/adapter"
+)
+
+flowEngine := buildFlowStateMachine() // engine exposing Transition/AvailableTransitions/RegisterWorkflow
+
+workflowEngine, _ := cmsadapter.NewEngine(flowEngine,
+	cmsadapter.WithAuthorizer(myAuthorizer{}), // evaluates guard strings on transitions
+	cmsadapter.WithActionRegistry(cmsadapter.ActionRegistry{
+		"page::publish": publishAction, // actions can emit events/notifications into TransitionResult
+	}),
+)
+
+cfg.Workflow.Provider = "custom"
+container := di.NewContainer(cfg,
+	di.WithWorkflowEngine(workflowEngine),
+)
 ```
 
 Additional guides:
@@ -573,6 +606,7 @@ go run ./cmd/markdown sync ...
 
 # Example application
 go run ./cmd/example
+go run ./cmd/example shortcodes
 ```
 
 ## Development
