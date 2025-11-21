@@ -189,6 +189,124 @@ Widget functionality:
 - Integration tests cover sqlite + cache wiring to ensure parity with blocks/pages/menus.
 - Workflow fixtures in `internal/workflow/testdata` back integration tests (`internal/workflow/integration_test.go`) that execute multi-step page transitions through the DI container.
 
+### CRUD Usage Examples for go-admin
+
+The Phase 2–3 CRUD work surfaced in [READINESS_TSK.md](../READINESS_TSK.md) is now available through the exported `cms.Module` façade. The following snippets show how go-admin scaffolding should call the new methods when wiring editor forms and drag-and-drop tooling.
+
+#### Blocks
+
+```go
+import (
+    "context"
+
+    "github.com/goliatone/go-cms"
+    "github.com/goliatone/go-cms/internal/blocks"
+    "github.com/google/uuid"
+)
+
+func updateBlockDefinition(module *cms.Module, defID, instID, localeID, editorID uuid.UUID) error {
+    ctx := context.Background()
+    svc := module.Blocks()
+    ptr := func[T any](v T) *T { return &v }
+
+    _, err := svc.UpdateDefinition(ctx, blocks.UpdateDefinitionInput{
+        ID:   defID,
+        Name: ptr("Hero Banner"),
+        Schema: map[string]any{
+            "type": "object",
+            "properties": map[string]any{"headline": map[string]any{"type": "string"}},
+        },
+        Defaults: map[string]any{"headline": "Launch 2025"},
+    })
+    if err != nil {
+        return err
+    }
+
+    if err := svc.DeleteInstance(ctx, blocks.DeleteInstanceRequest{ID: instID}); err != nil {
+        return err
+    }
+
+    _, err = svc.UpdateTranslation(ctx, blocks.UpdateTranslationInput{
+        BlockInstanceID: instID,
+        LocaleID:        localeID,
+        Content:         map[string]any{"headline": "Launch 2025 (EN)"},
+        UpdatedBy:       editorID,
+    })
+    return err
+}
+```
+
+*UI hook*: use `UpdateDefinition` to power the schema editor, `UpdateInstance`/`DeleteInstance` for block placements, and `UpdateTranslation` + `DeleteTranslationRequest` for locale tabs. All of these operations continue to emit version snapshots, so go-admin can simply refresh the listing after each mutation.
+
+#### Widgets
+
+```go
+import (
+    "context"
+
+    "github.com/goliatone/go-cms"
+    "github.com/goliatone/go-cms/internal/widgets"
+    "github.com/google/uuid"
+)
+
+func purgeWidget(module *cms.Module, defID, instID, localeID uuid.UUID) error {
+    ctx := context.Background()
+    svc := module.Widgets()
+
+    if err := svc.DeleteDefinition(ctx, widgets.DeleteDefinitionRequest{ID: defID}); err != nil {
+        return err
+    }
+    if err := svc.DeleteInstance(ctx, widgets.DeleteInstanceRequest{InstanceID: instID}); err != nil {
+        return err
+    }
+    return svc.DeleteTranslation(ctx, widgets.DeleteTranslationRequest{
+        InstanceID: instID,
+        LocaleID:   localeID,
+    })
+}
+```
+
+*UI hook*: bind delete controls in the go-admin widget registry to these service calls so placements are removed via the repository cascade instead of manual SQL or cache flushes. Failures are typed (`ErrInstanceNotFound`, `ErrDefinitionInUse`) and can be shown inline to operators.
+
+#### Menus
+
+```go
+import (
+    "context"
+    "errors"
+
+    "github.com/goliatone/go-cms"
+    "github.com/goliatone/go-cms/internal/menus"
+    "github.com/google/uuid"
+)
+
+func deleteMenuAndReorder(module *cms.Module, menuID uuid.UUID, actor uuid.UUID, updates []menus.ItemOrder) error {
+    ctx := context.Background()
+    svc := module.Menus()
+
+    if err := svc.DeleteMenu(ctx, menus.DeleteMenuRequest{
+        MenuID:    menuID,
+        DeletedBy: actor,
+        Force:     false,
+    }); err != nil {
+        var inUse *menus.MenuInUseError
+        if errors.As(err, &inUse) {
+            // Surface guard-rail warnings to admins; go-admin can present the bindings in a modal.
+            return err
+        }
+    }
+
+    _, err := svc.BulkReorderMenuItems(ctx, menus.BulkReorderMenuItemsInput{
+        MenuID:    menuID,
+        Items:     updates,
+        UpdatedBy: actor,
+    })
+    return err
+}
+```
+
+*UI hook*: go-admin’s drag-and-drop navigation editor should batch the hierarchy into `BulkReorderMenuItemsInput` so reorders stay atomic, and deletions should honor the `MenuUsageResolver` output instead of bypassing guard rails. Translation CRUD (update/delete) remains a follow-up, tracked in Phase 4 to ensure parity once designs land.
+
 ### Storage Provider Runtime Configuration
 
 Phase 4 completes the runtime storage story while keeping the module headless:
