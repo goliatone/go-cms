@@ -126,6 +126,12 @@ CREATE TABLE block_translations (
 );
 ```
 
+#### Service Capabilities
+
+- `internal/blocks/service.go` now exposes full CRUD for block definitions, instances, and translations so editors can rename schemas, move placements, or prune locales without dropping to repositories.
+- Instance updates automatically record draft versions in `block_versions`, keeping parity with widget behaviour and ensuring rollbacks always have an up-to-date snapshot.
+- Translation deletes respect the service’s `WithRequireTranslations` guard, preventing authors from orphaning blocks when at least one locale is required.
+
 ### Widgets
 Widgets extend blocks with data-driven behaviour (e.g., search, newsletter signup). They follow the same definition/instance/translation pattern.
 
@@ -206,6 +212,8 @@ CREATE UNIQUE INDEX widget_area_locale_instance_idx
 CREATE INDEX widget_instances_publish_window_idx ON widget_instances (publish_on, unpublish_on);
 CREATE INDEX widget_area_placements_locale_idx ON widget_area_placements (area_code, locale_id, position);
 ```
+
+Widget services also expose `DeleteDefinition`, `DeleteInstance`, and `DeleteTranslation` helpers. Instance deletion removes associated translations and area placements (mirroring the SQL `ON DELETE CASCADE`), keeping the admin cache coherent when widgets are retired.
 
 Area scopes map directly to the enum in code:
 
