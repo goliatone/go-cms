@@ -526,6 +526,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 				ID:            s.id(),
 				PageID:        page.ID,
 				LocaleID:      locale.ID,
+				Locale:        locale.Code,
 				Title:         tr.Title,
 				Path:          path,
 				Summary:       tr.Summary,
@@ -834,6 +835,7 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		ID:             target.ID,
 		PageID:         req.PageID,
 		LocaleID:       locale.ID,
+		Locale:         locale.Code,
 		Title:          title,
 		Path:           path,
 		Summary:        summary,
@@ -842,7 +844,6 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		SEODescription: target.SEODescription,
 		CreatedAt:      target.CreatedAt,
 		UpdatedAt:      now,
-		Locale:         target.Locale,
 	}
 
 	translations := make([]*PageTranslation, len(record.Translations))
@@ -2239,6 +2240,7 @@ func (s *pageService) buildPageTranslations(ctx context.Context, pageID uuid.UUI
 		translation := &PageTranslation{
 			PageID:        pageID,
 			LocaleID:      locale.ID,
+			Locale:        locale.Code,
 			Title:         input.Title,
 			Path:          path,
 			Summary:       input.Summary,
