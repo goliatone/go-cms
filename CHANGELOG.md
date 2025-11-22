@@ -1,11 +1,62 @@
 # Changelog
 
-## [Unreleased]
+# [0.2.0](https://github.com/goliatone/go-cms/compare/v0.1.0...v0.2.0) - (2025-11-22)
 
-### Translation Flexibility
-- Added configuration flags (`I18N.RequireTranslations`, `I18N.DefaultLocaleRequired`) plus DI wiring so operators can opt out of mandatory translations without breaking legacy installs.
-- Enabled per-request overrides (`AllowMissingTranslations`) and end-to-end fixtures, including workflow regression coverage and example updates.
-- Documented migration guidance, QA guardrails, and new verification commands for translation toggles (see `docs/CMS_TDD.md`, `TRANS_FIX.md`, `README.md`, and `TODO.md`).
+## <!-- 1 -->🐛 Bug Fixes
+
+- Locale issues ([8cc1094](https://github.com/goliatone/go-cms/commit/8cc10946697991c564c729330aac1948bb3f2b6a))  - (goliatone)
+- Enable cloning tx ([8db8dcb](https://github.com/goliatone/go-cms/commit/8db8dcb74c326e2c58d2fa37f588715d12643dde))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.2.0 ([d2a90ec](https://github.com/goliatone/go-cms/commit/d2a90ec0d11e14760baa6d107e62084a86be6426))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Storage proxy ([127e46a](https://github.com/goliatone/go-cms/commit/127e46ae9ef87e7139f67cc22cd5f0906bfd6f54))  - (goliatone)
+- Workflow adapter to use go-command ([c4eabab](https://github.com/goliatone/go-cms/commit/c4eabab29a8ca38f43eb6f4e7f0868c2a32e042a))  - (goliatone)
+- CRUD for entities ([c0b4041](https://github.com/goliatone/go-cms/commit/c0b4041523c47df4702759a36e36dfcfb8c43b3c))  - (goliatone)
+- Markdown content service ([3e5aa0b](https://github.com/goliatone/go-cms/commit/3e5aa0b4241fde2798d62d8fa6fe494e8702be4a))  - (goliatone)
+- Markdown adapter ([afd56c9](https://github.com/goliatone/go-cms/commit/afd56c977799615d7787750170a6b9951f346b40))  - (goliatone)
+- Shortcode service ([1fd5dbd](https://github.com/goliatone/go-cms/commit/1fd5dbdb174b66c418801708faea3a42dc34d40d))  - (goliatone)
+- Markdown support for shortcodes ([fce0c87](https://github.com/goliatone/go-cms/commit/fce0c87cb5c5d07c69be264e21494cd90dda3deb))  - (goliatone)
+- Generator support for shortcodes ([869c44a](https://github.com/goliatone/go-cms/commit/869c44a42167d4574261b8be32e3b3663cc6153c))  - (goliatone)
+- Shortcode support to markdown renderer ([bb2e8e9](https://github.com/goliatone/go-cms/commit/bb2e8e916d8b2819fb3d67db9b3b3b1d3a2f5e9d))  - (goliatone)
+- Shortcode implementation ([4a022a3](https://github.com/goliatone/go-cms/commit/4a022a3d904fc1979e0d0db4816e43303d6cc7c1))  - (goliatone)
+- Storage admin, workflow enging, optional translations ([061e86f](https://github.com/goliatone/go-cms/commit/061e86f19ee9d09dbdcc8ecfc2ed8e869756e00c))  - (goliatone)
+- Optin missing translations for content ([a8838da](https://github.com/goliatone/go-cms/commit/a8838da8085414f86dd965deab72cae884b85e58))  - (goliatone)
+- Module logger for storage ([2138cb2](https://github.com/goliatone/go-cms/commit/2138cb24f2b65f551e66c741da8f33951eb7d788))  - (goliatone)
+- Support dynamic storage ([1df860c](https://github.com/goliatone/go-cms/commit/1df860cbf0febc0405628efc957178c97792876f))  - (goliatone)
+- Update commands for markdown ([560bacd](https://github.com/goliatone/go-cms/commit/560bacdba046cbca10469394adab46631b42b543))  - (goliatone)
+- Shortcode support ([c87f149](https://github.com/goliatone/go-cms/commit/c87f149c8371252f4d4f4aa9a821437246c5b8d6))  - (goliatone)
+- Storage interface ([38649e4](https://github.com/goliatone/go-cms/commit/38649e4956d81c6cb0d74b5f0b41fc12c64c1383))  - (goliatone)
+- Support shortcodes ([66d3186](https://github.com/goliatone/go-cms/commit/66d31868e3566ea6c2ab8cf1d420892219dc4fcd))  - (goliatone)
+- Storage config ([e9ef580](https://github.com/goliatone/go-cms/commit/e9ef5806efc01a7052cbf7097694d56b04dc47e4))  - (goliatone)
+- Storage implementation ([60b0f6d](https://github.com/goliatone/go-cms/commit/60b0f6dd5b45515eebf548a192f098e42d801888))  - (goliatone)
+- Workflow tests ([42d5779](https://github.com/goliatone/go-cms/commit/42d577904bd89932a35b2bbd0cbf874d004c63ed))  - (goliatone)
+- External workflow handler ([8c26030](https://github.com/goliatone/go-cms/commit/8c2603018e1c9502ea4b578ae8d7eb0aa98fb1ac))  - (goliatone)
+- Migrations to generate SQL tables ([2541b3d](https://github.com/goliatone/go-cms/commit/2541b3d62619277efba46a3100a91f58a08cd7ee))  - (goliatone)
+
+## <!-- 26 -->🔄 Update
+
+- Update case studies ([97b479a](https://github.com/goliatone/go-cms/commit/97b479aec3c14f5679f8db02101d5566226c2077))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.1.0 ([826bb39](https://github.com/goliatone/go-cms/commit/826bb397518a7c2e4ba9d46748bfd4502020e079))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([c5fd0cb](https://github.com/goliatone/go-cms/commit/c5fd0cb4d4729c4fc604c0afe13d0b07201a067c))  - (goliatone)
+- Update readme ([ba923ea](https://github.com/goliatone/go-cms/commit/ba923ea318c24d3ca538a82e3e46fff17eaa278f))  - (goliatone)
+- Update tasks ([8a76e58](https://github.com/goliatone/go-cms/commit/8a76e581e18ed2f436f8d76887ea2d6575bc5a52))  - (goliatone)
+- Update deps ([5db684d](https://github.com/goliatone/go-cms/commit/5db684d21f0bb8ceb5fd879789a354c2e184ae30))  - (goliatone)
+- Update docs ([0a09322](https://github.com/goliatone/go-cms/commit/0a09322e3971b6dd37d1bce624d33bd4e968a9eb))  - (goliatone)
+- Update examples ([4f7a093](https://github.com/goliatone/go-cms/commit/4f7a09350adb579495663877a835f7a362459714))  - (goliatone)
+- Udpate readme ([5685194](https://github.com/goliatone/go-cms/commit/5685194d99c9fe3194c2fe7c922ec7b3fab584f2))  - (goliatone)
+- Update gitignore ([2e28cfe](https://github.com/goliatone/go-cms/commit/2e28cfe27bd59b2988c7a48fe58f0cbed3673942))  - (goliatone)
+- Update renderers ([e230878](https://github.com/goliatone/go-cms/commit/e230878f985c8b6b3e3d114e37dca0e20b92a551))  - (goliatone)
+- Update tasks and docs ([05b43aa](https://github.com/goliatone/go-cms/commit/05b43aa4167991e7124354a6d7fba893c5cfd840))  - (goliatone)
 
 # [0.1.0](https://github.com/goliatone/go-cms/tree/v0.1.0) - (2025-10-31)
 
@@ -131,4 +182,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
