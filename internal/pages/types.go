@@ -73,6 +73,7 @@ type PageTranslation struct {
 	Summary        *string                        `bun:"summary" json:"summary,omitempty"`
 	MediaBindings  media.BindingSet               `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
 	ResolvedMedia  map[string][]*media.Attachment `bun:"-" json:"media,omitempty"`
+	Locale         string                         `bun:"-" json:"locale,omitempty"`
 	DeletedAt      *time.Time                     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
 	CreatedAt      time.Time                      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
 	UpdatedAt      time.Time                      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
