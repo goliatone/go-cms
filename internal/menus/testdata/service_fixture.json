@@ -25,6 +25,9 @@
     "child": [
       {"locale": "en", "label": "Child"}
     ],
+    "sibling": [
+      {"locale": "en", "label": "Sibling"}
+    ],
     "first": [
       {"locale": "en", "label": "First"}
     ],
