@@ -26,6 +26,20 @@ var (
 	ErrMissingTransition = errors.New("workflow: transition name or target state required")
 	// ErrNilEntityID signals input validation failure.
 	ErrNilEntityID = errors.New("workflow: entity id required")
+	// ErrDefinitionStatesRequired indicates a definition is missing states.
+	ErrDefinitionStatesRequired = errors.New("workflow: definition requires at least one state")
+	// ErrStateNameRequired indicates a workflow state is missing its name.
+	ErrStateNameRequired = errors.New("workflow: state name required")
+	// ErrDuplicateState indicates duplicate workflow state names were declared.
+	ErrDuplicateState = errors.New("workflow: duplicate state")
+	// ErrTransitionStateUnknown indicates a transition references an unknown state.
+	ErrTransitionStateUnknown = errors.New("workflow: transition references unknown state")
+	// ErrDuplicateTransition indicates the same transition name is declared multiple times for a state.
+	ErrDuplicateTransition = errors.New("workflow: duplicate transition for state")
+	// ErrTerminalState indicates a transition was attempted from a terminal state.
+	ErrTerminalState = errors.New("workflow: terminal state reached")
+	// ErrGuardAuthorizerRequired indicates a guard was present but no authorizer was configured.
+	ErrGuardAuthorizerRequired = errors.New("workflow: guard authorizer required")
 )
 
 // Engine is a simple in-memory workflow engine that executes deterministic state transitions.
@@ -33,6 +47,8 @@ type Engine struct {
 	mu          sync.RWMutex
 	definitions map[string]*workflowDefinition
 	now         func() time.Time
+
+	authorizer interfaces.WorkflowAuthorizer
 }
 
 // Option configures the engine.
@@ -44,6 +60,13 @@ func WithClock(clock func() time.Time) Option {
 		if clock != nil {
 			e.now = clock
 		}
+	}
+}
+
+// WithAuthorizer wires a guard authorizer to enforce guarded transitions.
+func WithAuthorizer(authorizer interfaces.WorkflowAuthorizer) Option {
+	return func(e *Engine) {
+		e.authorizer = authorizer
 	}
 }
 
@@ -97,6 +120,10 @@ func (e *Engine) Transition(ctx context.Context, input interfaces.TransitionInpu
 		}, nil
 	}
 
+	if definition.isTerminal(current) {
+		return nil, fmt.Errorf("%w: %s", ErrTerminalState, current)
+	}
+
 	var transition interfaces.WorkflowTransition
 	switch {
 	case transitionName != "":
@@ -111,6 +138,15 @@ func (e *Engine) Transition(ctx context.Context, input interfaces.TransitionInpu
 		}
 	default:
 		return nil, ErrMissingTransition
+	}
+
+	if guard := strings.TrimSpace(transition.Guard); guard != "" {
+		if e.authorizer == nil {
+			return nil, fmt.Errorf("%w: %s", ErrGuardAuthorizerRequired, guard)
+		}
+		if err := e.authorizer.AuthorizeTransition(ctx, input, guard); err != nil {
+			return nil, err
+		}
 	}
 
 	result := &interfaces.TransitionResult{
@@ -152,16 +188,20 @@ func (e *Engine) RegisterWorkflow(ctx context.Context, definition interfaces.Wor
 	if strings.TrimSpace(definition.EntityType) == "" {
 		return fmt.Errorf("workflow: entity type required")
 	}
-	normalized := compileDefinition(definition)
+	normalized, err := compileDefinition(definition)
+	if err != nil {
+		return err
+	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	e.definitions[definition.EntityType] = normalized
+	e.definitions[normalized.definition.EntityType] = normalized
 	return nil
 }
 
 func (e *Engine) definitionFor(entityType string) (*workflowDefinition, error) {
+	entityKey := strings.ToLower(strings.TrimSpace(entityType))
 	e.mu.RLock()
-	definition, ok := e.definitions[entityType]
+	definition, ok := e.definitions[entityKey]
 	e.mu.RUnlock()
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrUnknownEntityType, entityType)
@@ -173,24 +213,82 @@ type workflowDefinition struct {
 	definition         interfaces.WorkflowDefinition
 	transitions        map[string]interfaces.WorkflowTransition
 	transitionsByState map[interfaces.WorkflowState][]interfaces.WorkflowTransition
+	terminalStates     map[interfaces.WorkflowState]struct{}
 }
 
-func compileDefinition(definition interfaces.WorkflowDefinition) *workflowDefinition {
+func compileDefinition(definition interfaces.WorkflowDefinition) (*workflowDefinition, error) {
+	if len(definition.States) == 0 {
+		return nil, ErrDefinitionStatesRequired
+	}
+
+	normalizedStates := make([]interfaces.WorkflowStateDefinition, 0, len(definition.States))
+	stateMap := make(map[interfaces.WorkflowState]struct{}, len(definition.States))
+	terminalStates := make(map[interfaces.WorkflowState]struct{}, len(definition.States))
+
+	for idx, state := range definition.States {
+		name := normalizeWorkflowState(state.Name)
+		if strings.TrimSpace(string(name)) == "" {
+			return nil, fmt.Errorf("%w at index %d", ErrStateNameRequired, idx)
+		}
+		if _, exists := stateMap[name]; exists {
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateState, name)
+		}
+		stateMap[name] = struct{}{}
+		if state.Terminal {
+			terminalStates[name] = struct{}{}
+		}
+		normalizedStates = append(normalizedStates, interfaces.WorkflowStateDefinition{
+			Name:        name,
+			Description: strings.TrimSpace(state.Description),
+			Terminal:    state.Terminal,
+		})
+	}
+
+	initial := normalizeWorkflowState(definition.InitialState)
+	if strings.TrimSpace(string(initial)) == "" {
+		initial = normalizedStates[0].Name
+	} else if _, ok := stateMap[initial]; !ok {
+		return nil, fmt.Errorf("%w: %s", ErrTransitionStateUnknown, initial)
+	}
+
 	compiled := &workflowDefinition{
-		definition:         definition,
+		definition: interfaces.WorkflowDefinition{
+			EntityType:   strings.ToLower(strings.TrimSpace(definition.EntityType)),
+			InitialState: initial,
+			States:       normalizedStates,
+		},
 		transitions:        make(map[string]interfaces.WorkflowTransition),
 		transitionsByState: make(map[interfaces.WorkflowState][]interfaces.WorkflowTransition),
+		terminalStates:     terminalStates,
 	}
+
 	for _, transition := range definition.Transitions {
 		from := normalizeWorkflowState(transition.From)
 		to := normalizeWorkflowState(transition.To)
+		if strings.TrimSpace(string(from)) == "" || strings.TrimSpace(string(to)) == "" {
+			return nil, ErrTransitionStateUnknown
+		}
+		if _, ok := stateMap[from]; !ok {
+			return nil, fmt.Errorf("%w: %s", ErrTransitionStateUnknown, from)
+		}
+		if _, ok := stateMap[to]; !ok {
+			return nil, fmt.Errorf("%w: %s", ErrTransitionStateUnknown, to)
+		}
+		if _, isTerminal := terminalStates[from]; isTerminal && from != to {
+			return nil, fmt.Errorf("%w: %s", ErrTerminalState, from)
+		}
 		transition.From = from
 		transition.To = to
 		key := transitionKey(transition.Name, from)
+		if _, exists := compiled.transitions[key]; exists {
+			return nil, fmt.Errorf("%w: %s from %s", ErrDuplicateTransition, transition.Name, from)
+		}
 		compiled.transitions[key] = transition
 		compiled.transitionsByState[from] = append(compiled.transitionsByState[from], transition)
+		compiled.definition.Transitions = append(compiled.definition.Transitions, transition)
 	}
-	return compiled
+
+	return compiled, nil
 }
 
 func (d *workflowDefinition) lookupTransition(name string, state interfaces.WorkflowState) (interfaces.WorkflowTransition, error) {
@@ -215,6 +313,11 @@ func (d *workflowDefinition) lookupByStates(from, to interfaces.WorkflowState) (
 
 func transitionKey(name string, from interfaces.WorkflowState) string {
 	return strings.TrimSpace(strings.ToLower(name)) + "::" + string(normalizeWorkflowState(from))
+}
+
+func (d *workflowDefinition) isTerminal(state interfaces.WorkflowState) bool {
+	_, ok := d.terminalStates[normalizeWorkflowState(state)]
+	return ok
 }
 
 func toWorkflowState(state interfaces.WorkflowState, fallback interfaces.WorkflowState) interfaces.WorkflowState {
@@ -252,7 +355,7 @@ func defaultPageWorkflowDefinition() interfaces.WorkflowDefinition {
 			{Name: interfaces.WorkflowState(domain.WorkflowStateApproved), Description: "Approved and ready to publish"},
 			{Name: interfaces.WorkflowState(domain.WorkflowStateScheduled), Description: "Scheduled to publish at a future time"},
 			{Name: interfaces.WorkflowState(domain.WorkflowStatePublished), Description: "Published and visible"},
-			{Name: interfaces.WorkflowState(domain.WorkflowStateArchived), Description: "Archived and hidden", Terminal: true},
+			{Name: interfaces.WorkflowState(domain.WorkflowStateArchived), Description: "Archived and hidden"},
 		},
 		Transitions: []interfaces.WorkflowTransition{
 			{Name: "submit_review", From: interfaces.WorkflowState(domain.WorkflowStateDraft), To: interfaces.WorkflowState(domain.WorkflowStateReview)},
