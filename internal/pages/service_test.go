@@ -367,7 +367,7 @@ func TestPageServiceMovePreventsCycle(t *testing.T) {
 		t.Fatalf("create child page: %v", err)
 	}
 
-	err = svc.Move(context.Background(), pages.MovePageRequest{
+	_, err = svc.Move(context.Background(), pages.MovePageRequest{
 		PageID:      parentPage.ID,
 		NewParentID: &childPage.ID,
 		ActorID:     uuid.New(),

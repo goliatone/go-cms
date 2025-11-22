@@ -39,7 +39,15 @@ func (s *stubContentService) Update(context.Context, content.UpdateContentReques
 	return nil, errors.New("not implemented")
 }
 
+func (s *stubContentService) UpdateTranslation(context.Context, content.UpdateContentTranslationRequest) (*content.ContentTranslation, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (s *stubContentService) Delete(context.Context, content.DeleteContentRequest) error {
+	return errors.New("not implemented")
+}
+
+func (s *stubContentService) DeleteTranslation(context.Context, content.DeleteContentTranslationRequest) error {
 	return errors.New("not implemented")
 }
 

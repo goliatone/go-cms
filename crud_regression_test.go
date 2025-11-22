@@ -20,6 +20,7 @@ func TestCRUDRegression_BlockWidgetMenu(t *testing.T) {
 	cfg.I18N.Enabled = true
 	cfg.I18N.Locales = []string{"en"}
 	cfg.Features.Versioning = true
+	cfg.Features.Widgets = true
 
 	module, err := cms.New(cfg)
 	if err != nil {
@@ -111,13 +112,15 @@ func exerciseBlockCRUD(t *testing.T, ctx context.Context, svc cms.BlockService) 
 	}
 
 	if err := svc.DeleteInstance(ctx, blocks.DeleteInstanceRequest{
-		ID: instance.ID,
+		ID:         instance.ID,
+		HardDelete: true,
 	}); err != nil {
 		t.Fatalf("delete block instance: %v", err)
 	}
 
 	if err := svc.DeleteDefinition(ctx, blocks.DeleteDefinitionRequest{
-		ID: definition.ID,
+		ID:         definition.ID,
+		HardDelete: true,
 	}); err != nil {
 		t.Fatalf("delete block definition: %v", err)
 	}
@@ -181,12 +184,14 @@ func exerciseWidgetCRUD(t *testing.T, ctx context.Context, svc cms.WidgetService
 
 	if err := svc.DeleteInstance(ctx, widgets.DeleteInstanceRequest{
 		InstanceID: instance.ID,
+		HardDelete: true,
 	}); err != nil {
 		t.Fatalf("delete widget instance: %v", err)
 	}
 
 	if err := svc.DeleteDefinition(ctx, widgets.DeleteDefinitionRequest{
-		ID: definition.ID,
+		ID:         definition.ID,
+		HardDelete: true,
 	}); err != nil {
 		t.Fatalf("delete widget definition: %v", err)
 	}
