@@ -264,6 +264,14 @@ func (p *blockDefinitionRepositoryProxy) List(ctx context.Context) ([]*blocks.De
 	return p.current().List(ctx)
 }
 
+func (p *blockDefinitionRepositoryProxy) Update(ctx context.Context, definition *blocks.Definition) (*blocks.Definition, error) {
+	return p.current().Update(ctx, definition)
+}
+
+func (p *blockDefinitionRepositoryProxy) Delete(ctx context.Context, id uuid.UUID) error {
+	return p.current().Delete(ctx, id)
+}
+
 // blockInstanceRepositoryProxy routes calls to the current block instance repository.
 type blockInstanceRepositoryProxy struct {
 	mu   sync.RWMutex
@@ -304,8 +312,16 @@ func (p *blockInstanceRepositoryProxy) ListGlobal(ctx context.Context) ([]*block
 	return p.current().ListGlobal(ctx)
 }
 
+func (p *blockInstanceRepositoryProxy) ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]*blocks.Instance, error) {
+	return p.current().ListByDefinition(ctx, definitionID)
+}
+
 func (p *blockInstanceRepositoryProxy) Update(ctx context.Context, instance *blocks.Instance) (*blocks.Instance, error) {
 	return p.current().Update(ctx, instance)
+}
+
+func (p *blockInstanceRepositoryProxy) Delete(ctx context.Context, id uuid.UUID) error {
+	return p.current().Delete(ctx, id)
 }
 
 // blockTranslationRepositoryProxy routes calls to the current block translation repository.
@@ -342,6 +358,14 @@ func (p *blockTranslationRepositoryProxy) GetByInstanceAndLocale(ctx context.Con
 
 func (p *blockTranslationRepositoryProxy) ListByInstance(ctx context.Context, instanceID uuid.UUID) ([]*blocks.Translation, error) {
 	return p.current().ListByInstance(ctx, instanceID)
+}
+
+func (p *blockTranslationRepositoryProxy) Update(ctx context.Context, translation *blocks.Translation) (*blocks.Translation, error) {
+	return p.current().Update(ctx, translation)
+}
+
+func (p *blockTranslationRepositoryProxy) Delete(ctx context.Context, id uuid.UUID) error {
+	return p.current().Delete(ctx, id)
 }
 
 // blockVersionRepositoryProxy routes calls to the current block instance version repository.
