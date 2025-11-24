@@ -1891,9 +1891,9 @@ func main() {
 ## Command Failure Triage & Rollback
 
 - **Identify the failure**: Command handlers emit structured logs containing the `command` message type, high-level `operation`, and domain identifiers (for example, `content_id`, `page_id`). Filter on these fields to isolate failing requests and determine whether they are safe to retry.
-- **Leverage runner retries**: go-command runners honour `HandlerConfig.MaxRetries`; tune this via cron or dispatcher registration (see `cms.Config.Commands` and taskfile targets) to absorb transient failures. For persistent issues, set `AutoRegisterDispatcher`/`AutoRegisterCron` to `false`, redeploy, and re-execute the affected command manually using the recorded payload.
+- **Leverage runner retries**: go-command runners honour `HandlerConfig.MaxRetries`; tune this via cron or dispatcher registration (adapter options and taskfile targets) to absorb transient failures. For persistent issues, skip dispatcher/cron registration, redeploy, and re-execute the affected command manually using the recorded payload.
 - **Requeue idempotent work**: Content/page publish/schedule commands and audit cleanup are idempotent—rerunning them after remediation will converge state. For non-idempotent flows (for example, asset imports with side effects), confirm downstream state before replaying.
-- **Rollback strategy**: Disable problematic command registrations in configuration, deploy the change, and use the domain services directly (exposed via `cms.Module`) until a fix lands. Once healthy, re-enable the command integration and run the `ci:commands` task to ensure the suite (dispatcher, cron, lint) passes before redeploying.
+- **Rollback strategy**: Disable problematic command registrations in the adapter bootstrap (omit dispatcher/cron wiring), deploy the change, and use the domain services directly (exposed via `cms.Module`) until a fix lands. Once healthy, re-enable the command integration and run the `ci:commands` task to ensure the suite (dispatcher, cron, lint) passes before redeploying.
 
 ## Progressive Complexity Reference
 
