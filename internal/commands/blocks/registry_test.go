@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/goliatone/go-cms/internal/blocks"
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 )
 
@@ -40,7 +39,7 @@ func TestSyncBlockRegistryHandlerRegistersDefinitions(t *testing.T) {
 	)
 
 	tracking := &trackingBlockService{Service: baseService}
-	handler := NewSyncBlockRegistryHandler(tracking, commands.CommandLogger(nil, "blocks"), FeatureGates{
+	handler := NewSyncBlockRegistryHandler(tracking, logging.NoOp(), FeatureGates{
 		BlocksEnabled: func() bool { return true },
 	})
 

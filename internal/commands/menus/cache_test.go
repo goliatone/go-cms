@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/menus"
@@ -34,7 +33,7 @@ func TestInvalidateMenuCacheHandler(t *testing.T) {
 	)
 
 	tracking := &trackingMenuService{Service: baseService}
-	handler := NewInvalidateMenuCacheHandler(tracking, commands.CommandLogger(nil, "menus"), FeatureGates{
+	handler := NewInvalidateMenuCacheHandler(tracking, logging.NoOp(), FeatureGates{
 		MenusEnabled: func() bool { return true },
 	})
 

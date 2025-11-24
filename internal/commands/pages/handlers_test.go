@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	goerrors "github.com/goliatone/go-errors"
@@ -99,7 +98,7 @@ func (s *stubPageService) RestoreVersion(ctx context.Context, req pages.RestoreP
 
 func TestPublishPageHandlerExecutesService(t *testing.T) {
 	service := &stubPageService{}
-	logger := commands.CommandLogger(nil, "pages")
+	logger := logging.NoOp()
 	handler := NewPublishPageHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
@@ -211,7 +210,7 @@ func TestPublishPageHandlerContextCancellation(t *testing.T) {
 
 func TestSchedulePageHandlerExecutesService(t *testing.T) {
 	service := &stubPageService{}
-	logger := commands.CommandLogger(nil, "pages")
+	logger := logging.NoOp()
 	handler := NewSchedulePageHandler(service, logger, FeatureGates{
 		SchedulingEnabled: func() bool { return true },
 	})
@@ -320,7 +319,7 @@ func TestSchedulePageHandlerContextCancellation(t *testing.T) {
 
 func TestRestorePageVersionHandlerExecutesService(t *testing.T) {
 	service := &stubPageService{}
-	logger := commands.CommandLogger(nil, "pages")
+	logger := logging.NoOp()
 	handler := NewRestorePageVersionHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})

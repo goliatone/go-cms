@@ -25,15 +25,6 @@ func TestConfigValidateAdvancedCacheRequiresCache(t *testing.T) {
 	}
 }
 
-func TestConfigValidateCommandsCronRequiresScheduling(t *testing.T) {
-	cfg := cms.DefaultConfig()
-	cfg.Commands.Enabled = true
-	cfg.Commands.AutoRegisterCron = true
-	if err := cfg.Validate(); !errors.Is(err, cms.ErrCommandsCronRequiresScheduling) {
-		t.Fatalf("expected ErrCommandsCronRequiresScheduling, got %v", err)
-	}
-}
-
 func TestConfigValidateWorkflowProviderUnknown(t *testing.T) {
 	cfg := cms.DefaultConfig()
 	cfg.Workflow.Provider = "invalid"
