@@ -1,5 +1,35 @@
 # Changelog
 
+# [0.3.0](https://github.com/goliatone/go-cms/compare/v0.2.0...v0.3.0) - (2025-11-24)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Register audit export/replay/cleanup cmds ([8abb4ed](https://github.com/goliatone/go-cms/commit/8abb4ed69f0d1194b84d85b95e479bf0889d6be4))  - (goliatone)
+- Workflow engine implement auth ([f5dd3b1](https://github.com/goliatone/go-cms/commit/f5dd3b14494899f53b6fdbf57f67aeb14262dcd1))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.3.0 ([e2d252e](https://github.com/goliatone/go-cms/commit/e2d252e77bfdb7704b7b3c3915f81c3c053b97e4))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Command definitions ([db40c25](https://github.com/goliatone/go-cms/commit/db40c25412f76a8d9168ddd60a4d5d9201f0278d))  - (goliatone)
+- New submodule commands for business logic ([195fc3c](https://github.com/goliatone/go-cms/commit/195fc3c051b85b3dc68938c28e5d710a5e9f8f97))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.2.0 ([e182bc0](https://github.com/goliatone/go-cms/commit/e182bc0349d13a173ec94071136c6a058d8cb5f8))  - (goliatone)
+
+## <!-- 30 -->📝 Other
+
+- PR [#1](https://github.com/goliatone/go-cms/pull/1): commands ([b57a9e9](https://github.com/goliatone/go-cms/commit/b57a9e9c3c4a5f685cdcd524fc84207d73304422))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update readme ([7eab673](https://github.com/goliatone/go-cms/commit/7eab6737567cbcec44f785f79323e90e36d5cc69))  - (goliatone)
+- Update docs ([d6bd995](https://github.com/goliatone/go-cms/commit/d6bd995ecaa44f6af0baca024c6876c3a27cb6bc))  - (goliatone)
+- Update tests ([cf27e03](https://github.com/goliatone/go-cms/commit/cf27e03a42f831797b96f26f5b8bfca44e72db5e))  - (goliatone)
+
 # [0.2.0](https://github.com/goliatone/go-cms/compare/v0.1.0...v0.2.0) - (2025-11-22)
 
 ## <!-- 1 -->🐛 Bug Fixes
