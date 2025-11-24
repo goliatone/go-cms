@@ -8,7 +8,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goliatone/go-cms/cmd/static/internal/bootstrap"
 	staticcmd "github.com/goliatone/go-cms/internal/commands/static"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/google/uuid"
@@ -115,15 +114,14 @@ func withStubModule(t *testing.T) func() {
 	}
 	activeStubHandlers = stubs
 
-	moduleBuilder = func(opts bootstrap.Options) (*bootstrap.Resources, error) {
-		collector := &bootstrap.CommandCollector{}
-		_ = collector.RegisterCommand(stubs.build)
-		_ = collector.RegisterCommand(stubs.diff)
-		_ = collector.RegisterCommand(stubs.clean)
-		_ = collector.RegisterCommand(stubs.sitemap)
-		return &bootstrap.Resources{
-			Module:    nil,
-			Collector: collector,
+	moduleBuilder = func(opts moduleOptions) (*moduleResources, error) {
+		return &moduleResources{
+			handlers: handlerSet{
+				build:   stubs.build,
+				diff:    stubs.diff,
+				clean:   stubs.clean,
+				sitemap: stubs.sitemap,
+			},
 		}, nil
 	}
 
@@ -254,15 +252,14 @@ func TestRunSitemap_UsesCommandHandler(t *testing.T) {
 
 func TestRunSitemap_HandlerMissing(t *testing.T) {
 	original := moduleBuilder
-	moduleBuilder = func(opts bootstrap.Options) (*bootstrap.Resources, error) {
-		build := &stubBuildHandler{}
-		diff := &stubDiffHandler{}
-		clean := &stubCleanHandler{}
-		collector := &bootstrap.CommandCollector{}
-		_ = collector.RegisterCommand(build)
-		_ = collector.RegisterCommand(diff)
-		_ = collector.RegisterCommand(clean)
-		return &bootstrap.Resources{Collector: collector}, nil
+	moduleBuilder = func(opts moduleOptions) (*moduleResources, error) {
+		return &moduleResources{
+			handlers: handlerSet{
+				build: &stubBuildHandler{},
+				diff:  &stubDiffHandler{},
+				clean: &stubCleanHandler{},
+			},
+		}, nil
 	}
 	t.Cleanup(func() { moduleBuilder = original })
 
@@ -276,8 +273,8 @@ func TestRunSitemap_HandlerMissing(t *testing.T) {
 
 func TestRun_ErrorsWhenHandlersMissing(t *testing.T) {
 	original := moduleBuilder
-	moduleBuilder = func(opts bootstrap.Options) (*bootstrap.Resources, error) {
-		return &bootstrap.Resources{}, nil
+	moduleBuilder = func(opts moduleOptions) (*moduleResources, error) {
+		return &moduleResources{}, nil
 	}
 	t.Cleanup(func() { moduleBuilder = original })
 
@@ -303,7 +300,7 @@ func TestRun_NoArgs(t *testing.T) {
 
 func TestRunHandlersPropagateErrors(t *testing.T) {
 	original := moduleBuilder
-	moduleBuilder = func(opts bootstrap.Options) (*bootstrap.Resources, error) {
+	moduleBuilder = func(opts moduleOptions) (*moduleResources, error) {
 		build := &stubBuildHandlerWithError{err: errors.New("boom")}
 		diff := &stubDiffHandler{}
 		clean := &stubCleanHandler{}
@@ -313,11 +310,13 @@ func TestRunHandlersPropagateErrors(t *testing.T) {
 			clean:   clean,
 			sitemap: &stubSitemapHandler{},
 		}
-		collector := &bootstrap.CommandCollector{}
-		_ = collector.RegisterCommand(build)
-		_ = collector.RegisterCommand(diff)
-		_ = collector.RegisterCommand(clean)
-		return &bootstrap.Resources{Collector: collector}, nil
+		return &moduleResources{
+			handlers: handlerSet{
+				build: build,
+				diff:  diff,
+				clean: clean,
+			},
+		}, nil
 	}
 	t.Cleanup(func() {
 		moduleBuilder = original

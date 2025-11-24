@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/google/uuid"
 )
@@ -46,7 +46,7 @@ func TestScheduleContentCommandIntegrationEnqueuesJobs(t *testing.T) {
 		t.Fatalf("seed content: %v", err)
 	}
 
-	handler := NewScheduleContentHandler(service, commands.CommandLogger(nil, "content"), FeatureGates{
+	handler := NewScheduleContentHandler(service, logging.NoOp(), FeatureGates{
 		VersioningEnabled: func() bool { return true },
 		SchedulingEnabled: func() bool { return true },
 	})

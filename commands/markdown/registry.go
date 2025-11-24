@@ -1,10 +1,11 @@
-package markdowncmd
+package markdownadapter
 
 import (
 	"context"
 	"errors"
 
-	"github.com/goliatone/go-cms/internal/commands"
+	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	command "github.com/goliatone/go-command"
 )
@@ -19,27 +20,27 @@ type CronRegistrar func(command.HandlerConfig, any) error
 
 // HandlerSet groups the Markdown command handlers produced by RegisterMarkdownCommands.
 type HandlerSet struct {
-	Import *ImportDirectoryHandler
-	Sync   *SyncDirectoryHandler
+	Import *markdowncmd.ImportDirectoryHandler
+	Sync   *markdowncmd.SyncDirectoryHandler
 }
 
 // Option customises handler wiring during registration.
 type Option func(*options)
 
 type options struct {
-	importHandlerOpts []commands.HandlerOption[ImportDirectoryCommand]
-	syncHandlerOpts   []commands.HandlerOption[SyncDirectoryCommand]
+	importHandlerOpts []markdowncmd.ImportDirectoryOption
+	syncHandlerOpts   []markdowncmd.SyncDirectoryOption
 }
 
 // WithImportHandlerOptions forwards options to the ImportDirectoryHandler constructor.
-func WithImportHandlerOptions(opts ...commands.HandlerOption[ImportDirectoryCommand]) Option {
+func WithImportHandlerOptions(opts ...markdowncmd.ImportDirectoryOption) Option {
 	return func(cfg *options) {
 		cfg.importHandlerOpts = append(cfg.importHandlerOpts, opts...)
 	}
 }
 
 // WithSyncHandlerOptions forwards options to the SyncDirectoryHandler constructor.
-func WithSyncHandlerOptions(opts ...commands.HandlerOption[SyncDirectoryCommand]) Option {
+func WithSyncHandlerOptions(opts ...markdowncmd.SyncDirectoryOption) Option {
 	return func(cfg *options) {
 		cfg.syncHandlerOpts = append(cfg.syncHandlerOpts, opts...)
 	}
@@ -48,7 +49,7 @@ func WithSyncHandlerOptions(opts ...commands.HandlerOption[SyncDirectoryCommand]
 // RegisterMarkdownCommands builds Markdown command handlers and registers them with the provided
 // registry. A HandlerSet containing the constructed handlers is returned so callers can wire
 // additional integrations (dispatcher, cron) as needed.
-func RegisterMarkdownCommands(reg CommandRegistry, service interfaces.MarkdownService, provider interfaces.LoggerProvider, gates FeatureGates, opts ...Option) (*HandlerSet, error) {
+func RegisterMarkdownCommands(reg CommandRegistry, service interfaces.MarkdownService, provider interfaces.LoggerProvider, gates markdowncmd.FeatureGates, opts ...Option) (*HandlerSet, error) {
 	if service == nil {
 		return nil, errors.New("markdown command registration: service is nil")
 	}
@@ -60,10 +61,14 @@ func RegisterMarkdownCommands(reg CommandRegistry, service interfaces.MarkdownSe
 		}
 	}
 
-	logger := commands.CommandLogger(provider, "markdown")
+	logger := logging.ModuleLogger(provider, "cms.commands.markdown")
+	logger = logging.WithFields(logger, map[string]any{
+		"component":      "command",
+		"command_module": "markdown",
+	})
 
-	importHandler := NewImportDirectoryHandler(service, logger, gates, cfg.importHandlerOpts...)
-	syncHandler := NewSyncDirectoryHandler(service, logger, gates, cfg.syncHandlerOpts...)
+	importHandler := markdowncmd.NewImportDirectoryHandler(service, logger, gates, cfg.importHandlerOpts...)
+	syncHandler := markdowncmd.NewSyncDirectoryHandler(service, logger, gates, cfg.syncHandlerOpts...)
 
 	if reg != nil {
 		if err := reg.RegisterCommand(importHandler); err != nil {
@@ -82,7 +87,7 @@ func RegisterMarkdownCommands(reg CommandRegistry, service interfaces.MarkdownSe
 
 // RegisterMarkdownCron wires the provided sync handler into a cron registrar using the supplied
 // command configuration and message payload. The handler is executed with a background context.
-func RegisterMarkdownCron(reg CronRegistrar, handler *SyncDirectoryHandler, cfg command.HandlerConfig, msg SyncDirectoryCommand) error {
+func RegisterMarkdownCron(reg CronRegistrar, handler *markdowncmd.SyncDirectoryHandler, cfg command.HandlerConfig, msg markdowncmd.SyncDirectoryCommand) error {
 	if reg == nil || handler == nil {
 		return nil
 	}

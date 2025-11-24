@@ -1,11 +1,11 @@
 package fixtures
 
 import (
-	"github.com/goliatone/go-cms/internal/di"
+	"github.com/goliatone/go-cms/commands"
 	command "github.com/goliatone/go-command"
 )
 
-// RecordingRegistry captures command handlers registered through DI.
+// RecordingRegistry captures command handlers registered through adapter flows.
 type RecordingRegistry struct {
 	Handlers []any
 }
@@ -17,7 +17,7 @@ func NewRecordingRegistry() *RecordingRegistry {
 	}
 }
 
-// RegisterCommand satisfies di.CommandRegistry while recording the handler.
+// RegisterCommand satisfies commands.CommandRegistry while recording the handler.
 func (r *RecordingRegistry) RegisterCommand(handler any) error {
 	r.Handlers = append(r.Handlers, handler)
 	return nil
@@ -47,8 +47,8 @@ func (c *CronRecorder) Fail(err error) {
 	c.err = err
 }
 
-// Registrar returns a di.CronRegistrar that records invocations.
-func (c *CronRecorder) Registrar() di.CronRegistrar {
+// Registrar returns a CronRegistrar that records invocations.
+func (c *CronRecorder) Registrar() commands.CronRegistrar {
 	return func(cfg command.HandlerConfig, handler any) error {
 		if c.err != nil {
 			return c.err
@@ -80,8 +80,8 @@ func NewRecordingDispatcher() *RecordingDispatcher {
 	}
 }
 
-// RegisterCommand satisfies di.CommandDispatcher while recording the handler.
-func (d *RecordingDispatcher) RegisterCommand(handler any) (di.CommandSubscription, error) {
+// RegisterCommand satisfies commands.CommandDispatcher while recording the handler.
+func (d *RecordingDispatcher) RegisterCommand(handler any) (commands.CommandSubscription, error) {
 	if d.Err != nil {
 		return nil, d.Err
 	}

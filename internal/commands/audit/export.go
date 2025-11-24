@@ -9,6 +9,7 @@ import (
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 )
 
 const exportAuditMessageType = "cms.audit.export"
@@ -43,69 +44,91 @@ func (m ExportAuditCommand) Validate() error {
 
 // ExportAuditHandler logs recorded audit events up to the provided limit.
 type ExportAuditHandler struct {
-	inner *commands.Handler[ExportAuditCommand]
+	log     AuditLog
+	logger  interfaces.Logger
+	timeout time.Duration
+}
+
+// ExportHandlerOption customises the export handler.
+type ExportHandlerOption func(*ExportAuditHandler)
+
+// ExportWithTimeout overrides the default execution timeout.
+func ExportWithTimeout(timeout time.Duration) ExportHandlerOption {
+	return func(h *ExportAuditHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewExportAuditHandler constructs a handler wired to the provided audit log implementation.
-func NewExportAuditHandler(log AuditLog, logger interfaces.Logger, opts ...commands.HandlerOption[ExportAuditCommand]) *ExportAuditHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewExportAuditHandler(log AuditLog, logger interfaces.Logger, opts ...ExportHandlerOption) *ExportAuditHandler {
+	handler := &ExportAuditHandler{
+		log:     log,
+		logger:  commands.EnsureLogger(logger),
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg ExportAuditCommand) error {
-		events, err := log.List(ctx)
-		if err != nil {
-			return err
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		limit := len(events)
-		if msg.MaxRecords != nil && *msg.MaxRecords >= 0 && *msg.MaxRecords < limit {
-			limit = *msg.MaxRecords
-		}
-
-		for idx := 0; idx < limit; idx++ {
-			event := events[idx]
-			logging.WithFields(baseLogger, map[string]any{
-				"index":       idx,
-				"entity_type": event.EntityType,
-				"entity_id":   event.EntityID,
-				"action":      event.Action,
-				"occurred_at": event.OccurredAt.Format(time.RFC3339),
-				"metadata":    event.Metadata,
-			}).Debug("audit.command.export.event")
-		}
-
-		logging.WithFields(baseLogger, map[string]any{
-			"exported": limit,
-			"total":    len(events),
-		}).Info("audit.command.export.completed")
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[ExportAuditCommand]{
-		commands.WithLogger[ExportAuditCommand](baseLogger),
-		commands.WithOperation[ExportAuditCommand]("audit.export"),
-		commands.WithMessageFields(func(msg ExportAuditCommand) map[string]any {
-			if msg.MaxRecords == nil {
-				return nil
-			}
-			if *msg.MaxRecords < 0 {
-				return nil
-			}
-			return map[string]any{
-				"max_records": *msg.MaxRecords,
-			}
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[ExportAuditCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &ExportAuditHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[ExportAuditCommand].
 func (h *ExportAuditHandler) Execute(ctx context.Context, msg ExportAuditCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+
+	events, err := h.log.List(ctx)
+	if err != nil {
+		return commands.WrapExecuteError(err)
+	}
+	limit := len(events)
+	if msg.MaxRecords != nil && *msg.MaxRecords >= 0 && *msg.MaxRecords < limit {
+		limit = *msg.MaxRecords
+	}
+
+	baseLogger := logging.WithFields(h.logger, map[string]any{
+		"operation": "audit.export",
+	})
+
+	for idx := 0; idx < limit; idx++ {
+		event := events[idx]
+		logging.WithFields(baseLogger, map[string]any{
+			"index":       idx,
+			"entity_type": event.EntityType,
+			"entity_id":   event.EntityID,
+			"action":      event.Action,
+			"occurred_at": event.OccurredAt.Format(time.RFC3339),
+			"metadata":    event.Metadata,
+		}).Debug("audit.command.export.event")
+	}
+
+	logging.WithFields(baseLogger, map[string]any{
+		"exported": limit,
+		"total":    len(events),
+	}).Info("audit.command.export.completed")
+	return nil
+}
+
+// CLIHandler satisfies command.CLICommand by returning the handler.
+func (h *ExportAuditHandler) CLIHandler() any {
+	return h
+}
+
+// CLIOptions describes the CLI metadata for audit export.
+func (h *ExportAuditHandler) CLIOptions() command.CLIConfig {
+	return command.CLIConfig{
+		Name:        "audit-export",
+		Group:       "audit",
+		Description: "Export audit events to the configured logger",
+	}
 }

@@ -20,8 +20,6 @@ var ErrSchedulingFeatureRequiresVersioning = errors.New("cms config: scheduling 
 // ErrAdvancedCacheRequiresEnabledCache ensures advanced cache builds only when cache is enabled.
 var ErrAdvancedCacheRequiresEnabledCache = errors.New("cms config: advanced cache feature requires cache to be enabled")
 
-// ErrCommandsCronRequiresScheduling ensures automatic cron wiring only runs when scheduling is enabled.
-var ErrCommandsCronRequiresScheduling = errors.New("cms config: command cron auto-registration requires scheduling to be enabled")
 var ErrDefaultLocaleRequired = errors.New("cms config: default locale is required when translations are enforced")
 var ErrShortcodesFeatureRequired = errors.New("cms config: shortcodes feature must be enabled to configure shortcodes")
 var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must be enabled to configure markdown")
@@ -67,7 +65,6 @@ type Config struct {
 	Retention     RetentionConfig
 	Features      Features
 	Shortcodes    ShortcodeConfig
-	Commands      CommandsConfig
 	Markdown      MarkdownConfig
 	Generator     GeneratorConfig
 	Logging       LoggingConfig
@@ -199,14 +196,6 @@ type RetentionConfig struct {
 	Content int
 	Pages   int
 	Blocks  int
-}
-
-// CommandsConfig captures optional command-layer behaviour.
-type CommandsConfig struct {
-	Enabled                bool
-	AutoRegisterDispatcher bool
-	AutoRegisterCron       bool
-	CleanupAuditCron       string
 }
 
 // MarkdownConfig captures filesystem and parser behaviour for Markdown ingestion.
@@ -349,7 +338,6 @@ func DefaultConfig() Config {
 			},
 		},
 		Features: Features{},
-		Commands: CommandsConfig{},
 		Markdown: MarkdownConfig{
 			ContentDir:     "content",
 			Pattern:        "*.md",
@@ -405,9 +393,6 @@ func (cfg Config) Validate() error {
 	}
 	if cfg.Features.AdvancedCache && !cfg.Cache.Enabled {
 		return ErrAdvancedCacheRequiresEnabledCache
-	}
-	if cfg.Commands.AutoRegisterCron && !cfg.Features.Scheduling {
-		return ErrCommandsCronRequiresScheduling
 	}
 	if cfg.Markdown.Enabled {
 		if !cfg.Features.Markdown {

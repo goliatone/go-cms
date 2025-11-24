@@ -23,7 +23,7 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - **Localization first**: every entity carries locale-aware translations and fallbacks.
 - **Authoring experience**: versioning, scheduling, visibility rules, and reusable blocks keep editors productive.
 - **Static publishing**: generate locale-aware static bundles or wire services into a dynamic site.
-- **Observability hooks**: structured logging interfaces and command callbacks integrate with existing telemetry.
+- **Observability hooks**: structured logging inside commands; optional adapter wiring for telemetry callbacks.
 
 ## Installation
 
@@ -298,7 +298,7 @@ Templates receive `generator.TemplateContext` with resolved dependencies:
 ```
 
 Troubleshooting tips:
-- `static: static command handlers not configured` &mdash; ensure `bootstrap.Options.EnableCommands` is true and the generator feature is enabled.
+- `static: static command handlers not configured` &mdash; ensure the generator feature is enabled and invoke the command constructors directly (adapter collectors are optional via `github.com/goliatone/go-cms/commands`).
 - `static: static sitemap handler not configured` &mdash; enable `Config.Generator.GenerateSitemap` or provide `--output` / `--base-url`.
 - Missing telemetry &mdash; attach a `ResultCallback` that logs or forwards metrics.
 - Custom storage integration &mdash; set `bootstrap.Options.Storage` to an implementation of `interfaces.StorageProvider`.
@@ -538,7 +538,7 @@ container := di.NewContainer(cfg,
 )
 ```
 
-- **Commands** &mdash; `cmd/static` and `cmd/markdown` expose features through go-command handlers; register additional commands through the same container.
+- **Commands** &mdash; `cmd/static` and `cmd/markdown` invoke direct command structs; construct handlers in core or use the adapter module (`github.com/goliatone/go-cms/commands`) if you need registry/cron wiring.
 
 ### Database Migrations
 

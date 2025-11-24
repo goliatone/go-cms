@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/logging"
 	goerrors "github.com/goliatone/go-errors"
@@ -85,7 +84,7 @@ func (s *stubContentService) RestoreVersion(ctx context.Context, req content.Res
 
 func TestPublishContentHandlerExecutesService(t *testing.T) {
 	service := &stubContentService{}
-	logger := commands.CommandLogger(nil, "content")
+	logger := logging.NoOp()
 	handler := NewPublishContentHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})
@@ -192,7 +191,7 @@ func TestPublishContentHandlerContextCancellation(t *testing.T) {
 
 func TestScheduleContentHandlerExecutesService(t *testing.T) {
 	service := &stubContentService{}
-	logger := commands.CommandLogger(nil, "content")
+	logger := logging.NoOp()
 	handler := NewScheduleContentHandler(service, logger, FeatureGates{
 		SchedulingEnabled: func() bool { return true },
 	})
@@ -299,7 +298,7 @@ func TestScheduleContentHandlerContextCancellation(t *testing.T) {
 
 func TestRestoreContentVersionHandlerExecutesService(t *testing.T) {
 	service := &stubContentService{}
-	logger := commands.CommandLogger(nil, "content")
+	logger := logging.NoOp()
 	handler := NewRestoreContentVersionHandler(service, logger, FeatureGates{
 		VersioningEnabled: func() bool { return true },
 	})

@@ -16,16 +16,6 @@ import (
 	storageadapter "github.com/goliatone/go-cms/internal/adapters/storage"
 	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
 	"github.com/goliatone/go-cms/internal/blocks"
-	cmscommands "github.com/goliatone/go-cms/internal/commands"
-	auditcmd "github.com/goliatone/go-cms/internal/commands/audit"
-	blockscmd "github.com/goliatone/go-cms/internal/commands/blocks"
-	contentcmd "github.com/goliatone/go-cms/internal/commands/content"
-	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
-	mediacmd "github.com/goliatone/go-cms/internal/commands/media"
-	menuscmd "github.com/goliatone/go-cms/internal/commands/menus"
-	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
-	staticcmd "github.com/goliatone/go-cms/internal/commands/static"
-	widgetscmd "github.com/goliatone/go-cms/internal/commands/widgets"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/i18n"
@@ -47,7 +37,6 @@ import (
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/storage"
-	command "github.com/goliatone/go-command"
 	repocache "github.com/goliatone/go-repository-cache/cache"
 	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
@@ -152,12 +141,6 @@ type Container struct {
 	shortcodeCaches        map[string]interfaces.CacheProvider
 	shortcodeCacheResolved bool
 
-	commandRegistry      CommandRegistry
-	commandDispatcher    CommandDispatcher
-	cronRegistrar        CronRegistrar
-	commandSubscriptions []CommandSubscription
-	commandHandlers      []any
-
 	generatorSvc           generator.Service
 	generatorStorage       interfaces.StorageProvider
 	generatorAssetResolver generator.AssetResolver
@@ -196,24 +179,6 @@ func (h *storageHandle) Close(ctx context.Context) {
 	}
 	_ = h.closer(ctx)
 }
-
-// CommandRegistry records command handlers so hosts can expose them via CLI or cron.
-type CommandRegistry interface {
-	RegisterCommand(handler any) error
-}
-
-// CommandDispatcher subscribes command handlers to a dispatcher implementation.
-type CommandDispatcher interface {
-	RegisterCommand(handler any) (CommandSubscription, error)
-}
-
-// CommandSubscription allows hosts to tear down dispatcher subscriptions.
-type CommandSubscription interface {
-	Unsubscribe()
-}
-
-// CronRegistrar registers command handlers with a cron scheduler.
-type CronRegistrar func(command.HandlerConfig, any) error
 
 // WithStorage overrides the default storage provider.
 func WithStorage(sp interfaces.StorageProvider) Option {
@@ -407,27 +372,6 @@ func WithLoggerProvider(provider interfaces.LoggerProvider) Option {
 	}
 }
 
-// WithCommandRegistry wires an external command registry for automatic command registration.
-func WithCommandRegistry(reg CommandRegistry) Option {
-	return func(c *Container) {
-		c.commandRegistry = reg
-	}
-}
-
-// WithCommandDispatcher wires an external dispatcher registrar used for auto-subscription.
-func WithCommandDispatcher(dispatcher CommandDispatcher) Option {
-	return func(c *Container) {
-		c.commandDispatcher = dispatcher
-	}
-}
-
-// WithCronRegistrar registers a cron scheduler function used when commands expose cron handlers.
-func WithCronRegistrar(registrar CronRegistrar) Option {
-	return func(c *Container) {
-		c.cronRegistrar = registrar
-	}
-}
-
 // WithStorageRepository overrides the storage profile repository used for runtime configuration.
 func WithStorageRepository(repo storageconfig.Repository) Option {
 	return func(c *Container) {
@@ -455,13 +399,6 @@ func WithStorageFactory(kind string, factory StorageFactory) Option {
 func WithAuditRecorder(recorder jobs.AuditRecorder) Option {
 	return func(c *Container) {
 		c.auditRecorder = recorder
-	}
-}
-
-// WithCommandWorker overrides the worker invoked by audit command handlers.
-func WithCommandWorker(worker *jobs.Worker) Option {
-	return func(c *Container) {
-		c.jobWorker = worker
 	}
 }
 
@@ -711,12 +648,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	}
 	if c.jobWorker == nil {
 		c.jobWorker = jobs.NewWorker(c.scheduler, c.contentRepo, c.pageRepo, jobs.WithAuditRecorder(c.auditRecorder))
-	}
-
-	c.applyCronRegistrar()
-
-	if err := c.registerCommandHandlers(); err != nil {
-		return nil, err
 	}
 
 	if c.generatorSvc == nil {
@@ -1864,16 +1795,6 @@ func (c *Container) seedLocales() {
 	}
 }
 
-// CommandHandlers returns copies of the registered command handlers.
-func (c *Container) CommandHandlers() []any {
-	if len(c.commandHandlers) == 0 {
-		return nil
-	}
-	handlers := make([]any, len(c.commandHandlers))
-	copy(handlers, c.commandHandlers)
-	return handlers
-}
-
 // GeneratorService returns the configured static site generator service.
 func (c *Container) GeneratorService() generator.Service {
 	if c == nil {
@@ -1885,180 +1806,19 @@ func (c *Container) GeneratorService() generator.Service {
 	return c.generatorSvc
 }
 
-func (c *Container) applyCronRegistrar() {
-	if c.commandRegistry == nil || c.cronRegistrar == nil {
-		return
-	}
-	if reg, ok := c.commandRegistry.(interface {
-		SetCronRegister(func(command.HandlerConfig, any) error) *command.Registry
-	}); ok && reg != nil {
-		reg.SetCronRegister(c.cronRegistrar)
-	}
+// LoggerProvider returns the logger provider used by the container.
+func (c *Container) LoggerProvider() interfaces.LoggerProvider {
+	return c.loggerProvider
 }
 
-func (c *Container) shouldBuildCommands() bool {
-	if !c.Config.Commands.Enabled {
-		return false
-	}
-	if c.commandRegistry != nil {
-		return true
-	}
-	if c.commandDispatcher != nil {
-		return true
-	}
-	if c.cronRegistrar != nil {
-		return true
-	}
-	return false
+// AuditRecorder returns the audit recorder configured for scheduler instrumentation.
+func (c *Container) AuditRecorder() jobs.AuditRecorder {
+	return c.auditRecorder
 }
 
-func (c *Container) registerCommandHandlers() error {
-	if !c.shouldBuildCommands() {
-		return nil
-	}
-
-	var errs error
-
-	register := func(handler any) {
-		if handler == nil {
-			return
-		}
-		c.commandHandlers = append(c.commandHandlers, handler)
-
-		if c.commandRegistry != nil {
-			if err := c.commandRegistry.RegisterCommand(handler); err != nil {
-				errs = errors.Join(errs, err)
-			}
-		}
-		if c.Config.Commands.AutoRegisterDispatcher && c.commandDispatcher != nil {
-			subscription, err := c.commandDispatcher.RegisterCommand(handler)
-			if err != nil {
-				errs = errors.Join(errs, err)
-			} else if subscription != nil {
-				c.commandSubscriptions = append(c.commandSubscriptions, subscription)
-			}
-		}
-		if c.Config.Commands.AutoRegisterCron && c.cronRegistrar != nil {
-			if cronCmd, ok := handler.(command.CronCommand); ok {
-				if err := c.cronRegistrar(cronCmd.CronOptions(), cronCmd.CronHandler()); err != nil {
-					errs = errors.Join(errs, err)
-				}
-			}
-		}
-	}
-
-	loggerFor := func(module string) interfaces.Logger {
-		return cmscommands.CommandLogger(c.loggerProvider, module)
-	}
-
-	// Content commands.
-	if c.contentSvc != nil {
-		gates := contentcmd.FeatureGates{
-			VersioningEnabled: func() bool { return c.Config.Features.Versioning },
-			SchedulingEnabled: func() bool { return c.Config.Features.Scheduling },
-		}
-		if c.Config.Features.Versioning {
-			contentLogger := loggerFor("content")
-			register(contentcmd.NewPublishContentHandler(c.contentSvc, contentLogger, gates))
-			register(contentcmd.NewRestoreContentVersionHandler(c.contentSvc, contentLogger, gates))
-		}
-		if c.Config.Features.Scheduling {
-			register(contentcmd.NewScheduleContentHandler(c.contentSvc, loggerFor("content"), gates))
-		}
-	}
-
-	// Page commands.
-	if c.pageSvc != nil {
-		gates := pagescmd.FeatureGates{
-			VersioningEnabled: func() bool { return c.Config.Features.Versioning },
-			SchedulingEnabled: func() bool { return c.Config.Features.Scheduling },
-		}
-		if c.Config.Features.Versioning {
-			pagesLogger := loggerFor("pages")
-			register(pagescmd.NewPublishPageHandler(c.pageSvc, pagesLogger, gates))
-			register(pagescmd.NewRestorePageVersionHandler(c.pageSvc, pagesLogger, gates))
-		}
-		if c.Config.Features.Scheduling {
-			register(pagescmd.NewSchedulePageHandler(c.pageSvc, loggerFor("pages"), gates))
-		}
-	}
-
-	// Media commands.
-	if c.mediaSvc != nil && c.Config.Features.MediaLibrary {
-		gates := mediacmd.FeatureGates{
-			MediaLibraryEnabled: func() bool { return c.Config.Features.MediaLibrary },
-		}
-		mediaLogger := loggerFor("media")
-		register(mediacmd.NewImportAssetsHandler(c.mediaSvc, mediaLogger, gates))
-		register(mediacmd.NewCleanupAssetsHandler(c.mediaSvc, mediaLogger, gates))
-	}
-
-	// Markdown commands.
-	if c.markdownSvc != nil && c.Config.Features.Markdown {
-		gates := markdowncmd.FeatureGates{
-			MarkdownEnabled: func() bool { return c.Config.Features.Markdown },
-		}
-		handlerSet, err := markdowncmd.RegisterMarkdownCommands(nil, c.markdownSvc, c.loggerProvider, gates)
-		if err != nil {
-			errs = errors.Join(errs, err)
-		} else if handlerSet != nil {
-			register(handlerSet.Import)
-			register(handlerSet.Sync)
-		}
-	}
-
-	// Static generator commands.
-	if c.generatorSvc != nil && c.Config.Generator.Enabled {
-		gates := staticcmd.FeatureGates{
-			GeneratorEnabled: func() bool { return c.Config.Generator.Enabled },
-			SitemapEnabled:   func() bool { return c.Config.Generator.GenerateSitemap },
-		}
-		staticLogger := loggerFor("static")
-		register(staticcmd.NewBuildSiteHandler(c.generatorSvc, staticLogger, gates))
-		register(staticcmd.NewDiffSiteHandler(c.generatorSvc, staticLogger, gates))
-		register(staticcmd.NewCleanSiteHandler(c.generatorSvc, staticLogger, gates))
-		register(staticcmd.NewBuildSitemapHandler(c.generatorSvc, staticLogger, gates))
-	}
-
-	// Menu commands.
-	if c.menuSvc != nil {
-		gates := menuscmd.FeatureGates{
-			MenusEnabled: func() bool { return c.menuSvc != nil },
-		}
-		register(menuscmd.NewInvalidateMenuCacheHandler(c.menuSvc, loggerFor("menus"), gates))
-	}
-
-	// Blocks commands.
-	if c.blockSvc != nil {
-		gates := blockscmd.FeatureGates{
-			BlocksEnabled: func() bool { return c.blockSvc != nil },
-		}
-		register(blockscmd.NewSyncBlockRegistryHandler(c.blockSvc, loggerFor("blocks"), gates))
-	}
-
-	// Widget commands.
-	if c.widgetSvc != nil && c.Config.Features.Widgets {
-		gates := widgetscmd.FeatureGates{
-			WidgetsEnabled: func() bool { return c.Config.Features.Widgets },
-		}
-		register(widgetscmd.NewSyncWidgetRegistryHandler(c.widgetSvc, loggerFor("widgets"), gates))
-	}
-
-	// Audit commands.
-	if c.Config.Features.Scheduling && c.auditRecorder != nil {
-		auditLogger := loggerFor("audit")
-		if c.jobWorker != nil {
-			register(auditcmd.NewReplayAuditHandler(c.jobWorker, auditLogger))
-		}
-		register(auditcmd.NewExportAuditHandler(c.auditRecorder, auditLogger))
-		cleanupOpts := []auditcmd.CleanupHandlerOption{}
-		if expr := strings.TrimSpace(c.Config.Commands.CleanupAuditCron); expr != "" {
-			cleanupOpts = append(cleanupOpts, auditcmd.CleanupWithCronExpression(expr))
-		}
-		register(auditcmd.NewCleanupAuditHandler(c.auditRecorder, auditLogger, cleanupOpts...))
-	}
-
-	return errs
+// JobWorker returns the worker responsible for replay audit commands.
+func (c *Container) JobWorker() *jobs.Worker {
+	return c.jobWorker
 }
 
 func applyConfiguredWidgetDefinitions(registry *widgets.Registry, definitions []runtimeconfig.WidgetDefinitionConfig) {

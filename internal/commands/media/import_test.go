@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -46,7 +45,7 @@ func (s *stubMediaService) Invalidate(ctx context.Context, bindings media.Bindin
 
 func TestImportAssetsHandlerResolvesBindings(t *testing.T) {
 	service := &stubMediaService{}
-	logger := commands.CommandLogger(nil, "media")
+	logger := logging.NoOp()
 	handler := NewImportAssetsHandler(service, logger, FeatureGates{
 		MediaLibraryEnabled: func() bool { return true },
 	})

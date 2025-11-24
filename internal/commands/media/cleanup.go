@@ -2,12 +2,14 @@ package mediacmd
 
 import (
 	"context"
+	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 )
 
 const cleanupAssetsMessageType = "cms.media.asset.cleanup"
@@ -35,53 +37,66 @@ func (m CleanupAssetsCommand) Validate() error {
 	return nil
 }
 
-// CleanupAssetsHandler invalidates media bindings using the shared command handler foundation.
+// CleanupAssetsHandler invalidates media bindings.
 type CleanupAssetsHandler struct {
-	inner *commands.Handler[CleanupAssetsCommand]
+	service media.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// CleanupAssetsOption customises the cleanup handler.
+type CleanupAssetsOption func(*CleanupAssetsHandler)
+
+// CleanupAssetsWithTimeout overrides the default execution timeout.
+func CleanupAssetsWithTimeout(timeout time.Duration) CleanupAssetsOption {
+	return func(h *CleanupAssetsHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewCleanupAssetsHandler constructs a handler wired to the provided media service.
-func NewCleanupAssetsHandler(service media.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[CleanupAssetsCommand]) *CleanupAssetsHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewCleanupAssetsHandler(service media.Service, logger interfaces.Logger, gates FeatureGates, opts ...CleanupAssetsOption) *CleanupAssetsHandler {
+	handler := &CleanupAssetsHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg CleanupAssetsCommand) error {
-		if !gates.mediaLibraryEnabled() {
-			return media.ErrProviderUnavailable
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		if msg.DryRun {
-			return nil
-		}
-		if err := service.Invalidate(ctx, msg.Bindings); err != nil {
-			return err
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[CleanupAssetsCommand]{
-		commands.WithLogger[CleanupAssetsCommand](baseLogger),
-		commands.WithOperation[CleanupAssetsCommand]("media.asset.cleanup"),
-		commands.WithMessageFields(func(msg CleanupAssetsCommand) map[string]any {
-			fields := map[string]any{
-				"binding_groups": len(msg.Bindings),
-			}
-			if msg.DryRun {
-				fields["dry_run"] = true
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[CleanupAssetsCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &CleanupAssetsHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[CleanupAssetsCommand].
 func (h *CleanupAssetsHandler) Execute(ctx context.Context, msg CleanupAssetsCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.mediaLibraryEnabled() {
+		return commands.WrapExecuteError(media.ErrProviderUnavailable)
+	}
+	if msg.DryRun {
+		return nil
+	}
+	if err := h.service.Invalidate(ctx, msg.Bindings); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":      "media.asset.cleanup",
+		"binding_groups": len(msg.Bindings),
+		"dry_run":        msg.DryRun,
+	}).Info("media.command.cleanup.completed")
+	return nil
 }

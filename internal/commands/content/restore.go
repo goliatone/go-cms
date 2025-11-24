@@ -2,11 +2,14 @@ package contentcmd
 
 import (
 	"context"
+	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -42,53 +45,68 @@ func (m RestoreContentVersionCommand) Validate() error {
 
 // RestoreContentVersionHandler restores historical content versions via the content service.
 type RestoreContentVersionHandler struct {
-	inner *commands.Handler[RestoreContentVersionCommand]
+	service content.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// RestoreContentOption customises the restore handler.
+type RestoreContentOption func(*RestoreContentVersionHandler)
+
+// RestoreContentWithTimeout overrides the default execution timeout.
+func RestoreContentWithTimeout(timeout time.Duration) RestoreContentOption {
+	return func(h *RestoreContentVersionHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewRestoreContentVersionHandler constructs a handler wired to the provided content service.
-func NewRestoreContentVersionHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[RestoreContentVersionCommand]) *RestoreContentVersionHandler {
-	exec := func(ctx context.Context, msg RestoreContentVersionCommand) error {
-		if !gates.versioningEnabled() {
-			return content.ErrVersioningDisabled
+func NewRestoreContentVersionHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...RestoreContentOption) *RestoreContentVersionHandler {
+	handler := &RestoreContentVersionHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		req := content.RestoreContentVersionRequest{
-			ContentID:  msg.ContentID,
-			Version:    msg.Version,
-			RestoredBy: msg.RestoredBy,
-		}
-		_, err := service.RestoreVersion(ctx, req)
-		return err
 	}
-
-	handlerOpts := []commands.HandlerOption[RestoreContentVersionCommand]{
-		commands.WithLogger[RestoreContentVersionCommand](logger),
-		commands.WithOperation[RestoreContentVersionCommand]("content.version.restore"),
-		commands.WithMessageFields(func(msg RestoreContentVersionCommand) map[string]any {
-			fields := map[string]any{}
-			if msg.ContentID != uuid.Nil {
-				fields["content_id"] = msg.ContentID
-			}
-			if msg.Version > 0 {
-				fields["version"] = msg.Version
-			}
-			if msg.RestoredBy != uuid.Nil {
-				fields["restored_by"] = msg.RestoredBy
-			}
-			if len(fields) == 0 {
-				return nil
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[RestoreContentVersionCommand](logger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &RestoreContentVersionHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[RestoreContentVersionCommand].
 func (h *RestoreContentVersionHandler) Execute(ctx context.Context, msg RestoreContentVersionCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.versioningEnabled() {
+		return commands.WrapExecuteError(content.ErrVersioningDisabled)
+	}
+
+	req := content.RestoreContentVersionRequest{
+		ContentID:  msg.ContentID,
+		Version:    msg.Version,
+		RestoredBy: msg.RestoredBy,
+	}
+	if _, err := h.service.RestoreVersion(ctx, req); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":   "content.version.restore",
+		"content_id":  msg.ContentID,
+		"version":     msg.Version,
+		"restored_by": msg.RestoredBy,
+	}).Info("content.command.restore.completed")
+	return nil
 }

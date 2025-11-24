@@ -3,12 +3,14 @@ package pagescmd
 import (
 	"context"
 	"strings"
+	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -52,73 +54,70 @@ func (m RestorePageVersionCommand) Validate() error {
 
 // RestorePageVersionHandler restores historical page versions via the page service.
 type RestorePageVersionHandler struct {
-	inner *commands.Handler[RestorePageVersionCommand]
+	service pages.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// RestorePageOption customises the restore handler.
+type RestorePageOption func(*RestorePageVersionHandler)
+
+// RestorePageWithTimeout overrides the default execution timeout.
+func RestorePageWithTimeout(timeout time.Duration) RestorePageOption {
+	return func(h *RestorePageVersionHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewRestorePageVersionHandler constructs a handler wired to the provided page service.
-func NewRestorePageVersionHandler(service pages.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[RestorePageVersionCommand]) *RestorePageVersionHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewRestorePageVersionHandler(service pages.Service, logger interfaces.Logger, gates FeatureGates, opts ...RestorePageOption) *RestorePageVersionHandler {
+	handler := &RestorePageVersionHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg RestorePageVersionCommand) error {
-		if !gates.versioningEnabled() {
-			return pages.ErrVersioningDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		fields := map[string]any{
-			"page_id": msg.PageID,
-			"locale":  strings.TrimSpace(msg.Locale),
-			"version": msg.Version,
-		}
-		if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
-			fields["template_id"] = *msg.TemplateID
-		}
-		operationLogger := logging.WithFields(baseLogger, fields)
-		operationLogger.Debug("pages.command.version.restore.dispatch")
-
-		req := pages.RestorePageVersionRequest{
-			PageID:     msg.PageID,
-			Version:    msg.Version,
-			RestoredBy: msg.RestoredBy,
-		}
-		_, err := service.RestoreVersion(ctx, req)
-		return err
 	}
-
-	handlerOpts := []commands.HandlerOption[RestorePageVersionCommand]{
-		commands.WithLogger[RestorePageVersionCommand](baseLogger),
-		commands.WithOperation[RestorePageVersionCommand]("pages.version.restore"),
-		commands.WithMessageFields(func(msg RestorePageVersionCommand) map[string]any {
-			fields := map[string]any{}
-			if msg.PageID != uuid.Nil {
-				fields["page_id"] = msg.PageID
-			}
-			if msg.Version > 0 {
-				fields["version"] = msg.Version
-			}
-			if msg.Locale != "" {
-				fields["locale"] = msg.Locale
-			}
-			if msg.RestoredBy != uuid.Nil {
-				fields["restored_by"] = msg.RestoredBy
-			}
-			if len(fields) == 0 {
-				return nil
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[RestorePageVersionCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &RestorePageVersionHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[RestorePageVersionCommand].
 func (h *RestorePageVersionHandler) Execute(ctx context.Context, msg RestorePageVersionCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.versioningEnabled() {
+		return commands.WrapExecuteError(pages.ErrVersioningDisabled)
+	}
+
+	req := pages.RestorePageVersionRequest{
+		PageID:     msg.PageID,
+		Version:    msg.Version,
+		RestoredBy: msg.RestoredBy,
+	}
+	if _, err := h.service.RestoreVersion(ctx, req); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":   "pages.version.restore",
+		"page_id":     msg.PageID,
+		"version":     msg.Version,
+		"locale":      strings.TrimSpace(msg.Locale),
+		"template_id": msg.TemplateID,
+		"restored_by": msg.RestoredBy,
+	}).Info("pages.command.restore.completed")
+	return nil
 }

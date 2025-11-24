@@ -7,7 +7,9 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -39,61 +41,74 @@ func (m PublishContentCommand) Validate() error {
 	return nil
 }
 
-// PublishContentHandler publishes drafts via the content service using the shared command handler foundation.
+// PublishContentHandler publishes drafts via the content service.
 type PublishContentHandler struct {
-	inner *commands.Handler[PublishContentCommand]
+	service content.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// PublishContentOption customises the publish handler.
+type PublishContentOption func(*PublishContentHandler)
+
+// PublishContentWithTimeout overrides the default execution timeout.
+func PublishContentWithTimeout(timeout time.Duration) PublishContentOption {
+	return func(h *PublishContentHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewPublishContentHandler constructs a handler wired to the provided content service.
-func NewPublishContentHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[PublishContentCommand]) *PublishContentHandler {
-	exec := func(ctx context.Context, msg PublishContentCommand) error {
-		if !gates.versioningEnabled() {
-			return content.ErrVersioningDisabled
-		}
-		req := content.PublishContentDraftRequest{
-			ContentID:   msg.ContentID,
-			Version:     msg.Version,
-			PublishedAt: msg.PublishedAt,
-		}
-		if msg.PublishedBy != nil {
-			req.PublishedBy = *msg.PublishedBy
-		}
-		_, err := service.PublishDraft(ctx, req)
-		return err
+func NewPublishContentHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...PublishContentOption) *PublishContentHandler {
+	handler := &PublishContentHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	handlerOpts := []commands.HandlerOption[PublishContentCommand]{
-		commands.WithLogger[PublishContentCommand](logger),
-		commands.WithOperation[PublishContentCommand]("content.publish"),
-		commands.WithMessageFields(func(msg PublishContentCommand) map[string]any {
-			fields := map[string]any{}
-			if msg.ContentID != uuid.Nil {
-				fields["content_id"] = msg.ContentID
-			}
-			if msg.Version > 0 {
-				fields["version"] = msg.Version
-			}
-			if msg.PublishedBy != nil && *msg.PublishedBy != uuid.Nil {
-				fields["published_by"] = *msg.PublishedBy
-			}
-			if msg.PublishedAt != nil && !msg.PublishedAt.IsZero() {
-				fields["published_at"] = msg.PublishedAt
-			}
-			if len(fields) == 0 {
-				return nil
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[PublishContentCommand](logger)),
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
+		}
 	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &PublishContentHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[PublishContentCommand].Execute.
 func (h *PublishContentHandler) Execute(ctx context.Context, msg PublishContentCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.versioningEnabled() {
+		return commands.WrapExecuteError(content.ErrVersioningDisabled)
+	}
+
+	req := content.PublishContentDraftRequest{
+		ContentID:   msg.ContentID,
+		Version:     msg.Version,
+		PublishedAt: msg.PublishedAt,
+	}
+	if msg.PublishedBy != nil {
+		req.PublishedBy = *msg.PublishedBy
+	}
+
+	if _, err := h.service.PublishDraft(ctx, req); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":    "content.publish",
+		"content_id":   msg.ContentID,
+		"version":      msg.Version,
+		"published_by": msg.PublishedBy,
+	}).Info("content.command.publish.completed")
+	return nil
 }

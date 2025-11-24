@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/google/uuid"
@@ -49,7 +49,7 @@ func TestSchedulePageCommandIntegrationEnqueuesJobs(t *testing.T) {
 		t.Fatalf("seed page: %v", err)
 	}
 
-	handler := NewSchedulePageHandler(service, commands.CommandLogger(nil, "pages"), FeatureGates{
+	handler := NewSchedulePageHandler(service, logging.NoOp(), FeatureGates{
 		SchedulingEnabled: func() bool { return true },
 	})
 

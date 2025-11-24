@@ -5,7 +5,6 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/google/uuid"
@@ -54,7 +53,7 @@ func TestSyncWidgetRegistryHandlerRegistersDefinitions(t *testing.T) {
 	)
 
 	tracking := &trackingWidgetService{Service: baseService}
-	handler := NewSyncWidgetRegistryHandler(tracking, commands.CommandLogger(nil, "widgets"), FeatureGates{
+	handler := NewSyncWidgetRegistryHandler(tracking, logging.NoOp(), FeatureGates{
 		WidgetsEnabled: func() bool { return true },
 	})
 
@@ -129,7 +128,7 @@ func TestRefreshWidgetAreaHandlerResolvesArea(t *testing.T) {
 
 	tracking := &trackingWidgetService{Service: baseService}
 
-	handler := NewRefreshWidgetAreaHandler(tracking, commands.CommandLogger(nil, "widgets"), FeatureGates{
+	handler := NewRefreshWidgetAreaHandler(tracking, logging.NoOp(), FeatureGates{
 		WidgetsEnabled: func() bool { return true },
 	})
 

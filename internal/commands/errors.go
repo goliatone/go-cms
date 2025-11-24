@@ -14,7 +14,8 @@ const (
 	commandExecuteFailed    = "COMMAND_EXECUTION_FAILED"
 )
 
-func wrapValidationError(err error) error {
+// WrapValidationError ensures validation failures carry a consistent category and code.
+func WrapValidationError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -25,7 +26,8 @@ func wrapValidationError(err error) error {
 		WithTextCode(commandValidationCode)
 }
 
-func wrapContextError(err error) error {
+// WrapContextError normalises context cancellation and timeout errors.
+func WrapContextError(err error) error {
 	if err == nil {
 		return nil
 	}
@@ -45,7 +47,8 @@ func wrapContextError(err error) error {
 	}
 }
 
-func wrapExecuteError(err error) error {
+// WrapExecuteError attaches command execution metadata to returned errors.
+func WrapExecuteError(err error) error {
 	if err == nil {
 		return nil
 	}

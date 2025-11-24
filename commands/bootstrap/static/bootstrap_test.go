@@ -3,7 +3,7 @@ package bootstrap
 import "testing"
 
 func TestBuildModuleEnablesGenerator(t *testing.T) {
-	resources, err := BuildModule(Options{})
+	resources, err := BuildModule(Options{EnableCommands: true})
 	if err != nil {
 		t.Fatalf("build module: %v", err)
 	}

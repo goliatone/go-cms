@@ -6,7 +6,6 @@ var (
 	ErrThemesFeatureRequired                  = runtimeconfig.ErrThemesFeatureRequired
 	ErrSchedulingFeatureRequiresVersioning    = runtimeconfig.ErrSchedulingFeatureRequiresVersioning
 	ErrAdvancedCacheRequiresEnabledCache      = runtimeconfig.ErrAdvancedCacheRequiresEnabledCache
-	ErrCommandsCronRequiresScheduling         = runtimeconfig.ErrCommandsCronRequiresScheduling
 	ErrDefaultLocaleRequired                  = runtimeconfig.ErrDefaultLocaleRequired
 	ErrLoggingProviderRequired                = runtimeconfig.ErrLoggingProviderRequired
 	ErrLoggingProviderUnknown                 = runtimeconfig.ErrLoggingProviderUnknown
@@ -33,7 +32,6 @@ type (
 	ShortcodeSecurityConfig   = runtimeconfig.ShortcodeSecurityConfig
 	ShortcodeCacheConfig      = runtimeconfig.ShortcodeCacheConfig
 	Features                  = runtimeconfig.Features
-	CommandsConfig            = runtimeconfig.CommandsConfig
 	MarkdownConfig            = runtimeconfig.MarkdownConfig
 	MarkdownParserConfig      = runtimeconfig.MarkdownParserConfig
 	GeneratorConfig           = runtimeconfig.GeneratorConfig

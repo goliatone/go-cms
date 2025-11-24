@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -50,73 +51,76 @@ func (m PublishPageCommand) Validate() error {
 	return nil
 }
 
-// PublishPageHandler publishes drafts via the page service using the shared command handler foundation.
+// PublishPageHandler publishes drafts via the page service.
 type PublishPageHandler struct {
-	inner *commands.Handler[PublishPageCommand]
+	service pages.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// PublishPageOption customises the publish handler.
+type PublishPageOption func(*PublishPageHandler)
+
+// PublishPageWithTimeout overrides the default execution timeout.
+func PublishPageWithTimeout(timeout time.Duration) PublishPageOption {
+	return func(h *PublishPageHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewPublishPageHandler constructs a handler wired to the provided page service.
-func NewPublishPageHandler(service pages.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[PublishPageCommand]) *PublishPageHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewPublishPageHandler(service pages.Service, logger interfaces.Logger, gates FeatureGates, opts ...PublishPageOption) *PublishPageHandler {
+	handler := &PublishPageHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg PublishPageCommand) error {
-		if !gates.versioningEnabled() {
-			return pages.ErrVersioningDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		req := pages.PublishPagePublishRequest{
-			PageID:      msg.PageID,
-			Version:     msg.Version,
-			PublishedAt: msg.PublishedAt,
-		}
-		if msg.PublishedBy != nil {
-			req.PublishedBy = *msg.PublishedBy
-		}
-		_, err := service.PublishDraft(ctx, req)
-		return err
 	}
-
-	handlerOpts := []commands.HandlerOption[PublishPageCommand]{
-		commands.WithLogger[PublishPageCommand](baseLogger),
-		commands.WithOperation[PublishPageCommand]("pages.publish"),
-		commands.WithMessageFields(func(msg PublishPageCommand) map[string]any {
-			fields := map[string]any{}
-			if msg.PageID != uuid.Nil {
-				fields["page_id"] = msg.PageID
-			}
-			if msg.Version > 0 {
-				fields["version"] = msg.Version
-			}
-			if trimmed := strings.TrimSpace(msg.Locale); trimmed != "" {
-				fields["locale"] = trimmed
-			}
-			if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
-				fields["template_id"] = *msg.TemplateID
-			}
-			if msg.PublishedBy != nil && *msg.PublishedBy != uuid.Nil {
-				fields["published_by"] = *msg.PublishedBy
-			}
-			if msg.PublishedAt != nil && !msg.PublishedAt.IsZero() {
-				fields["published_at"] = msg.PublishedAt
-			}
-			if len(fields) == 0 {
-				return nil
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[PublishPageCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &PublishPageHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
-// Execute satisfies command.Commander[PublishPageCommand].Execute.
+// Execute satisfies command.Commander[PublishPageCommand].
 func (h *PublishPageHandler) Execute(ctx context.Context, msg PublishPageCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.versioningEnabled() {
+		return commands.WrapExecuteError(pages.ErrVersioningDisabled)
+	}
+
+	req := pages.PublishPagePublishRequest{
+		PageID:      msg.PageID,
+		Version:     msg.Version,
+		PublishedAt: msg.PublishedAt,
+	}
+	if msg.PublishedBy != nil {
+		req.PublishedBy = *msg.PublishedBy
+	}
+
+	if _, err := h.service.PublishDraft(ctx, req); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":    "pages.publish",
+		"page_id":      msg.PageID,
+		"version":      msg.Version,
+		"locale":       strings.TrimSpace(msg.Locale),
+		"template_id":  msg.TemplateID,
+		"published_by": msg.PublishedBy,
+	}).Info("pages.command.publish.completed")
+	return nil
 }

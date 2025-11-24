@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 )
 
 const importAssetsMessageType = "cms.media.asset.import"
@@ -46,76 +47,87 @@ func (m ImportAssetsCommand) Validate() error {
 	return nil
 }
 
-// ImportAssetsHandler resolves media bindings using the shared command handler foundation.
+// ImportAssetsHandler resolves media bindings.
 type ImportAssetsHandler struct {
-	inner *commands.Handler[ImportAssetsCommand]
+	service media.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// ImportAssetsOption customises the import handler.
+type ImportAssetsOption func(*ImportAssetsHandler)
+
+// ImportAssetsWithTimeout overrides the default execution timeout.
+func ImportAssetsWithTimeout(timeout time.Duration) ImportAssetsOption {
+	return func(h *ImportAssetsHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewImportAssetsHandler constructs a handler wired to the provided media service.
-func NewImportAssetsHandler(service media.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[ImportAssetsCommand]) *ImportAssetsHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewImportAssetsHandler(service media.Service, logger interfaces.Logger, gates FeatureGates, opts ...ImportAssetsOption) *ImportAssetsHandler {
+	handler := &ImportAssetsHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg ImportAssetsCommand) error {
-		if !gates.mediaLibraryEnabled() {
-			return media.ErrProviderUnavailable
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		options := media.ResolveOptions{
-			IncludeSignedURLs: msg.IncludeSignedURLs,
-		}
-		if msg.SignedURLTTLSeconds != nil {
-			options.SignedURLTTL = time.Duration(*msg.SignedURLTTLSeconds) * time.Second
-		}
-		if msg.CacheTTLSeconds != nil {
-			options.CacheTTL = time.Duration(*msg.CacheTTLSeconds) * time.Second
-		}
-
-		attachments, err := service.ResolveBindings(ctx, msg.Bindings, options)
-		if err != nil {
-			return err
-		}
-
-		if len(attachments) > 0 {
-			logging.WithFields(baseLogger, map[string]any{
-				"binding_sets": len(attachments),
-			}).Debug("media.command.assets_resolved")
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[ImportAssetsCommand]{
-		commands.WithLogger[ImportAssetsCommand](baseLogger),
-		commands.WithOperation[ImportAssetsCommand]("media.asset.import"),
-		commands.WithMessageFields(func(msg ImportAssetsCommand) map[string]any {
-			fields := map[string]any{
-				"binding_groups": len(msg.Bindings),
-			}
-			if msg.IncludeSignedURLs {
-				fields["include_signed_urls"] = true
-			}
-			if msg.SignedURLTTLSeconds != nil && *msg.SignedURLTTLSeconds >= 0 {
-				fields["signed_url_ttl_seconds"] = *msg.SignedURLTTLSeconds
-			}
-			if msg.CacheTTLSeconds != nil && *msg.CacheTTLSeconds >= 0 {
-				fields["cache_ttl_seconds"] = *msg.CacheTTLSeconds
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[ImportAssetsCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &ImportAssetsHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[ImportAssetsCommand].
 func (h *ImportAssetsHandler) Execute(ctx context.Context, msg ImportAssetsCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.mediaLibraryEnabled() {
+		return commands.WrapExecuteError(media.ErrProviderUnavailable)
+	}
+
+	options := media.ResolveOptions{
+		IncludeSignedURLs: msg.IncludeSignedURLs,
+	}
+	if msg.SignedURLTTLSeconds != nil {
+		options.SignedURLTTL = time.Duration(*msg.SignedURLTTLSeconds) * time.Second
+	}
+	if msg.CacheTTLSeconds != nil {
+		options.CacheTTL = time.Duration(*msg.CacheTTLSeconds) * time.Second
+	}
+
+	attachments, err := h.service.ResolveBindings(ctx, msg.Bindings, options)
+	if err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":            "media.asset.import",
+		"binding_groups":       len(msg.Bindings),
+		"include_signed_urls":  msg.IncludeSignedURLs,
+		"signed_url_ttl_secs":  safeInt(msg.SignedURLTTLSeconds),
+		"cache_ttl_secs":       safeInt(msg.CacheTTLSeconds),
+		"resolved_binding_set": len(attachments),
+	}).Info("media.command.assets_resolved")
+	return nil
+}
+
+func safeInt(value *int) int {
+	if value == nil {
+		return 0
+	}
+	return *value
 }
 
 func validateBindingSet(bindings media.BindingSet) error {

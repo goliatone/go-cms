@@ -1,9 +1,10 @@
-package markdowncmd
+package markdownadapter
 
 import (
+	"context"
 	"testing"
 
-	"github.com/goliatone/go-cms/internal/commands"
+	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	command "github.com/goliatone/go-command"
@@ -14,13 +15,13 @@ func TestRegisterMarkdownCommandsHandlerOptionsApplied(t *testing.T) {
 	importApplied := false
 	syncApplied := false
 
-	_, err := RegisterMarkdownCommands(nil, service, nil, FeatureGates{
+	_, err := RegisterMarkdownCommands(nil, service, nil, markdowncmd.FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	},
-		WithImportHandlerOptions(func(h *commands.Handler[ImportDirectoryCommand]) {
+		WithImportHandlerOptions(func(h *markdowncmd.ImportDirectoryHandler) {
 			importApplied = true
 		}),
-		WithSyncHandlerOptions(func(h *commands.Handler[SyncDirectoryCommand]) {
+		WithSyncHandlerOptions(func(h *markdowncmd.SyncDirectoryHandler) {
 			syncApplied = true
 		}),
 	)
@@ -39,7 +40,7 @@ func TestRegisterMarkdownCommandsRegistersHandlers(t *testing.T) {
 	reg := &recordingRegistry{}
 	service := &stubMarkdownService{}
 
-	set, err := RegisterMarkdownCommands(reg, service, nil, FeatureGates{
+	set, err := RegisterMarkdownCommands(reg, service, nil, markdowncmd.FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	})
 	if err != nil {
@@ -64,7 +65,7 @@ func TestRegisterMarkdownCommandsRegistersHandlers(t *testing.T) {
 
 func TestRegisterMarkdownCommandsNilRegistrySkipsRegistration(t *testing.T) {
 	service := &stubMarkdownService{}
-	set, err := RegisterMarkdownCommands(nil, service, nil, FeatureGates{
+	set, err := RegisterMarkdownCommands(nil, service, nil, markdowncmd.FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	})
 	if err != nil {
@@ -76,7 +77,7 @@ func TestRegisterMarkdownCommandsNilRegistrySkipsRegistration(t *testing.T) {
 }
 
 func TestRegisterMarkdownCommandsNilServiceError(t *testing.T) {
-	if _, err := RegisterMarkdownCommands(nil, nil, nil, FeatureGates{}); err == nil {
+	if _, err := RegisterMarkdownCommands(nil, nil, nil, markdowncmd.FeatureGates{}); err == nil {
 		t.Fatal("expected error when service nil")
 	}
 }
@@ -85,13 +86,13 @@ func TestRegisterMarkdownCronRegistersHandler(t *testing.T) {
 	service := &stubMarkdownService{
 		syncResult: &interfaces.SyncResult{},
 	}
-	handler := NewSyncDirectoryHandler(service, logging.NoOp(), FeatureGates{
+	handler := markdowncmd.NewSyncDirectoryHandler(service, logging.NoOp(), markdowncmd.FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	})
 	recorder := &recordingCron{}
 
 	cfg := command.HandlerConfig{Expression: "@daily"}
-	msg := SyncDirectoryCommand{Directory: "content"}
+	msg := markdowncmd.SyncDirectoryCommand{Directory: "content"}
 
 	if err := RegisterMarkdownCron(recorder.register, handler, cfg, msg); err != nil {
 		t.Fatalf("register markdown cron: %v", err)
@@ -117,10 +118,10 @@ func TestRegisterMarkdownCronRegistersHandler(t *testing.T) {
 
 func TestRegisterMarkdownCronNoOpWhenRegistrarNil(t *testing.T) {
 	service := &stubMarkdownService{}
-	handler := NewSyncDirectoryHandler(service, logging.NoOp(), FeatureGates{
+	handler := markdowncmd.NewSyncDirectoryHandler(service, logging.NoOp(), markdowncmd.FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	})
-	if err := RegisterMarkdownCron(nil, handler, command.HandlerConfig{}, SyncDirectoryCommand{Directory: "content"}); err != nil {
+	if err := RegisterMarkdownCron(nil, handler, command.HandlerConfig{}, markdowncmd.SyncDirectoryCommand{Directory: "content"}); err != nil {
 		t.Fatalf("expected nil error when registrar nil, got %v", err)
 	}
 	if len(service.syncCalls) != 0 {
@@ -130,7 +131,7 @@ func TestRegisterMarkdownCronNoOpWhenRegistrarNil(t *testing.T) {
 
 func TestRegisterMarkdownCronNoOpWhenHandlerNil(t *testing.T) {
 	recorder := &recordingCron{}
-	if err := RegisterMarkdownCron(recorder.register, nil, command.HandlerConfig{}, SyncDirectoryCommand{Directory: "content"}); err != nil {
+	if err := RegisterMarkdownCron(recorder.register, nil, command.HandlerConfig{}, markdowncmd.SyncDirectoryCommand{Directory: "content"}); err != nil {
 		t.Fatalf("expected nil error when handler nil, got %v", err)
 	}
 	if len(recorder.registrations) != 0 {
@@ -174,4 +175,67 @@ func (r *recordingCron) register(cfg command.HandlerConfig, handler any) error {
 		handler: fn,
 	})
 	return nil
+}
+
+type importCall struct {
+	directory string
+	options   interfaces.ImportOptions
+}
+
+type syncCall struct {
+	directory string
+	options   interfaces.SyncOptions
+}
+
+type stubMarkdownService struct {
+	importCalls []importCall
+	syncCalls   []syncCall
+
+	importResult *interfaces.ImportResult
+	syncResult   *interfaces.SyncResult
+
+	importErr error
+	syncErr   error
+}
+
+func (s *stubMarkdownService) Load(context.Context, string, interfaces.LoadOptions) (*interfaces.Document, error) {
+	return nil, nil
+}
+
+func (s *stubMarkdownService) LoadDirectory(context.Context, string, interfaces.LoadOptions) ([]*interfaces.Document, error) {
+	return nil, nil
+}
+
+func (s *stubMarkdownService) Render(context.Context, []byte, interfaces.ParseOptions) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *stubMarkdownService) RenderDocument(context.Context, *interfaces.Document, interfaces.ParseOptions) ([]byte, error) {
+	return nil, nil
+}
+
+func (s *stubMarkdownService) Import(context.Context, *interfaces.Document, interfaces.ImportOptions) (*interfaces.ImportResult, error) {
+	return nil, nil
+}
+
+func (s *stubMarkdownService) ImportDirectory(ctx context.Context, directory string, opts interfaces.ImportOptions) (*interfaces.ImportResult, error) {
+	s.importCalls = append(s.importCalls, importCall{
+		directory: directory,
+		options:   opts,
+	})
+	if s.importErr != nil {
+		return nil, s.importErr
+	}
+	return s.importResult, nil
+}
+
+func (s *stubMarkdownService) Sync(ctx context.Context, directory string, opts interfaces.SyncOptions) (*interfaces.SyncResult, error) {
+	s.syncCalls = append(s.syncCalls, syncCall{
+		directory: directory,
+		options:   opts,
+	})
+	if s.syncErr != nil {
+		return nil, s.syncErr
+	}
+	return s.syncResult, nil
 }
