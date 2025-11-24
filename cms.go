@@ -146,12 +146,3 @@ func (m *Module) TranslationsRequired() bool {
 	}
 	return m.container.TranslationsRequired()
 }
-
-// CommandHandlers returns copies of the registered command handlers, allowing callers
-// to wire them into custom dispatchers when automatic registration is disabled.
-func (m *Module) CommandHandlers() []any {
-	if m == nil || m.container == nil {
-		return nil
-	}
-	return m.container.CommandHandlers()
-}
