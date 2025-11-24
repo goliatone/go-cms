@@ -517,10 +517,10 @@ Following ARCH_DESIGN.md, we rely on fixture-driven tests, golden files, and rep
 
 ## Static Command Integration
 
-- Static generator handlers (`BuildSiteHandler`, `DiffSiteHandler`, `CleanSiteHandler`, `BuildSitemapHandler`) are registered by the DI container whenever `Config.Generator.Enabled` and `Config.Commands.Enabled` are both true.
-- The CLI bootstrap (`cmd/static/internal/bootstrap`) enables commands, applies optional overrides for logger providers or generator storage, and returns a collector so the CLI (or host applications) can retrieve the instantiated handlers.
+- Static generator handlers (`BuildSiteHandler`, `DiffSiteHandler`, `CleanSiteHandler`, `BuildSitemapHandler`) are built whenever `Config.Generator.Enabled` is true; the adapter bootstrap (`commands/bootstrap/static`) collects them for CLI or host use when `EnableCommands` is set.
+- The CLI bootstrap (`commands/bootstrap/static`) applies optional overrides for logger providers or generator storage and returns a collector so the CLI (or host applications) can retrieve the instantiated handlers.
 - CLI execution (`cmd/static/main.go`) now maps flags to the `staticcmd` message types and attaches a result callback that streams `generator.BuildResult` diagnostics into the shared logging helper. Assets-only and single-page flows emit metadata-only envelopes so callers can record telemetry without bypassing the handler middleware, and the `sitemap` subcommand triggers the standalone sitemap command for regeneration without a full site build.
-- Hosts integrating the handlers directly should enable commands, request the collector or call `Module.CommandHandlers()`, and execute handlers with their own callbacks. If handlers are missing, the CLI surfaces a clear configuration error instead of silently falling back to service calls.
+- Hosts integrating the handlers directly should request the collector from the bootstrap (or call `commands.RegisterContainerCommands` manually) and execute handlers with their own callbacks. If handlers are missing, the CLI surfaces a clear configuration error instead of silently falling back to service calls.
 - The generator writes `sitemap.xml` alongside build artifacts whenever `Config.Generator.GenerateSitemap` is true and exposes a dedicated `BuildSitemap` method for explicit regeneration.
 - RSS/Atom feeds are produced per locale under `feeds/<locale>.rss.xml` and `feeds/<locale>.atom.xml` (with default-locale aliases `feed.xml` / `feed.atom.xml`) when `Config.Generator.GenerateFeeds` is enabled; incremental builds continue to refresh these feeds even when page HTML is skipped.
 
