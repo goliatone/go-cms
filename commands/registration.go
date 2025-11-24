@@ -182,7 +182,9 @@ func RegisterContainerCommands(container *di.Container, opts RegistrationOptions
 		register(staticcmd.NewBuildSiteHandler(service, staticLogger, gates))
 		register(staticcmd.NewDiffSiteHandler(service, staticLogger, gates))
 		register(staticcmd.NewCleanSiteHandler(service, staticLogger, gates))
-		register(staticcmd.NewBuildSitemapHandler(service, staticLogger, gates))
+		if cfg.Generator.GenerateSitemap {
+			register(staticcmd.NewBuildSitemapHandler(service, staticLogger, gates))
+		}
 	}
 
 	// Menu commands.
@@ -210,17 +212,17 @@ func RegisterContainerCommands(container *di.Container, opts RegistrationOptions
 	}
 
 	// Audit commands.
-	if cfg.Features.Scheduling && container.AuditRecorder() != nil {
+	if recorder := container.AuditRecorder(); recorder != nil {
 		auditLogger := loggerFor("audit")
-		if container.JobWorker() != nil {
-			register(auditcmd.NewReplayAuditHandler(container.JobWorker(), auditLogger))
+		register(auditcmd.NewExportAuditHandler(recorder, auditLogger))
+		if worker := container.JobWorker(); worker != nil {
+			register(auditcmd.NewReplayAuditHandler(worker, auditLogger))
 		}
-		register(auditcmd.NewExportAuditHandler(container.AuditRecorder(), auditLogger))
 		cleanupOpts := []auditcmd.CleanupHandlerOption{}
 		if expr := strings.TrimSpace(opts.CleanupAuditCron); expr != "" {
 			cleanupOpts = append(cleanupOpts, auditcmd.CleanupWithCronExpression(expr))
 		}
-		register(auditcmd.NewCleanupAuditHandler(container.AuditRecorder(), auditLogger, cleanupOpts...))
+		register(auditcmd.NewCleanupAuditHandler(recorder, auditLogger, cleanupOpts...))
 	}
 
 	if errs != nil && len(result.Handlers) == 0 {
