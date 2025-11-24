@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"github.com/goliatone/go-cms"
+	auditcmd "github.com/goliatone/go-cms/internal/commands/audit"
+	staticcmd "github.com/goliatone/go-cms/internal/commands/static"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	command "github.com/goliatone/go-command"
@@ -73,6 +75,60 @@ func TestRegisterContainerCommandsWithoutRegistrars(t *testing.T) {
 	}
 	if len(result.Subscriptions) != 0 {
 		t.Fatalf("expected no dispatcher subscriptions without dispatcher, got %d", len(result.Subscriptions))
+	}
+}
+
+func TestRegisterContainerCommandsSkipsSitemapWhenDisabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Versioning = true
+	cfg.Generator.Enabled = true
+	cfg.Generator.GenerateSitemap = false
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	result, err := RegisterContainerCommands(container, RegistrationOptions{})
+	if err != nil {
+		t.Fatalf("register commands: %v", err)
+	}
+
+	for _, handler := range result.Handlers {
+		if _, ok := handler.(*staticcmd.BuildSitemapHandler); ok {
+			t.Fatal("expected sitemap handler not to be registered when sitemap generation is disabled")
+		}
+	}
+}
+
+func TestRegisterContainerCommandsRegistersAuditWhenSchedulingDisabled(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Scheduling = false
+
+	container, err := di.NewContainer(cfg)
+	if err != nil {
+		t.Fatalf("new container: %v", err)
+	}
+
+	result, err := RegisterContainerCommands(container, RegistrationOptions{})
+	if err != nil {
+		t.Fatalf("register commands: %v", err)
+	}
+
+	var hasExport, hasReplay bool
+	for _, handler := range result.Handlers {
+		switch handler.(type) {
+		case *auditcmd.ExportAuditHandler:
+			hasExport = true
+		case *auditcmd.ReplayAuditHandler:
+			hasReplay = true
+		}
+	}
+	if !hasExport {
+		t.Fatal("expected export audit handler registered when recorder is available")
+	}
+	if !hasReplay {
+		t.Fatal("expected replay audit handler registered when worker is available")
 	}
 }
 
