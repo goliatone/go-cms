@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -54,69 +55,72 @@ func (m SchedulePageCommand) Validate() error {
 
 // SchedulePageHandler coordinates scheduling changes via the page service.
 type SchedulePageHandler struct {
-	inner *commands.Handler[SchedulePageCommand]
+	service pages.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// SchedulePageOption customises the schedule handler.
+type SchedulePageOption func(*SchedulePageHandler)
+
+// SchedulePageWithTimeout overrides the default execution timeout.
+func SchedulePageWithTimeout(timeout time.Duration) SchedulePageOption {
+	return func(h *SchedulePageHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewSchedulePageHandler constructs a handler wired to the provided page service.
-func NewSchedulePageHandler(service pages.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[SchedulePageCommand]) *SchedulePageHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewSchedulePageHandler(service pages.Service, logger interfaces.Logger, gates FeatureGates, opts ...SchedulePageOption) *SchedulePageHandler {
+	handler := &SchedulePageHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg SchedulePageCommand) error {
-		if !gates.schedulingEnabled() {
-			return pages.ErrSchedulingDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		req := pages.SchedulePageRequest{
-			PageID:      msg.PageID,
-			PublishAt:   msg.PublishAt,
-			UnpublishAt: msg.UnpublishAt,
-			ScheduledBy: msg.ScheduledBy,
-		}
-		_, err := service.Schedule(ctx, req)
-		return err
 	}
-
-	handlerOpts := []commands.HandlerOption[SchedulePageCommand]{
-		commands.WithLogger[SchedulePageCommand](baseLogger),
-		commands.WithOperation[SchedulePageCommand]("pages.schedule"),
-		commands.WithMessageFields(func(msg SchedulePageCommand) map[string]any {
-			fields := map[string]any{}
-			if msg.PageID != uuid.Nil {
-				fields["page_id"] = msg.PageID
-			}
-			if trimmed := strings.TrimSpace(msg.Locale); trimmed != "" {
-				fields["locale"] = trimmed
-			}
-			if msg.TemplateID != nil && *msg.TemplateID != uuid.Nil {
-				fields["template_id"] = *msg.TemplateID
-			}
-			if msg.PublishAt != nil && !msg.PublishAt.IsZero() {
-				fields["publish_at"] = msg.PublishAt
-			}
-			if msg.UnpublishAt != nil && !msg.UnpublishAt.IsZero() {
-				fields["unpublish_at"] = msg.UnpublishAt
-			}
-			if msg.ScheduledBy != uuid.Nil {
-				fields["scheduled_by"] = msg.ScheduledBy
-			}
-			if len(fields) == 0 {
-				return nil
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[SchedulePageCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &SchedulePageHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[SchedulePageCommand].
 func (h *SchedulePageHandler) Execute(ctx context.Context, msg SchedulePageCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.schedulingEnabled() {
+		return commands.WrapExecuteError(pages.ErrSchedulingDisabled)
+	}
+
+	req := pages.SchedulePageRequest{
+		PageID:      msg.PageID,
+		PublishAt:   msg.PublishAt,
+		UnpublishAt: msg.UnpublishAt,
+		ScheduledBy: msg.ScheduledBy,
+	}
+	if _, err := h.service.Schedule(ctx, req); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":    "pages.schedule",
+		"page_id":      msg.PageID,
+		"locale":       strings.TrimSpace(msg.Locale),
+		"template_id":  msg.TemplateID,
+		"publish_at":   msg.PublishAt,
+		"unpublish_at": msg.UnpublishAt,
+		"scheduled_by": msg.ScheduledBy,
+	}).Info("pages.command.schedule.completed")
+	return nil
 }

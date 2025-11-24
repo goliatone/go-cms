@@ -7,7 +7,9 @@ import (
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -44,57 +46,70 @@ func (m ScheduleContentCommand) Validate() error {
 
 // ScheduleContentHandler coordinates scheduling changes via the content service.
 type ScheduleContentHandler struct {
-	inner *commands.Handler[ScheduleContentCommand]
+	service content.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// ScheduleContentOption customises the schedule handler.
+type ScheduleContentOption func(*ScheduleContentHandler)
+
+// ScheduleContentWithTimeout overrides the default execution timeout.
+func ScheduleContentWithTimeout(timeout time.Duration) ScheduleContentOption {
+	return func(h *ScheduleContentHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewScheduleContentHandler constructs a handler wired to the provided content service.
-func NewScheduleContentHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[ScheduleContentCommand]) *ScheduleContentHandler {
-	exec := func(ctx context.Context, msg ScheduleContentCommand) error {
-		if !gates.schedulingEnabled() {
-			return content.ErrSchedulingDisabled
+func NewScheduleContentHandler(service content.Service, logger interfaces.Logger, gates FeatureGates, opts ...ScheduleContentOption) *ScheduleContentHandler {
+	handler := &ScheduleContentHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
+	}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		req := content.ScheduleContentRequest{
-			ContentID:   msg.ContentID,
-			PublishAt:   msg.PublishAt,
-			UnpublishAt: msg.UnpublishAt,
-			ScheduledBy: msg.ScheduledBy,
-		}
-		_, err := service.Schedule(ctx, req)
-		return err
 	}
-
-	handlerOpts := []commands.HandlerOption[ScheduleContentCommand]{
-		commands.WithLogger[ScheduleContentCommand](logger),
-		commands.WithOperation[ScheduleContentCommand]("content.schedule"),
-		commands.WithMessageFields(func(msg ScheduleContentCommand) map[string]any {
-			fields := map[string]any{}
-			if msg.ContentID != uuid.Nil {
-				fields["content_id"] = msg.ContentID
-			}
-			if msg.PublishAt != nil && !msg.PublishAt.IsZero() {
-				fields["publish_at"] = msg.PublishAt
-			}
-			if msg.UnpublishAt != nil && !msg.UnpublishAt.IsZero() {
-				fields["unpublish_at"] = msg.UnpublishAt
-			}
-			if msg.ScheduledBy != uuid.Nil {
-				fields["scheduled_by"] = msg.ScheduledBy
-			}
-			if len(fields) == 0 {
-				return nil
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[ScheduleContentCommand](logger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &ScheduleContentHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[ScheduleContentCommand].
 func (h *ScheduleContentHandler) Execute(ctx context.Context, msg ScheduleContentCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.schedulingEnabled() {
+		return commands.WrapExecuteError(content.ErrSchedulingDisabled)
+	}
+
+	req := content.ScheduleContentRequest{
+		ContentID:   msg.ContentID,
+		PublishAt:   msg.PublishAt,
+		UnpublishAt: msg.UnpublishAt,
+		ScheduledBy: msg.ScheduledBy,
+	}
+	if _, err := h.service.Schedule(ctx, req); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation":    "content.schedule",
+		"content_id":   msg.ContentID,
+		"publish_at":   msg.PublishAt,
+		"unpublish_at": msg.UnpublishAt,
+		"scheduled_by": msg.ScheduledBy,
+	}).Info("content.command.schedule.completed")
+	return nil
 }

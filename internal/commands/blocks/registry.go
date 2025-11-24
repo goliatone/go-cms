@@ -3,12 +3,14 @@ package blockscmd
 import (
 	"context"
 	"errors"
+	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 )
 
 const syncBlockRegistryMessageType = "cms.blocks.registry.sync"
@@ -40,39 +42,59 @@ func (SyncBlockRegistryCommand) Validate() error {
 
 // SyncBlockRegistryHandler wraps block registry synchronisation.
 type SyncBlockRegistryHandler struct {
-	inner *commands.Handler[SyncBlockRegistryCommand]
+	service blocks.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// SyncBlockRegistryOption customises the block sync handler.
+type SyncBlockRegistryOption func(*SyncBlockRegistryHandler)
+
+// SyncBlockRegistryWithTimeout overrides the default execution timeout.
+func SyncBlockRegistryWithTimeout(timeout time.Duration) SyncBlockRegistryOption {
+	return func(h *SyncBlockRegistryHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewSyncBlockRegistryHandler constructs a handler wired to the provided block service.
-func NewSyncBlockRegistryHandler(service blocks.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[SyncBlockRegistryCommand]) *SyncBlockRegistryHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewSyncBlockRegistryHandler(service blocks.Service, logger interfaces.Logger, gates FeatureGates, opts ...SyncBlockRegistryOption) *SyncBlockRegistryHandler {
+	handler := &SyncBlockRegistryHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, _ SyncBlockRegistryCommand) error {
-		if !gates.blocksEnabled() {
-			return ErrBlocksModuleDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		if err := service.SyncRegistry(ctx); err != nil {
-			return err
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[SyncBlockRegistryCommand]{
-		commands.WithLogger[SyncBlockRegistryCommand](baseLogger),
-		commands.WithOperation[SyncBlockRegistryCommand]("blocks.registry.sync"),
-		commands.WithTelemetry(commands.DefaultTelemetry[SyncBlockRegistryCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &SyncBlockRegistryHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[SyncBlockRegistryCommand].
 func (h *SyncBlockRegistryHandler) Execute(ctx context.Context, msg SyncBlockRegistryCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.blocksEnabled() {
+		return commands.WrapExecuteError(ErrBlocksModuleDisabled)
+	}
+	if err := h.service.SyncRegistry(ctx); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation": "blocks.registry.sync",
+	}).Info("blocks.command.registry.sync.completed")
+	return nil
 }

@@ -3,274 +3,391 @@ package staticcmd
 import (
 	"context"
 	"strings"
+	"time"
 
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
-// BuildSiteHandler orchestrates generator builds using the shared command handler foundation.
+// BuildSiteHandler orchestrates generator builds.
 type BuildSiteHandler struct {
-	inner *commands.Handler[BuildSiteCommand]
+	service generator.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// BuildSiteOption customises the build handler.
+type BuildSiteOption func(*BuildSiteHandler)
+
+// BuildSiteWithTimeout overrides the default execution timeout.
+func BuildSiteWithTimeout(timeout time.Duration) BuildSiteOption {
+	return func(h *BuildSiteHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewBuildSiteHandler constructs a handler wired to the provided generator service.
-func NewBuildSiteHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[BuildSiteCommand]) *BuildSiteHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewBuildSiteHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...BuildSiteOption) *BuildSiteHandler {
+	handler := &BuildSiteHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg BuildSiteCommand) error {
-		if service == nil || !gates.generatorEnabled() {
-			return generator.ErrServiceDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		if msg.AssetsOnly {
-			if err := service.BuildAssets(ctx); err != nil {
-				return err
-			}
-			invokeCallback(msg.ResultCallback, ResultEnvelope{
-				Result: nil,
-				Metadata: map[string]any{
-					"operation": "build_assets",
-				},
-			})
-			return nil
-		}
-
-		if len(msg.PageIDs) == 1 && len(msg.Locales) == 1 {
-			if err := service.BuildPage(ctx, msg.PageIDs[0], strings.TrimSpace(msg.Locales[0])); err != nil {
-				return err
-			}
-			invokeCallback(msg.ResultCallback, ResultEnvelope{
-				Result: nil,
-				Metadata: map[string]any{
-					"operation": "build_page",
-					"page_id":   msg.PageIDs[0],
-					"locale":    strings.TrimSpace(msg.Locales[0]),
-				},
-			})
-			return nil
-		}
-
-		options := generator.BuildOptions{
-			Force:      msg.Force,
-			DryRun:     msg.DryRun,
-			AssetsOnly: msg.AssetsOnly,
-		}
-		if len(msg.PageIDs) > 0 {
-			options.PageIDs = append([]uuid.UUID(nil), msg.PageIDs...)
-		}
-		if len(msg.Locales) > 0 {
-			options.Locales = normalizeLocales(msg.Locales)
-		}
-
-		result, err := service.Build(ctx, options)
-		invokeCallback(msg.ResultCallback, ResultEnvelope{
-			Result: result,
-			Metadata: map[string]any{
-				"operation": "build",
-			},
-		})
-		if err != nil {
-			return err
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[BuildSiteCommand]{
-		commands.WithLogger[BuildSiteCommand](baseLogger),
-		commands.WithOperation[BuildSiteCommand]("static.build"),
-		commands.WithMessageFields(func(msg BuildSiteCommand) map[string]any {
-			fields := map[string]any{}
-			if len(msg.PageIDs) > 0 {
-				fields["page_ids"] = len(msg.PageIDs)
-			}
-			if len(msg.Locales) > 0 {
-				fields["locales"] = len(msg.Locales)
-			}
-			if msg.Force {
-				fields["force"] = true
-			}
-			if msg.DryRun {
-				fields["dry_run"] = true
-			}
-			if msg.AssetsOnly {
-				fields["assets_only"] = true
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[BuildSiteCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &BuildSiteHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[BuildSiteCommand].
 func (h *BuildSiteHandler) Execute(ctx context.Context, msg BuildSiteCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if h.service == nil || !h.gates.generatorEnabled() {
+		return commands.WrapExecuteError(generator.ErrServiceDisabled)
+	}
+
+	logger := logging.WithFields(h.logger, map[string]any{"operation": "static.build"})
+
+	if msg.AssetsOnly {
+		if err := h.service.BuildAssets(ctx); err != nil {
+			return commands.WrapExecuteError(err)
+		}
+		invokeCallback(msg.ResultCallback, ResultEnvelope{
+			Result: nil,
+			Metadata: map[string]any{
+				"operation": "build_assets",
+			},
+		})
+		logger.Info("static.command.assets.completed")
+		return nil
+	}
+
+	if len(msg.PageIDs) == 1 && len(msg.Locales) == 1 {
+		pageID := msg.PageIDs[0]
+		locale := strings.TrimSpace(msg.Locales[0])
+		if err := h.service.BuildPage(ctx, pageID, locale); err != nil {
+			return commands.WrapExecuteError(err)
+		}
+		invokeCallback(msg.ResultCallback, ResultEnvelope{
+			Result: nil,
+			Metadata: map[string]any{
+				"operation": "build_page",
+				"page_id":   pageID,
+				"locale":    locale,
+			},
+		})
+		logger.WithFields(map[string]any{"page_id": pageID, "locale": locale}).Info("static.command.page.completed")
+		return nil
+	}
+
+	options := generator.BuildOptions{
+		Force:      msg.Force,
+		DryRun:     msg.DryRun,
+		AssetsOnly: msg.AssetsOnly,
+	}
+	if len(msg.PageIDs) > 0 {
+		options.PageIDs = append([]uuid.UUID(nil), msg.PageIDs...)
+	}
+	if len(msg.Locales) > 0 {
+		options.Locales = normalizeLocales(msg.Locales)
+	}
+
+	result, err := h.service.Build(ctx, options)
+	invokeCallback(msg.ResultCallback, ResultEnvelope{
+		Result: result,
+		Metadata: map[string]any{
+			"operation": "build",
+		},
+	})
+	if err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logger.Info("static.command.build.completed")
+	return nil
+}
+
+// CLIHandler exposes the build handler for CLI registration.
+func (h *BuildSiteHandler) CLIHandler() any {
+	return h
+}
+
+// CLIOptions describes the CLI metadata for static build.
+func (h *BuildSiteHandler) CLIOptions() command.CLIConfig {
+	return command.CLIConfig{
+		Name:        "static-build",
+		Group:       "static",
+		Description: "Build static site assets and pages",
+	}
 }
 
 // DiffSiteHandler performs dry-run builds for diffing workflows.
 type DiffSiteHandler struct {
-	inner *commands.Handler[DiffSiteCommand]
+	service generator.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// DiffSiteOption customises the diff handler.
+type DiffSiteOption func(*DiffSiteHandler)
+
+// DiffSiteWithTimeout overrides the default execution timeout.
+func DiffSiteWithTimeout(timeout time.Duration) DiffSiteOption {
+	return func(h *DiffSiteHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewDiffSiteHandler constructs a handler that executes generator dry-runs.
-func NewDiffSiteHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[DiffSiteCommand]) *DiffSiteHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewDiffSiteHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...DiffSiteOption) *DiffSiteHandler {
+	handler := &DiffSiteHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg DiffSiteCommand) error {
-		if service == nil || !gates.generatorEnabled() {
-			return generator.ErrServiceDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		options := generator.BuildOptions{
-			Force:  msg.Force,
-			DryRun: true,
-		}
-		if len(msg.PageIDs) > 0 {
-			options.PageIDs = append([]uuid.UUID(nil), msg.PageIDs...)
-		}
-		if len(msg.Locales) > 0 {
-			options.Locales = normalizeLocales(msg.Locales)
-		}
-
-		result, err := service.Build(ctx, options)
-		invokeCallback(msg.ResultCallback, ResultEnvelope{
-			Result: result,
-			Metadata: map[string]any{
-				"operation": "diff",
-			},
-		})
-		if err != nil {
-			return err
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[DiffSiteCommand]{
-		commands.WithLogger[DiffSiteCommand](baseLogger),
-		commands.WithOperation[DiffSiteCommand]("static.diff"),
-		commands.WithMessageFields(func(msg DiffSiteCommand) map[string]any {
-			fields := map[string]any{}
-			if len(msg.PageIDs) > 0 {
-				fields["page_ids"] = len(msg.PageIDs)
-			}
-			if len(msg.Locales) > 0 {
-				fields["locales"] = len(msg.Locales)
-			}
-			if msg.Force {
-				fields["force"] = true
-			}
-			return fields
-		}),
-		commands.WithTelemetry(commands.DefaultTelemetry[DiffSiteCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &DiffSiteHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[DiffSiteCommand].
 func (h *DiffSiteHandler) Execute(ctx context.Context, msg DiffSiteCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if h.service == nil || !h.gates.generatorEnabled() {
+		return commands.WrapExecuteError(generator.ErrServiceDisabled)
+	}
+
+	options := generator.BuildOptions{
+		Force:  msg.Force,
+		DryRun: true,
+	}
+	if len(msg.PageIDs) > 0 {
+		options.PageIDs = append([]uuid.UUID(nil), msg.PageIDs...)
+	}
+	if len(msg.Locales) > 0 {
+		options.Locales = normalizeLocales(msg.Locales)
+	}
+
+	result, err := h.service.Build(ctx, options)
+	invokeCallback(msg.ResultCallback, ResultEnvelope{
+		Result: result,
+		Metadata: map[string]any{
+			"operation": "diff",
+		},
+	})
+	if err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation": "static.diff",
+		"page_ids":  len(msg.PageIDs),
+		"locales":   len(msg.Locales),
+		"force":     msg.Force,
+	}).Info("static.command.diff.completed")
+	return nil
+}
+
+// CLIHandler exposes the diff handler for CLI registration.
+func (h *DiffSiteHandler) CLIHandler() any {
+	return h
+}
+
+// CLIOptions describes the CLI metadata for static diff.
+func (h *DiffSiteHandler) CLIOptions() command.CLIConfig {
+	return command.CLIConfig{
+		Name:        "static-diff",
+		Group:       "static",
+		Description: "Run a dry-run static build to produce a diff",
+	}
 }
 
 // CleanSiteHandler clears generator artifacts.
 type CleanSiteHandler struct {
-	inner *commands.Handler[CleanSiteCommand]
+	service generator.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// CleanSiteOption customises the clean handler.
+type CleanSiteOption func(*CleanSiteHandler)
+
+// CleanSiteWithTimeout overrides the default execution timeout.
+func CleanSiteWithTimeout(timeout time.Duration) CleanSiteOption {
+	return func(h *CleanSiteHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewCleanSiteHandler constructs a handler that cleans generator output.
-func NewCleanSiteHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[CleanSiteCommand]) *CleanSiteHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewCleanSiteHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...CleanSiteOption) *CleanSiteHandler {
+	handler := &CleanSiteHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg CleanSiteCommand) error {
-		if service == nil || !gates.generatorEnabled() {
-			return generator.ErrServiceDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		return service.Clean(ctx)
 	}
-
-	handlerOpts := []commands.HandlerOption[CleanSiteCommand]{
-		commands.WithLogger[CleanSiteCommand](baseLogger),
-		commands.WithOperation[CleanSiteCommand]("static.clean"),
-		commands.WithTelemetry(commands.DefaultTelemetry[CleanSiteCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &CleanSiteHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[CleanSiteCommand].
 func (h *CleanSiteHandler) Execute(ctx context.Context, msg CleanSiteCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if h.service == nil || !h.gates.generatorEnabled() {
+		return commands.WrapExecuteError(generator.ErrServiceDisabled)
+	}
+	if err := h.service.Clean(ctx); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation": "static.clean",
+	}).Info("static.command.clean.completed")
+	return nil
+}
+
+// CLIHandler exposes the clean handler for CLI registration.
+func (h *CleanSiteHandler) CLIHandler() any {
+	return h
+}
+
+// CLIOptions describes the CLI metadata for static clean.
+func (h *CleanSiteHandler) CLIOptions() command.CLIConfig {
+	return command.CLIConfig{
+		Name:        "static-clean",
+		Group:       "static",
+		Description: "Clean generator output",
+	}
 }
 
 // BuildSitemapHandler regenerates sitemap artifacts via the generator service.
 type BuildSitemapHandler struct {
-	inner *commands.Handler[BuildSitemapCommand]
+	service generator.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// BuildSitemapOption customises the sitemap handler.
+type BuildSitemapOption func(*BuildSitemapHandler)
+
+// BuildSitemapWithTimeout overrides the default execution timeout.
+func BuildSitemapWithTimeout(timeout time.Duration) BuildSitemapOption {
+	return func(h *BuildSitemapHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewBuildSitemapHandler constructs a handler that invokes generator sitemap builds.
-func NewBuildSitemapHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[BuildSitemapCommand]) *BuildSitemapHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewBuildSitemapHandler(service generator.Service, logger interfaces.Logger, gates FeatureGates, opts ...BuildSitemapOption) *BuildSitemapHandler {
+	handler := &BuildSitemapHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg BuildSitemapCommand) error {
-		if service == nil || !gates.generatorEnabled() {
-			return generator.ErrServiceDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		if !gates.sitemapEnabled() {
-			return generator.ErrServiceDisabled
-		}
-		err := service.BuildSitemap(ctx)
-		invokeCallback(msg.ResultCallback, ResultEnvelope{
-			Result: nil,
-			Metadata: map[string]any{
-				"operation": "build_sitemap",
-			},
-		})
-		if err != nil {
-			return err
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[BuildSitemapCommand]{
-		commands.WithLogger[BuildSitemapCommand](baseLogger),
-		commands.WithOperation[BuildSitemapCommand]("static.sitemap"),
-		commands.WithTelemetry(commands.DefaultTelemetry[BuildSitemapCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &BuildSitemapHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[BuildSitemapCommand].
 func (h *BuildSitemapHandler) Execute(ctx context.Context, msg BuildSitemapCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if h.service == nil || !h.gates.generatorEnabled() {
+		return commands.WrapExecuteError(generator.ErrServiceDisabled)
+	}
+	if !h.gates.sitemapEnabled() {
+		return commands.WrapExecuteError(generator.ErrServiceDisabled)
+	}
+
+	err := h.service.BuildSitemap(ctx)
+	invokeCallback(msg.ResultCallback, ResultEnvelope{
+		Result: nil,
+		Metadata: map[string]any{
+			"operation": "build_sitemap",
+		},
+	})
+	if err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation": "static.sitemap",
+	}).Info("static.command.sitemap.completed")
+	return nil
+}
+
+// CLIHandler exposes the sitemap handler for CLI registration.
+func (h *BuildSitemapHandler) CLIHandler() any {
+	return h
+}
+
+// CLIOptions describes the CLI metadata for sitemap builds.
+func (h *BuildSitemapHandler) CLIOptions() command.CLIConfig {
+	return command.CLIConfig{
+		Name:        "static-sitemap",
+		Group:       "static",
+		Description: "Build static sitemaps",
+	}
 }
 
 func normalizeLocales(values []string) []string {

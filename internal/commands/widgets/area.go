@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 	"github.com/google/uuid"
 )
 
@@ -41,57 +42,75 @@ func (m RefreshWidgetAreaCommand) Validate() error {
 
 // RefreshWidgetAreaHandler wraps widget area refresh operations.
 type RefreshWidgetAreaHandler struct {
-	inner *commands.Handler[RefreshWidgetAreaCommand]
+	service widgets.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// RefreshWidgetAreaOption customises the widget area handler.
+type RefreshWidgetAreaOption func(*RefreshWidgetAreaHandler)
+
+// RefreshWidgetAreaWithTimeout overrides the default execution timeout.
+func RefreshWidgetAreaWithTimeout(timeout time.Duration) RefreshWidgetAreaOption {
+	return func(h *RefreshWidgetAreaHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewRefreshWidgetAreaHandler constructs a handler wired to the provided widget service.
-func NewRefreshWidgetAreaHandler(service widgets.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[RefreshWidgetAreaCommand]) *RefreshWidgetAreaHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewRefreshWidgetAreaHandler(service widgets.Service, logger interfaces.Logger, gates FeatureGates, opts ...RefreshWidgetAreaOption) *RefreshWidgetAreaHandler {
+	handler := &RefreshWidgetAreaHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, msg RefreshWidgetAreaCommand) error {
-		if !gates.widgetsEnabled() {
-			return ErrWidgetsModuleDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-
-		input := widgets.ResolveAreaInput{
-			AreaCode: strings.TrimSpace(msg.AreaCode),
-			Audience: append([]string(nil), msg.Audience...),
-			Segments: append([]string(nil), msg.Segments...),
-			Now:      time.Now().UTC(),
-		}
-		if msg.LocaleID != nil {
-			input.LocaleID = msg.LocaleID
-		}
-		if len(msg.FallbackLocaleIDs) > 0 {
-			input.FallbackLocaleIDs = append([]uuid.UUID(nil), msg.FallbackLocaleIDs...)
-		}
-
-		resolved, err := service.ResolveArea(ctx, input)
-		if err != nil {
-			return err
-		}
-		logging.WithFields(baseLogger, map[string]any{
-			"area_code": input.AreaCode,
-			"resolved":  len(resolved),
-		}).Info("widgets.command.area.refreshed")
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[RefreshWidgetAreaCommand]{
-		commands.WithLogger[RefreshWidgetAreaCommand](baseLogger),
-		commands.WithOperation[RefreshWidgetAreaCommand]("widgets.area.refresh"),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &RefreshWidgetAreaHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[RefreshWidgetAreaCommand].
 func (h *RefreshWidgetAreaHandler) Execute(ctx context.Context, msg RefreshWidgetAreaCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.widgetsEnabled() {
+		return commands.WrapExecuteError(ErrWidgetsModuleDisabled)
+	}
+
+	input := widgets.ResolveAreaInput{
+		AreaCode: strings.TrimSpace(msg.AreaCode),
+		Audience: append([]string(nil), msg.Audience...),
+		Segments: append([]string(nil), msg.Segments...),
+		Now:      time.Now().UTC(),
+	}
+	if msg.LocaleID != nil {
+		input.LocaleID = msg.LocaleID
+	}
+	if len(msg.FallbackLocaleIDs) > 0 {
+		input.FallbackLocaleIDs = append([]uuid.UUID(nil), msg.FallbackLocaleIDs...)
+	}
+
+	resolved, err := h.service.ResolveArea(ctx, input)
+	if err != nil {
+		return commands.WrapExecuteError(err)
+	}
+	logging.WithFields(h.logger, map[string]any{
+		"operation": "widgets.area.refresh",
+		"area_code": input.AreaCode,
+		"resolved":  len(resolved),
+	}).Info("widgets.command.area.refreshed")
+	return nil
 }

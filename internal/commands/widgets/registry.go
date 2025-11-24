@@ -3,12 +3,14 @@ package widgetscmd
 import (
 	"context"
 	"errors"
+	"time"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
 	"github.com/goliatone/go-cms/internal/commands"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	command "github.com/goliatone/go-command"
 )
 
 const syncWidgetRegistryMessageType = "cms.widgets.registry.sync"
@@ -28,39 +30,59 @@ func (SyncWidgetRegistryCommand) Validate() error {
 
 // SyncWidgetRegistryHandler wraps widget registry synchronisation.
 type SyncWidgetRegistryHandler struct {
-	inner *commands.Handler[SyncWidgetRegistryCommand]
+	service widgets.Service
+	logger  interfaces.Logger
+	gates   FeatureGates
+	timeout time.Duration
+}
+
+// SyncWidgetRegistryOption customises the widget sync handler.
+type SyncWidgetRegistryOption func(*SyncWidgetRegistryHandler)
+
+// SyncWidgetRegistryWithTimeout overrides the default execution timeout.
+func SyncWidgetRegistryWithTimeout(timeout time.Duration) SyncWidgetRegistryOption {
+	return func(h *SyncWidgetRegistryHandler) {
+		h.timeout = timeout
+	}
 }
 
 // NewSyncWidgetRegistryHandler constructs a handler wired to the provided widget service.
-func NewSyncWidgetRegistryHandler(service widgets.Service, logger interfaces.Logger, gates FeatureGates, opts ...commands.HandlerOption[SyncWidgetRegistryCommand]) *SyncWidgetRegistryHandler {
-	baseLogger := logger
-	if baseLogger == nil {
-		baseLogger = logging.NoOp()
+func NewSyncWidgetRegistryHandler(service widgets.Service, logger interfaces.Logger, gates FeatureGates, opts ...SyncWidgetRegistryOption) *SyncWidgetRegistryHandler {
+	handler := &SyncWidgetRegistryHandler{
+		service: service,
+		logger:  commands.EnsureLogger(logger),
+		gates:   gates,
+		timeout: commands.DefaultCommandTimeout,
 	}
-
-	exec := func(ctx context.Context, _ SyncWidgetRegistryCommand) error {
-		if !gates.widgetsEnabled() {
-			return ErrWidgetsModuleDisabled
+	for _, opt := range opts {
+		if opt != nil {
+			opt(handler)
 		}
-		if err := service.SyncRegistry(ctx); err != nil {
-			return err
-		}
-		return nil
 	}
-
-	handlerOpts := []commands.HandlerOption[SyncWidgetRegistryCommand]{
-		commands.WithLogger[SyncWidgetRegistryCommand](baseLogger),
-		commands.WithOperation[SyncWidgetRegistryCommand]("widgets.registry.sync"),
-		commands.WithTelemetry(commands.DefaultTelemetry[SyncWidgetRegistryCommand](baseLogger)),
-	}
-	handlerOpts = append(handlerOpts, opts...)
-
-	return &SyncWidgetRegistryHandler{
-		inner: commands.NewHandler(exec, handlerOpts...),
-	}
+	return handler
 }
 
 // Execute satisfies command.Commander[SyncWidgetRegistryCommand].
 func (h *SyncWidgetRegistryHandler) Execute(ctx context.Context, msg SyncWidgetRegistryCommand) error {
-	return h.inner.Execute(ctx, msg)
+	if err := commands.WrapValidationError(command.ValidateMessage(msg)); err != nil {
+		return err
+	}
+	ctx = commands.EnsureContext(ctx)
+	ctx, cancel := commands.WithCommandTimeout(ctx, h.timeout)
+	defer cancel()
+
+	if err := ctx.Err(); err != nil {
+		return commands.WrapContextError(err)
+	}
+	if !h.gates.widgetsEnabled() {
+		return commands.WrapExecuteError(ErrWidgetsModuleDisabled)
+	}
+	if err := h.service.SyncRegistry(ctx); err != nil {
+		return commands.WrapExecuteError(err)
+	}
+
+	logging.WithFields(h.logger, map[string]any{
+		"operation": "widgets.registry.sync",
+	}).Info("widgets.command.registry.sync.completed")
+	return nil
 }
