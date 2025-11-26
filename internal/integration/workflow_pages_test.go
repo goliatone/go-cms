@@ -435,7 +435,7 @@ func registerThemeFixtures(t *testing.T, ctx context.Context, svc themes.Service
 	theme, err := svc.RegisterTheme(ctx, themes.RegisterThemeInput{
 		Name:      "aurora",
 		Version:   "1.0.0",
-		ThemePath: "internal/generator/testdata/theme",
+		ThemePath: "../generator/testdata/theme",
 	})
 	if err != nil {
 		t.Fatalf("register theme: %v", err)
