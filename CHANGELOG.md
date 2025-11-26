@@ -1,5 +1,31 @@
 # Changelog
 
+# [0.4.0](https://github.com/goliatone/go-cms/compare/v0.3.0...v0.4.0) - (2025-11-26)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.4.0 ([f5ed909](https://github.com/goliatone/go-cms/commit/f5ed909a0d249a7db845b9cb24dbeebcb3fa1d1d))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Theme support to config ([34bc8b1](https://github.com/goliatone/go-cms/commit/34bc8b1f5b01e16f493794fe5d91d495b8ac506a))  - (goliatone)
+- Theming support to di container ([6231c33](https://github.com/goliatone/go-cms/commit/6231c33028a20b15c595a0853b7005dee63c025e))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- How we handle themes ([6efdedb](https://github.com/goliatone/go-cms/commit/6efdedb00ba23d2bad0b0f8a4b893d3de31e1065))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.3.0 ([9a52df0](https://github.com/goliatone/go-cms/commit/9a52df04166da47d2db55b0f7a03232d43ac2dce))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([00fd8b9](https://github.com/goliatone/go-cms/commit/00fd8b90ae2da3b19d56b29234c1faf8238d3463))  - (goliatone)
+- Update readme ([c878624](https://github.com/goliatone/go-cms/commit/c878624ce5377fe2ee741ce00d67c684535071a0))  - (goliatone)
+- Update example ([d38c6c2](https://github.com/goliatone/go-cms/commit/d38c6c2822d834e4949e040b1d6e80698c9e5d24))  - (goliatone)
+- Update tests ([453f5cd](https://github.com/goliatone/go-cms/commit/453f5cd71f228d1674439fe1c2033bdb3e3a7798))  - (goliatone)
+
 # [0.3.0](https://github.com/goliatone/go-cms/compare/v0.2.0...v0.3.0) - (2025-11-24)
 
 ## <!-- 1 -->🐛 Bug Fixes
