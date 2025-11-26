@@ -1,0 +1,37 @@
+{
+  "name": "aurora",
+  "version": "1.0.0",
+  "description": "Generator test theme",
+  "tokens": {
+    "color-primary": "#004466",
+    "font-body": "Inter, sans-serif"
+  },
+  "assets": {
+    "prefix": "/assets/themes/aurora",
+    "files": {
+      "style": "css/site.css",
+      "logo": "images/logo.svg"
+    }
+  },
+  "templates": {
+    "layout.header": "templates/header.tmpl",
+    "layout.footer": "templates/footer.tmpl"
+  },
+  "variants": {
+    "contrast": {
+      "description": "High contrast variant",
+      "tokens": {
+        "color-primary": "#000000"
+      },
+      "assets": {
+        "prefix": "/assets/themes/aurora/contrast",
+        "files": {
+          "style": "css/site-contrast.css"
+        }
+      },
+      "templates": {
+        "layout.header": "templates/header-contrast.tmpl"
+      }
+    }
+  }
+}

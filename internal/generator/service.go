@@ -63,6 +63,15 @@ type Config struct {
 	Menus            map[string]string
 	RenderTimeout    time.Duration
 	AssetCopyTimeout time.Duration
+	Theming          ThemingConfig
+}
+
+// ThemingConfig configures how themes are selected and exposed to templates.
+type ThemingConfig struct {
+	DefaultTheme      string
+	DefaultVariant    string
+	PartialFallbacks  map[string]string
+	CSSVariablePrefix string
 }
 
 // BuildOptions narrows the scope of a generator run.
@@ -142,12 +151,14 @@ func NewService(cfg Config, deps Dependencies) Service {
 	if logger == nil {
 		logger = logging.NoOp()
 	}
+	themeSelector := newThemeSelector(cfg.Theming, nil)
 	return &service{
-		cfg:    cfg,
-		deps:   deps,
-		now:    time.Now,
-		hooks:  deps.Hooks,
-		logger: logger,
+		cfg:           cfg,
+		deps:          deps,
+		now:           time.Now,
+		hooks:         deps.Hooks,
+		logger:        logger,
+		themeSelector: themeSelector,
 	}
 }
 
@@ -157,11 +168,12 @@ func NewDisabledService() Service {
 }
 
 type service struct {
-	cfg    Config
-	deps   Dependencies
-	now    func() time.Time
-	hooks  Hooks
-	logger interfaces.Logger
+	cfg           Config
+	deps          Dependencies
+	now           func() time.Time
+	hooks         Hooks
+	logger        interfaces.Logger
+	themeSelector *themeSelector
 }
 
 func (s *service) baseLogger(ctx context.Context) interfaces.Logger {
@@ -582,6 +594,8 @@ func (s *service) renderPage(
 		}
 	}
 
+	themeCtx := buildThemeContext(data.ThemeSelection, s.cfg.Theming)
+
 	templateCtx := TemplateContext{
 		Site: siteMeta,
 		Page: PageRenderingContext{
@@ -601,6 +615,7 @@ func (s *service) renderPage(
 			GeneratedAt: buildCtx.GeneratedAt,
 			Options:     buildCtx.Options,
 		},
+		Theme:   themeCtx,
 		Helpers: newTemplateHelpers(siteMeta.DefaultLocale, data.Locale, siteMeta.BaseURL),
 	}
 
@@ -846,7 +861,7 @@ func (s *service) copyAssets(
 		if theme == nil {
 			continue
 		}
-		assets := collectThemeAssets(theme)
+		assets := collectThemeAssets(theme, page.ThemeSelection)
 		for _, asset := range assets {
 			select {
 			case <-assetCtx.Done():

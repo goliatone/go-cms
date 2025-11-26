@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	gotheme "github.com/goliatone/go-theme"
 	"github.com/google/uuid"
 )
 
@@ -18,6 +19,7 @@ type TemplateContext struct {
 	Site    SiteMetadata
 	Page    PageRenderingContext
 	Build   BuildMetadata
+	Theme   ThemeContext
 	Helpers TemplateHelpers
 }
 
@@ -49,6 +51,18 @@ type PageRenderingContext struct {
 	Theme              *themes.Theme
 	Locale             LocaleSpec
 	Metadata           DependencyMetadata
+}
+
+// ThemeContext surfaces go-theme selection data to templates.
+type ThemeContext struct {
+	Name      string
+	Variant   string
+	Tokens    map[string]string
+	CSSVars   map[string]string
+	Partials  map[string]string
+	AssetURL  func(string) string
+	Template  func(string, string) string
+	Selection *gotheme.Selection
 }
 
 // TemplateHelpers exposes convenience helpers for template authors.
@@ -110,6 +124,35 @@ func (h TemplateHelpers) LocalePrefix() string {
 		return ""
 	}
 	return "/" + strings.TrimPrefix(strings.TrimSpace(h.locale.Code), "/")
+}
+
+func buildThemeContext(selection *gotheme.Selection, cfg ThemingConfig) ThemeContext {
+	empty := ThemeContext{
+		Tokens:   map[string]string{},
+		CSSVars:  map[string]string{},
+		Partials: map[string]string{},
+		AssetURL: func(string) string { return "" },
+		Template: func(_ string, fallback string) string { return fallback },
+	}
+	if selection == nil {
+		return empty
+	}
+
+	cssPrefix := cfg.CSSVariablePrefix
+	tokens := selection.Tokens()
+	cssVars := selection.CSSVariables(cssPrefix)
+	partials := selection.Partials(cfg.PartialFallbacks)
+
+	return ThemeContext{
+		Name:      selection.Theme,
+		Variant:   selection.Variant,
+		Tokens:    tokens,
+		CSSVars:   cssVars,
+		Partials:  partials,
+		AssetURL:  func(key string) string { url, _ := selection.Asset(key); return url },
+		Template:  selection.Template,
+		Selection: selection,
+	}
 }
 
 // RenderedPage captures the rendered HTML output for a page.

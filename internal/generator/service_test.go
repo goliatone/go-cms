@@ -112,6 +112,30 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 		if base := call.ctx.Helpers.WithBaseURL("company"); base != "https://example.com/company" {
 			t.Fatalf("expected helper base URL to return %q, got %q", "https://example.com/company", base)
 		}
+		if call.ctx.Theme.Name != "aurora" {
+			t.Fatalf("expected theme name aurora, got %s", call.ctx.Theme.Name)
+		}
+		if call.ctx.Theme.Variant != "contrast" {
+			t.Fatalf("expected theme variant contrast, got %s", call.ctx.Theme.Variant)
+		}
+		if call.ctx.Theme.Tokens["color-primary"] != "#000000" {
+			t.Fatalf("expected variant token override, got %s", call.ctx.Theme.Tokens["color-primary"])
+		}
+		if call.ctx.Theme.CSSVars["--color-primary"] != "#000000" {
+			t.Fatalf("expected css var override, got %s", call.ctx.Theme.CSSVars["--color-primary"])
+		}
+		if call.ctx.Theme.Partials["layout.header"] != "templates/header-contrast.tmpl" {
+			t.Fatalf("expected header partial override, got %s", call.ctx.Theme.Partials["layout.header"])
+		}
+		if call.ctx.Theme.Partials["layout.footer"] != "templates/footer.tmpl" {
+			t.Fatalf("expected footer partial, got %s", call.ctx.Theme.Partials["layout.footer"])
+		}
+		if call.ctx.Theme.AssetURL("style") != "/assets/themes/aurora/contrast/css/site-contrast.css" {
+			t.Fatalf("expected style asset from variant, got %s", call.ctx.Theme.AssetURL("style"))
+		}
+		if call.ctx.Theme.AssetURL("logo") != "/assets/themes/aurora/images/logo.svg" {
+			t.Fatalf("expected base asset path, got %s", call.ctx.Theme.AssetURL("logo"))
+		}
 	}
 }
 
@@ -553,8 +577,8 @@ func TestBuildCopiesThemeAssets(t *testing.T) {
 		t.Fatalf("expected no skipped assets, got %d", result.AssetsSkipped)
 	}
 	expectedAssets := map[string]struct{}{
-		path.Join(fixtures.Config.OutputDir, "assets/public/css/site.css"): {},
-		path.Join(fixtures.Config.OutputDir, "assets/public/js/app.js"):    {},
+		path.Join(fixtures.Config.OutputDir, "assets/css/site-contrast.css"): {},
+		path.Join(fixtures.Config.OutputDir, "assets/images/logo.svg"):       {},
 	}
 	for _, call := range storage.ExecCalls() {
 		if call.Query != storageOpWrite {
@@ -1238,8 +1262,12 @@ type stubAssetResolver struct {
 func newStubAssetResolver() *stubAssetResolver {
 	return &stubAssetResolver{
 		assets: map[string][]byte{
-			"public/css/site.css": []byte("body {}"),
-			"public/js/app.js":    []byte("console.log('ok')"),
+			"css/site.css":           []byte("body {}"),
+			"css/site-contrast.css":  []byte("body { color: black; }"),
+			"images/logo.svg":        []byte("<svg></svg>"),
+			"public/css/site.css":    []byte("body {}"),
+			"public/js/app.js":       []byte("console.log('ok')"),
+			"public/images/logo.svg": []byte("<svg></svg>"),
 		},
 	}
 }
@@ -1360,7 +1388,7 @@ func newRenderFixtures(now time.Time) renderFixtures {
 		ID:        themeID,
 		Name:      "aurora",
 		Version:   "1.0.0",
-		ThemePath: "themes/aurora",
+		ThemePath: "testdata/theme",
 		Templates: []*themes.Template{templateRecord},
 		Config: themes.ThemeConfig{
 			Assets: &themes.ThemeAssets{
@@ -1404,6 +1432,14 @@ func newRenderFixtures(now time.Time) renderFixtures {
 		Locales:       []string{"en", "es"},
 		Menus: map[string]string{
 			"main": "main-nav",
+		},
+		Theming: ThemingConfig{
+			DefaultTheme:   "aurora",
+			DefaultVariant: "contrast",
+			PartialFallbacks: map[string]string{
+				"layout.header": "templates/default/header.tmpl",
+				"layout.footer": "templates/default/footer.tmpl",
+			},
 		},
 		Workers: 1,
 	}

@@ -143,6 +143,7 @@ func TestLoadContextBuildsLocalizedPages(t *testing.T) {
 			ID:        themeID,
 			Name:      "aurora",
 			Version:   "1.0.0",
+			ThemePath: "testdata/theme",
 			UpdatedAt: now.Add(-24 * time.Hour),
 		},
 	}
@@ -159,6 +160,10 @@ func TestLoadContextBuildsLocalizedPages(t *testing.T) {
 		Locales:       []string{"es"},
 		Menus: map[string]string{
 			"main": "main-nav",
+		},
+		Theming: ThemingConfig{
+			DefaultTheme:   "aurora",
+			DefaultVariant: "contrast",
 		},
 	}
 
@@ -270,7 +275,7 @@ func TestLoadContextAppliesLocaleFilter(t *testing.T) {
 	menuSvc := newStubMenuService()
 	themeSvc := &stubThemesService{
 		template: &themes.Template{ID: templateID, ThemeID: themeID, Name: "landing"},
-		theme:    &themes.Theme{ID: themeID, Name: "aurora", Version: "1.0"},
+		theme:    &themes.Theme{ID: themeID, Name: "aurora", Version: "1.0", ThemePath: "testdata/theme"},
 	}
 	locales := &stubLocaleLookup{
 		records: map[string]*content.Locale{
@@ -285,6 +290,10 @@ func TestLoadContextAppliesLocaleFilter(t *testing.T) {
 		Locales:       []string{"en", "es"},
 		Menus: map[string]string{
 			"main": "main-nav",
+		},
+		Theming: ThemingConfig{
+			DefaultTheme:   "aurora",
+			DefaultVariant: "contrast",
 		},
 	}
 

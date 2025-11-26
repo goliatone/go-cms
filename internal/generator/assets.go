@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/goliatone/go-cms/internal/themes"
+	gotheme "github.com/goliatone/go-theme"
 )
 
 // AssetResolver resolves theme assets for copying into static outputs.
@@ -28,7 +29,10 @@ func (NoOpAssetResolver) ResolvePath(*themes.Theme, string) (string, error) {
 	return "", fmt.Errorf("generator: asset resolver not configured")
 }
 
-func collectThemeAssets(theme *themes.Theme) []string {
+func collectThemeAssets(theme *themes.Theme, selection *gotheme.Selection) []string {
+	if selection != nil && selection.Manifest != nil {
+		return collectManifestAssets(selection)
+	}
 	if theme == nil || theme.Config.Assets == nil {
 		return nil
 	}
@@ -58,6 +62,41 @@ func collectThemeAssets(theme *themes.Theme) []string {
 	appendAssets(theme.Config.Assets.Images)
 
 	return assets
+}
+
+func collectManifestAssets(selection *gotheme.Selection) []string {
+	if selection == nil || selection.Manifest == nil {
+		return nil
+	}
+
+	assets := selection.Manifest.Assets.Files
+	if variant := strings.TrimSpace(selection.Variant); variant != "" {
+		if v, ok := selection.Manifest.Variants[variant]; ok && len(v.Assets.Files) > 0 {
+			merged := make(map[string]string, len(selection.Manifest.Assets.Files)+len(v.Assets.Files))
+			for key, path := range selection.Manifest.Assets.Files {
+				merged[key] = path
+			}
+			for key, path := range v.Assets.Files {
+				merged[key] = path
+			}
+			assets = merged
+		}
+	}
+
+	seen := map[string]struct{}{}
+	var out []string
+	for _, asset := range assets {
+		asset = strings.TrimPrefix(strings.TrimSpace(asset), "/")
+		if asset == "" {
+			continue
+		}
+		if _, ok := seen[asset]; ok {
+			continue
+		}
+		seen[asset] = struct{}{}
+		out = append(out, filepath.ToSlash(asset))
+	}
+	return out
 }
 
 func detectAssetContentType(asset string) string {

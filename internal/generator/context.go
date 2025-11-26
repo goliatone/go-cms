@@ -19,6 +19,7 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	gotheme "github.com/goliatone/go-theme"
 	"github.com/google/uuid"
 )
 
@@ -57,6 +58,7 @@ type PageData struct {
 	Menus              map[string][]menus.NavigationNode
 	Template           *themes.Template
 	Theme              *themes.Theme
+	ThemeSelection     *gotheme.Selection
 	Metadata           DependencyMetadata
 }
 
@@ -296,6 +298,14 @@ func (s *service) buildPageData(
 		}
 	}
 
+	var selection *gotheme.Selection
+	if theme != nil && s.themeSelector != nil {
+		selection, err = s.themeSelector.Selection(theme, s.cfg.Theming.DefaultVariant)
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	pageTranslations := indexPageTranslations(page.Translations)
 	contentTranslations := indexContentTranslations(contentRecord.Translations)
 
@@ -337,6 +347,7 @@ func (s *service) buildPageData(
 			Menus:              menuSet,
 			Template:           template,
 			Theme:              theme,
+			ThemeSelection:     selection,
 			Metadata:           metadata,
 		})
 	}

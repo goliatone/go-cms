@@ -47,6 +47,9 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 	cfg.Generator.Menus = map[string]string{}
 	cfg.I18N.Enabled = true
 	cfg.I18N.Locales = []string{"en", "es"}
+	cfg.Generator.CopyAssets = false
+	cfg.Themes.DefaultTheme = "aurora"
+	cfg.Themes.DefaultVariant = "contrast"
 
 	renderer := &integrationRenderer{}
 	container, memStorage, err := ditesting.NewGeneratorContainer(cfg, di.WithTemplate(renderer))
@@ -470,7 +473,7 @@ func registerThemeFixtures(t *testing.T, ctx context.Context, svc themes.Service
 	theme, err := svc.RegisterTheme(ctx, themes.RegisterThemeInput{
 		Name:      "aurora",
 		Version:   "1.0.0",
-		ThemePath: "themes/aurora",
+		ThemePath: "testdata/theme",
 	})
 	if err != nil {
 		t.Fatalf("register theme: %v", err)
