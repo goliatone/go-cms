@@ -286,6 +286,8 @@ Templates receive `generator.TemplateContext` with resolved dependencies:
 <html lang="{{ .Page.Locale.Code }}">
   <head>
     <title>{{ .Page.Translation.Title }}</title>
+    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL (.Theme.AssetURL "style") }}">
+    <style>:root { {{- range $k, $v := .Theme.CSSVars }}{{ $k }}: {{ $v }};{{ end }} }</style>
   </head>
   <body>
     {{ range .Page.Blocks }}{{ template .TemplatePath . }}{{ end }}
@@ -297,10 +299,13 @@ Templates receive `generator.TemplateContext` with resolved dependencies:
 {{ end }}
 ```
 
+The `Theme` block on the context comes from [`go-theme`](https://github.com/goliatone/go-theme): configure `cfg.Themes.DefaultTheme`/`DefaultVariant`, ship a `theme.json` alongside your templates/assets, and call helpers such as `.Theme.AssetURL`, `.Theme.Partials`, and `.Theme.CSSVars` (pair them with `.Helpers.WithBaseURL` to honour your site prefix).
+
 Troubleshooting tips:
-- `static: static command handlers not configured` &mdash; ensure the generator feature is enabled and invoke the command constructors directly (adapter collectors are optional via `github.com/goliatone/go-cms/commands`).
+- `static: static command handlers not configured` &mdash; ensure the generator feature is enabled and that the static command constructors receive the generator service (the provided CLI already injects it); use the adapter submodule only when you need registry/dispatcher/cron wiring.
 - `static: static sitemap handler not configured` &mdash; enable `Config.Generator.GenerateSitemap` or provide `--output` / `--base-url`.
 - Missing telemetry &mdash; attach a `ResultCallback` that logs or forwards metrics.
+- Commands timing out or missing log fields &mdash; pass a deadline in the context you supply to `Execute` or use the per-command timeout options (for example, `staticcmd.BuildSiteWithTimeout`); inject a logger provider with `di.WithLoggerProvider` so commands include `operation` and domain identifiers in logs.
 - Custom storage integration &mdash; set `bootstrap.Options.Storage` to an implementation of `interfaces.StorageProvider`.
 
 ## Markdown Import & Sync
@@ -384,6 +389,13 @@ cfg.Markdown.ProcessShortcodes = true
 ```
 
 Use `di.WithShortcodeCacheProvider` to register named cache implementations (Redis, in-memory) for shortcodes and `di.WithShortcodeMetrics` to feed render telemetry into your monitoring stack.
+
+## Commands & Adapters
+
+- Core commands are plain structs with direct constructors (for example, `staticcmd.NewBuildSiteHandler`, `markdowncmd.NewSyncDirectoryHandler`) that satisfy `command.CLICommand`/`command.CronCommand` when exposed via CLI or cron. CLIs in this repo wire those constructors directly; there is no collector or registry inside the core module.
+- Cross-cutting concerns live on the structs: each command applies a default timeout (`commands.WithCommandTimeout` with `commands.DefaultCommandTimeout`) and expects a logger from DI. Override the timeout with options such as `staticcmd.BuildSiteWithTimeout` or pass a logger provider via `di.WithLoggerProvider` so command logs include `operation` and domain identifiers.
+- To layer telemetry or retries, derive a context with your own deadline, invoke `Execute`, and forward the returned error to your monitoring hooks.
+- Legacy registry/dispatcher/cron wiring lives in the optional adapter submodule. Install it with `go get github.com/goliatone/go-cms/commands`, then call `commands.RegisterContainerCommands(container, commands.RegistrationOptions{Dispatcher: ..., Cron: ...})` to rebuild the old flow when migrating hosts.
 
 ### Managing Storage Profiles at Runtime
 
