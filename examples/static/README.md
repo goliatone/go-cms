@@ -6,7 +6,7 @@ This example seeds a minimal in-memory site and runs the static generator to pro
 
 - Registers English and Spanish locales plus a reusable `Demo Page` content type.
 - Seeds five translated pages (`/`, `/company`, `/services`, `/blog`, `/contact`) and wires them into a primary navigation menu.
-- Registers a lightweight theme with Go templates and static assets (CSS + SVG logo).
+- Registers a lightweight theme with Go templates, a go-theme manifest, and static assets (CSS + SVG logo).
 - Streams the generator output to `./dist/static-demo`, including HTML, assets, and sitemap/robots files.
 
 ## Run it
@@ -52,7 +52,7 @@ Files under `en/` and `es/` mirror the locale-specific routes while the default 
 
 The demo theme uses the `generator.TemplateContext` helpers showcased in:
 
-- `templates/layout.tmpl` for locale-aware navigation, asset links via `Helpers.WithBaseURL`, and build metadata.
+- `templates/layout.tmpl` for locale-aware navigation, go-theme asset resolution via `.Theme.AssetURL`, CSS variable injection, and build metadata.
 - `templates/page.tmpl` which simply delegates to the layout for clarity.
 
 Check `support.go` for a reference Go template renderer and filesystem storage adapter—these illustrate how embedders can satisfy the generator interfaces without additional dependencies.

@@ -50,6 +50,12 @@ func main() {
 	cfg.I18N.Locales = []string{"en", "es"}
 	cfg.Features.Themes = true
 	cfg.Features.Widgets = false
+	cfg.Themes.DefaultTheme = "demo-theme"
+	cfg.Themes.DefaultVariant = ""
+	cfg.Themes.PartialFallbacks = map[string]string{
+		"layout.header": "templates/layout.tmpl",
+		"layout.footer": "templates/layout.tmpl",
+	}
 	cfg.Generator.Enabled = true
 	cfg.Generator.OutputDir = outputDir
 	cfg.Generator.BaseURL = ""
