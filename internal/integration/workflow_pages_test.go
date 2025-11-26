@@ -435,7 +435,7 @@ func registerThemeFixtures(t *testing.T, ctx context.Context, svc themes.Service
 	theme, err := svc.RegisterTheme(ctx, themes.RegisterThemeInput{
 		Name:      "aurora",
 		Version:   "1.0.0",
-		ThemePath: "themes/aurora",
+		ThemePath: "internal/generator/testdata/theme",
 	})
 	if err != nil {
 		t.Fatalf("register theme: %v", err)
@@ -444,7 +444,7 @@ func registerThemeFixtures(t *testing.T, ctx context.Context, svc themes.Service
 		ThemeID:      theme.ID,
 		Name:         "page",
 		Slug:         "page",
-		TemplatePath: "themes/aurora/page.html",
+		TemplatePath: "templates/page.html",
 		Regions: map[string]themes.TemplateRegion{
 			"main": {
 				Name:          "Main",
