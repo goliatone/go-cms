@@ -10,6 +10,28 @@ go get github.com/goliatone/go-cms/commands
 
 `go.work` already wires this module for local development; external consumers should add a replace to point at their checkout when working locally.
 
+## Quick Start
+
+```go
+cfg := cms.DefaultConfig()
+module, err := cms.New(cfg)
+if err != nil {
+	log.Fatal(err)
+}
+
+result, err := commands.RegisterContainerCommands(module.Container(), commands.RegistrationOptions{
+	Registry:   myRegistry,
+	Dispatcher: myDispatcher,
+	Cron:       myCron,
+})
+if err != nil {
+	log.Fatal(err)
+}
+
+// Handlers can be invoked directly or used by your dispatcher/cron scheduler.
+_ = result.Handlers
+```
+
 ## Usage
 
 - Build a CMS module in core and pass its container to `commands.RegisterContainerCommands` to construct and optionally register command handlers against a registry/dispatcher/cron.
