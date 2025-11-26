@@ -5,12 +5,19 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>{{ .Page.Translation.Title }} · Static Demo</title>
-    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL "assets/theme.css" }}">
+    <style>
+      :root {
+      {{- range $key, $value := .Theme.CSSVars }}
+        {{ $key }}: {{ $value }};
+      {{- end }}
+      }
+    </style>
+    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL (.Theme.AssetURL "style") }}">
   </head>
   <body>
     <header class="header">
       <div class="brand">
-        <img class="brand__logo" src="{{ .Helpers.WithBaseURL "assets/logo.svg" }}" alt="Go CMS logo">
+        <img class="brand__logo" src="{{ .Helpers.WithBaseURL (.Theme.AssetURL "logo") }}" alt="Go CMS logo">
         <span class="brand__title">Go CMS Static Demo</span>
       </div>
       {{ with index .Page.Menus "primary" }}

@@ -7,7 +7,7 @@
 body {
   margin: 0;
   background: #f9fafb;
-  color: #222;
+  color: var(--text-color, #222);
 }
 
 .header {
@@ -16,7 +16,7 @@ body {
   align-items: center;
   justify-content: space-between;
   padding: 1.5rem 2rem;
-  background: #0f172a;
+  background: var(--brand-color, #0f172a);
   color: #fff;
 }
 
@@ -34,6 +34,7 @@ body {
 .brand__title {
   font-weight: 600;
   font-size: 1.1rem;
+  color: var(--brand-color, #0f172a);
 }
 
 .nav ul {

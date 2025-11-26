@@ -1,0 +1,20 @@
+{
+  "name": "demo-theme",
+  "version": "1.0.0",
+  "description": "Static example theme using go-theme resolvers",
+  "tokens": {
+    "brand-color": "#0f766e",
+    "text-color": "#0b1021"
+  },
+  "assets": {
+    "prefix": "assets",
+    "files": {
+      "style": "theme.css",
+      "logo": "logo.svg"
+    }
+  },
+  "templates": {
+    "layout.header": "templates/layout.tmpl",
+    "layout.footer": "templates/layout.tmpl"
+  }
+}
