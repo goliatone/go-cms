@@ -105,8 +105,11 @@ type NavigationConfig struct {
 
 // ThemeConfig captures configuration for the themes module.
 type ThemeConfig struct {
-	BasePath     string
-	DefaultTheme string
+	BasePath          string
+	DefaultTheme      string
+	DefaultVariant    string
+	PartialFallbacks  map[string]string
+	CSSVariablePrefix string
 }
 
 // URLKitResolverConfig configures the go-urlkit based resolver.
@@ -384,7 +387,10 @@ func (cfg Config) Validate() error {
 		}
 	}
 	if !cfg.Features.Themes {
-		if strings.TrimSpace(cfg.Themes.DefaultTheme) != "" {
+		if strings.TrimSpace(cfg.Themes.DefaultTheme) != "" ||
+			strings.TrimSpace(cfg.Themes.DefaultVariant) != "" ||
+			len(cfg.Themes.PartialFallbacks) > 0 ||
+			strings.TrimSpace(cfg.Themes.CSSVariablePrefix) != "" {
 			return ErrThemesFeatureRequired
 		}
 	}
