@@ -12,6 +12,7 @@ require (
 	github.com/goliatone/go-logger v0.4.0
 	github.com/goliatone/go-repository-bun v0.7.0
 	github.com/goliatone/go-repository-cache v0.5.0
+	github.com/goliatone/go-theme v0.2.0
 	github.com/goliatone/go-urlkit v0.3.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.32
@@ -40,4 +41,5 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	golang.org/x/sys v0.34.0 // indirect
 	gopkg.in/yaml.v2 v2.3.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
