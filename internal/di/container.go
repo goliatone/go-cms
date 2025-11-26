@@ -669,6 +669,12 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				Menus:            maps.Clone(c.Config.Generator.Menus),
 				RenderTimeout:    c.Config.Generator.RenderTimeout,
 				AssetCopyTimeout: c.Config.Generator.AssetCopyTimeout,
+				Theming: generator.ThemingConfig{
+					DefaultTheme:      c.Config.Themes.DefaultTheme,
+					DefaultVariant:    c.Config.Themes.DefaultVariant,
+					PartialFallbacks:  maps.Clone(c.Config.Themes.PartialFallbacks),
+					CSSVariablePrefix: c.Config.Themes.CSSVariablePrefix,
+				},
 			}
 			genDeps := generator.Dependencies{
 				Pages:      c.PageService(),
