@@ -35,6 +35,8 @@ import (
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
+	"github.com/goliatone/go-cms/pkg/activity"
+	"github.com/goliatone/go-cms/pkg/activity/usersink"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/storage"
 	repocache "github.com/goliatone/go-repository-cache/cache"
@@ -140,6 +142,9 @@ type Container struct {
 	shortcodeMetrics       interfaces.ShortcodeMetrics
 	shortcodeCaches        map[string]interfaces.CacheProvider
 	shortcodeCacheResolved bool
+
+	activityHooks   activity.Hooks
+	activityEmitter *activity.Emitter
 
 	generatorSvc           generator.Service
 	generatorStorage       interfaces.StorageProvider
@@ -372,6 +377,24 @@ func WithLoggerProvider(provider interfaces.LoggerProvider) Option {
 	}
 }
 
+// WithActivitySink overrides the activity sink used for activity emissions.
+func WithActivitySink(sink interfaces.ActivitySink) Option {
+	return func(c *Container) {
+		if sink != nil {
+			c.activityHooks = append(c.activityHooks, usersink.Hook{Sink: sink})
+		}
+	}
+}
+
+// WithActivityHooks appends hooks that will receive activity events.
+func WithActivityHooks(hooks activity.Hooks) Option {
+	return func(c *Container) {
+		if len(hooks) > 0 {
+			c.activityHooks = append(c.activityHooks, hooks...)
+		}
+	}
+}
+
 // WithStorageRepository overrides the storage profile repository used for runtime configuration.
 func WithStorageRepository(repo storageconfig.Repository) Option {
 	return func(c *Container) {
@@ -505,6 +528,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if err := c.configureLoggerProvider(); err != nil {
 		return nil, err
 	}
+	c.configureActivityEmitter()
 	c.storageLogger = logging.StorageLogger(c.loggerProvider)
 	c.configureCacheDefaults()
 	if err := c.initializeStorage(context.Background()); err != nil {
@@ -531,6 +555,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithScheduler(c.scheduler),
 			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
+			content.WithActivityEmitter(c.activityEmitter),
 		}
 		contentOpts = append(contentOpts,
 			content.WithRequireTranslations(requireTranslations),
@@ -544,6 +569,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			blocks.WithMediaService(c.mediaSvc),
 			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
 			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
+			blocks.WithActivityEmitter(c.activityEmitter),
 		}
 		if c.blockVersionRepo != nil {
 			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
@@ -576,6 +602,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 
 			serviceOptions := []widgets.ServiceOption{
 				widgets.WithRegistry(registry),
+				widgets.WithActivityEmitter(c.activityEmitter),
 			}
 			if c.widgetAreaRepo != nil {
 				serviceOptions = append(serviceOptions, widgets.WithAreaDefinitionRepository(c.widgetAreaRepo))
@@ -605,6 +632,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithScheduler(c.scheduler),
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
 			pages.WithWorkflowEngine(c.workflowEngine),
+			pages.WithActivityEmitter(c.activityEmitter),
 		}
 		pageOpts = append(pageOpts,
 			pages.WithRequireTranslations(requireTranslations),
@@ -627,6 +655,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		menuOpts = append(menuOpts,
 			menus.WithRequireTranslations(requireTranslations),
 			menus.WithTranslationsEnabled(translationsEnabled),
+			menus.WithActivityEmitter(c.activityEmitter),
 		)
 		if c.pageRepo != nil {
 			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
@@ -647,7 +676,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		c.auditRecorder = jobs.NewInMemoryAuditRecorder()
 	}
 	if c.jobWorker == nil {
-		c.jobWorker = jobs.NewWorker(c.scheduler, c.contentRepo, c.pageRepo, jobs.WithAuditRecorder(c.auditRecorder))
+		c.jobWorker = jobs.NewWorker(c.scheduler, c.contentRepo, c.pageRepo,
+			jobs.WithAuditRecorder(c.auditRecorder),
+			jobs.WithActivityEmitter(c.activityEmitter),
+		)
 	}
 
 	if c.generatorSvc == nil {
@@ -731,6 +763,15 @@ func (c *Container) configureLoggerProvider() error {
 	}
 
 	return nil
+}
+
+func (c *Container) configureActivityEmitter() {
+	hooks := append(activity.Hooks{}, c.activityHooks...)
+	cfg := activity.Config{
+		Enabled: c.Config.Features.Activity && c.Config.Activity.Enabled,
+		Channel: c.Config.Activity.Channel,
+	}
+	c.activityEmitter = activity.NewEmitter(hooks, cfg)
 }
 
 func parseConsoleLevel(level string) (console.Level, bool) {
