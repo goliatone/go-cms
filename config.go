@@ -11,6 +11,7 @@ var (
 	ErrLoggingProviderUnknown                 = runtimeconfig.ErrLoggingProviderUnknown
 	ErrLoggingLevelInvalid                    = runtimeconfig.ErrLoggingLevelInvalid
 	ErrLoggingFormatInvalid                   = runtimeconfig.ErrLoggingFormatInvalid
+	ErrActivityFeatureRequired                = runtimeconfig.ErrActivityFeatureRequired
 	ErrWorkflowProviderUnknown                = runtimeconfig.ErrWorkflowProviderUnknown
 	ErrWorkflowProviderConfiguredWhenDisabled = runtimeconfig.ErrWorkflowProviderConfiguredWhenDisabled
 )
@@ -36,6 +37,7 @@ type (
 	MarkdownParserConfig      = runtimeconfig.MarkdownParserConfig
 	GeneratorConfig           = runtimeconfig.GeneratorConfig
 	LoggingConfig             = runtimeconfig.LoggingConfig
+	ActivityConfig            = runtimeconfig.ActivityConfig
 	WorkflowConfig            = runtimeconfig.WorkflowConfig
 	WorkflowDefinitionConfig  = runtimeconfig.WorkflowDefinitionConfig
 	WorkflowStateConfig       = runtimeconfig.WorkflowStateConfig
