@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -87,6 +88,7 @@ type UpdateInstanceInput struct {
 
 type DeleteInstanceRequest struct {
 	InstanceID uuid.UUID
+	DeletedBy  uuid.UUID
 	HardDelete bool
 }
 
@@ -253,6 +255,15 @@ func WithShortcodeService(svc interfaces.ShortcodeService) ServiceOption {
 	}
 }
 
+// WithActivityEmitter wires the activity emitter used for activity records.
+func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
+	return func(s *service) {
+		if emitter != nil {
+			s.activity = emitter
+		}
+	}
+}
+
 // WithAreaDefinitionRepository wires the area definition repository.
 func WithAreaDefinitionRepository(repo AreaDefinitionRepository) ServiceOption {
 	return func(s *service) {
@@ -281,6 +292,7 @@ type service struct {
 	id           IDGenerator
 	registry     *Registry
 	shortcodes   interfaces.ShortcodeService
+	activity     *activity.Emitter
 }
 
 // NewService constructs a widget service instance.
@@ -291,6 +303,7 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 		translations: trRepo,
 		now:          time.Now,
 		id:           uuid.New,
+		activity:     activity.NewEmitter(nil, activity.Config{}),
 	}
 
 	for _, opt := range opts {
@@ -300,6 +313,20 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 	s.applyRegistry(context.Background())
 
 	return s
+}
+
+func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
+	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
+		return
+	}
+	event := activity.Event{
+		Verb:       verb,
+		ActorID:    actor.String(),
+		ObjectType: objectType,
+		ObjectID:   objectID.String(),
+		Metadata:   meta,
+	}
+	_ = s.activity.Emit(ctx, event)
 }
 
 func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error) {
@@ -437,7 +464,19 @@ func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput)
 		}
 	}
 
-	return s.instances.Create(ctx, instance)
+	created, err := s.instances.Create(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "widget_instance", created.ID, map[string]any{
+		"area_code":    created.AreaCode,
+		"position":     created.Position,
+		"publish_on":   created.PublishOn,
+		"unpublish_on": created.UnpublishOn,
+	})
+
+	return created, nil
 }
 
 func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput) (*Instance, error) {
@@ -451,6 +490,11 @@ func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput)
 	instance, err := s.instances.GetByID(ctx, input.InstanceID)
 	if err != nil {
 		return nil, err
+	}
+	originalPosition := instance.Position
+	originalArea := ""
+	if instance.AreaCode != nil {
+		originalArea = *instance.AreaCode
 	}
 
 	definition, err := s.definitions.GetByID(ctx, instance.DefinitionID)
@@ -517,7 +561,24 @@ func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput)
 	if len(withTranslations) == 0 {
 		return updated, nil
 	}
-	return withTranslations[0], nil
+	record := withTranslations[0]
+
+	verb := "update"
+	currentArea := ""
+	if record.AreaCode != nil {
+		currentArea = *record.AreaCode
+	}
+	if originalPosition != record.Position || originalArea != currentArea {
+		verb = "reorder"
+	}
+	s.emitActivity(ctx, input.UpdatedBy, verb, "widget_instance", record.ID, map[string]any{
+		"area_code":    record.AreaCode,
+		"position":     record.Position,
+		"publish_on":   record.PublishOn,
+		"unpublish_on": record.UnpublishOn,
+	})
+
+	return record, nil
 }
 
 func (s *service) GetInstance(ctx context.Context, id uuid.UUID) (*Instance, error) {
@@ -566,7 +627,8 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 	if !req.HardDelete {
 		return ErrInstanceSoftDeleteUnsupported
 	}
-	if _, err := s.instances.GetByID(ctx, req.InstanceID); err != nil {
+	record, err := s.instances.GetByID(ctx, req.InstanceID)
+	if err != nil {
 		return err
 	}
 	if s.placements != nil {
@@ -583,7 +645,16 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 			return err
 		}
 	}
-	return s.instances.Delete(ctx, req.InstanceID)
+	if err := s.instances.Delete(ctx, req.InstanceID); err != nil {
+		return err
+	}
+	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "widget_instance", record.ID, map[string]any{
+		"area_code":    record.AreaCode,
+		"position":     record.Position,
+		"publish_on":   record.PublishOn,
+		"unpublish_on": record.UnpublishOn,
+	})
+	return nil
 }
 
 func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error) {
@@ -597,7 +668,8 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 		return nil, ErrTranslationContentRequired
 	}
 
-	if _, err := s.instances.GetByID(ctx, input.InstanceID); err != nil {
+	instance, err := s.instances.GetByID(ctx, input.InstanceID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -623,7 +695,24 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	if err != nil {
 		return nil, err
 	}
-	return s.cloneAndRenderTranslation(ctx, created)
+	record, err := s.cloneAndRenderTranslation(ctx, created)
+	if err != nil {
+		return nil, err
+	}
+
+	meta := map[string]any{
+		"instance_id": input.InstanceID.String(),
+		"locale_id":   input.LocaleID.String(),
+	}
+	if instance != nil && instance.AreaCode != nil {
+		meta["area_code"] = *instance.AreaCode
+	}
+	if instance != nil {
+		meta["position"] = instance.Position
+	}
+	s.emitActivity(ctx, uuid.Nil, "create", "widget_translation", created.ID, meta)
+
+	return record, nil
 }
 
 func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslationInput) (*Translation, error) {
@@ -642,6 +731,11 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 		return nil, err
 	}
 
+	instance, err := s.instances.GetByID(ctx, input.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+
 	translation.Content = deepCloneMap(input.Content)
 	translation.UpdatedAt = s.now()
 
@@ -649,7 +743,24 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 	if err != nil {
 		return nil, err
 	}
-	return s.cloneAndRenderTranslation(ctx, updated)
+	record, err := s.cloneAndRenderTranslation(ctx, updated)
+	if err != nil {
+		return nil, err
+	}
+
+	meta := map[string]any{
+		"instance_id": input.InstanceID.String(),
+		"locale_id":   input.LocaleID.String(),
+	}
+	if instance != nil && instance.AreaCode != nil {
+		meta["area_code"] = *instance.AreaCode
+	}
+	if instance != nil {
+		meta["position"] = instance.Position
+	}
+	s.emitActivity(ctx, uuid.Nil, "update", "widget_translation", translation.ID, meta)
+
+	return record, nil
 }
 
 func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, localeID uuid.UUID) (*Translation, error) {
@@ -675,6 +786,18 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRe
 	if err := s.translations.Delete(ctx, translation.ID); err != nil {
 		return err
 	}
+	instance, _ := s.instances.GetByID(ctx, req.InstanceID)
+	meta := map[string]any{
+		"instance_id": req.InstanceID.String(),
+		"locale_id":   req.LocaleID.String(),
+	}
+	if instance != nil && instance.AreaCode != nil {
+		meta["area_code"] = *instance.AreaCode
+	}
+	if instance != nil {
+		meta["position"] = instance.Position
+	}
+	s.emitActivity(ctx, uuid.Nil, "delete", "widget_translation", translation.ID, meta)
 	return nil
 }
 
@@ -890,7 +1013,16 @@ func (s *service) ReorderAreaWidgets(ctx context.Context, input ReorderAreaWidge
 	if err := s.placements.Replace(ctx, code, input.LocaleID, ordered); err != nil {
 		return nil, err
 	}
-	return s.placements.ListByAreaAndLocale(ctx, code, input.LocaleID)
+	updated, err := s.placements.ListByAreaAndLocale(ctx, code, input.LocaleID)
+	if err != nil {
+		return nil, err
+	}
+	s.emitActivity(ctx, uuid.Nil, "reorder", "widget_area", areaActivityID(code), map[string]any{
+		"area_code": code,
+		"locale_id": input.LocaleID,
+		"count":     len(updated),
+	})
+	return updated, nil
 }
 
 func (s *service) ResolveArea(ctx context.Context, input ResolveAreaInput) ([]*ResolvedWidget, error) {
@@ -1291,6 +1423,23 @@ func mergeConfiguration(base map[string]any, overlay map[string]any) map[string]
 		return nil
 	}
 	return merged
+}
+
+func pickActor(ids ...uuid.UUID) uuid.UUID {
+	for _, id := range ids {
+		if id != uuid.Nil {
+			return id
+		}
+	}
+	return uuid.Nil
+}
+
+func areaActivityID(code string) uuid.UUID {
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return uuid.Nil
+	}
+	return uuid.NewSHA1(uuid.Nil, []byte(trimmed))
 }
 
 func cloneString(src *string) *string {
