@@ -1,5 +1,24 @@
 # Changelog
 
+# [0.5.0](https://github.com/goliatone/go-cms/compare/v0.4.0...v0.5.0) - (2025-12-02)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.5.0 ([df7c499](https://github.com/goliatone/go-cms/commit/df7c499dee8cbb107c99fc589d6bdbfa58bb2e4c))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Activity adapter ([7d3b563](https://github.com/goliatone/go-cms/commit/7d3b5638cad5b0b8c23117f6497760f38bce6e4a))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.4.0 ([17b0124](https://github.com/goliatone/go-cms/commit/17b0124dc17aa6db7a0f19eedd04e1d61d0e8657))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([90c2576](https://github.com/goliatone/go-cms/commit/90c25763ca8320b42d3d2c6099440da6e4e4a373))  - (goliatone)
+- Update readme ([d86b19c](https://github.com/goliatone/go-cms/commit/d86b19c78d6fc7ac6d56439e03fa49c55af5bcae))  - (goliatone)
+
 # [0.4.0](https://github.com/goliatone/go-cms/compare/v0.3.0...v0.4.0) - (2025-11-26)
 
 ## <!-- 13 -->📦 Bumps
