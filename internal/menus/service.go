@@ -11,6 +11,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/google/uuid"
 )
 
@@ -239,6 +240,15 @@ func WithTranslationsEnabled(enabled bool) ServiceOption {
 	}
 }
 
+// WithActivityEmitter wires the activity emitter used for activity records.
+func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
+	return func(s *service) {
+		if emitter != nil {
+			s.activity = emitter
+		}
+	}
+}
+
 // WithMenuUsageResolver injects a dependency that reports active menu bindings.
 func WithMenuUsageResolver(resolver MenuUsageResolver) ServiceOption {
 	return func(s *service) {
@@ -260,6 +270,7 @@ type service struct {
 	urlResolver         URLResolver
 	requireTranslations bool
 	translationsEnabled bool
+	activity            *activity.Emitter
 }
 
 type cacheInvalidator interface {
@@ -277,6 +288,7 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 		id:                  uuid.New,
 		requireTranslations: true,
 		translationsEnabled: true,
+		activity:            activity.NewEmitter(nil, activity.Config{}),
 	}
 
 	s.urlResolver = &defaultURLResolver{service: s}
@@ -286,6 +298,20 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 	}
 
 	return s
+}
+
+func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
+	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
+		return
+	}
+	event := activity.Event{
+		Verb:       verb,
+		ActorID:    actor.String(),
+		ObjectType: objectType,
+		ObjectID:   objectID.String(),
+		Metadata:   meta,
+	}
+	_ = s.activity.Emit(ctx, event)
 }
 
 func (s *service) translationsRequired() bool {
@@ -322,7 +348,14 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 		UpdatedAt:   now,
 	}
 
-	return s.menus.Create(ctx, menu)
+	created, err := s.menus.Create(ctx, menu)
+	if err != nil {
+		return nil, err
+	}
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu", created.ID, map[string]any{
+		"code": created.Code,
+	})
+	return created, nil
 }
 
 // GetMenu retrieves a menu by ID including its hierarchical items.
@@ -404,7 +437,13 @@ func (s *service) DeleteMenu(ctx context.Context, req DeleteMenuRequest) error {
 		return err
 	}
 
-	return s.InvalidateCache(ctx)
+	if err := s.InvalidateCache(ctx); err != nil {
+		return err
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "menu", menu.ID, map[string]any{
+		"code": menu.Code,
+	})
+	return nil
 }
 
 // AddMenuItem registers a new menu item at the specified position.
@@ -484,6 +523,13 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 	created.Translations = trs
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu_item", created.ID, map[string]any{
+		"menu_id":   created.MenuID.String(),
+		"menu_code": menu.Code,
+		"position":  created.Position,
+		"parent_id": created.ParentID,
+		"locales":   collectMenuLocalesFromInputs(input.Translations),
+	})
 	return created, nil
 }
 
@@ -500,6 +546,12 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 			return nil, ErrMenuItemNotFound
 		}
 		return nil, err
+	}
+	originalPosition := item.Position
+	var originalParent *uuid.UUID
+	if item.ParentID != nil {
+		parentCopy := *item.ParentID
+		originalParent = &parentCopy
 	}
 
 	if input.Target != nil {
@@ -558,6 +610,21 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		return nil, err
 	}
 	updated.Translations = translations
+
+	verb := "update"
+	if originalParent == nil && updated.ParentID != nil ||
+		originalParent != nil && (updated.ParentID == nil || *originalParent != *updated.ParentID) ||
+		originalPosition != updated.Position {
+		verb = "reorder"
+	}
+
+	s.emitActivity(ctx, input.UpdatedBy, verb, "menu_item", updated.ID, map[string]any{
+		"menu_id":   updated.MenuID.String(),
+		"position":  updated.Position,
+		"parent_id": updated.ParentID,
+		"locales":   collectMenuLocalesFromTranslations(updated.Translations),
+	})
+
 	return updated, nil
 }
 
@@ -579,6 +646,12 @@ func (s *service) DeleteMenuItem(ctx context.Context, req DeleteMenuItemRequest)
 	if err := s.deleteMenuItemRecursive(ctx, item, req.DeletedBy, req.CascadeChildren); err != nil {
 		return err
 	}
+
+	s.emitActivity(ctx, req.DeletedBy, "delete", "menu_item", item.ID, map[string]any{
+		"menu_id":   item.MenuID.String(),
+		"parent_id": item.ParentID,
+		"position":  item.Position,
+	})
 
 	return s.InvalidateCache(ctx)
 }
@@ -688,6 +761,11 @@ func (s *service) BulkReorderMenuItems(ctx context.Context, input BulkReorderMen
 		return strings.Compare(parentKey(a.ParentID), parentKey(b.ParentID))
 	})
 
+	s.emitActivity(ctx, input.UpdatedBy, "reorder", "menu", input.MenuID, map[string]any{
+		"menu_id": input.MenuID.String(),
+		"count":   len(result),
+	})
+
 	return result, nil
 }
 
@@ -708,6 +786,8 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 		}
 		return nil, err
 	}
+
+	menu, _ := s.menus.GetByID(ctx, item.MenuID)
 
 	locale, err := s.lookupLocale(ctx, input.Locale)
 	if err != nil {
@@ -733,6 +813,20 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 	if err != nil {
 		return nil, err
 	}
+
+	meta := map[string]any{
+		"menu_id": item.MenuID.String(),
+		"item_id": item.ID.String(),
+		"locale":  locale.Code,
+	}
+	if menu != nil {
+		meta["menu_code"] = menu.Code
+	}
+	if label := strings.TrimSpace(input.Label); label != "" {
+		meta["label"] = label
+	}
+	s.emitActivity(ctx, pickActor(item.UpdatedBy, item.CreatedBy), "create", "menu_item_translation", created.ID, meta)
+
 	return created, nil
 }
 
@@ -1421,6 +1515,48 @@ func ensureLeadingSlash(path string) string {
 		return path
 	}
 	return "/" + path
+}
+
+func pickActor(ids ...uuid.UUID) uuid.UUID {
+	for _, id := range ids {
+		if id != uuid.Nil {
+			return id
+		}
+	}
+	return uuid.Nil
+}
+
+func collectMenuLocalesFromInputs(inputs []MenuItemTranslationInput) []string {
+	if len(inputs) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(inputs))
+	for _, tr := range inputs {
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			continue
+		}
+		locales = append(locales, code)
+	}
+	return locales
+}
+
+func collectMenuLocalesFromTranslations(translations []*MenuItemTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(translations))
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		if tr.Locale != nil && strings.TrimSpace(tr.Locale.Code) != "" {
+			locales = append(locales, strings.TrimSpace(tr.Locale.Code))
+			continue
+		}
+		locales = append(locales, tr.LocaleID.String())
+	}
+	return locales
 }
 
 func normalizeUUIDPtr(id *uuid.UUID) *uuid.UUID {
