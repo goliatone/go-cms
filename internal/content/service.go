@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -258,6 +259,15 @@ func WithTranslationsEnabled(enabled bool) ServiceOption {
 	}
 }
 
+// WithActivityEmitter wires the activity emitter used for activity records.
+func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
+	return func(svc *service) {
+		if emitter != nil {
+			svc.activity = emitter
+		}
+	}
+}
+
 // service implements Service.
 type service struct {
 	contents              ContentRepository
@@ -272,6 +282,7 @@ type service struct {
 	logger                interfaces.Logger
 	requireTranslations   bool
 	translationsEnabled   bool
+	activity              *activity.Emitter
 }
 
 // NewService constructs a content service with the required dependencies.
@@ -286,6 +297,7 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 		logger:              logging.ContentLogger(nil),
 		requireTranslations: true,
 		translationsEnabled: true,
+		activity:            activity.NewEmitter(nil, activity.Config{}),
 	}
 
 	for _, opt := range opts {
@@ -312,6 +324,22 @@ func (s *service) opLogger(ctx context.Context, operation string, extra map[stri
 
 func (s *service) translationsRequired() bool {
 	return s.translationsEnabled && s.requireTranslations
+}
+
+func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
+	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
+		return
+	}
+	event := activity.Event{
+		Verb:       verb,
+		ActorID:    actor.String(),
+		ObjectType: objectType,
+		ObjectID:   objectID.String(),
+		Metadata:   meta,
+	}
+	if err := s.activity.Emit(ctx, event); err != nil {
+		s.log(ctx).Warn("content.activity_emit_failed", "error", err)
+	}
 }
 
 // Create orchestrates creation of a new content entry with translations.
@@ -409,6 +437,12 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		"content_id": created.ID,
 	})
 	logger.Info("content created")
+	s.emitActivity(ctx, pickActor(req.CreatedBy, req.UpdatedBy), "create", "content", created.ID, map[string]any{
+		"slug":            created.Slug,
+		"status":          created.Status,
+		"locales":         collectContentLocalesFromInputs(req.Translations),
+		"content_type_id": created.ContentTypeID.String(),
+	})
 
 	return s.decorateContent(created), nil
 }
@@ -498,6 +532,15 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	}
 
 	logger.Info("content updated")
+	meta := map[string]any{
+		"slug":    existing.Slug,
+		"status":  existing.Status,
+		"locales": collectContentLocalesFromTranslations(existing.Translations),
+	}
+	if replaceTranslations {
+		meta["locales"] = collectContentLocalesFromInputs(req.Translations)
+	}
+	s.emitActivity(ctx, req.UpdatedBy, "update", "content", existing.ID, meta)
 	return s.decorateContent(updated), nil
 }
 
@@ -513,7 +556,8 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 		"content_id": req.ID,
 	})
 
-	if _, err := s.contents.GetByID(ctx, req.ID); err != nil {
+	record, err := s.contents.GetByID(ctx, req.ID)
+	if err != nil {
 		logger.Error("content lookup failed", "error", err)
 		return err
 	}
@@ -533,6 +577,11 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 	}
 
 	logger.Info("content deleted")
+	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "content", record.ID, map[string]any{
+		"slug":    record.Slug,
+		"status":  record.Status,
+		"locales": collectContentLocalesFromTranslations(record.Translations),
+	})
 	return nil
 }
 
@@ -624,6 +673,11 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	}
 
 	logger.Info("content translation updated")
+	s.emitActivity(ctx, req.UpdatedBy, "update", "content_translation", updatedTranslation.ID, map[string]any{
+		"content_id": req.ContentID.String(),
+		"locale":     loc.Code,
+		"title":      req.Title,
+	})
 	return updatedTranslation, nil
 }
 
@@ -662,6 +716,7 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	}
 
 	var removed bool
+	var removedTranslationID uuid.UUID
 	translations := make([]*ContentTranslation, 0, len(record.Translations))
 	for _, tr := range record.Translations {
 		if tr == nil {
@@ -669,6 +724,7 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 		}
 		if tr.LocaleID == loc.ID {
 			removed = true
+			removedTranslationID = tr.ID
 			continue
 		}
 		translations = append(translations, tr)
@@ -697,6 +753,14 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	}
 
 	logger.Info("content translation deleted")
+	targetID := removedTranslationID
+	if targetID == uuid.Nil {
+		targetID = req.ContentID
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "content_translation", targetID, map[string]any{
+		"content_id": req.ContentID.String(),
+		"locale":     loc.Code,
+	})
 	return nil
 }
 
@@ -810,6 +874,11 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 		"unpublish_at", record.UnpublishAt,
 		"status", record.Status,
 	)
+	s.emitActivity(ctx, req.ScheduledBy, "schedule", "content", record.ID, map[string]any{
+		"status":       record.Status,
+		"publish_at":   record.PublishAt,
+		"unpublish_at": record.UnpublishAt,
+	})
 
 	return s.decorateContent(updated), nil
 }
@@ -980,6 +1049,11 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	}
 
 	logger.Info("content version published", "published_at", publishedAt)
+	s.emitActivity(ctx, req.PublishedBy, "publish", "content", contentRecord.ID, map[string]any{
+		"version":      updatedVersion.Version,
+		"status":       contentRecord.Status,
+		"published_at": publishedAt,
+	})
 
 	return cloneContentVersion(updatedVersion), nil
 }
@@ -1149,6 +1223,48 @@ func indexTranslationsByLocaleID(translations []*ContentTranslation) map[uuid.UU
 		indexed[tr.LocaleID] = tr
 	}
 	return indexed
+}
+
+func pickActor(ids ...uuid.UUID) uuid.UUID {
+	for _, id := range ids {
+		if id != uuid.Nil {
+			return id
+		}
+	}
+	return uuid.Nil
+}
+
+func collectContentLocalesFromInputs(inputs []ContentTranslationInput) []string {
+	if len(inputs) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(inputs))
+	for _, input := range inputs {
+		code := strings.TrimSpace(input.Locale)
+		if code == "" {
+			continue
+		}
+		locales = append(locales, code)
+	}
+	return locales
+}
+
+func collectContentLocalesFromTranslations(translations []*ContentTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(translations))
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		if tr.Locale != nil && strings.TrimSpace(tr.Locale.Code) != "" {
+			locales = append(locales, strings.TrimSpace(tr.Locale.Code))
+			continue
+		}
+		locales = append(locales, tr.LocaleID.String())
+	}
+	return locales
 }
 
 func cloneTimePtr(value *time.Time) *time.Time {
