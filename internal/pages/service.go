@@ -19,6 +19,7 @@ import (
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -265,6 +266,7 @@ type pageService struct {
 	workflow              interfaces.WorkflowEngine
 	requireTranslations   bool
 	translationsEnabled   bool
+	activity              *activity.Emitter
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -340,6 +342,15 @@ func WithLogger(logger interfaces.Logger) ServiceOption {
 	}
 }
 
+// WithActivityEmitter wires the activity emitter used for activity records.
+func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
+	return func(ps *pageService) {
+		if emitter != nil {
+			ps.activity = emitter
+		}
+	}
+}
+
 // WithPageVersioningEnabled toggles versioning specific capabilities.
 func WithPageVersioningEnabled(enabled bool) ServiceOption {
 	return func(s *pageService) {
@@ -371,6 +382,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		workflow:            workflowsimple.New(),
 		requireTranslations: true,
 		translationsEnabled: true,
+		activity:            activity.NewEmitter(nil, activity.Config{}),
 	}
 
 	for _, opt := range opts {
@@ -397,6 +409,22 @@ func (s *pageService) opLogger(ctx context.Context, operation string, extra map[
 
 func (s *pageService) translationsRequired() bool {
 	return s.translationsEnabled && s.requireTranslations
+}
+
+func (s *pageService) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
+	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
+		return
+	}
+	event := activity.Event{
+		Verb:       verb,
+		ActorID:    actor.String(),
+		ObjectType: objectType,
+		ObjectID:   objectID.String(),
+		Metadata:   meta,
+	}
+	if err := s.activity.Emit(ctx, event); err != nil {
+		s.log(ctx).Warn("pages.activity_emit_failed", "error", err)
+	}
 }
 
 // Create registers a new page with translations and hierarchy rules.
@@ -568,7 +596,15 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		return nil, err
 	}
 	logger.Info("page created")
-	return enriched[0], nil
+	record := enriched[0]
+	s.emitActivity(ctx, selectActor(req.CreatedBy, req.UpdatedBy), "create", "page", record.ID, map[string]any{
+		"slug":        record.Slug,
+		"status":      record.Status,
+		"locales":     collectPageLocales(record),
+		"path":        primaryPagePath(record),
+		"template_id": record.TemplateID.String(),
+	})
+	return record, nil
 }
 
 // Get fetches a page by identifier.
@@ -705,7 +741,15 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 	}
 
 	logger.Info("page updated")
-	return enriched[0], nil
+	record := enriched[0]
+	s.emitActivity(ctx, req.UpdatedBy, "update", "page", record.ID, map[string]any{
+		"slug":        record.Slug,
+		"status":      record.Status,
+		"locales":     collectPageLocales(record),
+		"path":        primaryPagePath(record),
+		"template_id": record.TemplateID.String(),
+	})
+	return record, nil
 }
 
 // Delete removes a page and associated scheduled jobs.
@@ -721,7 +765,8 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 		"page_id": req.ID,
 	})
 
-	if _, err := s.pages.GetByID(ctx, req.ID); err != nil {
+	record, err := s.pages.GetByID(ctx, req.ID)
+	if err != nil {
 		logger.Error("page lookup failed", "error", err)
 		return err
 	}
@@ -741,6 +786,12 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 	}
 
 	logger.Info("page deleted")
+	s.emitActivity(ctx, req.DeletedBy, "delete", "page", record.ID, map[string]any{
+		"slug":    record.Slug,
+		"status":  record.Status,
+		"locales": collectPageLocales(record),
+		"path":    primaryPagePath(record),
+	})
 	return nil
 }
 
@@ -871,6 +922,12 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 	}
 
 	logger.Info("page translation updated")
+	s.emitActivity(ctx, req.UpdatedBy, "update", "page_translation", updatedTranslation.ID, map[string]any{
+		"page_id": record.ID.String(),
+		"locale":  locale.Code,
+		"path":    updatedTranslation.Path,
+		"status":  record.Status,
+	})
 	return updatedTranslation, nil
 }
 
@@ -909,12 +966,14 @@ func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTrans
 
 	newTranslations := make([]*PageTranslation, 0, len(record.Translations))
 	removed := false
+	var removedTranslationID uuid.UUID
 	for _, tr := range record.Translations {
 		if tr == nil {
 			continue
 		}
 		if tr.LocaleID == locale.ID {
 			removed = true
+			removedTranslationID = tr.ID
 			continue
 		}
 		newTranslations = append(newTranslations, tr)
@@ -943,6 +1002,15 @@ func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTrans
 	}
 
 	logger.Info("page translation deleted")
+	targetID := removedTranslationID
+	if targetID == uuid.Nil {
+		targetID = req.PageID
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "page_translation", targetID, map[string]any{
+		"page_id": req.PageID.String(),
+		"locale":  locale.Code,
+		"status":  record.Status,
+	})
 	return nil
 }
 
@@ -1011,7 +1079,15 @@ func (s *pageService) Move(ctx context.Context, req MovePageRequest) (*Page, err
 	}
 
 	logger.Info("page moved")
-	return enriched[0], nil
+	record = enriched[0]
+	s.emitActivity(ctx, req.ActorID, "reorder", "page", record.ID, map[string]any{
+		"slug":      record.Slug,
+		"path":      primaryPagePath(record),
+		"status":    record.Status,
+		"locales":   collectPageLocales(record),
+		"parent_id": record.ParentID,
+	})
+	return record, nil
 }
 
 // Duplicate clones an existing page with a unique slug and paths.
@@ -1281,7 +1357,15 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 		"unpublish_at", record.UnpublishAt,
 		"status", record.Status,
 	)
-	return enriched[0], nil
+	scheduleRecord := enriched[0]
+	s.emitActivity(ctx, req.ScheduledBy, "schedule", "page", scheduleRecord.ID, map[string]any{
+		"status":       scheduleRecord.Status,
+		"publish_at":   scheduleRecord.PublishAt,
+		"unpublish_at": scheduleRecord.UnpublishAt,
+		"path":         primaryPagePath(scheduleRecord),
+		"locales":      collectPageLocales(scheduleRecord),
+	})
+	return scheduleRecord, nil
 }
 
 func (s *pageService) CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error) {
@@ -1478,6 +1562,13 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 	}
 
 	logger.Info("page version published", "published_at", publishedAt)
+	s.emitActivity(ctx, req.PublishedBy, "publish", "page", page.ID, map[string]any{
+		"version":      updatedVersion.Version,
+		"status":       page.Status,
+		"path":         primaryPagePath(page),
+		"locales":      collectPageLocales(page),
+		"published_at": publishedAt,
+	})
 
 	return clonePageVersion(updatedVersion), nil
 }
@@ -1983,6 +2074,39 @@ func requestedWorkflowState(status string) interfaces.WorkflowState {
 		return ""
 	}
 	return interfaces.WorkflowState(domain.NormalizeWorkflowState(trimmed))
+}
+
+func collectPageLocales(page *Page) []string {
+	if page == nil || len(page.Translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(page.Translations))
+	for _, tr := range page.Translations {
+		if tr == nil {
+			continue
+		}
+		if trimmed := strings.TrimSpace(tr.Locale); trimmed != "" {
+			locales = append(locales, trimmed)
+			continue
+		}
+		locales = append(locales, tr.LocaleID.String())
+	}
+	return locales
+}
+
+func primaryPagePath(page *Page) string {
+	if page == nil {
+		return ""
+	}
+	for _, tr := range page.Translations {
+		if tr == nil {
+			continue
+		}
+		if path := strings.TrimSpace(tr.Path); path != "" {
+			return path
+		}
+	}
+	return ""
 }
 
 func selectActor(primary, fallback uuid.UUID) uuid.UUID {
