@@ -10,6 +10,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -88,6 +89,7 @@ type UpdateInstanceInput struct {
 
 type DeleteInstanceRequest struct {
 	ID         uuid.UUID
+	DeletedBy  uuid.UUID
 	HardDelete bool
 }
 
@@ -218,6 +220,15 @@ func WithShortcodeService(svc interfaces.ShortcodeService) ServiceOption {
 	}
 }
 
+// WithActivityEmitter wires the activity emitter used for activity records.
+func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
+	return func(s *service) {
+		if emitter != nil {
+			s.activity = emitter
+		}
+	}
+}
+
 // WithVersioningEnabled toggles versioning workflows for block instances.
 func WithVersioningEnabled(enabled bool) ServiceOption {
 	return func(s *service) {
@@ -255,6 +266,7 @@ type service struct {
 	versionRetentionLimit int
 	shortcodes            interfaces.ShortcodeService
 	requireTranslations   bool
+	activity              *activity.Emitter
 }
 
 func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRepo TranslationRepository, opts ...ServiceOption) Service {
@@ -265,6 +277,7 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 		now:          time.Now,
 		id:           uuid.New,
 		media:        media.NewNoOpService(),
+		activity:     activity.NewEmitter(nil, activity.Config{}),
 	}
 
 	for _, opt := range opts {
@@ -276,6 +289,20 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 	}
 
 	return s
+}
+
+func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
+	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
+		return
+	}
+	event := activity.Event{
+		Verb:       verb,
+		ActorID:    actor.String(),
+		ObjectType: objectType,
+		ObjectID:   objectID.String(),
+		Metadata:   meta,
+	}
+	_ = s.activity.Emit(ctx, event)
 }
 
 func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error) {
@@ -419,7 +446,19 @@ func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput)
 		instance.PageID = &clone
 	}
 
-	return s.instances.Create(ctx, instance)
+	created, err := s.instances.Create(ctx, instance)
+	if err != nil {
+		return nil, err
+	}
+
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "block_instance", created.ID, map[string]any{
+		"region":    created.Region,
+		"position":  created.Position,
+		"page_id":   created.PageID,
+		"is_global": created.IsGlobal,
+	})
+
+	return created, nil
 }
 
 func (s *service) ListPageInstances(ctx context.Context, pageID uuid.UUID) ([]*Instance, error) {
@@ -450,6 +489,8 @@ func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput)
 	if err != nil {
 		return nil, err
 	}
+	originalRegion := instance.Region
+	originalPosition := instance.Position
 
 	if input.PageID != nil {
 		if *input.PageID == uuid.Nil {
@@ -507,7 +548,20 @@ func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput)
 	if len(withTranslations) == 0 {
 		return updated, nil
 	}
-	return withTranslations[0], nil
+	enriched := withTranslations[0]
+
+	verb := "update"
+	if originalRegion != updated.Region || originalPosition != updated.Position {
+		verb = "reorder"
+	}
+	s.emitActivity(ctx, input.UpdatedBy, verb, "block_instance", updated.ID, map[string]any{
+		"region":    updated.Region,
+		"position":  updated.Position,
+		"page_id":   updated.PageID,
+		"is_global": updated.IsGlobal,
+	})
+
+	return enriched, nil
 }
 
 func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest) error {
@@ -518,7 +572,8 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 		return ErrInstanceSoftDeleteUnsupported
 	}
 
-	if _, err := s.instances.GetByID(ctx, req.ID); err != nil {
+	record, err := s.instances.GetByID(ctx, req.ID)
+	if err != nil {
 		return err
 	}
 
@@ -534,7 +589,16 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 			return err
 		}
 	}
-	return s.instances.Delete(ctx, req.ID)
+	if err := s.instances.Delete(ctx, req.ID); err != nil {
+		return err
+	}
+	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "block_instance", record.ID, map[string]any{
+		"region":    record.Region,
+		"position":  record.Position,
+		"page_id":   record.PageID,
+		"is_global": record.IsGlobal,
+	})
+	return nil
 }
 
 func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error) {
@@ -660,7 +724,17 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 		return nil, err
 	}
 
-	return s.hydrateTranslation(ctx, updated)
+	record, err := s.hydrateTranslation(ctx, updated)
+	if err != nil {
+		return nil, err
+	}
+
+	s.emitActivity(ctx, input.UpdatedBy, "update", "block_translation", record.ID, map[string]any{
+		"instance_id": input.BlockInstanceID.String(),
+		"locale_id":   input.LocaleID.String(),
+	})
+
+	return record, nil
 }
 
 func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRequest) error {
@@ -711,7 +785,14 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRe
 	if _, err := s.instances.Update(ctx, instance); err != nil {
 		return err
 	}
-	return s.persistVersion(ctx, preparedVersion)
+	if err := s.persistVersion(ctx, preparedVersion); err != nil {
+		return err
+	}
+	s.emitActivity(ctx, pickActor(req.DeletedBy, instance.UpdatedBy, instance.CreatedBy), "delete", "block_translation", target.ID, map[string]any{
+		"instance_id": req.BlockInstanceID.String(),
+		"locale_id":   req.LocaleID.String(),
+	})
+	return nil
 }
 
 func (s *service) CreateDraft(ctx context.Context, req CreateInstanceDraftRequest) (*InstanceVersion, error) {
@@ -840,6 +921,14 @@ func (s *service) PublishDraft(ctx context.Context, req PublishInstanceDraftRequ
 		return nil, err
 	}
 
+	s.emitActivity(ctx, req.PublishedBy, "publish", "block_instance", instance.ID, map[string]any{
+		"version":   updatedVersion.Version,
+		"status":    updatedVersion.Status,
+		"page_id":   instance.PageID,
+		"region":    instance.Region,
+		"is_global": instance.IsGlobal,
+	})
+
 	return cloneInstanceVersion(updatedVersion), nil
 }
 
@@ -893,6 +982,15 @@ func nextInstanceVersionNumber(records []*InstanceVersion) int {
 		}
 	}
 	return max + 1
+}
+
+func pickActor(ids ...uuid.UUID) uuid.UUID {
+	for _, id := range ids {
+		if id != uuid.Nil {
+			return id
+		}
+	}
+	return uuid.Nil
 }
 
 func (s *service) attachTranslations(ctx context.Context, instances []*Instance) ([]*Instance, error) {
