@@ -18,6 +18,7 @@ import (
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -1109,6 +1110,45 @@ func TestContainerShortcodeCacheProviderSelection(t *testing.T) {
 	}
 	if metrics.cacheHits["youtube"] != 1 {
 		t.Fatalf("expected metrics to record cache hit, got %d", metrics.cacheHits["youtube"])
+	}
+}
+
+func TestContainerActivityHooksFanOut(t *testing.T) {
+	cfg := cms.DefaultConfig()
+	cfg.Features.Activity = true
+	cfg.Activity.Enabled = true
+
+	hook := &activity.CaptureHook{}
+	container, err := di.NewContainer(cfg, di.WithActivityHooks(activity.Hooks{hook}))
+	if err != nil {
+		t.Fatalf("NewContainer error: %v", err)
+	}
+
+	menuSvc := container.MenuService()
+	actorID := uuid.New()
+	if _, err := menuSvc.CreateMenu(context.Background(), menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: actorID,
+		UpdatedBy: actorID,
+	}); err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+
+	if len(hook.Events) != 1 {
+		t.Fatalf("expected 1 activity event, got %d", len(hook.Events))
+	}
+	event := hook.Events[0]
+	if event.Verb != "create" || event.ObjectType != "menu" {
+		t.Fatalf("unexpected event payload: %+v", event)
+	}
+	if event.ActorID != actorID.String() {
+		t.Fatalf("expected actor %s got %s", actorID, event.ActorID)
+	}
+	if event.Channel != cfg.Activity.Channel {
+		t.Fatalf("expected channel %s got %s", cfg.Activity.Channel, event.Channel)
+	}
+	if event.Metadata["code"] != "primary" {
+		t.Fatalf("expected code metadata primary got %v", event.Metadata["code"])
 	}
 }
 

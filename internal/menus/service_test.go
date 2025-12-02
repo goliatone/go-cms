@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
@@ -293,6 +294,90 @@ func TestService_AddMenuItemTranslation_Duplicate(t *testing.T) {
 	})
 	if !errors.Is(err, menus.ErrTranslationExists) {
 		t.Fatalf("expected ErrTranslationExists, got %v", err)
+	}
+}
+
+func TestService_AddMenuItemTranslationEmitsActivity(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	hook := &activity.CaptureHook{}
+	emitter := activity.NewEmitter(activity.Hooks{hook}, activity.Config{Enabled: true, Channel: "cms"})
+
+	ids := []uuid.UUID{
+		uuid.MustParse("00000000-0000-0000-0000-000000000301"), // menu
+		uuid.MustParse("00000000-0000-0000-0000-000000000302"), // menu item
+		uuid.MustParse("00000000-0000-0000-0000-000000000303"), // initial translation
+		uuid.MustParse("00000000-0000-0000-0000-000000000304"), // added translation
+	}
+	var idx int
+	idGen := func() uuid.UUID {
+		if idx >= len(ids) {
+			return uuid.New()
+		}
+		value := ids[idx]
+		idx++
+		return value
+	}
+
+	service := newServiceWithLocales(t, fixture.locales(), idGen, nil, menus.WithActivityEmitter(emitter))
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	item, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "about",
+		},
+		Translations: fixture.translations("about"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem: %v", err)
+	}
+
+	tr, err := service.AddMenuItemTranslation(ctx, menus.AddMenuItemTranslationInput{
+		ItemID: item.ID,
+		Locale: "es",
+		Label:  "Acerca de",
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItemTranslation: %v", err)
+	}
+
+	var translationEvents []activity.Event
+	for _, event := range hook.Events {
+		if event.ObjectType == "menu_item_translation" {
+			translationEvents = append(translationEvents, event)
+		}
+	}
+	if len(translationEvents) != 1 {
+		t.Fatalf("expected 1 menu_item_translation event, got %d", len(translationEvents))
+	}
+
+	event := translationEvents[0]
+	if event.Verb != "create" {
+		t.Fatalf("expected verb create got %s", event.Verb)
+	}
+	if event.ObjectID != tr.ID.String() {
+		t.Fatalf("expected object id %s got %s", tr.ID, event.ObjectID)
+	}
+	if event.Metadata["menu_id"] != menu.ID.String() {
+		t.Fatalf("expected menu_id metadata %s got %v", menu.ID, event.Metadata["menu_id"])
+	}
+	if event.Metadata["menu_code"] != menu.Code {
+		t.Fatalf("expected menu_code metadata %s got %v", menu.Code, event.Metadata["menu_code"])
+	}
+	if event.Metadata["locale"] != "es" {
+		t.Fatalf("expected locale metadata es got %v", event.Metadata["locale"])
 	}
 }
 

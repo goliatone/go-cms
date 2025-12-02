@@ -10,6 +10,7 @@ import (
 	"time"
 
 	shortcodepkg "github.com/goliatone/go-cms/internal/shortcode"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
 	"github.com/google/uuid"
@@ -999,6 +1000,95 @@ func TestServiceDeleteTranslation(t *testing.T) {
 	}
 	if _, err := svc.GetTranslation(ctx, instance.ID, localeID); err == nil {
 		t.Fatalf("expected translation removal to return error")
+	}
+}
+
+func TestServiceWidgetTranslationsEmitActivity(t *testing.T) {
+	ctx := context.Background()
+	actor := uuid.New()
+	localeID := uuid.New()
+
+	hook := &activity.CaptureHook{}
+	emitter := activity.NewEmitter(activity.Hooks{hook}, activity.Config{Enabled: true, Channel: "cms"})
+
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithActivityEmitter(emitter),
+		WithIDGenerator(sequentialIDs(
+			"00000000-0000-0000-0000-000000000501", // definition
+			"00000000-0000-0000-0000-000000000502", // instance
+			"00000000-0000-0000-0000-000000000503", // translation
+		)),
+	)
+
+	def, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: def.ID,
+		CreatedBy:    actor,
+		UpdatedBy:    actor,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	tr, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+		Content: map[string]any{
+			"title": "One",
+		},
+	})
+	if err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	if _, err := svc.UpdateTranslation(ctx, UpdateTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+		Content: map[string]any{
+			"title": "Updated",
+		},
+	}); err != nil {
+		t.Fatalf("update translation: %v", err)
+	}
+
+	if err := svc.DeleteTranslation(ctx, DeleteTranslationRequest{
+		InstanceID: instance.ID,
+		LocaleID:   localeID,
+	}); err != nil {
+		t.Fatalf("delete translation: %v", err)
+	}
+
+	var translationEvents []activity.Event
+	for _, event := range hook.Events {
+		if event.ObjectType == "widget_translation" {
+			translationEvents = append(translationEvents, event)
+		}
+	}
+	if len(translationEvents) != 3 {
+		t.Fatalf("expected 3 widget_translation events, got %d", len(translationEvents))
+	}
+
+	expectedVerbs := []string{"create", "update", "delete"}
+	for i, verb := range expectedVerbs {
+		if translationEvents[i].Verb != verb {
+			t.Fatalf("expected verb %s got %s", verb, translationEvents[i].Verb)
+		}
+		if translationEvents[i].ObjectID != tr.ID.String() {
+			t.Fatalf("expected object id %s got %s", tr.ID, translationEvents[i].ObjectID)
+		}
+		if translationEvents[i].Metadata["locale_id"] != localeID.String() {
+			t.Fatalf("expected locale_id metadata %s got %v", localeID, translationEvents[i].Metadata["locale_id"])
+		}
 	}
 }
 

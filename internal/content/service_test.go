@@ -8,6 +8,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/google/uuid"
 )
 
@@ -517,6 +518,99 @@ func TestServiceDeleteSoftUnsupported(t *testing.T) {
 	err := svc.Delete(context.Background(), content.DeleteContentRequest{ID: uuid.New(), HardDelete: false})
 	if !errors.Is(err, content.ErrContentSoftDeleteUnsupported) {
 		t.Fatalf("expected soft delete unsupported error got %v", err)
+	}
+}
+
+func TestServiceCreateEmitsActivityEvent(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	hook := &activity.CaptureHook{}
+	emitter := activity.NewEmitter(activity.Hooks{hook}, activity.Config{
+		Enabled: true,
+		Channel: "cms",
+	})
+
+	actorID := uuid.New()
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithActivityEmitter(emitter),
+	)
+
+	ctx := context.Background()
+	record, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "activity-hooks",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Hello"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	if len(hook.Events) != 1 {
+		t.Fatalf("expected 1 activity event, got %d", len(hook.Events))
+	}
+	event := hook.Events[0]
+	if event.Verb != "create" {
+		t.Fatalf("expected verb create got %q", event.Verb)
+	}
+	if event.ActorID != actorID.String() {
+		t.Fatalf("expected actor %s got %s", actorID, event.ActorID)
+	}
+	if event.ObjectType != "content" || event.ObjectID != record.ID.String() {
+		t.Fatalf("unexpected object fields: %s %s", event.ObjectType, event.ObjectID)
+	}
+	if event.Channel != "cms" {
+		t.Fatalf("expected channel cms got %q", event.Channel)
+	}
+	if event.OccurredAt.IsZero() {
+		t.Fatalf("expected occurred_at to be set")
+	}
+	if slug, ok := event.Metadata["slug"].(string); !ok || slug != "activity-hooks" {
+		t.Fatalf("expected slug metadata got %v", event.Metadata["slug"])
+	}
+	locales, ok := event.Metadata["locales"].([]string)
+	if !ok || len(locales) != 1 || locales[0] != "en" {
+		t.Fatalf("expected locales metadata [en] got %v", event.Metadata["locales"])
+	}
+	if metaTypeID, ok := event.Metadata["content_type_id"].(string); !ok || metaTypeID != contentTypeID.String() {
+		t.Fatalf("expected content_type_id %s got %v", contentTypeID, event.Metadata["content_type_id"])
+	}
+}
+
+func TestServiceCreateSkipsActivityOnError(t *testing.T) {
+	hook := &activity.CaptureHook{}
+	emitter := activity.NewEmitter(activity.Hooks{hook}, activity.Config{Enabled: true})
+
+	svc := content.NewService(
+		content.NewMemoryContentRepository(),
+		content.NewMemoryContentTypeRepository(),
+		content.NewMemoryLocaleRepository(),
+		content.WithActivityEmitter(emitter),
+	)
+
+	_, err := svc.Create(context.Background(), content.CreateContentRequest{
+		Slug:      "missing-type",
+		CreatedBy: uuid.New(),
+		UpdatedBy: uuid.New(),
+	})
+	if err == nil {
+		t.Fatalf("expected error for missing content type")
+	}
+	if len(hook.Events) != 0 {
+		t.Fatalf("expected no activity events, got %d", len(hook.Events))
 	}
 }
 
