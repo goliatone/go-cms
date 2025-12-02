@@ -390,6 +390,10 @@ cfg.Markdown.ProcessShortcodes = true
 
 Use `di.WithShortcodeCacheProvider` to register named cache implementations (Redis, in-memory) for shortcodes and `di.WithShortcodeMetrics` to feed render telemetry into your monitoring stack.
 
+### Activity Hooks
+
+Enable activity emission with `cfg.Features.Activity` and `cfg.Activity.Enabled`; set `cfg.Activity.Channel` to tag events. Inject hooks via `di.WithActivityHooks` or pass a go-users sink with `di.WithActivitySink` (internally adapted by `pkg/activity/usersink.Hook`). Activity events fan out to all hooks and carry verb, actor IDs, object type/ID, channel, and module-specific metadata (slug, status, locale, path, menu code). When no hooks are provided, emissions no-op. In tests, pair `activity.CaptureHook` with `activity.NewEmitter` to assert events without persisting them.
+
 ## Commands & Adapters
 
 - Core commands are plain structs with direct constructors (for example, `staticcmd.NewBuildSiteHandler`, `markdowncmd.NewSyncDirectoryHandler`) that satisfy `command.CLICommand`/`command.CronCommand` when exposed via CLI or cron. CLIs in this repo wire those constructors directly; there is no collector or registry inside the core module.
