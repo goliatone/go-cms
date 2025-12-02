@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/pages"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -29,6 +30,7 @@ type Worker struct {
 	contents  ContentRepository
 	pages     PageRepository
 	audit     AuditRecorder
+	activity  *activity.Emitter
 	now       func() time.Time
 	batchSize int
 }
@@ -38,6 +40,14 @@ type Option func(*Worker)
 func WithAuditRecorder(recorder AuditRecorder) Option {
 	return func(w *Worker) {
 		w.audit = recorder
+	}
+}
+
+func WithActivityEmitter(emitter *activity.Emitter) Option {
+	return func(w *Worker) {
+		if emitter != nil {
+			w.activity = emitter
+		}
 	}
 }
 
@@ -69,6 +79,24 @@ func NewWorker(scheduler interfaces.Scheduler, contents ContentRepository, pages
 		opt(w)
 	}
 	return w
+}
+
+func (w *Worker) emitActivity(ctx context.Context, actor *uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
+	if w.activity == nil || !w.activity.Enabled() || objectID == uuid.Nil {
+		return
+	}
+	actorID := uuid.Nil
+	if actor != nil {
+		actorID = *actor
+	}
+	event := activity.Event{
+		Verb:       verb,
+		ActorID:    actorID.String(),
+		ObjectType: objectType,
+		ObjectID:   objectID.String(),
+		Metadata:   meta,
+	}
+	_ = w.activity.Emit(ctx, event)
 }
 
 func (w *Worker) Process(ctx context.Context) error {
@@ -149,6 +177,12 @@ func (w *Worker) processContentPublish(ctx context.Context, job *interfaces.Job,
 			Metadata:   buildAuditMetadata(job, triggeredBy),
 		})
 	}
+	w.emitActivity(ctx, triggeredBy, "publish", "content", id, map[string]any{
+		"job_id":       job.ID,
+		"job_type":     job.Type,
+		"status":       record.Status,
+		"published_at": record.PublishedAt,
+	})
 	return nil
 }
 
@@ -187,6 +221,11 @@ func (w *Worker) processContentUnpublish(ctx context.Context, job *interfaces.Jo
 			Metadata:   buildAuditMetadata(job, triggeredBy),
 		})
 	}
+	w.emitActivity(ctx, triggeredBy, "unpublish", "content", id, map[string]any{
+		"job_id":   job.ID,
+		"job_type": job.Type,
+		"status":   record.Status,
+	})
 	return nil
 }
 
@@ -231,6 +270,12 @@ func (w *Worker) processPagePublish(ctx context.Context, job *interfaces.Job, no
 			Metadata:   buildAuditMetadata(job, triggeredBy),
 		})
 	}
+	w.emitActivity(ctx, triggeredBy, "publish", "page", id, map[string]any{
+		"job_id":       job.ID,
+		"job_type":     job.Type,
+		"status":       record.Status,
+		"published_at": record.PublishedAt,
+	})
 	return nil
 }
 
@@ -269,6 +314,11 @@ func (w *Worker) processPageUnpublish(ctx context.Context, job *interfaces.Job, 
 			Metadata:   buildAuditMetadata(job, triggeredBy),
 		})
 	}
+	w.emitActivity(ctx, triggeredBy, "unpublish", "page", id, map[string]any{
+		"job_id":   job.ID,
+		"job_type": job.Type,
+		"status":   record.Status,
+	})
 	return nil
 }
 
