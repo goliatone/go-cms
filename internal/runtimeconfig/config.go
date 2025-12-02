@@ -26,6 +26,7 @@ var ErrMarkdownFeatureRequired = errors.New("cms config: markdown feature must b
 var ErrMarkdownContentDirRequired = errors.New("cms config: markdown content directory is required when markdown is enabled")
 var ErrGeneratorOutputDirRequired = errors.New("cms config: generator output directory is required when generator is enabled")
 var ErrLoggingProviderRequired = errors.New("cms config: logging provider is required when logging feature is enabled")
+var ErrActivityFeatureRequired = errors.New("cms config: activity feature must be enabled to configure activity")
 var ErrLoggingProviderUnknown = errors.New("cms config: logging provider is invalid")
 var ErrLoggingLevelInvalid = errors.New("cms config: logging level is invalid")
 var ErrLoggingFormatInvalid = errors.New("cms config: logging format is invalid")
@@ -69,6 +70,7 @@ type Config struct {
 	Generator     GeneratorConfig
 	Logging       LoggingConfig
 	Workflow      WorkflowConfig
+	Activity      ActivityConfig
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -136,6 +138,7 @@ type Features struct {
 	Markdown      bool
 	Logger        bool
 	Shortcodes    bool
+	Activity      bool
 }
 
 // LoggingConfig captures provider-specific options for runtime logging.
@@ -177,6 +180,12 @@ type WorkflowTransitionConfig struct {
 	From        string
 	To          string
 	Guard       string
+}
+
+// ActivityConfig controls activity emission defaults.
+type ActivityConfig struct {
+	Enabled bool
+	Channel string
 }
 
 // WidgetConfig controls registry bootstrapping.
@@ -365,6 +374,10 @@ func DefaultConfig() Config {
 			Level:    "info",
 			Format:   "",
 		},
+		Activity: ActivityConfig{
+			Enabled: false,
+			Channel: "cms",
+		},
 		Workflow: WorkflowConfig{
 			Enabled:  true,
 			Provider: "simple",
@@ -445,6 +458,9 @@ func (cfg Config) Validate() error {
 				return fmt.Errorf("%w: %s", ErrLoggingFormatInvalid, format)
 			}
 		}
+	}
+	if cfg.Activity.Enabled && !cfg.Features.Activity {
+		return ErrActivityFeatureRequired
 	}
 	provider := normalizeWorkflowProvider(cfg.Workflow.Provider)
 	if !cfg.Workflow.Enabled {
