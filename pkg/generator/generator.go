@@ -1,9 +1,9 @@
+// Package generator exposes the static site generation API for go-cms hosts.
+// Use NewService with Config and Dependencies to build prerendered pages, assets, sitemaps, or run per page builds.
 package generator
 
 import internal "github.com/goliatone/go-cms/internal/generator"
 
-// Re-export generator contracts for external consumers. The implementation
-// lives in internal/generator; this package provides a stable import path.
 type (
 	Service           = internal.Service
 	Config            = internal.Config
