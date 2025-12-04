@@ -402,6 +402,129 @@ func TestMenuService_BulkReorderMaintainsHierarchy(t *testing.T) {
 	}
 }
 
+func TestMenuRepository_RoundTripNewFields(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	registerMenuModels(t, bunDB)
+	seedMenuIntegrationEntities(t, bunDB)
+
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+	menuRepo := menus.NewBunMenuRepository(bunDB)
+	menuItemRepo := menus.NewBunMenuItemRepository(bunDB)
+	menuTranslationRepo := menus.NewBunMenuItemTranslationRepository(bunDB)
+
+	menuSvc := menus.NewService(menuRepo, menuItemRepo, menuTranslationRepo, localeRepo)
+
+	menu, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+
+	group, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeGroup,
+		Metadata: map[string]any{"section": "main"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", GroupTitle: "Main Menu", GroupTitleKey: "menu.group.main"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add group: %v", err)
+	}
+
+	_, err = menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 1,
+		Type:     menus.MenuItemTypeSeparator,
+	})
+	if err != nil {
+		t.Fatalf("add separator: %v", err)
+	}
+
+	child, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeItem,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "home",
+		},
+		Icon:        "home",
+		Badge:       map[string]any{"count": 5},
+		Permissions: []string{"admin", "editor"},
+		Classes:     []string{"nav-item", "bold"},
+		Styles:      map[string]string{"color": "blue"},
+		Metadata:    map[string]any{"tenant": "tenant-1"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Home", LabelKey: "menu.home"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("add child: %v", err)
+	}
+
+	reloaded, err := menuSvc.GetMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("get menu: %v", err)
+	}
+	if len(reloaded.Items) != 2 {
+		t.Fatalf("expected 2 root items, got %d", len(reloaded.Items))
+	}
+	if reloaded.Items[0].Type != menus.MenuItemTypeGroup {
+		t.Fatalf("expected first item group, got %s", reloaded.Items[0].Type)
+	}
+	if reloaded.Items[0].Metadata["section"] != "main" {
+		t.Fatalf("expected group metadata preserved, got %+v", reloaded.Items[0].Metadata)
+	}
+	if len(reloaded.Items[0].Translations) != 1 {
+		t.Fatalf("expected group translation, got %d", len(reloaded.Items[0].Translations))
+	}
+	if reloaded.Items[0].Translations[0].GroupTitle != "Main Menu" || reloaded.Items[0].Translations[0].GroupTitleKey != "menu.group.main" {
+		t.Fatalf("group translation fields not preserved: %#v", reloaded.Items[0].Translations[0])
+	}
+
+	item := reloaded.Items[0].Children[0]
+	if item.ID != child.ID {
+		t.Fatalf("expected child id %s, got %s", child.ID, item.ID)
+	}
+	if item.Icon != "home" || item.Badge["count"] != float64(5) {
+		t.Fatalf("expected icon/badge preserved, got icon=%q badge=%v", item.Icon, item.Badge)
+	}
+	if len(item.Permissions) != 2 || item.Permissions[0] != "admin" || item.Permissions[1] != "editor" {
+		t.Fatalf("permissions not preserved: %#v", item.Permissions)
+	}
+	if len(item.Classes) != 2 || item.Classes[0] != "nav-item" || item.Classes[1] != "bold" {
+		t.Fatalf("classes not preserved: %#v", item.Classes)
+	}
+	if val, ok := item.Styles["color"]; !ok || val != "blue" {
+		t.Fatalf("styles not preserved: %#v", item.Styles)
+	}
+	if val, ok := item.Metadata["tenant"]; !ok || val != "tenant-1" {
+		t.Fatalf("metadata not preserved: %#v", item.Metadata)
+	}
+	if len(item.Translations) != 1 {
+		t.Fatalf("expected item translation, got %d", len(item.Translations))
+	}
+	if item.Translations[0].Label != "Home" || item.Translations[0].LabelKey != "menu.home" {
+		t.Fatalf("translation fields not preserved: %#v", item.Translations[0])
+	}
+}
+
 func registerMenuModels(t *testing.T, db *bun.DB) {
 	t.Helper()
 	ctx := context.Background()

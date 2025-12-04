@@ -231,6 +231,77 @@ func TestService_AddMenuItemAllowsMissingTranslationsOverride(t *testing.T) {
 	}
 }
 
+func TestService_AddMenuItem_RejectsInvalidTypesAndSemantics(t *testing.T) {
+	ctx := context.Background()
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     "unknown",
+		Target:   map[string]any{"type": "page", "slug": "home"},
+	})
+	if !errors.Is(err, menus.ErrMenuItemTypeInvalid) {
+		t.Fatalf("expected ErrMenuItemTypeInvalid, got %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeGroup,
+		Target:   map[string]any{"type": "page", "slug": "home"},
+	})
+	if !errors.Is(err, menus.ErrMenuItemGroupFields) {
+		t.Fatalf("expected ErrMenuItemGroupFields, got %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeSeparator,
+		Target:   map[string]any{"type": "page", "slug": "home"},
+	})
+	if !errors.Is(err, menus.ErrMenuItemSeparatorFields) {
+		t.Fatalf("expected ErrMenuItemSeparatorFields for target, got %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeSeparator,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Sep"},
+		},
+	})
+	if !errors.Is(err, menus.ErrMenuItemSeparatorFields) {
+		t.Fatalf("expected ErrMenuItemSeparatorFields for translations, got %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:     menu.ID,
+		Position:   0,
+		Type:       menus.MenuItemTypeItem,
+		Collapsible: true,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "home",
+		},
+		Translations: []menus.MenuItemTranslationInput{{Locale: "en", Label: "Home"}},
+	})
+	if !errors.Is(err, menus.ErrMenuItemCollapsibleWithoutChildren) {
+		t.Fatalf("expected ErrMenuItemCollapsibleWithoutChildren, got %v", err)
+	}
+}
+
 func TestService_AddMenuItem_UnknownLocale(t *testing.T) {
 	ctx := context.Background()
 	service := newService(t)
@@ -600,6 +671,133 @@ func TestService_ResolveNavigation_URLKitResolver(t *testing.T) {
 	}
 	if navES[0].URL != "https://example.com/es/paginas/company" {
 		t.Fatalf("expected localized urlkit url, got %q", navES[0].URL)
+	}
+}
+
+func TestService_ResolveNavigation_NormalizesSeparatorsAndGroups(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeSeparator,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem separator leading: %v", err)
+	}
+
+	home, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 1,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "home",
+		},
+		Translations: fixture.translations("home"),
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem home: %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 2,
+		Type:     menus.MenuItemTypeSeparator,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem separator middle: %v", err)
+	}
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 3,
+		Type:     menus.MenuItemTypeSeparator,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem separator consecutive: %v", err)
+	}
+
+	_, err = service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 4,
+		Type:     menus.MenuItemTypeGroup,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Empty Group"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem empty group: %v", err)
+	}
+
+	group, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 5,
+		Type:     menus.MenuItemTypeGroup,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Main Group"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem group: %v", err)
+	}
+
+	child, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Position: 0,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "products",
+		},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", LabelKey: "menu.products"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	nav, err := service.ResolveNavigation(ctx, "primary", "en")
+	if err != nil {
+		t.Fatalf("ResolveNavigation: %v", err)
+	}
+
+	if len(nav) != 3 {
+		t.Fatalf("expected 3 nav nodes after normalization, got %d", len(nav))
+	}
+	if nav[0].Type != menus.MenuItemTypeItem || nav[0].ID != home.ID {
+		t.Fatalf("expected first node to be home item, got type=%s id=%s", nav[0].Type, nav[0].ID)
+	}
+	if nav[1].Type != menus.MenuItemTypeSeparator {
+		t.Fatalf("expected second node to be separator, got %s", nav[1].Type)
+	}
+	if nav[2].Type != menus.MenuItemTypeGroup {
+		t.Fatalf("expected third node to be group, got %s", nav[2].Type)
+	}
+	if nav[2].Collapsible || nav[2].Collapsed {
+		t.Fatalf("expected group collapsible hints to be false, got collapsible=%t collapsed=%t", nav[2].Collapsible, nav[2].Collapsed)
+	}
+	if len(nav[2].Children) != 1 {
+		t.Fatalf("expected group to have 1 child, got %d", len(nav[2].Children))
+	}
+	if nav[2].Children[0].ID != child.ID {
+		t.Fatalf("expected child id %s, got %s", child.ID, nav[2].Children[0].ID)
+	}
+	if nav[2].Children[0].Label != "menu.products" || nav[2].Children[0].LabelKey != "menu.products" {
+		t.Fatalf("expected child label/label_key 'menu.products', got label=%q key=%q", nav[2].Children[0].Label, nav[2].Children[0].LabelKey)
+	}
+	if nav[len(nav)-1].Type == menus.MenuItemTypeSeparator {
+		t.Fatalf("expected no trailing separator")
 	}
 }
 
