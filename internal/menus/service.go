@@ -42,12 +42,21 @@ type CreateMenuInput struct {
 
 // AddMenuItemInput captures the data required to register a new menu item.
 type AddMenuItemInput struct {
-	MenuID    uuid.UUID
-	ParentID  *uuid.UUID
-	Position  int
-	Target    map[string]any
-	CreatedBy uuid.UUID
-	UpdatedBy uuid.UUID
+	MenuID      uuid.UUID
+	ParentID    *uuid.UUID
+	Position    int
+	Type        string
+	Target      map[string]any
+	Icon        string
+	Badge       map[string]any
+	Permissions []string
+	Classes     []string
+	Styles      map[string]string
+	Collapsible bool
+	Collapsed   bool
+	Metadata    map[string]any
+	CreatedBy   uuid.UUID
+	UpdatedBy   uuid.UUID
 
 	Translations             []MenuItemTranslationInput
 	AllowMissingTranslations bool
@@ -55,11 +64,20 @@ type AddMenuItemInput struct {
 
 // UpdateMenuItemInput captures mutable fields for a menu item.
 type UpdateMenuItemInput struct {
-	ItemID    uuid.UUID
-	Target    map[string]any
-	Position  *int
-	ParentID  *uuid.UUID
-	UpdatedBy uuid.UUID
+	ItemID      uuid.UUID
+	Type        *string
+	Target      map[string]any
+	Icon        *string
+	Badge       map[string]any
+	Permissions []string
+	Classes     []string
+	Styles      map[string]string
+	Collapsible *bool
+	Collapsed   *bool
+	Metadata    map[string]any
+	Position    *int
+	ParentID    *uuid.UUID
+	UpdatedBy   uuid.UUID
 }
 
 // ReorderMenuItemsInput defines a new hierarchical ordering for menu items.
@@ -86,17 +104,23 @@ type ItemOrder struct {
 
 // MenuItemTranslationInput describes localized metadata for a menu item.
 type MenuItemTranslationInput struct {
-	Locale      string
-	Label       string
-	URLOverride *string
+	Locale        string
+	Label         string
+	LabelKey      string
+	GroupTitle    string
+	GroupTitleKey string
+	URLOverride   *string
 }
 
 // AddMenuItemTranslationInput adds or updates localized metadata for an item.
 type AddMenuItemTranslationInput struct {
-	ItemID      uuid.UUID
-	Locale      string
-	Label       string
-	URLOverride *string
+	ItemID        uuid.UUID
+	Locale        string
+	Label         string
+	LabelKey      string
+	GroupTitle    string
+	GroupTitleKey string
+	URLOverride   *string
 }
 
 // DeleteMenuRequest captures the data required to remove a menu.
@@ -115,24 +139,31 @@ type DeleteMenuItemRequest struct {
 }
 
 var (
-	ErrMenuCodeRequired         = errors.New("menus: code is required")
-	ErrMenuCodeInvalid          = errors.New("menus: code must contain only letters, numbers, hyphen, or underscore")
-	ErrMenuCodeExists           = errors.New("menus: code already exists")
-	ErrMenuNotFound             = errors.New("menus: menu not found")
-	ErrMenuInUse                = errors.New("menus: menu is assigned to an active theme")
-	ErrMenuItemNotFound         = errors.New("menus: menu item not found")
-	ErrMenuItemParentInvalid    = errors.New("menus: parent menu item invalid")
-	ErrMenuItemCycle            = errors.New("menus: hierarchy creates a cycle")
-	ErrMenuItemPosition         = errors.New("menus: position must be zero or positive")
-	ErrMenuItemTargetMissing    = errors.New("menus: target type is required")
-	ErrMenuItemTranslations     = errors.New("menus: at least one translation is required")
-	ErrMenuItemDuplicateLocale  = errors.New("menus: duplicate translation locale provided")
-	ErrMenuItemHasChildren      = errors.New("menus: menu item has children; enable cascade to delete")
-	ErrUnknownLocale            = errors.New("menus: locale is unknown")
-	ErrTranslationExists        = errors.New("menus: translation already exists for locale")
-	ErrTranslationLabelRequired = errors.New("menus: translation label is required")
-	ErrMenuItemPageNotFound     = errors.New("menus: page target not found")
-	ErrMenuItemPageSlugRequired = errors.New("menus: page target requires slug")
+	ErrMenuCodeRequired                    = errors.New("menus: code is required")
+	ErrMenuCodeInvalid                     = errors.New("menus: code must contain only letters, numbers, hyphen, or underscore")
+	ErrMenuCodeExists                      = errors.New("menus: code already exists")
+	ErrMenuNotFound                        = errors.New("menus: menu not found")
+	ErrMenuInUse                           = errors.New("menus: menu is assigned to an active theme")
+	ErrMenuItemNotFound                    = errors.New("menus: menu item not found")
+	ErrMenuItemParentInvalid               = errors.New("menus: parent menu item invalid")
+	ErrMenuItemCycle                       = errors.New("menus: hierarchy creates a cycle")
+	ErrMenuItemPosition                    = errors.New("menus: position must be zero or positive")
+	ErrMenuItemTargetMissing               = errors.New("menus: target type is required")
+	ErrMenuItemTranslations                = errors.New("menus: at least one translation is required")
+	ErrMenuItemDuplicateLocale             = errors.New("menus: duplicate translation locale provided")
+	ErrMenuItemHasChildren                 = errors.New("menus: menu item has children; enable cascade to delete")
+	ErrUnknownLocale                       = errors.New("menus: locale is unknown")
+	ErrTranslationExists                   = errors.New("menus: translation already exists for locale")
+	ErrTranslationLabelRequired            = errors.New("menus: translation label is required")
+	ErrMenuItemPageNotFound                = errors.New("menus: page target not found")
+	ErrMenuItemPageSlugRequired            = errors.New("menus: page target requires slug")
+	ErrMenuItemTypeInvalid                 = errors.New("menus: menu item type is invalid")
+	ErrMenuItemParentUnsupported           = errors.New("menus: parent cannot accept children")
+	ErrMenuItemSeparatorFields             = errors.New("menus: separators cannot have targets, children, labels, icons, or badges")
+	ErrMenuItemGroupFields                 = errors.New("menus: groups cannot define targets, icons, or badges")
+	ErrMenuItemCollapsibleWithoutChildren  = errors.New("menus: collapsible menus require children")
+	ErrMenuItemCollapsedWithoutCollapsible = errors.New("menus: collapsed menus must be marked collapsible")
+	ErrMenuItemTranslationTextRequired     = errors.New("menus: translation requires label or translation key")
 )
 
 // LocaleRepository resolves locales by code.
@@ -148,11 +179,23 @@ type PageRepository interface {
 
 // NavigationNode represents a localized menu item ready for presentation.
 type NavigationNode struct {
-	ID       uuid.UUID        `json:"id"`
-	Label    string           `json:"label"`
-	URL      string           `json:"url"`
-	Target   map[string]any   `json:"target,omitempty"`
-	Children []NavigationNode `json:"children,omitempty"`
+	ID            uuid.UUID         `json:"id"`
+	Type          string            `json:"type,omitempty"`
+	Label         string            `json:"label,omitempty"`
+	LabelKey      string            `json:"label_key,omitempty"`
+	GroupTitle    string            `json:"group_title,omitempty"`
+	GroupTitleKey string            `json:"group_title_key,omitempty"`
+	URL           string            `json:"url"`
+	Target        map[string]any    `json:"target,omitempty"`
+	Icon          string            `json:"icon,omitempty"`
+	Badge         map[string]any    `json:"badge,omitempty"`
+	Permissions   []string          `json:"permissions,omitempty"`
+	Classes       []string          `json:"classes,omitempty"`
+	Styles        map[string]string `json:"styles,omitempty"`
+	Collapsible   bool              `json:"collapsible,omitempty"`
+	Collapsed     bool              `json:"collapsed,omitempty"`
+	Metadata      map[string]any    `json:"metadata,omitempty"`
+	Children      []NavigationNode  `json:"children,omitempty"`
 }
 
 // MenuUsageResolver reports whether menus are currently bound to active themes/locations.
@@ -457,15 +500,23 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 
-	if s.translationsRequired() && len(input.Translations) == 0 && !input.AllowMissingTranslations {
+	itemType, err := normalizeMenuItemTypeValue(input.Type)
+	if err != nil {
+		return nil, ErrMenuItemTypeInvalid
+	}
+
+	if itemType != MenuItemTypeSeparator && s.translationsRequired() && len(input.Translations) == 0 && !input.AllowMissingTranslations {
 		return nil, ErrMenuItemTranslations
+	}
+	if itemType == MenuItemTypeSeparator && len(input.Translations) > 0 {
+		return nil, ErrMenuItemSeparatorFields
 	}
 
 	if input.Position < 0 {
 		return nil, ErrMenuItemPosition
 	}
 
-	target, err := s.sanitizeTarget(ctx, input.Target)
+	target, err := s.normalizeTargetForType(ctx, itemType, input.Target)
 	if err != nil {
 		return nil, err
 	}
@@ -485,6 +536,9 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		if parent.MenuID != menu.ID {
 			return nil, ErrMenuItemParentInvalid
 		}
+		if normalizeMenuItemTypeValueOrDefault(parent.Type) == MenuItemTypeSeparator {
+			return nil, ErrMenuItemParentUnsupported
+		}
 	}
 
 	// Re-index siblings to make room.
@@ -500,17 +554,41 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 
+	if input.Collapsed && !input.Collapsible {
+		return nil, ErrMenuItemCollapsedWithoutCollapsible
+	}
+	if err := validateMenuItemSemantics(menuItemSemantics{
+		Type:             itemType,
+		Target:           target,
+		Icon:             strings.TrimSpace(input.Icon),
+		Badge:            input.Badge,
+		TranslationCount: len(input.Translations),
+		Collapsible:      input.Collapsible,
+		Collapsed:        input.Collapsed,
+	}, false); err != nil {
+		return nil, err
+	}
+
 	now := s.now()
 	item := &MenuItem{
-		ID:        s.id(),
-		MenuID:    menu.ID,
-		ParentID:  parentID,
-		Position:  insertAt,
-		Target:    target,
-		CreatedBy: input.CreatedBy,
-		UpdatedBy: input.UpdatedBy,
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:          s.id(),
+		MenuID:      menu.ID,
+		ParentID:    parentID,
+		Position:    insertAt,
+		Type:        itemType,
+		Target:      ensureNonNilTarget(target),
+		Icon:        strings.TrimSpace(input.Icon),
+		Badge:       cloneMapAny(input.Badge),
+		Permissions: cloneStringSlice(input.Permissions),
+		Classes:     cloneStringSlice(input.Classes),
+		Styles:      cloneMapString(input.Styles),
+		Collapsible: itemType != MenuItemTypeSeparator && input.Collapsible,
+		Collapsed:   itemType != MenuItemTypeSeparator && input.Collapsible && input.Collapsed,
+		Metadata:    ensureMapAny(input.Metadata),
+		CreatedBy:   input.CreatedBy,
+		UpdatedBy:   input.UpdatedBy,
+		CreatedAt:   now,
+		UpdatedAt:   now,
 	}
 
 	created, err := s.items.Create(ctx, item)
@@ -518,9 +596,12 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 
-	trs, err := s.attachTranslations(ctx, created.ID, input.Translations)
-	if err != nil {
-		return nil, err
+	var trs []*MenuItemTranslation
+	if itemType != MenuItemTypeSeparator && len(input.Translations) > 0 {
+		trs, err = s.attachTranslations(ctx, created.ID, itemType, input.Translations)
+		if err != nil {
+			return nil, err
+		}
 	}
 	created.Translations = trs
 	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu_item", created.ID, map[string]any{
@@ -547,6 +628,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		}
 		return nil, err
 	}
+
 	originalPosition := item.Position
 	var originalParent *uuid.UUID
 	if item.ParentID != nil {
@@ -554,12 +636,69 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		originalParent = &parentCopy
 	}
 
+	currentType := normalizeMenuItemTypeValueOrDefault(item.Type)
+	targetType := currentType
+	if input.Type != nil {
+		var typeErr error
+		targetType, typeErr = normalizeMenuItemTypeValue(*input.Type)
+		if typeErr != nil {
+			return nil, ErrMenuItemTypeInvalid
+		}
+	}
+
+	if input.Collapsed != nil && *input.Collapsed && input.Collapsible != nil && !*input.Collapsible {
+		return nil, ErrMenuItemCollapsedWithoutCollapsible
+	}
+
+	translations, err := s.translations.ListByMenuItem(ctx, item.ID)
+	if err != nil {
+		return nil, err
+	}
+	item.Translations = translations
+	if item.Metadata == nil {
+		item.Metadata = map[string]any{}
+	}
+
 	if input.Target != nil {
-		target, err := s.sanitizeTarget(ctx, input.Target)
+		target, err := s.normalizeTargetForType(ctx, targetType, input.Target)
 		if err != nil {
 			return nil, err
 		}
 		item.Target = target
+	} else if targetType != currentType && targetType != MenuItemTypeItem {
+		item.Target = map[string]any{}
+	}
+
+	if input.Icon != nil {
+		item.Icon = strings.TrimSpace(*input.Icon)
+	} else if targetType == MenuItemTypeGroup || targetType == MenuItemTypeSeparator {
+		item.Icon = ""
+	}
+
+	if input.Badge != nil {
+		item.Badge = cloneMapAny(input.Badge)
+	} else if targetType == MenuItemTypeGroup || targetType == MenuItemTypeSeparator {
+		item.Badge = nil
+	}
+
+	if input.Permissions != nil {
+		item.Permissions = cloneStringSlice(input.Permissions)
+	}
+	if input.Classes != nil {
+		item.Classes = cloneStringSlice(input.Classes)
+	}
+	if input.Styles != nil {
+		item.Styles = cloneMapString(input.Styles)
+	}
+	if input.Metadata != nil {
+		item.Metadata = ensureMapAny(input.Metadata)
+	}
+
+	if input.Collapsible != nil {
+		item.Collapsible = *input.Collapsible
+	}
+	if input.Collapsed != nil {
+		item.Collapsed = *input.Collapsed
 	}
 
 	if input.Position != nil {
@@ -594,10 +733,47 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 			if parent.MenuID != item.MenuID {
 				return nil, ErrMenuItemParentInvalid
 			}
+			if normalizeMenuItemTypeValueOrDefault(parent.Type) == MenuItemTypeSeparator {
+				return nil, ErrMenuItemParentUnsupported
+			}
 		}
 		item.ParentID = parentID
 	}
 
+	var hasChildren bool
+	if targetType == MenuItemTypeSeparator || item.Collapsible {
+		children, err := s.items.ListChildren(ctx, item.ID)
+		if err != nil {
+			return nil, err
+		}
+		hasChildren = len(children) > 0
+		if targetType == MenuItemTypeSeparator && hasChildren {
+			return nil, ErrMenuItemSeparatorFields
+		}
+	}
+
+	if targetType == MenuItemTypeSeparator {
+		item.Collapsible = false
+		item.Collapsed = false
+	}
+	if item.Collapsed && !item.Collapsible {
+		return nil, ErrMenuItemCollapsedWithoutCollapsible
+	}
+	if err := validateMenuItemSemantics(menuItemSemantics{
+		Type:             targetType,
+		Target:           item.Target,
+		Icon:             item.Icon,
+		Badge:            item.Badge,
+		TranslationCount: len(item.Translations),
+		Collapsible:      item.Collapsible,
+		Collapsed:        item.Collapsed,
+	}, hasChildren); err != nil {
+		return nil, err
+	}
+
+	item.Type = targetType
+	item.Target = ensureNonNilTarget(item.Target)
+	item.Metadata = ensureMapAny(item.Metadata)
 	item.UpdatedBy = input.UpdatedBy
 	item.UpdatedAt = s.now()
 	updated, err := s.items.Update(ctx, item)
@@ -605,10 +781,6 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		return nil, err
 	}
 
-	translations, err := s.translations.ListByMenuItem(ctx, item.ID)
-	if err != nil {
-		return nil, err
-	}
 	updated.Translations = translations
 
 	verb := "update"
@@ -709,6 +881,9 @@ func (s *service) BulkReorderMenuItems(ctx context.Context, input BulkReorderMen
 			if !ok || parent.MenuID != input.MenuID {
 				return nil, ErrMenuItemParentInvalid
 			}
+			if normalizeMenuItemTypeValueOrDefault(parent.Type) == MenuItemTypeSeparator {
+				return nil, ErrMenuItemParentUnsupported
+			}
 		}
 
 		parentMap[entry.ItemID] = entry.ParentID
@@ -774,9 +949,6 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 	if input.ItemID == uuid.Nil {
 		return nil, ErrMenuItemNotFound
 	}
-	if strings.TrimSpace(input.Label) == "" {
-		return nil, ErrTranslationLabelRequired
-	}
 
 	item, err := s.items.GetByID(ctx, input.ItemID)
 	if err != nil {
@@ -786,10 +958,26 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 		}
 		return nil, err
 	}
+	itemType := normalizeMenuItemTypeValueOrDefault(item.Type)
+	if itemType == MenuItemTypeSeparator {
+		return nil, ErrMenuItemSeparatorFields
+	}
+
+	normalizedInput, err := normalizeMenuItemTranslationInput(itemType, MenuItemTranslationInput{
+		Locale:        input.Locale,
+		Label:         input.Label,
+		LabelKey:      input.LabelKey,
+		GroupTitle:    input.GroupTitle,
+		GroupTitleKey: input.GroupTitleKey,
+		URLOverride:   input.URLOverride,
+	})
+	if err != nil {
+		return nil, err
+	}
 
 	menu, _ := s.menus.GetByID(ctx, item.MenuID)
 
-	locale, err := s.lookupLocale(ctx, input.Locale)
+	locale, err := s.lookupLocale(ctx, normalizedInput.Locale)
 	if err != nil {
 		return nil, err
 	}
@@ -800,13 +988,16 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 
 	now := s.now()
 	translation := &MenuItemTranslation{
-		ID:          s.id(),
-		MenuItemID:  item.ID,
-		LocaleID:    locale.ID,
-		Label:       strings.TrimSpace(input.Label),
-		URLOverride: input.URLOverride,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            s.id(),
+		MenuItemID:    item.ID,
+		LocaleID:      locale.ID,
+		Label:         normalizedInput.Label,
+		LabelKey:      normalizedInput.LabelKey,
+		GroupTitle:    normalizedInput.GroupTitle,
+		GroupTitleKey: normalizedInput.GroupTitleKey,
+		URLOverride:   normalizedInput.URLOverride,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	created, err := s.translations.Create(ctx, translation)
@@ -822,8 +1013,17 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 	if menu != nil {
 		meta["menu_code"] = menu.Code
 	}
-	if label := strings.TrimSpace(input.Label); label != "" {
-		meta["label"] = label
+	if normalizedInput.Label != "" {
+		meta["label"] = normalizedInput.Label
+	}
+	if normalizedInput.LabelKey != "" {
+		meta["label_key"] = normalizedInput.LabelKey
+	}
+	if normalizedInput.GroupTitle != "" {
+		meta["group_title"] = normalizedInput.GroupTitle
+	}
+	if normalizedInput.GroupTitleKey != "" {
+		meta["group_title_key"] = normalizedInput.GroupTitleKey
 	}
 	s.emitActivity(ctx, pickActor(item.UpdatedBy, item.CreatedBy), "create", "menu_item_translation", created.ID, meta)
 
@@ -855,7 +1055,7 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 		}
 		nodes = append(nodes, node)
 	}
-	return nodes, nil
+	return normalizeNavigationNodes(nodes), nil
 }
 
 func (s *service) InvalidateCache(ctx context.Context) error {
@@ -881,10 +1081,23 @@ func (s *service) InvalidateCache(ctx context.Context) error {
 
 func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) (NavigationNode, error) {
 	node := NavigationNode{
-		ID: item.ID,
+		ID:          item.ID,
+		Type:        normalizeMenuItemTypeValueOrDefault(item.Type),
+		Icon:        strings.TrimSpace(item.Icon),
+		Badge:       cloneMapAny(item.Badge),
+		Permissions: cloneStringSlice(item.Permissions),
+		Classes:     cloneStringSlice(item.Classes),
+		Styles:      cloneMapString(item.Styles),
+		Collapsible: item.Collapsible,
+		Collapsed:   item.Collapsed,
+		Metadata:    cloneMapAny(item.Metadata),
 	}
 	if item.Target != nil {
 		node.Target = maps.Clone(item.Target)
+	}
+
+	if node.Type == MenuItemTypeSeparator {
+		return node, nil
 	}
 
 	primary, fallback := selectMenuTranslation(item.Translations, localeID)
@@ -893,9 +1106,17 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 		translation = fallback
 	}
 
+	var label, labelKey, groupTitle, groupTitleKey string
 	if translation != nil {
-		node.Label = translation.Label
-		if translation.URLOverride != nil {
+		label = strings.TrimSpace(translation.Label)
+		labelKey = strings.TrimSpace(translation.LabelKey)
+		groupTitle = strings.TrimSpace(translation.GroupTitle)
+		groupTitleKey = strings.TrimSpace(translation.GroupTitleKey)
+		node.Label = label
+		node.LabelKey = labelKey
+		node.GroupTitle = groupTitle
+		node.GroupTitleKey = groupTitleKey
+		if node.Type == MenuItemTypeItem && translation.URLOverride != nil {
 			if url := strings.TrimSpace(*translation.URLOverride); url != "" {
 				node.URL = url
 			}
@@ -906,15 +1127,35 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 		node.URL = s.resolveNodeURL(ctx, menuCode, item, localeID, locale)
 	}
 
-	if node.Label == "" {
-		if slug, ok := extractSlug(item.Target); ok && slug != "" {
-			node.Label = slug
-		} else if translation != nil {
-			node.Label = translation.Label
-		} else if targetType, ok := item.Target["type"].(string); ok {
-			node.Label = targetType
-		} else {
-			node.Label = item.ID.String()
+	if node.Type == MenuItemTypeGroup {
+		if node.Label == "" {
+			switch {
+			case groupTitle != "":
+				node.Label = groupTitle
+			case groupTitleKey != "":
+				node.Label = groupTitleKey
+			case label != "":
+				node.Label = label
+			case labelKey != "":
+				node.Label = labelKey
+			}
+		}
+	} else if node.Type == MenuItemTypeItem {
+		if node.Label == "" && labelKey != "" {
+			node.Label = labelKey
+		}
+		if node.Label == "" {
+			if slug, ok := extractSlug(item.Target); ok && slug != "" {
+				node.Label = slug
+			} else if translation != nil && translation.Label != "" {
+				node.Label = translation.Label
+			} else if labelKey != "" {
+				node.Label = labelKey
+			} else if targetType, ok := item.Target["type"].(string); ok {
+				node.Label = targetType
+			} else {
+				node.Label = item.ID.String()
+			}
 		}
 	}
 
@@ -928,6 +1169,12 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 			children = append(children, childNode)
 		}
 		node.Children = children
+	}
+	if len(node.Children) == 0 || node.Type == MenuItemTypeSeparator {
+		node.Collapsible = false
+		node.Collapsed = false
+	} else if !node.Collapsible {
+		node.Collapsed = false
 	}
 
 	return node, nil
@@ -960,6 +1207,9 @@ func (s *service) resolveNodeURL(ctx context.Context, menuCode string, item *Men
 	if item == nil {
 		return ""
 	}
+	if normalizeMenuItemTypeValueOrDefault(item.Type) != MenuItemTypeItem {
+		return ""
+	}
 	if s.urlResolver != nil {
 		url, err := s.urlResolver.Resolve(ctx, ResolveRequest{
 			MenuCode: menuCode,
@@ -980,13 +1230,18 @@ func (s *service) resolveNodeURL(ctx context.Context, menuCode string, item *Men
 	return url
 }
 
-func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, inputs []MenuItemTranslationInput) ([]*MenuItemTranslation, error) {
+func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, itemType string, inputs []MenuItemTranslationInput) ([]*MenuItemTranslation, error) {
 	seen := make(map[string]struct{}, len(inputs))
 	translations := make([]*MenuItemTranslation, 0, len(inputs))
 	now := s.now()
 
 	for _, tr := range inputs {
-		localeCode := strings.TrimSpace(tr.Locale)
+		normalized, err := normalizeMenuItemTranslationInput(itemType, tr)
+		if err != nil {
+			return nil, err
+		}
+
+		localeCode := normalized.Locale
 		if localeCode == "" {
 			return nil, ErrUnknownLocale
 		}
@@ -1000,22 +1255,21 @@ func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, inpu
 			return nil, err
 		}
 
-		if strings.TrimSpace(tr.Label) == "" {
-			return nil, ErrTranslationLabelRequired
-		}
-
 		if existing, err := s.translations.GetByMenuItemAndLocale(ctx, itemID, locale.ID); err == nil && existing != nil {
 			return nil, ErrTranslationExists
 		}
 
 		record := &MenuItemTranslation{
-			ID:          s.id(),
-			MenuItemID:  itemID,
-			LocaleID:    locale.ID,
-			Label:       strings.TrimSpace(tr.Label),
-			URLOverride: tr.URLOverride,
-			CreatedAt:   now,
-			UpdatedAt:   now,
+			ID:            s.id(),
+			MenuItemID:    itemID,
+			LocaleID:      locale.ID,
+			Label:         normalized.Label,
+			LabelKey:      normalized.LabelKey,
+			GroupTitle:    normalized.GroupTitle,
+			GroupTitleKey: normalized.GroupTitleKey,
+			URLOverride:   normalized.URLOverride,
+			CreatedAt:     now,
+			UpdatedAt:     now,
 		}
 		created, err := s.translations.Create(ctx, record)
 		if err != nil {
@@ -1087,6 +1341,176 @@ func (s *service) deleteMenuItemTranslations(ctx context.Context, itemID uuid.UU
 		}
 	}
 	return nil
+}
+
+type menuItemSemantics struct {
+	Type             string
+	Target           map[string]any
+	Icon             string
+	Badge            map[string]any
+	TranslationCount int
+	Collapsible      bool
+	Collapsed        bool
+}
+
+func normalizeMenuItemTypeValue(raw string) (string, error) {
+	typ := strings.ToLower(strings.TrimSpace(raw))
+	if typ == "" {
+		return MenuItemTypeItem, nil
+	}
+	switch typ {
+	case MenuItemTypeItem, MenuItemTypeGroup, MenuItemTypeSeparator:
+		return typ, nil
+	default:
+		return "", ErrMenuItemTypeInvalid
+	}
+}
+
+func normalizeMenuItemTypeValueOrDefault(raw string) string {
+	typ, err := normalizeMenuItemTypeValue(raw)
+	if err != nil || typ == "" {
+		return MenuItemTypeItem
+	}
+	return typ
+}
+
+func (s *service) normalizeTargetForType(ctx context.Context, itemType string, raw map[string]any) (map[string]any, error) {
+	switch itemType {
+	case MenuItemTypeItem:
+		return s.sanitizeTarget(ctx, raw)
+	case MenuItemTypeGroup:
+		if len(raw) > 0 {
+			return nil, ErrMenuItemGroupFields
+		}
+		return nil, nil
+	case MenuItemTypeSeparator:
+		if len(raw) > 0 {
+			return nil, ErrMenuItemSeparatorFields
+		}
+		return nil, nil
+	default:
+		return nil, ErrMenuItemTypeInvalid
+	}
+}
+
+func validateMenuItemSemantics(sem menuItemSemantics, hasChildren bool) error {
+	switch sem.Type {
+	case MenuItemTypeSeparator:
+		if len(sem.Target) > 0 || sem.Icon != "" || len(sem.Badge) > 0 || sem.TranslationCount > 0 {
+			return ErrMenuItemSeparatorFields
+		}
+		if sem.Collapsible || sem.Collapsed {
+			return ErrMenuItemCollapsibleWithoutChildren
+		}
+	case MenuItemTypeGroup:
+		if len(sem.Target) > 0 || sem.Icon != "" || len(sem.Badge) > 0 {
+			return ErrMenuItemGroupFields
+		}
+	}
+
+	if sem.Collapsed && !sem.Collapsible {
+		return ErrMenuItemCollapsedWithoutCollapsible
+	}
+	if sem.Collapsible && !hasChildren {
+		return ErrMenuItemCollapsibleWithoutChildren
+	}
+	return nil
+}
+
+func cloneMapAny(input map[string]any) map[string]any {
+	if input == nil {
+		return nil
+	}
+	return maps.Clone(input)
+}
+
+func cloneMapString(input map[string]string) map[string]string {
+	if input == nil {
+		return nil
+	}
+	return maps.Clone(input)
+}
+
+func cloneStringSlice(input []string) []string {
+	if input == nil {
+		return nil
+	}
+	return slices.Clone(input)
+}
+
+func ensureMapAny(input map[string]any) map[string]any {
+	if input == nil {
+		return map[string]any{}
+	}
+	return maps.Clone(input)
+}
+
+func ensureNonNilTarget(target map[string]any) map[string]any {
+	if target == nil {
+		return map[string]any{}
+	}
+	return maps.Clone(target)
+}
+
+type normalizedMenuItemTranslation struct {
+	Locale        string
+	Label         string
+	LabelKey      string
+	GroupTitle    string
+	GroupTitleKey string
+	URLOverride   *string
+}
+
+func normalizeMenuItemTranslationInput(itemType string, input MenuItemTranslationInput) (normalizedMenuItemTranslation, error) {
+	normalized := normalizedMenuItemTranslation{
+		Locale:        strings.TrimSpace(input.Locale),
+		Label:         strings.TrimSpace(input.Label),
+		LabelKey:      strings.TrimSpace(input.LabelKey),
+		GroupTitle:    strings.TrimSpace(input.GroupTitle),
+		GroupTitleKey: strings.TrimSpace(input.GroupTitleKey),
+		URLOverride:   trimURLPointer(input.URLOverride),
+	}
+
+	switch itemType {
+	case MenuItemTypeSeparator:
+		if normalized.Label != "" || normalized.LabelKey != "" || normalized.GroupTitle != "" || normalized.GroupTitleKey != "" {
+			return normalizedMenuItemTranslation{}, ErrMenuItemSeparatorFields
+		}
+	case MenuItemTypeGroup:
+		if normalized.Label == "" && normalized.LabelKey == "" && normalized.GroupTitle == "" && normalized.GroupTitleKey == "" {
+			return normalizedMenuItemTranslation{}, ErrMenuItemTranslationTextRequired
+		}
+	default:
+		if normalized.Label == "" && normalized.LabelKey == "" {
+			return normalizedMenuItemTranslation{}, ErrMenuItemTranslationTextRequired
+		}
+	}
+
+	if normalized.Label == "" {
+		if itemType == MenuItemTypeGroup {
+			if normalized.GroupTitle != "" {
+				normalized.Label = normalized.GroupTitle
+			} else if normalized.GroupTitleKey != "" {
+				normalized.Label = normalized.GroupTitleKey
+			}
+		}
+		if normalized.Label == "" && normalized.LabelKey != "" {
+			normalized.Label = normalized.LabelKey
+		}
+	}
+
+	return normalized, nil
+}
+
+func trimURLPointer(raw *string) *string {
+	if raw == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*raw)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 func (s *service) compactSiblingPositions(ctx context.Context, menuID uuid.UUID, parentID *uuid.UUID, actor uuid.UUID) error {
@@ -1204,6 +1628,21 @@ func buildHierarchy(items []*MenuItem, translations map[uuid.UUID][]*MenuItemTra
 		clone := *item
 		if item.Target != nil {
 			clone.Target = maps.Clone(item.Target)
+		}
+		if item.Badge != nil {
+			clone.Badge = maps.Clone(item.Badge)
+		}
+		if item.Metadata != nil {
+			clone.Metadata = maps.Clone(item.Metadata)
+		}
+		if item.Styles != nil {
+			clone.Styles = maps.Clone(item.Styles)
+		}
+		if len(item.Permissions) > 0 {
+			clone.Permissions = cloneStringSlice(item.Permissions)
+		}
+		if len(item.Classes) > 0 {
+			clone.Classes = cloneStringSlice(item.Classes)
 		}
 		clone.Children = nil
 		clone.Translations = translations[item.ID]
@@ -1483,6 +1922,48 @@ func extractSlug(target map[string]any) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(fmt.Sprint(raw)), true
+}
+
+func normalizeNavigationNodes(nodes []NavigationNode) []NavigationNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	normalized := make([]NavigationNode, 0, len(nodes))
+	prevSeparator := false
+
+	for _, node := range nodes {
+		if node.Type == "" {
+			node.Type = MenuItemTypeItem
+		}
+
+		if node.Type == MenuItemTypeSeparator {
+			if prevSeparator || len(normalized) == 0 {
+				continue
+			}
+			prevSeparator = true
+			normalized = append(normalized, node)
+			continue
+		}
+
+		node.Children = normalizeNavigationNodes(node.Children)
+		if node.Type == MenuItemTypeGroup && len(node.Children) == 0 {
+			continue
+		}
+		if len(node.Children) == 0 {
+			node.Collapsible = false
+			node.Collapsed = false
+		} else if !node.Collapsible {
+			node.Collapsed = false
+		}
+
+		prevSeparator = false
+		normalized = append(normalized, node)
+	}
+
+	for len(normalized) > 0 && normalized[len(normalized)-1].Type == MenuItemTypeSeparator {
+		normalized = normalized[:len(normalized)-1]
+	}
+	return normalized
 }
 
 func parseUUIDValue(value any) (uuid.UUID, bool, error) {
