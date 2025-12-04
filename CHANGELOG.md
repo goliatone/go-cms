@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.6.0](https://github.com/goliatone/go-cms/compare/v0.5.0...v0.6.0) - (2025-12-04)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.6.0 ([85a7272](https://github.com/goliatone/go-cms/commit/85a7272012588c737cb3d61a7a30d3f4f70de63c))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- MenuItem group support ([10b3a87](https://github.com/goliatone/go-cms/commit/10b3a8714f4b0079b1e41592c7e5907365da1d89))  - (goliatone)
+- Menu item extensions to handle state and groups ([de4602f](https://github.com/goliatone/go-cms/commit/de4602ffcaff9f5319a9db909beab48344146cfe))  - (goliatone)
+- Menu item styles, permissions, classes, meta ([55c53b0](https://github.com/goliatone/go-cms/commit/55c53b0a5696b5324a7033ecfc6e69dd5e83295f))  - (goliatone)
+- Migrations with menu item updates ([6ff0348](https://github.com/goliatone/go-cms/commit/6ff034810116bfddef6a7bbf5446c35ab61b9a11))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.5.0 ([b10f5da](https://github.com/goliatone/go-cms/commit/b10f5dacebe798ff4e0dbcd1c3b227ac634fe06b))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([364e1ca](https://github.com/goliatone/go-cms/commit/364e1caa2d30876c56ac17407525d8bff086acea))  - (goliatone)
+
 # [0.5.0](https://github.com/goliatone/go-cms/compare/v0.4.0...v0.5.0) - (2025-12-02)
 
 ## <!-- 13 -->📦 Bumps
