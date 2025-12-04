@@ -20,9 +20,9 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 ## Features
 - **Composable services**: opt into content, page, widget, or menu modules independently.
 - **Storage flexibility**: switch between "in memory" or Bun backed SQL repositories without touching application code.
-- **Localization first**: every entity carries locale-aware translations and fallbacks.
+- **Localization first**: every entity carries locale aware translations and fallbacks.
 - **Authoring experience**: versioning, scheduling, visibility rules, and reusable blocks keep editors productive.
-- **Static publishing**: generate locale-aware static bundles or wire services into a dynamic site.
+- **Static publishing**: generate locale aware static bundles or wire services into a dynamic site.
 - **Observability hooks**: structured logging inside commands; optional adapter wiring for telemetry callbacks.
 
 ## Installation
@@ -132,7 +132,7 @@ contentType, _ := contentSvc.CreateContentType(ctx, content.CreateContentTypeReq
 ```
 
 ### Pages
-Pages form the site map. They link to content, choose templates, and emit locale-aware routes with SEO metadata.
+Pages form the site map. They link to content, choose templates, and emit locale aware routes with SEO metadata.
 
 ```go
 page, _ := pageSvc.Create(ctx, pages.CreatePageRequest{
@@ -203,7 +203,7 @@ widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
 })
 ```
 
-Enable built-in definitions and version retention through configuration:
+Enable builtin definitions and version retention through configuration:
 
 ```go
 cfg := cms.DefaultConfig()
@@ -226,7 +226,8 @@ cfg.Retention = cms.RetentionConfig{Content: 5, Pages: 3, Blocks: 2}
 ```
 
 ### Menus
-Menus generate navigation trees with locale-aware labels and URL resolution.
+
+Menus generate navigation trees with locale aware labels, translation keys, and UI hints for groups/separators/collapsible items.
 
 ```go
 menu, _ := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
@@ -247,6 +248,90 @@ menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 		{Locale: "es", Label: "Acerca de"},
 	},
 })
+
+// Section header (non clickable group) with children and label key fallback
+group, _ := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	MenuID:   menu.ID,
+	Position: 0,
+	Type:     menus.MenuItemTypeGroup,
+	Translations: []menus.MenuItemTranslationInput{
+		{Locale: "en", GroupTitleKey: "menu.group.main"},
+	},
+})
+
+// Clickable item with children (collapsible)
+shop, _ := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	MenuID:      menu.ID,
+	ParentID:    &group.ID,
+	Position:    0,
+	Type:        menus.MenuItemTypeItem,
+	Collapsible: true,
+	Target:      map[string]any{"type": "page", "slug": "shop"},
+	Translations: []menus.MenuItemTranslationInput{
+		{Locale: "en", Label: "My Shop"},
+	},
+})
+menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	MenuID:   menu.ID,
+	ParentID: &shop.ID,
+	Position: 0,
+	Type:     menus.MenuItemTypeItem,
+	Target:   map[string]any{"type": "page", "slug": "products"},
+	Translations: []menus.MenuItemTranslationInput{
+		{Locale: "en", LabelKey: "menu.products"},
+	},
+})
+
+// Separator between groups
+menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	MenuID:   menu.ID,
+	Position: 2,
+	Type:     menus.MenuItemTypeSeparator,
+})
+```
+
+Menu item types:
+- `item` (default): clickable row, may have children and optional `Collapsible/Collapsed` hints.
+- `group`: non-clickable header; no target/icon/badge; children only; use `GroupTitle`/`GroupTitleKey` for display.
+- `separator`: visual divider; no target/children/icon/badge/translations.
+
+Translation precedence: `LabelKey` (or `GroupTitleKey`) → translated value → `Label`/`GroupTitle` fallback. URL resolution only runs for `item` types.
+
+Migration note: apply `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` to add the new menu item/translation columns (`type`, collapsible flags, metadata, styling, translation keys, group titles). Undo with the matching `.down.sql` if needed.
+
+Example payload (as served to go-admin):
+```json
+[
+  {
+    "type": "group",
+    "group_title_key": "menu.group.main",
+    "children": [
+      {
+        "type": "item",
+        "label": "Home",
+        "target": {"type": "page", "slug": "home"}
+      },
+      {
+        "type": "item",
+        "label": "My Shop",
+        "collapsible": true,
+        "children": [
+          {"type": "item", "label_key": "menu.products", "target": {"type": "page", "slug": "products"}},
+          {"type": "item", "label_key": "menu.orders", "target": {"type": "page", "slug": "orders"}}
+        ]
+      }
+    ]
+  },
+  {"type": "separator"},
+  {
+    "type": "group",
+    "group_title": "Others",
+    "children": [
+      {"type": "item", "label": "Promotion", "target": {"type": "page", "slug": "promo"}},
+      {"type": "item", "label": "Settings", "target": {"type": "page", "slug": "settings"}}
+    ]
+  }
+]
 ```
 
 ### Localization Helpers
@@ -254,34 +339,78 @@ Locales, translations, and fallbacks are available across services. `cfg.I18N.Lo
 
 ## Static Site Generation
 
-The generator composes CMS services to emit pre-rendered HTML, assets, and sitemaps. It honours locale routing, draft visibility, and storage abstractions so you can stream output to disk, S3-compatible buckets, or custom storage backends.
+The generator composes CMS services to emit prerendered HTML, assets, and sitemaps. It honors locale routing, draft visibility, and storage abstractions so you can stream output to disk, S3 compatible buckets, or custom storage backends.
 
-Programmatic usage requires `github.com/goliatone/go-cms/internal/generator`.
+Programmatic usage: import `github.com/goliatone/go-cms/pkg/generator` (the CLI is a thin wrapper).
 
 ```go
-cfg := cms.DefaultConfig()
-cfg.Generator.Enabled = true
-cfg.Generator.OutputDir = "./dist"
-cfg.Generator.BaseURL = "https://example.com"
-cfg.Generator.Incremental = true
-cfg.Generator.CopyAssets = true
+package main
 
-module, err := cms.New(cfg)
-if err != nil {
-	log.Fatal(err)
+import (
+	"context"
+	"log"
+
+	"github.com/goliatone/go-cms"
+	"github.com/goliatone/go-cms/pkg/generator"
+)
+
+func main() {
+	cfg := cms.DefaultConfig()
+	cfg.Generator.Enabled = true
+	cfg.Generator.OutputDir = "./dist"
+	cfg.Generator.BaseURL = "https://example.com"
+	cfg.Generator.Incremental = true
+	cfg.Generator.CopyAssets = true
+
+	module, err := cms.New(cfg)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	gen := generator.NewService(
+		generator.Config{
+			OutputDir:       cfg.Generator.OutputDir,
+			BaseURL:         cfg.Generator.BaseURL,
+			Incremental:     cfg.Generator.Incremental,
+			CopyAssets:      cfg.Generator.CopyAssets,
+			GenerateSitemap: cfg.Generator.GenerateSitemap,
+			DefaultLocale:   cfg.I18N.DefaultLocale,
+			Locales:         cfg.I18N.Locales,
+		},
+		generator.Dependencies{
+			Pages:      module.Pages(),
+			Content:    module.Content(),
+			Blocks:     module.Blocks(),
+			Widgets:    module.Widgets(),
+			Menus:      module.Menus(),
+			Themes:     module.Themes(),
+			I18N:       module.I18N(),
+			Renderer:   module.Templates(),
+			Storage:    module.Storage(),
+			Locales:    module.I18N(),
+			Assets:     generator.NoOpAssetResolver{}, // inject theme aware resolver in production
+			Logger:     module.Logger(),
+			Shortcodes: module.Shortcodes(),
+		},
+	)
+
+	result, err := gen.Build(context.Background(), generator.BuildOptions{})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	log.Printf("built %d pages across %d locales", result.PagesBuilt, len(result.Locales))
 }
-
-result, err := module.Generator().Build(context.Background(), generator.BuildOptions{})
-if err != nil {
-	log.Fatal(err)
-}
-
-log.Printf("built %d pages across %d locales", result.PagesBuilt, len(result.Locales))
 ```
+
+Contracts:
+- `generator.Service` exposing `Build`, `BuildPage`, `BuildAssets`, `BuildSitemap`, and `Clean`.
+- `generator.Config`/`BuildOptions`/`BuildResult`/`BuildMetrics` for behavior toggles and reporting.
+- `generator.Dependencies` to inject CMS services, renderer, storage, logger, optional hooks, and asset resolver (`AssetResolver` or `NoOpAssetResolver`).
 
 Templates receive `generator.TemplateContext` with resolved dependencies:
 
-```gotemplate
+```html
 {{ define "page" }}
 <html lang="{{ .Page.Locale.Code }}">
   <head>
@@ -310,7 +439,7 @@ Troubleshooting tips:
 
 ## Markdown Import & Sync
 
-Opt into file-based content ingestion without committing to a full static workflow.
+Opt into file based content ingestion without committing to a full static workflow.
 
 ```go
 cfg := cms.DefaultConfig()
