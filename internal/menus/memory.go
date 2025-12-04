@@ -3,6 +3,7 @@ package menus
 import (
 	"context"
 	"maps"
+	"slices"
 	"sync"
 
 	"github.com/google/uuid"
@@ -372,6 +373,21 @@ func cloneMenuItem(src *MenuItem) *MenuItem {
 	cloned := *src
 	if src.Target != nil {
 		cloned.Target = maps.Clone(src.Target)
+	}
+	if src.Badge != nil {
+		cloned.Badge = maps.Clone(src.Badge)
+	}
+	if src.Metadata != nil {
+		cloned.Metadata = maps.Clone(src.Metadata)
+	}
+	if src.Styles != nil {
+		cloned.Styles = maps.Clone(src.Styles)
+	}
+	if len(src.Permissions) > 0 {
+		cloned.Permissions = slices.Clone(src.Permissions)
+	}
+	if len(src.Classes) > 0 {
+		cloned.Classes = slices.Clone(src.Classes)
 	}
 	cloned.Menu = nil
 	cloned.Parent = nil
