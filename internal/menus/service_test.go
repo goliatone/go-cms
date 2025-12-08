@@ -297,6 +297,65 @@ func TestService_AddMenuItemAllowsMissingTranslationsOverride(t *testing.T) {
 	}
 }
 
+func TestService_MenuAndTranslationIDsBypassItemGenerator(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	var calledWithoutTarget bool
+	itemGen := func(input menus.AddMenuItemInput) uuid.UUID {
+		if input.Target == nil {
+			calledWithoutTarget = true
+		}
+		return uuid.New()
+	}
+
+	baseCalls := 0
+	baseGen := func() uuid.UUID {
+		baseCalls++
+		return uuid.New()
+	}
+
+	service := newServiceWithLocales(t, fixture.locales(), itemGen, nil,
+		menus.WithRequireTranslations(false),
+		menus.WithRecordIDGenerator(baseGen),
+	)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	item, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:                   menu.ID,
+		Position:                 0,
+		Target:                   map[string]any{"type": "page", "slug": "home"},
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem: %v", err)
+	}
+
+	if calledWithoutTarget {
+		t.Fatalf("menu/translation IDs should not invoke item ID generator without target")
+	}
+
+	if _, err := service.AddMenuItemTranslation(ctx, menus.AddMenuItemTranslationInput{
+		ItemID: item.ID,
+		Locale: "en",
+		Label:  "Home",
+	}); err != nil {
+		t.Fatalf("AddMenuItemTranslation: %v", err)
+	}
+
+	if baseCalls == 0 {
+		t.Fatalf("expected record ID generator to be used for non-menu-item records")
+	}
+}
+
 func TestService_AddMenuItem_RejectsInvalidTypesAndSemantics(t *testing.T) {
 	ctx := context.Background()
 	service := newService(t)
@@ -1762,7 +1821,7 @@ func newService(t *testing.T) menus.Service {
 func newServiceWithIDs(t *testing.T, fixture serviceFixture, ids ...uuid.UUID) (menus.Service, []uuid.UUID) {
 	t.Helper()
 	idx := 0
-	idGen := func(menus.AddMenuItemInput) uuid.UUID {
+	seq := func() uuid.UUID {
 		if idx >= len(ids) {
 			t.Fatalf("id generator exhausted")
 		}
@@ -1770,7 +1829,13 @@ func newServiceWithIDs(t *testing.T, fixture serviceFixture, ids ...uuid.UUID) (
 		idx++
 		return id
 	}
-	svc := newServiceWithLocales(t, fixture.locales(), idGen, nil)
+	itemGen := func(menus.AddMenuItemInput) uuid.UUID {
+		return seq()
+	}
+	recordGen := func() uuid.UUID {
+		return seq()
+	}
+	svc := newServiceWithLocales(t, fixture.locales(), itemGen, nil, menus.WithRecordIDGenerator(recordGen))
 	return svc, ids
 }
 
