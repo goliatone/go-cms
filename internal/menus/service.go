@@ -317,6 +317,16 @@ func WithMenuUsageResolver(resolver MenuUsageResolver) ServiceOption {
 	}
 }
 
+// WithRecordIDGenerator overrides the ID generator used for non-menu-item records (menus, translations).
+// Menu item IDs remain governed by WithIDGenerator.
+func WithRecordIDGenerator(generator func() uuid.UUID) ServiceOption {
+	return func(s *service) {
+		if generator != nil {
+			s.newID = generator
+		}
+	}
+}
+
 type service struct {
 	menus               MenuRepository
 	items               MenuItemRepository
@@ -327,6 +337,7 @@ type service struct {
 	parentResolver      ParentResolver
 	now                 func() time.Time
 	id                  IDGenerator
+	newID               func() uuid.UUID
 	urlResolver         URLResolver
 	requireTranslations bool
 	translationsEnabled bool
@@ -346,6 +357,7 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 		locales:             localeRepo,
 		now:                 time.Now,
 		id:                  func(AddMenuItemInput) uuid.UUID { return uuid.New() },
+		newID:               uuid.New,
 		requireTranslations: true,
 		translationsEnabled: true,
 		activity:            activity.NewEmitter(nil, activity.Config{}),
@@ -1295,7 +1307,7 @@ func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, item
 		}
 
 		record := &MenuItemTranslation{
-			ID:            s.id(),
+			ID:            s.nextID(),
 			MenuItemID:    itemID,
 			LocaleID:      locale.ID,
 			Label:         normalized.Label,
@@ -2137,10 +2149,10 @@ func pickActor(ids ...uuid.UUID) uuid.UUID {
 }
 
 func (s *service) nextID() uuid.UUID {
-	if s.id == nil {
+	if s.newID == nil {
 		return uuid.New()
 	}
-	id := s.id(AddMenuItemInput{})
+	id := s.newID()
 	if id == uuid.Nil {
 		return uuid.New()
 	}
