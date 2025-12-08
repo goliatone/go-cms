@@ -43,6 +43,7 @@ type MenuItem struct {
 	Permissions  []string               `bun:"permissions,type:text[]" json:"permissions,omitempty"`
 	Classes      []string               `bun:"classes,type:text[]" json:"classes,omitempty"`
 	Styles       map[string]string      `bun:"styles,type:jsonb" json:"styles,omitempty"`
+	CanonicalKey *string                `bun:"canonical_key" json:"canonical_key,omitempty"`
 	Collapsible  bool                   `bun:"collapsible,notnull,default:false" json:"collapsible,omitempty"`
 	Collapsed    bool                   `bun:"collapsed,notnull,default:false" json:"collapsed,omitempty"`
 	Metadata     map[string]any         `bun:"metadata,type:jsonb,notnull" json:"metadata,omitempty"`
