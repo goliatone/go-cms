@@ -42,8 +42,11 @@ type CreateMenuInput struct {
 
 // AddMenuItemInput captures the data required to register a new menu item.
 type AddMenuItemInput struct {
-	MenuID      uuid.UUID
-	ParentID    *uuid.UUID
+	ID       *uuid.UUID
+	MenuID   uuid.UUID
+	ParentID *uuid.UUID
+	// ParentCode allows callers to reference parents using string codes when UUIDs are not available.
+	ParentCode  string
 	Position    int
 	Type        string
 	Target      map[string]any
@@ -239,7 +242,11 @@ func (e *MenuInUseError) Unwrap() error {
 }
 
 // IDGenerator produces unique identifiers.
-type IDGenerator func() uuid.UUID
+// It receives the normalized AddMenuItemInput so callers can derive deterministic IDs from payload fields.
+type IDGenerator func(AddMenuItemInput) uuid.UUID
+
+// ParentResolver maps caller-provided parent codes (non-UUID) into UUIDs before validation.
+type ParentResolver func(ctx context.Context, code string, input AddMenuItemInput) (*uuid.UUID, error)
 
 // ServiceOption configures menu service behaviour.
 type ServiceOption func(*service)
@@ -258,6 +265,15 @@ func WithIDGenerator(generator IDGenerator) ServiceOption {
 	return func(s *service) {
 		if generator != nil {
 			s.id = generator
+		}
+	}
+}
+
+// WithParentResolver wires a resolver used to translate non-UUID parent references into UUIDs.
+func WithParentResolver(resolver ParentResolver) ServiceOption {
+	return func(s *service) {
+		if resolver != nil {
+			s.parentResolver = resolver
 		}
 	}
 }
@@ -308,6 +324,7 @@ type service struct {
 	locales             LocaleRepository
 	pageRepo            PageRepository
 	usageResolver       MenuUsageResolver
+	parentResolver      ParentResolver
 	now                 func() time.Time
 	id                  IDGenerator
 	urlResolver         URLResolver
@@ -328,7 +345,7 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 		translations:        trRepo,
 		locales:             localeRepo,
 		now:                 time.Now,
-		id:                  uuid.New,
+		id:                  func(AddMenuItemInput) uuid.UUID { return uuid.New() },
 		requireTranslations: true,
 		translationsEnabled: true,
 		activity:            activity.NewEmitter(nil, activity.Config{}),
@@ -382,7 +399,7 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 
 	now := s.now()
 	menu := &Menu{
-		ID:          s.id(),
+		ID:          s.nextID(),
 		Code:        code,
 		Description: input.Description,
 		CreatedBy:   input.CreatedBy,
@@ -521,11 +538,12 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 
-	var parentID *uuid.UUID
-	if input.ParentID != nil {
-		parentID = new(uuid.UUID)
-		*parentID = *input.ParentID
-		parent, err := s.items.GetByID(ctx, *input.ParentID)
+	parentID, err := s.resolveParent(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if parentID != nil {
+		parent, err := s.items.GetByID(ctx, *parentID)
 		if err != nil {
 			var notFound *NotFoundError
 			if errors.As(err, &notFound) {
@@ -538,6 +556,21 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		}
 		if normalizeMenuItemTypeValueOrDefault(parent.Type) == MenuItemTypeSeparator {
 			return nil, ErrMenuItemParentUnsupported
+		}
+	}
+
+	normalizedInput := input
+	normalizedInput.Type = itemType
+	normalizedInput.Target = target
+	normalizedInput.ParentID = parentID
+	itemID := s.pickMenuItemID(normalizedInput)
+	canonicalKey := deriveCanonicalKey(itemType, target)
+
+	if canonicalKey != nil {
+		if existing, err := s.findDuplicateByCanonicalKey(ctx, menu.ID, *canonicalKey); err != nil {
+			return nil, err
+		} else if existing != nil {
+			return existing, nil
 		}
 	}
 
@@ -571,24 +604,25 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 
 	now := s.now()
 	item := &MenuItem{
-		ID:          s.id(),
-		MenuID:      menu.ID,
-		ParentID:    parentID,
-		Position:    insertAt,
-		Type:        itemType,
-		Target:      ensureNonNilTarget(target),
-		Icon:        strings.TrimSpace(input.Icon),
-		Badge:       cloneMapAny(input.Badge),
-		Permissions: cloneStringSlice(input.Permissions),
-		Classes:     cloneStringSlice(input.Classes),
-		Styles:      cloneMapString(input.Styles),
-		Collapsible: itemType != MenuItemTypeSeparator && input.Collapsible,
-		Collapsed:   itemType != MenuItemTypeSeparator && input.Collapsible && input.Collapsed,
-		Metadata:    ensureMapAny(input.Metadata),
-		CreatedBy:   input.CreatedBy,
-		UpdatedBy:   input.UpdatedBy,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:           itemID,
+		MenuID:       menu.ID,
+		ParentID:     parentID,
+		Position:     insertAt,
+		Type:         itemType,
+		Target:       ensureNonNilTarget(target),
+		Icon:         strings.TrimSpace(input.Icon),
+		Badge:        cloneMapAny(input.Badge),
+		Permissions:  cloneStringSlice(input.Permissions),
+		Classes:      cloneStringSlice(input.Classes),
+		Styles:       cloneMapString(input.Styles),
+		Collapsible:  itemType != MenuItemTypeSeparator && input.Collapsible,
+		Collapsed:    itemType != MenuItemTypeSeparator && input.Collapsible && input.Collapsed,
+		Metadata:     ensureMapAny(input.Metadata),
+		CreatedBy:    input.CreatedBy,
+		UpdatedBy:    input.UpdatedBy,
+		CreatedAt:    now,
+		UpdatedAt:    now,
+		CanonicalKey: canonicalKey,
 	}
 
 	created, err := s.items.Create(ctx, item)
@@ -774,6 +808,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 	item.Type = targetType
 	item.Target = ensureNonNilTarget(item.Target)
 	item.Metadata = ensureMapAny(item.Metadata)
+	item.CanonicalKey = deriveCanonicalKey(item.Type, item.Target)
 	item.UpdatedBy = input.UpdatedBy
 	item.UpdatedAt = s.now()
 	updated, err := s.items.Update(ctx, item)
@@ -988,7 +1023,7 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 
 	now := s.now()
 	translation := &MenuItemTranslation{
-		ID:            s.id(),
+		ID:            s.nextID(),
 		MenuItemID:    item.ID,
 		LocaleID:      locale.ID,
 		Label:         normalizedInput.Label,
@@ -1534,6 +1569,96 @@ func (s *service) compactSiblingPositions(ctx context.Context, menuID uuid.UUID,
 	return s.items.BulkUpdateHierarchy(ctx, updated)
 }
 
+func (s *service) resolveParent(ctx context.Context, input AddMenuItemInput) (*uuid.UUID, error) {
+	if input.ParentID != nil && *input.ParentID != uuid.Nil {
+		parentID := *input.ParentID
+		return &parentID, nil
+	}
+	ref := strings.TrimSpace(input.ParentCode)
+	if ref == "" {
+		return nil, nil
+	}
+	if parsed, err := uuid.Parse(ref); err == nil && parsed != uuid.Nil {
+		return &parsed, nil
+	}
+	if s.parentResolver != nil {
+		id, err := s.parentResolver(ctx, ref, input)
+		if err != nil {
+			return nil, err
+		}
+		if id != nil && *id != uuid.Nil {
+			return id, nil
+		}
+	}
+	return nil, ErrMenuItemParentInvalid
+}
+
+func (s *service) pickMenuItemID(input AddMenuItemInput) uuid.UUID {
+	if input.ID != nil && *input.ID != uuid.Nil {
+		return *input.ID
+	}
+	if s.id == nil {
+		return uuid.New()
+	}
+	id := s.id(input)
+	if id == uuid.Nil {
+		return uuid.New()
+	}
+	return id
+}
+
+func (s *service) findDuplicateByCanonicalKey(ctx context.Context, menuID uuid.UUID, key string) (*MenuItem, error) {
+	items, err := s.items.ListByMenu(ctx, menuID)
+	if err != nil {
+		return nil, err
+	}
+	for _, item := range items {
+		if item == nil || item.CanonicalKey == nil {
+			continue
+		}
+		if *item.CanonicalKey == key {
+			return item, nil
+		}
+	}
+	return nil, nil
+}
+
+func deriveCanonicalKey(itemType string, target map[string]any) *string {
+	if itemType != MenuItemTypeItem || len(target) == 0 {
+		return nil
+	}
+	t := strings.TrimSpace(fmt.Sprint(target["type"]))
+	switch t {
+	case "page":
+		if raw, ok := target["page_id"]; ok {
+			if val := strings.TrimSpace(fmt.Sprint(raw)); val != "" {
+				key := "page:id:" + val
+				return &key
+			}
+		}
+		if raw, ok := target["slug"]; ok {
+			if val := strings.TrimSpace(fmt.Sprint(raw)); val != "" {
+				key := "page:slug:" + val
+				return &key
+			}
+		}
+	default:
+		if raw, ok := target["url"]; ok {
+			if val := strings.TrimSpace(fmt.Sprint(raw)); val != "" {
+				key := "url:" + val
+				return &key
+			}
+		}
+		if raw, ok := target["path"]; ok {
+			if val := strings.TrimSpace(fmt.Sprint(raw)); val != "" {
+				key := "path:" + val
+				return &key
+			}
+		}
+	}
+	return nil
+}
+
 func (s *service) lookupLocale(ctx context.Context, code string) (*content.Locale, error) {
 	if strings.TrimSpace(code) == "" {
 		return nil, ErrUnknownLocale
@@ -1643,6 +1768,10 @@ func buildHierarchy(items []*MenuItem, translations map[uuid.UUID][]*MenuItemTra
 		}
 		if len(item.Classes) > 0 {
 			clone.Classes = cloneStringSlice(item.Classes)
+		}
+		if item.CanonicalKey != nil {
+			key := *item.CanonicalKey
+			clone.CanonicalKey = &key
 		}
 		clone.Children = nil
 		clone.Translations = translations[item.ID]
@@ -2005,6 +2134,17 @@ func pickActor(ids ...uuid.UUID) uuid.UUID {
 		}
 	}
 	return uuid.Nil
+}
+
+func (s *service) nextID() uuid.UUID {
+	if s.id == nil {
+		return uuid.New()
+	}
+	id := s.id(AddMenuItemInput{})
+	if id == uuid.Nil {
+		return uuid.New()
+	}
+	return id
 }
 
 func collectMenuLocalesFromInputs(inputs []MenuItemTranslationInput) []string {
