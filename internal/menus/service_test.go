@@ -579,6 +579,126 @@ func TestService_AddMenuItem_DedupesByCanonicalKey(t *testing.T) {
 	}
 }
 
+func TestService_AddMenuItem_DedupesAndMergesTranslations(t *testing.T) {
+	ctx := context.Background()
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	first, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Target:   map[string]any{"type": "page", "slug": "home"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Home"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem first: %v", err)
+	}
+
+	dup, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 1,
+		Target:   map[string]any{"type": "page", "slug": "home"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Homepage"},
+			{Locale: "es", Label: "Inicio"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem duplicate: %v", err)
+	}
+	if dup.ID != first.ID {
+		t.Fatalf("expected duplicate to return existing item ID %s, got %s", first.ID, dup.ID)
+	}
+
+	menuTree, err := service.GetMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("GetMenu: %v", err)
+	}
+	if len(menuTree.Items) != 1 {
+		t.Fatalf("expected 1 root item after merge, got %d", len(menuTree.Items))
+	}
+	if len(menuTree.Items[0].Translations) != 2 {
+		t.Fatalf("expected translations to merge, got %d", len(menuTree.Items[0].Translations))
+	}
+	var enLabel, esLabel string
+	for _, tr := range menuTree.Items[0].Translations {
+		if tr == nil || tr.Locale == nil {
+			continue
+		}
+		switch tr.Locale.Code {
+		case "en":
+			enLabel = tr.Label
+		case "es":
+			esLabel = tr.Label
+		}
+	}
+	if enLabel != "Home" {
+		t.Fatalf("expected existing locale label to remain 'Home', got %q", enLabel)
+	}
+	if esLabel != "Inicio" {
+		t.Fatalf("expected new locale label 'Inicio', got %q", esLabel)
+	}
+}
+
+func TestService_AddMenuItem_DedupesGroupsWithCanonicalKey(t *testing.T) {
+	ctx := context.Background()
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	first, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Type:     menus.MenuItemTypeGroup,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", GroupTitleKey: "menu.group.main"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem group: %v", err)
+	}
+
+	dup, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 1,
+		Type:     menus.MenuItemTypeGroup,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", GroupTitleKey: "menu.group.main"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem group duplicate: %v", err)
+	}
+	if dup.ID != first.ID {
+		t.Fatalf("expected duplicate group to return first ID %s, got %s", first.ID, dup.ID)
+	}
+
+	menuTree, err := service.GetMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("GetMenu: %v", err)
+	}
+	if len(menuTree.Items) != 1 {
+		t.Fatalf("expected single group after dedupe, got %d", len(menuTree.Items))
+	}
+}
+
 func TestService_AddMenuItemTranslation_Duplicate(t *testing.T) {
 	ctx := context.Background()
 	fixture := loadServiceFixture(t)
