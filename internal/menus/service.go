@@ -576,13 +576,17 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 	normalizedInput.Target = target
 	normalizedInput.ParentID = parentID
 	itemID := s.pickMenuItemID(normalizedInput)
-	canonicalKey := deriveCanonicalKey(itemType, target)
+	canonicalKey := deriveCanonicalKeyFromInput(itemType, target, normalizedInput, parentID)
 
 	if canonicalKey != nil {
 		if existing, err := s.findDuplicateByCanonicalKey(ctx, menu.ID, *canonicalKey); err != nil {
 			return nil, err
 		} else if existing != nil {
-			return existing, nil
+			merged, err := s.mergeTranslations(ctx, existing, itemType, input.Translations)
+			if err != nil {
+				return nil, err
+			}
+			return merged, nil
 		}
 	}
 
@@ -820,7 +824,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 	item.Type = targetType
 	item.Target = ensureNonNilTarget(item.Target)
 	item.Metadata = ensureMapAny(item.Metadata)
-	item.CanonicalKey = deriveCanonicalKey(item.Type, item.Target)
+	item.CanonicalKey = deriveCanonicalKeyFromMenuItem(item)
 	item.UpdatedBy = input.UpdatedBy
 	item.UpdatedAt = s.now()
 	updated, err := s.items.Update(ctx, item)
@@ -1038,6 +1042,7 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 		ID:            s.nextID(),
 		MenuItemID:    item.ID,
 		LocaleID:      locale.ID,
+		Locale:        locale,
 		Label:         normalizedInput.Label,
 		LabelKey:      normalizedInput.LabelKey,
 		GroupTitle:    normalizedInput.GroupTitle,
@@ -1310,6 +1315,7 @@ func (s *service) attachTranslations(ctx context.Context, itemID uuid.UUID, item
 			ID:            s.nextID(),
 			MenuItemID:    itemID,
 			LocaleID:      locale.ID,
+			Locale:        locale,
 			Label:         normalized.Label,
 			LabelKey:      normalized.LabelKey,
 			GroupTitle:    normalized.GroupTitle,
@@ -1619,6 +1625,67 @@ func (s *service) pickMenuItemID(input AddMenuItemInput) uuid.UUID {
 	return id
 }
 
+func (s *service) mergeTranslations(ctx context.Context, existing *MenuItem, itemType string, inputs []MenuItemTranslationInput) (*MenuItem, error) {
+	if existing == nil {
+		return nil, ErrMenuItemNotFound
+	}
+
+	existingTranslations, err := s.translations.ListByMenuItem(ctx, existing.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	seen := make(map[uuid.UUID]struct{}, len(existingTranslations))
+	for _, tr := range existingTranslations {
+		if tr != nil {
+			seen[tr.LocaleID] = struct{}{}
+		}
+	}
+
+	var added []*MenuItemTranslation
+	for _, tr := range inputs {
+		normalized, err := normalizeMenuItemTranslationInput(itemType, tr)
+		if err != nil {
+			return nil, err
+		}
+
+		locale, err := s.lookupLocale(ctx, normalized.Locale)
+		if err != nil {
+			return nil, err
+		}
+		if _, exists := seen[locale.ID]; exists {
+			continue
+		}
+
+		now := s.now()
+		record := &MenuItemTranslation{
+			ID:            s.nextID(),
+			MenuItemID:    existing.ID,
+			LocaleID:      locale.ID,
+			Locale:        locale,
+			Label:         normalized.Label,
+			LabelKey:      normalized.LabelKey,
+			GroupTitle:    normalized.GroupTitle,
+			GroupTitleKey: normalized.GroupTitleKey,
+			URLOverride:   normalized.URLOverride,
+			CreatedAt:     now,
+			UpdatedAt:     now,
+		}
+		created, err := s.translations.Create(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		added = append(added, created)
+		seen[locale.ID] = struct{}{}
+	}
+
+	if len(added) > 0 {
+		existingTranslations = append(existingTranslations, added...)
+	}
+	existing.Translations = existingTranslations
+	return existing, nil
+}
+
 func (s *service) findDuplicateByCanonicalKey(ctx context.Context, menuID uuid.UUID, key string) (*MenuItem, error) {
 	items, err := s.items.ListByMenu(ctx, menuID)
 	if err != nil {
@@ -1636,6 +1703,7 @@ func (s *service) findDuplicateByCanonicalKey(ctx context.Context, menuID uuid.U
 }
 
 func deriveCanonicalKey(itemType string, target map[string]any) *string {
+	// legacy helper retained for backward compatibility; use deriveCanonicalKeyFromInput/deriveCanonicalKeyFromMenuItem instead.
 	if itemType != MenuItemTypeItem || len(target) == 0 {
 		return nil
 	}
@@ -1669,6 +1737,98 @@ func deriveCanonicalKey(itemType string, target map[string]any) *string {
 		}
 	}
 	return nil
+}
+
+func deriveCanonicalKeyFromInput(itemType string, target map[string]any, input AddMenuItemInput, parentID *uuid.UUID) *string {
+	if itemType == MenuItemTypeItem {
+		return deriveCanonicalKey(itemType, target)
+	}
+
+	parentRef := parentKey(parentID)
+	if trimmed := strings.TrimSpace(input.ParentCode); trimmed != "" && parentRef == "root" {
+		parentRef = "code:" + strings.ToLower(trimmed)
+	}
+
+	switch itemType {
+	case MenuItemTypeGroup:
+		groupKey := extractGroupKeyFromInputs(input.Translations)
+		if groupKey != "" {
+			key := "group:" + groupKey + ":" + parentRef
+			return &key
+		}
+		key := "group:" + parentRef
+		return &key
+	case MenuItemTypeSeparator:
+		key := fmt.Sprintf("separator:%s:%d", parentRef, input.Position)
+		return &key
+	default:
+		return nil
+	}
+}
+
+func deriveCanonicalKeyFromMenuItem(item *MenuItem) *string {
+	if item == nil {
+		return nil
+	}
+	if normalizeMenuItemTypeValueOrDefault(item.Type) == MenuItemTypeItem {
+		return deriveCanonicalKey(item.Type, item.Target)
+	}
+
+	parentRef := parentKey(item.ParentID)
+	switch normalizeMenuItemTypeValueOrDefault(item.Type) {
+	case MenuItemTypeGroup:
+		groupKey := extractGroupKeyFromTranslations(item.Translations)
+		if groupKey != "" {
+			key := "group:" + groupKey + ":" + parentRef
+			return &key
+		}
+		key := "group:" + parentRef
+		return &key
+	case MenuItemTypeSeparator:
+		key := fmt.Sprintf("separator:%s:%d", parentRef, item.Position)
+		return &key
+	default:
+		return nil
+	}
+}
+
+func extractGroupKeyFromInputs(inputs []MenuItemTranslationInput) string {
+	for _, tr := range inputs {
+		if key := strings.TrimSpace(tr.GroupTitleKey); key != "" {
+			return key
+		}
+		if key := strings.TrimSpace(tr.LabelKey); key != "" {
+			return key
+		}
+		if title := strings.TrimSpace(tr.GroupTitle); title != "" {
+			return title
+		}
+		if label := strings.TrimSpace(tr.Label); label != "" {
+			return label
+		}
+	}
+	return ""
+}
+
+func extractGroupKeyFromTranslations(translations []*MenuItemTranslation) string {
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		if key := strings.TrimSpace(tr.GroupTitleKey); key != "" {
+			return key
+		}
+		if key := strings.TrimSpace(tr.LabelKey); key != "" {
+			return key
+		}
+		if title := strings.TrimSpace(tr.GroupTitle); title != "" {
+			return title
+		}
+		if label := strings.TrimSpace(tr.Label); label != "" {
+			return label
+		}
+	}
+	return ""
 }
 
 func (s *service) lookupLocale(ctx context.Context, code string) (*content.Locale, error) {
