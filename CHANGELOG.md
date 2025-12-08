@@ -1,5 +1,33 @@
 # Changelog
 
+# [0.7.0](https://github.com/goliatone/go-cms/compare/v0.6.0...v0.7.0) - (2025-12-08)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Menu handling ids ([e83faa2](https://github.com/goliatone/go-cms/commit/e83faa27f9a262a388851ed89e3b3bc318d3189e))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.7.0 ([f7074e1](https://github.com/goliatone/go-cms/commit/f7074e1f77d033f85ae885068db60ddf9882a45f))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Canonical key to types ([1034088](https://github.com/goliatone/go-cms/commit/103408898d22828b4b0d379a805af33f3c19f209))  - (goliatone)
+- ID to menu items ([0e827a3](https://github.com/goliatone/go-cms/commit/0e827a3904278286b09aefb3a2d7d9a6b3adb4b0))  - (goliatone)
+- Canonical key check ([23302fb](https://github.com/goliatone/go-cms/commit/23302fbe22cf41528a29bb6f07832299333984d2))  - (goliatone)
+- Generator package ([b3999c4](https://github.com/goliatone/go-cms/commit/b3999c46861fdbcaff3b817b630ade3469c90de7))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.6.0 ([3dd55ad](https://github.com/goliatone/go-cms/commit/3dd55ad925270cd25fe93dcdcb24735d2333f74f))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([cab303c](https://github.com/goliatone/go-cms/commit/cab303c38addec633540d8cf362fa91e300c2a29))  - (goliatone)
+- Updat emigraitons ([6f9c306](https://github.com/goliatone/go-cms/commit/6f9c306a7631b39b176cd8c3a0c0b7e7ebe55325))  - (goliatone)
+- Update readme ([dcef68a](https://github.com/goliatone/go-cms/commit/dcef68a1aaf53fbd700f249ae024ac6ffab04e2a))  - (goliatone)
+- Update docs ([597e9a5](https://github.com/goliatone/go-cms/commit/597e9a55b5945e0599f8cbe0f290f3ade6ba039e))  - (goliatone)
+
 # [0.6.0](https://github.com/goliatone/go-cms/compare/v0.5.0...v0.6.0) - (2025-12-04)
 
 ## <!-- 13 -->📦 Bumps
