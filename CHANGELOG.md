@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.8.0](https://github.com/goliatone/go-cms/compare/v0.7.0...v0.8.0) - (2025-12-08)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Menu dedup items ([9804a49](https://github.com/goliatone/go-cms/commit/9804a49df44867690f5231c78794426c8db8a5b7))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.8.0 ([3f1b3d8](https://github.com/goliatone/go-cms/commit/3f1b3d8cc220a2c7177be7655eda0b18bec6eb74))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.7.0 ([7b70f31](https://github.com/goliatone/go-cms/commit/7b70f31266358c883974b8cf1d5cf6768296c91e))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([1cce36c](https://github.com/goliatone/go-cms/commit/1cce36cecb6be561d9811296f69f72fc88b7e226))  - (goliatone)
+
 # [0.7.0](https://github.com/goliatone/go-cms/compare/v0.6.0...v0.7.0) - (2025-12-08)
 
 ## <!-- 1 -->🐛 Bug Fixes
