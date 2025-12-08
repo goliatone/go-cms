@@ -389,6 +389,10 @@ func cloneMenuItem(src *MenuItem) *MenuItem {
 	if len(src.Classes) > 0 {
 		cloned.Classes = slices.Clone(src.Classes)
 	}
+	if src.CanonicalKey != nil {
+		key := *src.CanonicalKey
+		cloned.CanonicalKey = &key
+	}
 	cloned.Menu = nil
 	cloned.Parent = nil
 	if len(src.Children) > 0 {
