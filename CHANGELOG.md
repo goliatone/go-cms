@@ -1,5 +1,30 @@
 # Changelog
 
+# [0.9.0](https://github.com/goliatone/go-cms/compare/v0.8.0...v0.9.0) - (2025-12-12)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Include translations in Create content ([7fe5e2b](https://github.com/goliatone/go-cms/commit/7fe5e2b4ad50ef8ac035a1e01e7367a0cc15c388))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.9.0 ([3cd13d5](https://github.com/goliatone/go-cms/commit/3cd13d50ffa082d21498f32927298e7bf4cd3b88))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- GetOrCreateMenu implementation ([ddd939b](https://github.com/goliatone/go-cms/commit/ddd939b45dfd27ce79d5114440c02a0e7c027491))  - (goliatone)
+- GetOrCreateMenu function ([211001a](https://github.com/goliatone/go-cms/commit/211001aba2c568b5897c32a23ef761a43b9e00fc))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.8.0 ([b6fd06a](https://github.com/goliatone/go-cms/commit/b6fd06ac8bb0597cae042ec9c83ebc16d4868a2f))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update readme ([0a9a3f1](https://github.com/goliatone/go-cms/commit/0a9a3f1a8cb944ab09a2012df3016fd47f4cf844))  - (goliatone)
+- Update gitignore ([a24e6f6](https://github.com/goliatone/go-cms/commit/a24e6f6a7d18da8aed1fb8c736784d7fc185c7ed))  - (goliatone)
+- Update tests ([c42b2b7](https://github.com/goliatone/go-cms/commit/c42b2b7212c0ebd0218a1a62275fd07de08b1e76))  - (goliatone)
+
 # [0.8.0](https://github.com/goliatone/go-cms/compare/v0.7.0...v0.8.0) - (2025-12-08)
 
 ## <!-- 1 -->🐛 Bug Fixes
