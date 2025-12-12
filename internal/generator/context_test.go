@@ -554,6 +554,10 @@ func (s *stubMenusService) CreateMenu(context.Context, menus.CreateMenuInput) (*
 	return nil, errUnsupported
 }
 
+func (s *stubMenusService) GetOrCreateMenu(context.Context, menus.CreateMenuInput) (*menus.Menu, error) {
+	return nil, errUnsupported
+}
+
 func (s *stubMenusService) GetMenu(context.Context, uuid.UUID) (*menus.Menu, error) {
 	return nil, errUnsupported
 }

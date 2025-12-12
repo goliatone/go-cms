@@ -88,6 +88,32 @@ func TestService_CreateMenu_DuplicateCode(t *testing.T) {
 	}
 }
 
+func TestService_GetOrCreateMenu_ReturnsExisting(t *testing.T) {
+	ctx := context.Background()
+	svc := newService(t)
+
+	first, err := svc.GetOrCreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateMenu initial: %v", err)
+	}
+
+	second, err := svc.GetOrCreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreateMenu existing: %v", err)
+	}
+	if second.ID != first.ID {
+		t.Fatalf("expected same menu id, got %v and %v", first.ID, second.ID)
+	}
+}
+
 func TestService_AddMenuItem_ShiftsSiblings(t *testing.T) {
 	ctx := context.Background()
 	fixture := loadServiceFixture(t)
