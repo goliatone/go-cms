@@ -57,3 +57,6 @@ go.work
 **/.gocache/
 **/.gomodcache/
 examples/web/dist
+.cache
+.claude
+docs
