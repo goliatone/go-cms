@@ -37,7 +37,53 @@ func NewBunContentRepositoryWithCache(db *bun.DB, cacheService cache.CacheServic
 }
 
 func (r *BunContentRepository) Create(ctx context.Context, record *Content) (*Content, error) {
-	created, err := r.repo.Create(ctx, record)
+	if r.db == nil {
+		return nil, fmt.Errorf("content repository: database not configured")
+	}
+
+	var created *Content
+	err := r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		var err error
+		created, err = r.repo.CreateTx(ctx, tx, record)
+		if err != nil {
+			return err
+		}
+
+		if len(record.Translations) == 0 {
+			return nil
+		}
+
+		now := time.Now().UTC()
+		toInsert := make([]*ContentTranslation, 0, len(record.Translations))
+		for _, tr := range record.Translations {
+			if tr == nil {
+				continue
+			}
+			cloned := *tr
+			if cloned.ID == uuid.Nil {
+				cloned.ID = uuid.New()
+			}
+			cloned.ContentID = created.ID
+			if cloned.CreatedAt.IsZero() {
+				cloned.CreatedAt = now
+			}
+			if cloned.UpdatedAt.IsZero() {
+				cloned.UpdatedAt = now
+			}
+			toInsert = append(toInsert, &cloned)
+		}
+
+		if len(toInsert) == 0 {
+			return nil
+		}
+
+		if _, err := tx.NewInsert().Model(&toInsert).Exec(ctx); err != nil {
+			return fmt.Errorf("insert translations: %w", err)
+		}
+
+		created.Translations = append([]*ContentTranslation{}, toInsert...)
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
