@@ -18,6 +18,7 @@ import (
 // Service describes menu management capabilities.
 type Service interface {
 	CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
+	GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
 	GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error)
 	GetMenuByCode(ctx context.Context, code string) (*Menu, error)
 	DeleteMenu(ctx context.Context, req DeleteMenuRequest) error
@@ -428,6 +429,53 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 		"code": created.Code,
 	})
 	return created, nil
+}
+
+// GetOrCreateMenu returns an existing menu for the provided code or creates it when missing.
+func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error) {
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
+	}
+	if !isValidCode(code) {
+		return nil, ErrMenuCodeInvalid
+	}
+
+	existing, err := s.menus.GetByCode(ctx, code)
+	if err == nil {
+		return existing, nil
+	}
+	var notFound *NotFoundError
+	if !errors.As(err, &notFound) {
+		return nil, err
+	}
+
+	now := s.now()
+	menu := &Menu{
+		ID:          s.nextID(),
+		Code:        code,
+		Description: input.Description,
+		CreatedBy:   input.CreatedBy,
+		UpdatedBy:   input.UpdatedBy,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+
+	created, err := s.menus.Create(ctx, menu)
+	if err == nil {
+		s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu", created.ID, map[string]any{
+			"code": created.Code,
+		})
+		return created, nil
+	}
+
+	// If the create failed because another caller created the menu concurrently, return the winner.
+	existing, getErr := s.menus.GetByCode(ctx, code)
+	if getErr == nil {
+		return existing, nil
+	}
+
+	return nil, err
 }
 
 // GetMenu retrieves a menu by ID including its hierarchical items.
@@ -1599,6 +1647,20 @@ func (s *service) resolveParent(ctx context.Context, input AddMenuItemInput) (*u
 	if parsed, err := uuid.Parse(ref); err == nil && parsed != uuid.Nil {
 		return &parsed, nil
 	}
+
+	// Try to find parent by canonical key within the same menu
+	if items, err := s.items.ListByMenu(ctx, input.MenuID); err == nil {
+		for _, item := range items {
+			// Check if this item matches the parent code reference
+			// The canonical key for an item is typically derived from its ID field
+			// which may be a deterministic slug-based identifier
+			canonical := deriveCanonicalKeyFromMenuItem(item)
+			if canonical != nil && *canonical == ref {
+				return &item.ID, nil
+			}
+		}
+	}
+
 	if s.parentResolver != nil {
 		id, err := s.parentResolver(ctx, ref, input)
 		if err != nil {
