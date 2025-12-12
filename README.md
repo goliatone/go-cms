@@ -299,6 +299,57 @@ Translation precedence: `LabelKey` (or `GroupTitleKey`) → translated value →
 
 Migration note: apply `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` to add the new menu item/translation columns (`type`, collapsible flags, metadata, styling, translation keys, group titles). Undo with the matching `.down.sql` if needed.
 
+ID and parent controls:
+- `AddMenuItemInput` accepts an optional `ID` for caller-supplied/deterministic IDs and a `ParentCode` for non-UUID parent references.
+- `WithIDGenerator` now receives the normalized `AddMenuItemInput`, enabling hash-based IDs derived from targets or codes; default is `uuid.New`.
+- `WithRecordIDGenerator` lets you override ID generation for non-menu-item records (menus, translations) while keeping menu item IDs governed by `WithIDGenerator`.
+- `ParentCode` resolution order:
+  1) use `ParentID` when provided, 2) parse `ParentCode` as UUID, 3) match `ParentCode` against an existing item's canonical key within the same menu, 4) call `WithParentResolver` (when configured), else `ErrMenuItemParentInvalid`.
+- `WithParentResolver` lets you translate `ParentCode` values (string codes) into UUIDs when you want custom references (for example `"nav.group.main"`). The resolver must return the UUID of an existing menu item (often by using the same deterministic ID scheme you used when creating that item).
+- Items are deduped per menu using a persisted canonical key (`menu_items.canonical_key`); apply `data/sql/migrations/20250301000000_menu_item_canonical_dedupe.up.sql` to backfill + add the unique index.
+
+Canonical key formats (used for dedupe and for `ParentCode` lookups):
+- `item` targets:
+  - `page:id:<uuid>` (when `target.page_id` is present)
+  - `page:slug:<slug>` (when `target.slug` is present)
+  - `url:<url>` (when `target.url` is present)
+  - `path:<path>` (when `target.path` is present)
+- `group` (derived from translations + parent):
+  - `group:<groupKey>:<parentRef>` when a `groupKey` is present
+  - `group:<parentRef>` when there is no `groupKey`
+  - `groupKey` is extracted from the first non-empty translation field in this order: `GroupTitleKey`, `LabelKey`, `GroupTitle`, `Label`
+- `separator` (derived from parent + position): `separator:<parentRef>:<position>`
+- `parentRef` is `root` or the parent item's UUID string.
+
+Example: reference a group parent using `ParentCode` (canonical key).
+```go
+menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	MenuID:     menu.ID,
+	ParentCode: "group:menu.group.main:root",
+	Position:   0,
+	Target:     map[string]any{"type": "page", "slug": "products"},
+	Translations: []menus.MenuItemTranslationInput{
+		{Locale: "en", LabelKey: "menu.products"},
+	},
+})
+```
+
+Example: configure a custom `ParentCode` resolver (advanced).
+```go
+menuSvc := menus.NewService(
+	menuRepo,
+	menuItemRepo,
+	menuTranslationRepo,
+	localeRepo,
+	menus.WithParentResolver(func(ctx context.Context, code string, input menus.AddMenuItemInput) (*uuid.UUID, error) {
+		// Translate "nav.group.main" -> the UUID of an existing menu item.
+		// Common strategies: lookup table, deterministic IDs, or an external registry.
+		return nil, nil
+	}),
+)
+```
+- For existing installs with malformed/duplicate menus, run `docs/menu_reset.sql` after applying the canonical-key migration or wipe the sample DB (`rm /tmp/go-admin-cms.db` or your configured path) before re-seeding.
+
 Example payload (as served to go-admin):
 ```json
 [
