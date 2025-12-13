@@ -230,7 +230,8 @@ cfg.Retention = cms.RetentionConfig{Content: 5, Pages: 3, Blocks: 2}
 Menus generate navigation trees with locale aware labels, translation keys, and UI hints for groups/separators/collapsible items.
 
 ```go
-menu, _ := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+// Prefer GetOrCreateMenu/UpsertMenu in bootstraps so re-running seeds is safe.
+menu, _ := menuSvc.GetOrCreateMenu(ctx, menus.CreateMenuInput{
 	Code:      "primary",
 	CreatedBy: authorID,
 	UpdatedBy: authorID,
@@ -299,16 +300,70 @@ Translation precedence: `LabelKey` (or `GroupTitleKey`) → translated value →
 
 Migration note: apply `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` to add the new menu item/translation columns (`type`, collapsible flags, metadata, styling, translation keys, group titles). Undo with the matching `.down.sql` if needed.
 
+#### Forgiving, order-independent seeding (recommended for modules)
+
+For module-friendly bootstraps (add items in any order, re-run seeds without duplicates, let children reference future parents), enable forgiving mode:
+
+```go
+menuSvc := menus.NewService(
+	menuRepo,
+	menuItemRepo,
+	menuTranslationRepo,
+	localeRepo,
+	menus.WithForgivingMenuBootstrap(true),
+)
+
+// Upsert-by-code; safe to call from multiple modules.
+desc := "Primary navigation"
+menu, _ := menuSvc.UpsertMenu(ctx, menus.UpsertMenuInput{
+	Code:        "primary_navigation",
+	Description: &desc,
+	Actor:       authorID,
+})
+
+// Child first: ParentCode is a human-friendly identifier (prefer stable codes).
+menuSvc.UpsertMenuItem(ctx, menus.UpsertMenuItemInput{
+	MenuID:        &menu.ID,
+	ExternalCode:  "nav.item.products",
+	ParentCode:    "nav.group.main",
+	Type:          menus.MenuItemTypeItem,
+	Target:        map[string]any{"type": "page", "slug": "products"},
+	Translations:  []menus.MenuItemTranslationInput{{Locale: "en", LabelKey: "menu.products"}},
+	Actor:         authorID,
+})
+
+// Parent later: same ExternalCode makes this idempotent across runs.
+menuSvc.UpsertMenuItem(ctx, menus.UpsertMenuItemInput{
+	MenuID:        &menu.ID,
+	ExternalCode:  "nav.group.main",
+	Type:          menus.MenuItemTypeGroup,
+	Collapsible:   true, // allowed even before children exist
+	Translations:  []menus.MenuItemTranslationInput{{Locale: "en", GroupTitleKey: "menu.group.main"}},
+	Actor:         authorID,
+})
+```
+
+In forgiving mode:
+- If a parent is missing, the item is inserted with `parent_id = NULL` and a stored `parent_ref`; `ReconcileMenu` links it once the parent appears.
+- Items are deduped using a stable canonical key; when you set `ExternalCode`, the canonical key becomes `code:<external_code>`, making re-seeds idempotent.
+- UUIDs are treated as storage details: when you don't supply an explicit `ID`, the service derives deterministic IDs from menu codes and canonical keys (so repeated seeds converge on the same records).
+- Navigation output prunes empty groups and derives collapsible state from actual children.
+
+Migration note: apply `data/sql/migrations/20251213000000_menu_item_external_parent_refs.up.sql` to add `menu_items.external_code` and `menu_items.parent_ref`.
+See `MENU_FORGIVING_BOOTSTRAP.md` for the full design/semantics.
+
 ID and parent controls:
-- `AddMenuItemInput` accepts an optional `ID` for caller-supplied/deterministic IDs and a `ParentCode` for non-UUID parent references.
+- `AddMenuItemInput` accepts optional `ID` (caller-supplied/deterministic), `ExternalCode` (human-friendly stable item identifier), and `ParentCode` (string parent reference).
+- `UpsertMenuItemInput` (when using `UpsertMenuItem`) also accepts `MenuCode` and an optional `CanonicalKey` override.
 - `WithIDGenerator` now receives the normalized `AddMenuItemInput`, enabling hash-based IDs derived from targets or codes; default is `uuid.New`.
 - `WithRecordIDGenerator` lets you override ID generation for non-menu-item records (menus, translations) while keeping menu item IDs governed by `WithIDGenerator`.
 - `ParentCode` resolution order:
-  1) use `ParentID` when provided, 2) parse `ParentCode` as UUID, 3) match `ParentCode` against an existing item's canonical key within the same menu, 4) call `WithParentResolver` (when configured), else `ErrMenuItemParentInvalid`.
-- `WithParentResolver` lets you translate `ParentCode` values (string codes) into UUIDs when you want custom references (for example `"nav.group.main"`). The resolver must return the UUID of an existing menu item (often by using the same deterministic ID scheme you used when creating that item).
+  1) use `ParentID` when provided, 2) parse `ParentCode` as UUID, 3) match `ParentCode` against an existing item's `ExternalCode` within the same menu, 4) match `ParentCode` against an existing item's `CanonicalKey`, 5) call `WithParentResolver` (when configured), else `ErrMenuItemParentInvalid` (or store `parent_ref` when forgiving bootstrap is enabled).
+- `WithParentResolver` is for custom parent reference schemes; in most module bootstraps, prefer `ExternalCode` + `ParentCode` with a shared namespace (e.g. `nav.group.main`).
 - Items are deduped per menu using a persisted canonical key (`menu_items.canonical_key`); apply `data/sql/migrations/20250301000000_menu_item_canonical_dedupe.up.sql` to backfill + add the unique index.
 
 Canonical key formats (used for dedupe and for `ParentCode` lookups):
+- When `ExternalCode` is set: `code:<external_code>`
 - `item` targets:
   - `page:id:<uuid>` (when `target.page_id` is present)
   - `page:slug:<slug>` (when `target.slug` is present)
@@ -319,9 +374,23 @@ Canonical key formats (used for dedupe and for `ParentCode` lookups):
   - `group:<parentRef>` when there is no `groupKey`
   - `groupKey` is extracted from the first non-empty translation field in this order: `GroupTitleKey`, `LabelKey`, `GroupTitle`, `Label`
 - `separator` (derived from parent + position): `separator:<parentRef>:<position>`
-- `parentRef` is `root` or the parent item's UUID string.
+- `parentRef` is `root`, the parent item's UUID string, or a stable `ref:<parent_code>` when `ParentCode`/`parent_ref` is present.
 
-Example: reference a group parent using `ParentCode` (canonical key).
+Example: reference a parent using `ExternalCode` (recommended).
+```go
+menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	MenuID:     menu.ID,
+	ParentCode: "nav.group.main", // must match the parent's ExternalCode
+	ExternalCode: "nav.item.products",
+	Position:   0,
+	Target:     map[string]any{"type": "page", "slug": "products"},
+	Translations: []menus.MenuItemTranslationInput{
+		{Locale: "en", LabelKey: "menu.products"},
+	},
+})
+```
+
+Example: reference a group parent using `ParentCode` as a canonical key (advanced/legacy).
 ```go
 menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 	MenuID:     menu.ID,
