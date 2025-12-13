@@ -35,6 +35,8 @@ type MenuItem struct {
 	ID           uuid.UUID              `bun:",pk,type:uuid" json:"id"`
 	MenuID       uuid.UUID              `bun:"menu_id,notnull,type:uuid" json:"menu_id"`
 	ParentID     *uuid.UUID             `bun:"parent_id,type:uuid" json:"parent_id,omitempty"`
+	ParentRef    *string                `bun:"parent_ref" json:"parent_ref,omitempty"`
+	ExternalCode string                 `bun:"external_code" json:"external_code,omitempty"`
 	Position     int                    `bun:"position,notnull,default:0" json:"position"`
 	Type         string                 `bun:"type,notnull,default:item" json:"type,omitempty"`
 	Target       map[string]any         `bun:"target,type:jsonb,notnull" json:"target,omitempty"`
