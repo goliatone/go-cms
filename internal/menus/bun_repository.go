@@ -138,6 +138,40 @@ func (r *BunMenuItemRepository) GetByID(ctx context.Context, id uuid.UUID) (*Men
 	return record, nil
 }
 
+func (r *BunMenuItemRepository) GetByMenuAndCanonicalKey(ctx context.Context, menuID uuid.UUID, key string) (*MenuItem, error) {
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.menu_id = ?", menuID).
+				Where("?TableAlias.canonical_key = ?", key)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "menu_item", Key: fmt.Sprintf("%s:%s", menuID, key)}
+	}
+	return records[0], nil
+}
+
+func (r *BunMenuItemRepository) GetByMenuAndExternalCode(ctx context.Context, menuID uuid.UUID, code string) (*MenuItem, error) {
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.menu_id = ?", menuID).
+				Where("?TableAlias.external_code = ?", code)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "menu_item", Key: fmt.Sprintf("%s:%s", menuID, code)}
+	}
+	return records[0], nil
+}
+
 func (r *BunMenuItemRepository) ListByMenu(ctx context.Context, menuID uuid.UUID) ([]*MenuItem, error) {
 	records, _, err := r.repo.List(ctx,
 		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
@@ -176,6 +210,16 @@ func (r *BunMenuItemRepository) BulkUpdateHierarchy(ctx context.Context, items [
 	}
 	_, err := r.repo.UpdateMany(ctx, items,
 		repository.UpdateColumns("parent_id", "position", "updated_at", "updated_by"),
+	)
+	return err
+}
+
+func (r *BunMenuItemRepository) BulkUpdateParentLinks(ctx context.Context, items []*MenuItem) error {
+	if len(items) == 0 {
+		return nil
+	}
+	_, err := r.repo.UpdateMany(ctx, items,
+		repository.UpdateColumns("parent_id", "parent_ref", "position", "updated_at", "updated_by"),
 	)
 	return err
 }
