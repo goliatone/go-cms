@@ -1,5 +1,29 @@
 # Changelog
 
+# [0.10.0](https://github.com/goliatone/go-cms/compare/v0.9.0...v0.10.0) - (2025-12-13)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Workflow engine implement auth ([444f73e](https://github.com/goliatone/go-cms/commit/444f73e4636d5678011bee05a24547d8b1f249a1))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.10.0 ([f91e193](https://github.com/goliatone/go-cms/commit/f91e193515b4abaf8a8fb7b12639ace72ca1c94f))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Support for lazy menu get or create ([1c4d81c](https://github.com/goliatone/go-cms/commit/1c4d81c20924dbb8526b6b373289a0b641facc23))  - (goliatone)
+- Canonical key for menu ([ec24ad7](https://github.com/goliatone/go-cms/commit/ec24ad7c8ec5a1cb78aebd61ec6d2f06f6fd5528))  - (goliatone)
+- Extenal code references to menu items ([f74ac10](https://github.com/goliatone/go-cms/commit/f74ac102d5aac73dc1532f663da255e1f86bf85e))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.9.0 ([aa8f3d5](https://github.com/goliatone/go-cms/commit/aa8f3d50161c5a8a11fbed61a803c6f9cb1fc309))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([77b8e5d](https://github.com/goliatone/go-cms/commit/77b8e5d7f7aae846e0e897009f37a2071e712a69))  - (goliatone)
+
 # [0.9.0](https://github.com/goliatone/go-cms/compare/v0.8.0...v0.9.0) - (2025-12-12)
 
 ## <!-- 1 -->🐛 Bug Fixes
