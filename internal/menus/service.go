@@ -19,14 +19,17 @@ import (
 type Service interface {
 	CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
 	GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
+	UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu, error)
 	GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error)
 	GetMenuByCode(ctx context.Context, code string) (*Menu, error)
 	DeleteMenu(ctx context.Context, req DeleteMenuRequest) error
 
 	AddMenuItem(ctx context.Context, input AddMenuItemInput) (*MenuItem, error)
+	UpsertMenuItem(ctx context.Context, input UpsertMenuItemInput) (*MenuItem, error)
 	UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput) (*MenuItem, error)
 	DeleteMenuItem(ctx context.Context, req DeleteMenuItemRequest) error
 	BulkReorderMenuItems(ctx context.Context, input BulkReorderMenuItemsInput) ([]*MenuItem, error)
+	ReconcileMenu(ctx context.Context, req ReconcileMenuRequest) (*ReconcileResult, error)
 
 	AddMenuItemTranslation(ctx context.Context, input AddMenuItemTranslationInput) (*MenuItemTranslation, error)
 	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
@@ -41,14 +44,56 @@ type CreateMenuInput struct {
 	UpdatedBy   uuid.UUID
 }
 
+// UpsertMenuInput captures the information required to create or update a menu by code.
+type UpsertMenuInput struct {
+	Code        string
+	Description *string
+	Actor       uuid.UUID
+}
+
 // AddMenuItemInput captures the data required to register a new menu item.
 type AddMenuItemInput struct {
 	ID       *uuid.UUID
 	MenuID   uuid.UUID
 	ParentID *uuid.UUID
 	// ParentCode allows callers to reference parents using string codes when UUIDs are not available.
-	ParentCode  string
-	Position    int
+	ParentCode   string
+	ExternalCode string
+	CanonicalKey string
+	Position     int
+	Type         string
+	Target       map[string]any
+	Icon         string
+	Badge        map[string]any
+	Permissions  []string
+	Classes      []string
+	Styles       map[string]string
+	Collapsible  bool
+	Collapsed    bool
+	Metadata     map[string]any
+	CreatedBy    uuid.UUID
+	UpdatedBy    uuid.UUID
+
+	Translations             []MenuItemTranslationInput
+	AllowMissingTranslations bool
+}
+
+// UpsertMenuItemInput upserts a menu item by canonical identity.
+// It supports resolving the target menu by code and deferring parent links when enabled.
+type UpsertMenuItemInput struct {
+	MenuID          *uuid.UUID
+	MenuCode        string
+	MenuDescription *string
+
+	// ExternalCode is a stable human-friendly identifier used for both dedupe and parent linking.
+	ExternalCode string
+	// CanonicalKey optionally overrides the dedupe key; when empty, it is derived from ExternalCode or the target.
+	CanonicalKey string
+
+	ParentID   *uuid.UUID
+	ParentCode string
+	Position   *int
+
 	Type        string
 	Target      map[string]any
 	Icon        string
@@ -59,8 +104,8 @@ type AddMenuItemInput struct {
 	Collapsible bool
 	Collapsed   bool
 	Metadata    map[string]any
-	CreatedBy   uuid.UUID
-	UpdatedBy   uuid.UUID
+
+	Actor uuid.UUID
 
 	Translations             []MenuItemTranslationInput
 	AllowMissingTranslations bool
@@ -140,6 +185,18 @@ type DeleteMenuItemRequest struct {
 	ItemID          uuid.UUID
 	DeletedBy       uuid.UUID
 	CascadeChildren bool
+}
+
+// ReconcileMenuRequest triggers a parent-link reconciliation pass for a menu.
+type ReconcileMenuRequest struct {
+	MenuID    uuid.UUID
+	UpdatedBy uuid.UUID
+}
+
+// ReconcileResult reports how many items were linked during reconciliation.
+type ReconcileResult struct {
+	Resolved  int
+	Remaining int
 }
 
 var (
@@ -328,6 +385,25 @@ func WithRecordIDGenerator(generator func() uuid.UUID) ServiceOption {
 	}
 }
 
+// WithForgivingMenuBootstrap enables order-independent menu seeding:
+// missing parents are deferred, collapsible flags are tolerated until children exist,
+// and reconciliation runs automatically after writes and before navigation resolution.
+func WithForgivingMenuBootstrap(enabled bool) ServiceOption {
+	return func(s *service) {
+		s.forgivingBootstrap = enabled
+		if enabled {
+			s.reconcileOnResolve = true
+		}
+	}
+}
+
+// WithReconcileOnResolveNavigation controls whether ResolveNavigation runs reconciliation first.
+func WithReconcileOnResolveNavigation(enabled bool) ServiceOption {
+	return func(s *service) {
+		s.reconcileOnResolve = enabled
+	}
+}
+
 type service struct {
 	menus               MenuRepository
 	items               MenuItemRepository
@@ -343,6 +419,8 @@ type service struct {
 	requireTranslations bool
 	translationsEnabled bool
 	activity            *activity.Emitter
+	forgivingBootstrap  bool
+	reconcileOnResolve  bool
 }
 
 type cacheInvalidator interface {
@@ -411,8 +489,12 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 	}
 
 	now := s.now()
+	menuID := s.nextID()
+	if s.forgivingBootstrap {
+		menuID = s.deterministicUUID("menu:" + code)
+	}
 	menu := &Menu{
-		ID:          s.nextID(),
+		ID:          menuID,
 		Code:        code,
 		Description: input.Description,
 		CreatedBy:   input.CreatedBy,
@@ -451,8 +533,12 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 	}
 
 	now := s.now()
+	menuID := s.nextID()
+	if s.forgivingBootstrap {
+		menuID = s.deterministicUUID("menu:" + code)
+	}
 	menu := &Menu{
-		ID:          s.nextID(),
+		ID:          menuID,
 		Code:        code,
 		Description: input.Description,
 		CreatedBy:   input.CreatedBy,
@@ -476,6 +562,48 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 	}
 
 	return nil, err
+}
+
+// UpsertMenu creates or updates a menu by code.
+func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu, error) {
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
+	}
+	if !isValidCode(code) {
+		return nil, ErrMenuCodeInvalid
+	}
+
+	existing, err := s.menus.GetByCode(ctx, code)
+	if err != nil {
+		var notFound *NotFoundError
+		if !errors.As(err, &notFound) {
+			return nil, err
+		}
+		created, err := s.CreateMenu(ctx, CreateMenuInput{
+			Code:        code,
+			Description: input.Description,
+			CreatedBy:   input.Actor,
+			UpdatedBy:   input.Actor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		return created, nil
+	}
+
+	// Update description if provided (can be nil to clear).
+	existing.Description = input.Description
+	existing.UpdatedBy = input.Actor
+	existing.UpdatedAt = s.now()
+	updated, err := s.menus.Update(ctx, existing)
+	if err != nil {
+		return nil, err
+	}
+	s.emitActivity(ctx, input.Actor, "update", "menu", updated.ID, map[string]any{
+		"code": updated.Code,
+	})
+	return updated, nil
 }
 
 // GetMenu retrieves a menu by ID including its hierarchical items.
@@ -598,7 +726,7 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, err
 	}
 
-	parentID, err := s.resolveParent(ctx, input)
+	parentID, parentRef, err := s.resolveParent(ctx, input, s.forgivingBootstrap)
 	if err != nil {
 		return nil, err
 	}
@@ -623,18 +751,31 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 	normalizedInput.Type = itemType
 	normalizedInput.Target = target
 	normalizedInput.ParentID = parentID
+	normalizedInput.ExternalCode = normalizeExternalCode(input.ExternalCode)
 	itemID := s.pickMenuItemID(normalizedInput)
-	canonicalKey := deriveCanonicalKeyFromInput(itemType, target, normalizedInput, parentID)
+	canonicalKey := deriveCanonicalKeyFromInput(itemType, target, normalizedInput, parentID, parentRef)
+	if key := canonicalKeyForExternalCode(normalizedInput.ExternalCode); key != nil {
+		canonicalKey = key
+	}
+	if trimmed := strings.TrimSpace(input.CanonicalKey); trimmed != "" {
+		canonicalKey = &trimmed
+	}
+	if s.forgivingBootstrap && input.ID == nil && canonicalKey != nil {
+		itemID = s.deterministicUUID("menu_item:" + menu.Code + ":" + *canonicalKey)
+	}
 
 	if canonicalKey != nil {
-		if existing, err := s.findDuplicateByCanonicalKey(ctx, menu.ID, *canonicalKey); err != nil {
-			return nil, err
-		} else if existing != nil {
+		existing, err := s.items.GetByMenuAndCanonicalKey(ctx, menu.ID, *canonicalKey)
+		if err == nil && existing != nil {
 			merged, err := s.mergeTranslations(ctx, existing, itemType, input.Translations)
 			if err != nil {
 				return nil, err
 			}
 			return merged, nil
+		}
+		var notFound *NotFoundError
+		if err != nil && !errors.As(err, &notFound) {
+			return nil, err
 		}
 	}
 
@@ -662,7 +803,7 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		TranslationCount: len(input.Translations),
 		Collapsible:      input.Collapsible,
 		Collapsed:        input.Collapsed,
-	}, false); err != nil {
+	}, false, s.forgivingBootstrap); err != nil {
 		return nil, err
 	}
 
@@ -671,6 +812,8 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		ID:           itemID,
 		MenuID:       menu.ID,
 		ParentID:     parentID,
+		ParentRef:    normalizeParentRefPointer(parentRef),
+		ExternalCode: normalizedInput.ExternalCode,
 		Position:     insertAt,
 		Type:         itemType,
 		Target:       ensureNonNilTarget(target),
@@ -709,7 +852,82 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		"parent_id": created.ParentID,
 		"locales":   collectMenuLocalesFromInputs(input.Translations),
 	})
+
+	if s.forgivingBootstrap {
+		actor := pickActor(input.UpdatedBy, input.CreatedBy)
+		if _, err := s.ReconcileMenu(ctx, ReconcileMenuRequest{MenuID: menu.ID, UpdatedBy: actor}); err != nil {
+			return nil, err
+		}
+	}
 	return created, nil
+}
+
+// UpsertMenuItem creates or returns an existing item using canonical identity (menu_id + canonical_key).
+// When the menu service is configured with forgiving bootstrap mode, missing parents are stored as parent_ref
+// and resolved later by reconciliation.
+func (s *service) UpsertMenuItem(ctx context.Context, input UpsertMenuItemInput) (*MenuItem, error) {
+	actor := input.Actor
+	if actor == uuid.Nil {
+		actor = uuid.Nil
+	}
+
+	var menu *Menu
+	if input.MenuID != nil && *input.MenuID != uuid.Nil {
+		record, err := s.menus.GetByID(ctx, *input.MenuID)
+		if err != nil {
+			var notFound *NotFoundError
+			if errors.As(err, &notFound) {
+				return nil, ErrMenuNotFound
+			}
+			return nil, err
+		}
+		menu = record
+	} else {
+		code := strings.TrimSpace(input.MenuCode)
+		if code == "" {
+			return nil, ErrMenuCodeRequired
+		}
+		record, err := s.GetOrCreateMenu(ctx, CreateMenuInput{
+			Code:        code,
+			Description: input.MenuDescription,
+			CreatedBy:   actor,
+			UpdatedBy:   actor,
+		})
+		if err != nil {
+			return nil, err
+		}
+		menu = record
+	}
+
+	position := 0
+	if input.Position != nil {
+		position = *input.Position
+	}
+
+	add := AddMenuItemInput{
+		MenuID:                   menu.ID,
+		ParentID:                 input.ParentID,
+		ParentCode:               input.ParentCode,
+		ExternalCode:             input.ExternalCode,
+		CanonicalKey:             input.CanonicalKey,
+		Position:                 position,
+		Type:                     input.Type,
+		Target:                   input.Target,
+		Icon:                     input.Icon,
+		Badge:                    input.Badge,
+		Permissions:              input.Permissions,
+		Classes:                  input.Classes,
+		Styles:                   input.Styles,
+		Collapsible:              input.Collapsible,
+		Collapsed:                input.Collapsed,
+		Metadata:                 input.Metadata,
+		CreatedBy:                actor,
+		UpdatedBy:                actor,
+		Translations:             input.Translations,
+		AllowMissingTranslations: input.AllowMissingTranslations,
+	}
+
+	return s.AddMenuItem(ctx, add)
 }
 
 // UpdateMenuItem mutates supported fields on an existing item.
@@ -865,7 +1083,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		TranslationCount: len(item.Translations),
 		Collapsible:      item.Collapsible,
 		Collapsed:        item.Collapsed,
-	}, hasChildren); err != nil {
+	}, hasChildren, s.forgivingBootstrap); err != nil {
 		return nil, err
 	}
 
@@ -897,6 +1115,111 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 	})
 
 	return updated, nil
+}
+
+// ReconcileMenu resolves deferred parent references for a menu.
+func (s *service) ReconcileMenu(ctx context.Context, req ReconcileMenuRequest) (*ReconcileResult, error) {
+	if req.MenuID == uuid.Nil {
+		return nil, ErrMenuNotFound
+	}
+	if _, err := s.menus.GetByID(ctx, req.MenuID); err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrMenuNotFound
+		}
+		return nil, err
+	}
+
+	items, err := s.items.ListByMenu(ctx, req.MenuID)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return &ReconcileResult{}, nil
+	}
+
+	byID := make(map[uuid.UUID]*MenuItem, len(items))
+	byCanonical := make(map[string]*MenuItem, len(items))
+	byExternal := make(map[string]*MenuItem, len(items))
+	parents := make(map[uuid.UUID]*uuid.UUID, len(items))
+
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		byID[item.ID] = item
+		if item.CanonicalKey != nil && strings.TrimSpace(*item.CanonicalKey) != "" {
+			byCanonical[strings.TrimSpace(*item.CanonicalKey)] = item
+		}
+		if code := normalizeExternalCode(item.ExternalCode); code != "" {
+			byExternal[code] = item
+		}
+		if item.ParentID != nil {
+			parent := *item.ParentID
+			parents[item.ID] = &parent
+		} else {
+			parents[item.ID] = nil
+		}
+	}
+
+	var resolved int
+	touched := make(map[uuid.UUID]struct{})
+	affectedParents := make(map[string]struct{})
+	for _, item := range items {
+		if item == nil || item.ParentID != nil || item.ParentRef == nil {
+			continue
+		}
+		ref := strings.TrimSpace(*item.ParentRef)
+		if ref == "" {
+			continue
+		}
+
+		parent := resolveMenuItemRef(ref, byID, byCanonical, byExternal)
+		if parent == nil {
+			continue
+		}
+		if parent.ID == item.ID {
+			return nil, ErrMenuItemCycle
+		}
+		if normalizeMenuItemTypeValueOrDefault(parent.Type) == MenuItemTypeSeparator {
+			return nil, ErrMenuItemParentUnsupported
+		}
+
+		parentID := parent.ID
+		affectedParents[parentKey(item.ParentID)] = struct{}{}
+		affectedParents[parentKey(&parentID)] = struct{}{}
+		parents[item.ID] = &parentID
+		item.ParentID = &parentID
+		item.ParentRef = nil
+		touched[item.ID] = struct{}{}
+		resolved++
+	}
+
+	if resolved == 0 {
+		remaining := countPendingParentRefs(items)
+		return &ReconcileResult{Resolved: 0, Remaining: remaining}, nil
+	}
+
+	if hasCycle(parents) {
+		return nil, ErrMenuItemCycle
+	}
+
+	dirty := normalizeMenuItemPositionsForParents(items, affectedParents, touched)
+	now := s.now()
+	for _, item := range dirty {
+		item.UpdatedAt = now
+		item.UpdatedBy = req.UpdatedBy
+	}
+
+	if err := s.items.BulkUpdateParentLinks(ctx, dirty); err != nil {
+		return nil, err
+	}
+	if err := s.InvalidateCache(ctx); err != nil {
+		return nil, err
+	}
+
+	remaining := countPendingParentRefs(items)
+	return &ReconcileResult{Resolved: resolved, Remaining: remaining}, nil
 }
 
 // DeleteMenuItem removes the requested menu item, optionally cascading to children.
@@ -1132,7 +1455,16 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 
 // ResolveNavigation builds a localized navigation tree for the requested menu.
 func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error) {
-	menu, err := s.GetMenuByCode(ctx, strings.TrimSpace(menuCode))
+	code := strings.TrimSpace(menuCode)
+	if s.forgivingBootstrap && s.reconcileOnResolve && code != "" {
+		if record, err := s.menus.GetByCode(ctx, code); err == nil && record != nil {
+			if _, err := s.ReconcileMenu(ctx, ReconcileMenuRequest{MenuID: record.ID, UpdatedBy: uuid.Nil}); err != nil {
+				return nil, err
+			}
+		}
+	}
+
+	menu, err := s.GetMenuByCode(ctx, code)
 	if err != nil {
 		return nil, err
 	}
@@ -1494,7 +1826,7 @@ func (s *service) normalizeTargetForType(ctx context.Context, itemType string, r
 	}
 }
 
-func validateMenuItemSemantics(sem menuItemSemantics, hasChildren bool) error {
+func validateMenuItemSemantics(sem menuItemSemantics, hasChildren bool, allowCollapsibleWithoutChildren bool) error {
 	switch sem.Type {
 	case MenuItemTypeSeparator:
 		if len(sem.Target) > 0 || sem.Icon != "" || len(sem.Badge) > 0 || sem.TranslationCount > 0 {
@@ -1512,7 +1844,7 @@ func validateMenuItemSemantics(sem menuItemSemantics, hasChildren bool) error {
 	if sem.Collapsed && !sem.Collapsible {
 		return ErrMenuItemCollapsedWithoutCollapsible
 	}
-	if sem.Collapsible && !hasChildren {
+	if sem.Collapsible && !hasChildren && !allowCollapsibleWithoutChildren {
 		return ErrMenuItemCollapsibleWithoutChildren
 	}
 	return nil
@@ -1635,42 +1967,55 @@ func (s *service) compactSiblingPositions(ctx context.Context, menuID uuid.UUID,
 	return s.items.BulkUpdateHierarchy(ctx, updated)
 }
 
-func (s *service) resolveParent(ctx context.Context, input AddMenuItemInput) (*uuid.UUID, error) {
+func (s *service) resolveParent(ctx context.Context, input AddMenuItemInput, allowMissing bool) (*uuid.UUID, *string, error) {
 	if input.ParentID != nil && *input.ParentID != uuid.Nil {
 		parentID := *input.ParentID
-		return &parentID, nil
+		return &parentID, nil, nil
 	}
 	ref := strings.TrimSpace(input.ParentCode)
 	if ref == "" {
-		return nil, nil
+		return nil, nil, nil
 	}
 	if parsed, err := uuid.Parse(ref); err == nil && parsed != uuid.Nil {
-		return &parsed, nil
+		return &parsed, nil, nil
 	}
 
-	// Try to find parent by canonical key within the same menu
-	if items, err := s.items.ListByMenu(ctx, input.MenuID); err == nil {
-		for _, item := range items {
-			// Check if this item matches the parent code reference
-			// The canonical key for an item is typically derived from its ID field
-			// which may be a deterministic slug-based identifier
-			canonical := deriveCanonicalKeyFromMenuItem(item)
-			if canonical != nil && *canonical == ref {
-				return &item.ID, nil
-			}
+	// Prefer external code lookup (human-friendly identifiers).
+	if code := normalizeExternalCode(ref); code != "" {
+		parent, err := s.items.GetByMenuAndExternalCode(ctx, input.MenuID, code)
+		if err == nil && parent != nil {
+			return &parent.ID, nil, nil
 		}
+		var notFound *NotFoundError
+		if err != nil && !errors.As(err, &notFound) {
+			return nil, nil, err
+		}
+	}
+
+	// Fallback: allow referencing by canonical key.
+	parent, err := s.items.GetByMenuAndCanonicalKey(ctx, input.MenuID, ref)
+	if err == nil && parent != nil {
+		return &parent.ID, nil, nil
+	}
+	var notFound *NotFoundError
+	if err != nil && !errors.As(err, &notFound) {
+		return nil, nil, err
 	}
 
 	if s.parentResolver != nil {
 		id, err := s.parentResolver(ctx, ref, input)
 		if err != nil {
-			return nil, err
+			return nil, nil, err
 		}
 		if id != nil && *id != uuid.Nil {
-			return id, nil
+			return id, nil, nil
 		}
 	}
-	return nil, ErrMenuItemParentInvalid
+
+	if allowMissing {
+		return nil, &ref, nil
+	}
+	return nil, nil, ErrMenuItemParentInvalid
 }
 
 func (s *service) pickMenuItemID(input AddMenuItemInput) uuid.UUID {
@@ -1801,27 +2146,60 @@ func deriveCanonicalKey(itemType string, target map[string]any) *string {
 	return nil
 }
 
-func deriveCanonicalKeyFromInput(itemType string, target map[string]any, input AddMenuItemInput, parentID *uuid.UUID) *string {
+func normalizeExternalCode(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func canonicalKeyForExternalCode(code string) *string {
+	code = normalizeExternalCode(code)
+	if code == "" {
+		return nil
+	}
+	key := "code:" + code
+	return &key
+}
+
+func normalizeParentRefPointer(ref *string) *string {
+	if ref == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*ref)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func canonicalParentRef(parentID *uuid.UUID, parentRef *string, parentCode string) string {
+	if parentRef != nil {
+		if trimmed := strings.TrimSpace(*parentRef); trimmed != "" {
+			return "ref:" + strings.ToLower(trimmed)
+		}
+	}
+	if trimmed := strings.TrimSpace(parentCode); trimmed != "" {
+		return "ref:" + strings.ToLower(trimmed)
+	}
+	return parentKey(parentID)
+}
+
+func deriveCanonicalKeyFromInput(itemType string, target map[string]any, input AddMenuItemInput, parentID *uuid.UUID, parentRef *string) *string {
 	if itemType == MenuItemTypeItem {
 		return deriveCanonicalKey(itemType, target)
 	}
 
-	parentRef := parentKey(parentID)
-	if trimmed := strings.TrimSpace(input.ParentCode); trimmed != "" && parentRef == "root" {
-		parentRef = "code:" + strings.ToLower(trimmed)
-	}
+	parentKey := canonicalParentRef(parentID, parentRef, input.ParentCode)
 
 	switch itemType {
 	case MenuItemTypeGroup:
 		groupKey := extractGroupKeyFromInputs(input.Translations)
 		if groupKey != "" {
-			key := "group:" + groupKey + ":" + parentRef
+			key := "group:" + groupKey + ":" + parentKey
 			return &key
 		}
-		key := "group:" + parentRef
+		key := "group:" + parentKey
 		return &key
 	case MenuItemTypeSeparator:
-		key := fmt.Sprintf("separator:%s:%d", parentRef, input.Position)
+		key := fmt.Sprintf("separator:%s:%d", parentKey, input.Position)
 		return &key
 	default:
 		return nil
@@ -1832,22 +2210,25 @@ func deriveCanonicalKeyFromMenuItem(item *MenuItem) *string {
 	if item == nil {
 		return nil
 	}
+	if key := canonicalKeyForExternalCode(normalizeExternalCode(item.ExternalCode)); key != nil {
+		return key
+	}
 	if normalizeMenuItemTypeValueOrDefault(item.Type) == MenuItemTypeItem {
 		return deriveCanonicalKey(item.Type, item.Target)
 	}
 
-	parentRef := parentKey(item.ParentID)
+	parentKey := canonicalParentRef(item.ParentID, item.ParentRef, "")
 	switch normalizeMenuItemTypeValueOrDefault(item.Type) {
 	case MenuItemTypeGroup:
 		groupKey := extractGroupKeyFromTranslations(item.Translations)
 		if groupKey != "" {
-			key := "group:" + groupKey + ":" + parentRef
+			key := "group:" + groupKey + ":" + parentKey
 			return &key
 		}
-		key := "group:" + parentRef
+		key := "group:" + parentKey
 		return &key
 	case MenuItemTypeSeparator:
-		key := fmt.Sprintf("separator:%s:%d", parentRef, item.Position)
+		key := fmt.Sprintf("separator:%s:%d", parentKey, item.Position)
 		return &key
 	default:
 		return nil
@@ -2067,6 +2448,91 @@ func hasCycle(parents map[uuid.UUID]*uuid.UUID) bool {
 		}
 	}
 	return false
+}
+
+func resolveMenuItemRef(ref string, byID map[uuid.UUID]*MenuItem, byCanonical map[string]*MenuItem, byExternal map[string]*MenuItem) *MenuItem {
+	trimmed := strings.TrimSpace(ref)
+	if trimmed == "" {
+		return nil
+	}
+	if parsed, err := uuid.Parse(trimmed); err == nil && parsed != uuid.Nil {
+		return byID[parsed]
+	}
+	if item := byExternal[normalizeExternalCode(trimmed)]; item != nil {
+		return item
+	}
+	return byCanonical[trimmed]
+}
+
+func countPendingParentRefs(items []*MenuItem) int {
+	count := 0
+	for _, item := range items {
+		if item == nil || item.ParentID != nil || item.ParentRef == nil {
+			continue
+		}
+		if strings.TrimSpace(*item.ParentRef) == "" {
+			continue
+		}
+		count++
+	}
+	return count
+}
+
+func normalizeMenuItemPositionsForParents(items []*MenuItem, parentKeys map[string]struct{}, touched map[uuid.UUID]struct{}) []*MenuItem {
+	byParent := make(map[string][]*MenuItem)
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		key := parentKey(item.ParentID)
+		byParent[key] = append(byParent[key], item)
+	}
+
+	dirty := make([]*MenuItem, 0, len(touched))
+	dirtyIDs := make(map[uuid.UUID]struct{}, len(touched))
+
+	for key := range parentKeys {
+		siblings := byParent[key]
+		if len(siblings) == 0 {
+			continue
+		}
+		slices.SortFunc(siblings, func(a, b *MenuItem) int {
+			if a.Position == b.Position {
+				return a.CreatedAt.Compare(b.CreatedAt)
+			}
+			return a.Position - b.Position
+		})
+		for idx, item := range siblings {
+			if item.Position != idx {
+				item.Position = idx
+				if _, ok := dirtyIDs[item.ID]; !ok {
+					dirty = append(dirty, item)
+					dirtyIDs[item.ID] = struct{}{}
+				}
+			}
+		}
+	}
+
+	for id := range touched {
+		if _, ok := dirtyIDs[id]; ok {
+			continue
+		}
+		if item := findMenuItem(items, id); item != nil {
+			dirty = append(dirty, item)
+			dirtyIDs[id] = struct{}{}
+		}
+	}
+
+	return dirty
+}
+
+func findMenuItem(items []*MenuItem, id uuid.UUID) *MenuItem {
+	for _, item := range items {
+		if item != nil && item.ID == id {
+			return item
+		}
+	}
+	return nil
 }
 
 func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any) (map[string]any, error) {
@@ -2379,6 +2845,15 @@ func (s *service) nextID() uuid.UUID {
 		return uuid.New()
 	}
 	return id
+}
+
+func (s *service) deterministicUUID(key string) uuid.UUID {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		return s.nextID()
+	}
+	// Name-based UUIDs give deterministic storage IDs without coupling callers to UUIDs.
+	return uuid.NewSHA1(uuid.NameSpaceOID, []byte(trimmed))
 }
 
 func collectMenuLocalesFromInputs(inputs []MenuItemTranslationInput) []string {
