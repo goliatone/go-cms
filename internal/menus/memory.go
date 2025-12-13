@@ -148,6 +148,38 @@ func (m *memoryMenuItemRepository) GetByID(_ context.Context, id uuid.UUID) (*Me
 	return cloneMenuItem(record), nil
 }
 
+func (m *memoryMenuItemRepository) GetByMenuAndCanonicalKey(_ context.Context, menuID uuid.UUID, key string) (*MenuItem, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, id := range m.byMenuID[menuID] {
+		record := m.byID[id]
+		if record == nil || record.CanonicalKey == nil {
+			continue
+		}
+		if *record.CanonicalKey == key {
+			return cloneMenuItem(record), nil
+		}
+	}
+	return nil, &NotFoundError{Resource: "menu_item", Key: menuID.String() + ":" + key}
+}
+
+func (m *memoryMenuItemRepository) GetByMenuAndExternalCode(_ context.Context, menuID uuid.UUID, code string) (*MenuItem, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	for _, id := range m.byMenuID[menuID] {
+		record := m.byID[id]
+		if record == nil {
+			continue
+		}
+		if record.ExternalCode == code && code != "" {
+			return cloneMenuItem(record), nil
+		}
+	}
+	return nil, &NotFoundError{Resource: "menu_item", Key: menuID.String() + ":" + code}
+}
+
 func (m *memoryMenuItemRepository) ListByMenu(_ context.Context, menuID uuid.UUID) ([]*MenuItem, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -255,6 +287,36 @@ func (m *memoryMenuItemRepository) BulkUpdateHierarchy(_ context.Context, items 
 		}
 	}
 
+	return nil
+}
+
+func (m *memoryMenuItemRepository) BulkUpdateParentLinks(_ context.Context, items []*MenuItem) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, record := range items {
+		existing, ok := m.byID[record.ID]
+		if !ok {
+			return &NotFoundError{Resource: "menu_item", Key: record.ID.String()}
+		}
+		var oldParent *uuid.UUID
+		if existing.ParentID != nil {
+			tmp := *existing.ParentID
+			oldParent = &tmp
+		}
+
+		cloned := cloneMenuItem(record)
+		m.byID[cloned.ID] = cloned
+
+		if !uuidPtrEqual(oldParent, cloned.ParentID) {
+			if oldParent != nil {
+				m.byParent[*oldParent] = removeUUID(m.byParent[*oldParent], cloned.ID)
+			}
+			if cloned.ParentID != nil {
+				m.byParent[*cloned.ParentID] = appendUniqueUUID(m.byParent[*cloned.ParentID], cloned.ID)
+			}
+		}
+	}
 	return nil
 }
 
@@ -371,6 +433,10 @@ func cloneMenuItem(src *MenuItem) *MenuItem {
 		return nil
 	}
 	cloned := *src
+	if src.ParentRef != nil {
+		ref := *src.ParentRef
+		cloned.ParentRef = &ref
+	}
 	if src.Target != nil {
 		cloned.Target = maps.Clone(src.Target)
 	}
