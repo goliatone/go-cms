@@ -21,12 +21,16 @@ type MenuRepository interface {
 type MenuItemRepository interface {
 	Create(ctx context.Context, item *MenuItem) (*MenuItem, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*MenuItem, error)
+	GetByMenuAndCanonicalKey(ctx context.Context, menuID uuid.UUID, key string) (*MenuItem, error)
+	GetByMenuAndExternalCode(ctx context.Context, menuID uuid.UUID, code string) (*MenuItem, error)
 	ListByMenu(ctx context.Context, menuID uuid.UUID) ([]*MenuItem, error)
 	ListChildren(ctx context.Context, parentID uuid.UUID) ([]*MenuItem, error)
 	Update(ctx context.Context, item *MenuItem) (*MenuItem, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 	// BulkUpdateHierarchy persists parent/position updates for multiple items atomically.
 	BulkUpdateHierarchy(ctx context.Context, items []*MenuItem) error
+	// BulkUpdateParentLinks persists parent_id/parent_ref/position updates for multiple items atomically.
+	BulkUpdateParentLinks(ctx context.Context, items []*MenuItem) error
 }
 
 // MenuItemTranslationRepository exposes persistence operations for menu item translations.
