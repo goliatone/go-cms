@@ -1,5 +1,19 @@
 # Changelog
 
+# [0.11.0](https://github.com/goliatone/go-cms/compare/v0.10.0...v0.11.0) - (2025-12-13)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Update migrations to fix index ([2d38803](https://github.com/goliatone/go-cms/commit/2d38803272e48944a155433f8821ab8187d78bfe))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.11.0 ([2d40832](https://github.com/goliatone/go-cms/commit/2d408325d991bdddd6956b4601e4a8a529a6a0e3))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.10.0 ([7760383](https://github.com/goliatone/go-cms/commit/7760383cb71d60c4fb2ccdba8afe39f349cf1877))  - (goliatone)
+
 # [0.10.0](https://github.com/goliatone/go-cms/compare/v0.9.0...v0.10.0) - (2025-12-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
