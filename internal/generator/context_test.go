@@ -558,6 +558,10 @@ func (s *stubMenusService) GetOrCreateMenu(context.Context, menus.CreateMenuInpu
 	return nil, errUnsupported
 }
 
+func (s *stubMenusService) UpsertMenu(context.Context, menus.UpsertMenuInput) (*menus.Menu, error) {
+	return nil, errUnsupported
+}
+
 func (s *stubMenusService) GetMenu(context.Context, uuid.UUID) (*menus.Menu, error) {
 	return nil, errUnsupported
 }
@@ -567,6 +571,10 @@ func (s *stubMenusService) GetMenuByCode(context.Context, string) (*menus.Menu, 
 }
 
 func (s *stubMenusService) AddMenuItem(context.Context, menus.AddMenuItemInput) (*menus.MenuItem, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) UpsertMenuItem(context.Context, menus.UpsertMenuItemInput) (*menus.MenuItem, error) {
 	return nil, errUnsupported
 }
 
@@ -603,6 +611,10 @@ func (s *stubMenusService) DeleteMenuItem(context.Context, menus.DeleteMenuItemR
 }
 
 func (s *stubMenusService) BulkReorderMenuItems(context.Context, menus.BulkReorderMenuItemsInput) ([]*menus.MenuItem, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) ReconcileMenu(context.Context, menus.ReconcileMenuRequest) (*menus.ReconcileResult, error) {
 	return nil, errUnsupported
 }
 
