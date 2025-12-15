@@ -230,65 +230,59 @@ cfg.Retention = cms.RetentionConfig{Content: 5, Pages: 3, Blocks: 2}
 Menus generate navigation trees with locale aware labels, translation keys, and UI hints for groups/separators/collapsible items.
 
 ```go
-// Prefer GetOrCreateMenu/UpsertMenu in bootstraps so re-running seeds is safe.
-menu, _ := menuSvc.GetOrCreateMenu(ctx, menus.CreateMenuInput{
-	Code:      "primary",
-	CreatedBy: authorID,
-	UpdatedBy: authorID,
-})
+menuSvc := module.Menus()
 
-menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:   menu.ID,
-	Position: 0,
-	Target: map[string]any{
-		"type": "page",
-		"slug": "about",
-	},
-	Translations: []menus.MenuItemTranslationInput{
-		{Locale: "en", Label: "About Us"},
-		{Locale: "es", Label: "Acerca de"},
-	},
-})
+pos0 := 0
+pos1 := 1
+pos2 := 2
 
-// Section header (non clickable group) with children and label key fallback
-group, _ := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:   menu.ID,
-	Position: 0,
-	Type:     menus.MenuItemTypeGroup,
-	Translations: []menus.MenuItemTranslationInput{
-		{Locale: "en", GroupTitleKey: "menu.group.main"},
+// Menus are addressed by a stable code (e.g. "primary").
+// Items are addressed by dot-paths that include the menu code prefix (e.g. "primary.content.pages").
+if err := cms.SeedMenu(ctx, cms.SeedMenuOptions{
+	Menus:    menuSvc,
+	MenuCode: "primary",
+	Locale:   "en",
+	Actor:    authorID,
+	Items: []cms.SeedMenuItem{
+		{
+			Path:     "primary.home",
+			Position: &pos0,
+			Type:     "item",
+			Target:   map[string]any{"type": "url", "url": "/"},
+			Translations: []cms.MenuItemTranslationInput{
+				{Locale: "en", Label: "Home"},
+				{Locale: "es", Label: "Inicio"},
+			},
+		},
+		{
+			Path:     "primary.content",
+			Position: &pos1,
+			Type:     "group",
+			Translations: []cms.MenuItemTranslationInput{
+				{Locale: "en", GroupTitleKey: "menu.group.content"},
+			},
+		},
+		{
+			Path:     "primary.content.pages",
+			Position: &pos0,
+			Type:     "item",
+			Target:   map[string]any{"type": "url", "url": "/pages"},
+			Translations: []cms.MenuItemTranslationInput{
+				{Locale: "en", LabelKey: "menu.pages"},
+			},
+		},
+		{
+			Path:     "primary.separator",
+			Position: &pos2,
+			Type:     "separator",
+		},
 	},
-})
+}); err != nil {
+	log.Fatal(err)
+}
 
-// Clickable item with children (collapsible)
-shop, _ := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:      menu.ID,
-	ParentID:    &group.ID,
-	Position:    0,
-	Type:        menus.MenuItemTypeItem,
-	Collapsible: true,
-	Target:      map[string]any{"type": "page", "slug": "shop"},
-	Translations: []menus.MenuItemTranslationInput{
-		{Locale: "en", Label: "My Shop"},
-	},
-})
-menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:   menu.ID,
-	ParentID: &shop.ID,
-	Position: 0,
-	Type:     menus.MenuItemTypeItem,
-	Target:   map[string]any{"type": "page", "slug": "products"},
-	Translations: []menus.MenuItemTranslationInput{
-		{Locale: "en", LabelKey: "menu.products"},
-	},
-})
-
-// Separator between groups
-menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:   menu.ID,
-	Position: 2,
-	Type:     menus.MenuItemTypeSeparator,
-})
+navigation, _ := menuSvc.ResolveNavigation(ctx, "primary", "en")
+_ = navigation
 ```
 
 Menu item types:
@@ -298,161 +292,7 @@ Menu item types:
 
 Translation precedence: `LabelKey` (or `GroupTitleKey`) → translated value → `Label`/`GroupTitle` fallback. URL resolution only runs for `item` types.
 
-Migration note: apply `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` to add the new menu item/translation columns (`type`, collapsible flags, metadata, styling, translation keys, group titles). Undo with the matching `.down.sql` if needed.
-
-#### Forgiving, order-independent seeding (recommended for modules)
-
-For module-friendly bootstraps (add items in any order, re-run seeds without duplicates, let children reference future parents), enable forgiving mode:
-
-```go
-menuSvc := menus.NewService(
-	menuRepo,
-	menuItemRepo,
-	menuTranslationRepo,
-	localeRepo,
-	menus.WithForgivingMenuBootstrap(true),
-)
-
-// Upsert-by-code; safe to call from multiple modules.
-desc := "Primary navigation"
-menu, _ := menuSvc.UpsertMenu(ctx, menus.UpsertMenuInput{
-	Code:        "primary_navigation",
-	Description: &desc,
-	Actor:       authorID,
-})
-
-// Child first: ParentCode is a human-friendly identifier (prefer stable codes).
-menuSvc.UpsertMenuItem(ctx, menus.UpsertMenuItemInput{
-	MenuID:        &menu.ID,
-	ExternalCode:  "nav.item.products",
-	ParentCode:    "nav.group.main",
-	Type:          menus.MenuItemTypeItem,
-	Target:        map[string]any{"type": "page", "slug": "products"},
-	Translations:  []menus.MenuItemTranslationInput{{Locale: "en", LabelKey: "menu.products"}},
-	Actor:         authorID,
-})
-
-// Parent later: same ExternalCode makes this idempotent across runs.
-menuSvc.UpsertMenuItem(ctx, menus.UpsertMenuItemInput{
-	MenuID:        &menu.ID,
-	ExternalCode:  "nav.group.main",
-	Type:          menus.MenuItemTypeGroup,
-	Collapsible:   true, // allowed even before children exist
-	Translations:  []menus.MenuItemTranslationInput{{Locale: "en", GroupTitleKey: "menu.group.main"}},
-	Actor:         authorID,
-})
-```
-
-In forgiving mode:
-- If a parent is missing, the item is inserted with `parent_id = NULL` and a stored `parent_ref`; `ReconcileMenu` links it once the parent appears.
-- Items are deduped using a stable canonical key; when you set `ExternalCode`, the canonical key becomes `code:<external_code>`, making re-seeds idempotent.
-- UUIDs are treated as storage details: when you don't supply an explicit `ID`, the service derives deterministic IDs from menu codes and canonical keys (so repeated seeds converge on the same records).
-- Navigation output prunes empty groups and derives collapsible state from actual children.
-
-Migration note: apply `data/sql/migrations/20251213000000_menu_item_external_parent_refs.up.sql` to add `menu_items.external_code` and `menu_items.parent_ref`.
-See `MENU_FORGIVING_BOOTSTRAP.md` for the full design/semantics.
-
-ID and parent controls:
-- `AddMenuItemInput` accepts optional `ID` (caller-supplied/deterministic), `ExternalCode` (human-friendly stable item identifier), and `ParentCode` (string parent reference).
-- `UpsertMenuItemInput` (when using `UpsertMenuItem`) also accepts `MenuCode` and an optional `CanonicalKey` override.
-- `WithIDGenerator` now receives the normalized `AddMenuItemInput`, enabling hash-based IDs derived from targets or codes; default is `uuid.New`.
-- `WithRecordIDGenerator` lets you override ID generation for non-menu-item records (menus, translations) while keeping menu item IDs governed by `WithIDGenerator`.
-- `ParentCode` resolution order:
-  1) use `ParentID` when provided, 2) parse `ParentCode` as UUID, 3) match `ParentCode` against an existing item's `ExternalCode` within the same menu, 4) match `ParentCode` against an existing item's `CanonicalKey`, 5) call `WithParentResolver` (when configured), else `ErrMenuItemParentInvalid` (or store `parent_ref` when forgiving bootstrap is enabled).
-- `WithParentResolver` is for custom parent reference schemes; in most module bootstraps, prefer `ExternalCode` + `ParentCode` with a shared namespace (e.g. `nav.group.main`).
-- Items are deduped per menu using a persisted canonical key (`menu_items.canonical_key`); apply `data/sql/migrations/20250301000000_menu_item_canonical_dedupe.up.sql` to backfill + add the unique index.
-
-Canonical key formats (used for dedupe and for `ParentCode` lookups):
-- When `ExternalCode` is set: `code:<external_code>`
-- `item` targets:
-  - `page:id:<uuid>` (when `target.page_id` is present)
-  - `page:slug:<slug>` (when `target.slug` is present)
-  - `url:<url>` (when `target.url` is present)
-  - `path:<path>` (when `target.path` is present)
-- `group` (derived from translations + parent):
-  - `group:<groupKey>:<parentRef>` when a `groupKey` is present
-  - `group:<parentRef>` when there is no `groupKey`
-  - `groupKey` is extracted from the first non-empty translation field in this order: `GroupTitleKey`, `LabelKey`, `GroupTitle`, `Label`
-- `separator` (derived from parent + position): `separator:<parentRef>:<position>`
-- `parentRef` is `root`, the parent item's UUID string, or a stable `ref:<parent_code>` when `ParentCode`/`parent_ref` is present.
-
-Example: reference a parent using `ExternalCode` (recommended).
-```go
-menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:     menu.ID,
-	ParentCode: "nav.group.main", // must match the parent's ExternalCode
-	ExternalCode: "nav.item.products",
-	Position:   0,
-	Target:     map[string]any{"type": "page", "slug": "products"},
-	Translations: []menus.MenuItemTranslationInput{
-		{Locale: "en", LabelKey: "menu.products"},
-	},
-})
-```
-
-Example: reference a group parent using `ParentCode` as a canonical key (advanced/legacy).
-```go
-menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-	MenuID:     menu.ID,
-	ParentCode: "group:menu.group.main:root",
-	Position:   0,
-	Target:     map[string]any{"type": "page", "slug": "products"},
-	Translations: []menus.MenuItemTranslationInput{
-		{Locale: "en", LabelKey: "menu.products"},
-	},
-})
-```
-
-Example: configure a custom `ParentCode` resolver (advanced).
-```go
-menuSvc := menus.NewService(
-	menuRepo,
-	menuItemRepo,
-	menuTranslationRepo,
-	localeRepo,
-	menus.WithParentResolver(func(ctx context.Context, code string, input menus.AddMenuItemInput) (*uuid.UUID, error) {
-		// Translate "nav.group.main" -> the UUID of an existing menu item.
-		// Common strategies: lookup table, deterministic IDs, or an external registry.
-		return nil, nil
-	}),
-)
-```
-- For existing installs with malformed/duplicate menus, run `docs/menu_reset.sql` after applying the canonical-key migration or wipe the sample DB (`rm /tmp/go-admin-cms.db` or your configured path) before re-seeding.
-
-Example payload (as served to go-admin):
-```json
-[
-  {
-    "type": "group",
-    "group_title_key": "menu.group.main",
-    "children": [
-      {
-        "type": "item",
-        "label": "Home",
-        "target": {"type": "page", "slug": "home"}
-      },
-      {
-        "type": "item",
-        "label": "My Shop",
-        "collapsible": true,
-        "children": [
-          {"type": "item", "label_key": "menu.products", "target": {"type": "page", "slug": "products"}},
-          {"type": "item", "label_key": "menu.orders", "target": {"type": "page", "slug": "orders"}}
-        ]
-      }
-    ]
-  },
-  {"type": "separator"},
-  {
-    "type": "group",
-    "group_title": "Others",
-    "children": [
-      {"type": "item", "label": "Promotion", "target": {"type": "page", "slug": "promo"}},
-      {"type": "item", "label": "Settings", "target": {"type": "page", "slug": "settings"}}
-    ]
-  }
-]
-```
+Migration note: apply `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` to add menu item/translation columns (`type`, collapsible flags, metadata, styling, translation keys, group titles). Undo with the matching `.down.sql` if needed.
 
 ### Localization Helpers
 Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy “at least one translation” guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback-locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
