@@ -26,7 +26,6 @@ import (
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/markdown"
-	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -716,7 +715,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 
 		// Get primary menu
 		navigation, err := menuSvc.ResolveNavigation(ctx.Context(), "primary", locale)
-		if err != nil && !errors.Is(err, menus.ErrMenuNotFound) {
+		if err != nil && !errors.Is(err, cms.ErrMenuNotFound) {
 			return err
 		}
 
@@ -800,7 +799,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 		}
 
 		navigation, err := menuSvc.ResolveNavigation(ctx.Context(), "primary", locale)
-		if err != nil && !errors.Is(err, menus.ErrMenuNotFound) {
+		if err != nil && !errors.Is(err, cms.ErrMenuNotFound) {
 			return err
 		}
 
@@ -903,7 +902,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 
 		navigation, err := menuSvc.ResolveNavigation(ctx.Context(), code, locale)
 		if err != nil {
-			if errors.Is(err, menus.ErrMenuNotFound) {
+			if errors.Is(err, cms.ErrMenuNotFound) {
 				return ctx.JSON(404, map[string]string{"error": "menu not found"})
 			}
 			return err
@@ -1159,12 +1158,12 @@ func (s *demoCronScheduler) Register(cfg command.HandlerConfig, handler any) err
 
 func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, themePath string) (uuid.UUID, error) {
 	blockSvc := module.Blocks()
-	menuSvc := module.Menus()
 	widgetSvc := module.Widgets()
 	themeSvc := module.Themes()
 	pageSvc := module.Pages()
 	contentSvc := module.Content()
 	container := module.Container()
+	menuSvc := module.Menus()
 
 	authorID := demoAuthorID
 	cleanThemePath := strings.TrimSpace(themePath)
@@ -1670,83 +1669,67 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 		return uuid.Nil, fmt.Errorf("create cta block: %w", err)
 	}
 
-	// Create menu
-	menuRecord, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
-		Code:      "primary",
-		CreatedBy: authorID,
-		UpdatedBy: authorID,
-	})
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("create menu: %w", err)
-	}
-
-	// Add menu items
-	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-		MenuID:   menuRecord.ID,
-		Position: 0,
-		Target: map[string]any{
-			"type": "url",
-			"url":  "/",
-		},
-		CreatedBy: authorID,
-		UpdatedBy: authorID,
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Home"},
-			{Locale: "es", Label: "Inicio"},
-		},
-	}); err != nil {
-		return uuid.Nil, fmt.Errorf("add home menu item: %w", err)
-	}
-
-	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-		MenuID:   menuRecord.ID,
-		Position: 1,
-		Target: map[string]any{
-			"type": "page",
-			"slug": aboutPage.Slug,
-		},
-		CreatedBy: authorID,
-		UpdatedBy: authorID,
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "About"},
-			{Locale: "es", Label: "Acerca de"},
-		},
-	}); err != nil {
-		return uuid.Nil, fmt.Errorf("add about menu item: %w", err)
-	}
-
-	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-		MenuID:   menuRecord.ID,
-		Position: 2,
-		Target: map[string]any{
-			"type": "page",
-			"slug": blogPage1.Slug,
-		},
-		CreatedBy: authorID,
-		UpdatedBy: authorID,
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Blog"},
-			{Locale: "es", Label: "Blog"},
-		},
-	}); err != nil {
-		return uuid.Nil, fmt.Errorf("add blog menu item: %w", err)
-	}
-
-	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
-		MenuID:   menuRecord.ID,
-		Position: 3,
-		Target: map[string]any{
-			"type": "url",
-			"url":  "/blog/markdown-sync-demo",
-		},
-		CreatedBy: authorID,
-		UpdatedBy: authorID,
-		Translations: []menus.MenuItemTranslationInput{
-			{Locale: "en", Label: "Markdown Demo"},
-			{Locale: "es", Label: "Demo Markdown"},
+	if err := cms.SeedMenu(ctx, cms.SeedMenuOptions{
+		Menus:    menuSvc,
+		MenuCode: "primary",
+		Locale:   "en",
+		Actor:    authorID,
+		Items: []cms.SeedMenuItem{
+			{
+				Path:     "primary.home",
+				Position: intPtr(0),
+				Type:     "item",
+				Target: map[string]any{
+					"type": "url",
+					"url":  "/",
+				},
+				Translations: []cms.MenuItemTranslationInput{
+					{Locale: "en", Label: "Home"},
+					{Locale: "es", Label: "Inicio"},
+				},
+			},
+			{
+				Path:     "primary.about",
+				Position: intPtr(1),
+				Type:     "item",
+				Target: map[string]any{
+					"type": "page",
+					"slug": aboutPage.Slug,
+				},
+				Translations: []cms.MenuItemTranslationInput{
+					{Locale: "en", Label: "About"},
+					{Locale: "es", Label: "Acerca de"},
+				},
+			},
+			{
+				Path:     "primary.blog",
+				Position: intPtr(2),
+				Type:     "item",
+				Target: map[string]any{
+					"type": "page",
+					"slug": blogPage1.Slug,
+				},
+				Translations: []cms.MenuItemTranslationInput{
+					{Locale: "en", Label: "Blog"},
+					{Locale: "es", Label: "Blog"},
+				},
+			},
+			{
+				Path:     "primary.markdown_demo",
+				Position: intPtr(3),
+				Type:     "item",
+				Target: map[string]any{
+					"type": "url",
+					"url":  "/blog/markdown-sync-demo",
+				},
+				Translations: []cms.MenuItemTranslationInput{
+					{Locale: "en", Label: "Markdown Demo"},
+					{Locale: "es", Label: "Demo Markdown"},
+				},
+			},
 		},
 	}); err != nil {
-		return uuid.Nil, fmt.Errorf("add markdown demo menu item: %w", err)
+		return uuid.Nil, fmt.Errorf("seed menu: %w", err)
 	}
 
 	// Setup widgets if enabled

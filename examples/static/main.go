@@ -95,7 +95,7 @@ func main() {
 		log.Fatalf("seed pages: %v", err)
 	}
 
-	if err := seedMenus(ctx, module.Menus(), pagesBySlug); err != nil {
+	if err := seedMenus(ctx, container.MenuService(), pagesBySlug); err != nil {
 		log.Fatalf("seed menus: %v", err)
 	}
 
