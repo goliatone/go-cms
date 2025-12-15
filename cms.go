@@ -7,7 +7,6 @@ import (
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/media"
-	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/internal/widgets"
@@ -22,9 +21,6 @@ type PageService = pages.Service
 
 // BlockService exports the blocks service contract.
 type BlockService = blocks.Service
-
-// MenuService exports the menus service contract.
-type MenuService = menus.Service
 
 // WidgetService exports the widgets service contract.
 type WidgetService = widgets.Service
@@ -85,7 +81,7 @@ func (m *Module) Blocks() BlockService {
 
 // Menus returns the configured menu service.
 func (m *Module) Menus() MenuService {
-	return m.container.MenuService()
+	return newMenuService(m)
 }
 
 // Widgets returns the configured widget service.
