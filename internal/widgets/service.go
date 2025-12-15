@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
@@ -233,6 +234,7 @@ func WithIDGenerator(generator IDGenerator) ServiceOption {
 	return func(s *service) {
 		if generator != nil {
 			s.id = generator
+			s.idCustom = true
 		}
 	}
 }
@@ -290,6 +292,7 @@ type service struct {
 	placements   AreaPlacementRepository
 	now          func() time.Time
 	id           IDGenerator
+	idCustom     bool
 	registry     *Registry
 	shortcodes   interfaces.ShortcodeService
 	activity     *activity.Emitter
@@ -353,7 +356,7 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 
 	now := s.now()
 	definition := &Definition{
-		ID:          s.id(),
+		ID:          identity.WidgetDefinitionUUID(name),
 		Name:        name,
 		Description: cloneString(input.Description),
 		Schema:      deepCloneMap(input.Schema),
@@ -362,6 +365,9 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		Icon:        cloneString(input.Icon),
 		CreatedAt:   now,
 		UpdatedAt:   now,
+	}
+	if s.idCustom {
+		definition.ID = s.id()
 	}
 
 	return s.definitions.Create(ctx, definition)
@@ -832,7 +838,7 @@ func (s *service) RegisterAreaDefinition(ctx context.Context, input RegisterArea
 	}
 
 	def := &AreaDefinition{
-		ID:          s.id(),
+		ID:          identity.WidgetAreaDefinitionUUID(code),
 		Code:        code,
 		Name:        name,
 		Description: cloneString(input.Description),
@@ -841,6 +847,9 @@ func (s *service) RegisterAreaDefinition(ctx context.Context, input RegisterArea
 		TemplateID:  cloneUUIDPtr(input.TemplateID),
 		CreatedAt:   s.now(),
 		UpdatedAt:   s.now(),
+	}
+	if s.idCustom {
+		def.ID = s.id()
 	}
 
 	return s.areas.Create(ctx, def)
