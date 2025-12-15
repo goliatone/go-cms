@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -185,6 +186,7 @@ func WithIDGenerator(generator IDGenerator) ServiceOption {
 	return func(s *service) {
 		if generator != nil {
 			s.id = generator
+			s.idCustom = true
 		}
 	}
 }
@@ -260,6 +262,7 @@ type service struct {
 	versions              InstanceVersionRepository
 	now                   func() time.Time
 	id                    IDGenerator
+	idCustom              bool
 	registry              *Registry
 	media                 media.Service
 	versioningEnabled     bool
@@ -319,7 +322,7 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	}
 
 	definition := &Definition{
-		ID:               s.id(),
+		ID:               identity.BlockDefinitionUUID(name),
 		Name:             name,
 		Description:      input.Description,
 		Icon:             input.Icon,
@@ -328,6 +331,9 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		EditorStyleURL:   input.EditorStyleURL,
 		FrontendStyleURL: input.FrontendStyleURL,
 		CreatedAt:        s.now(),
+	}
+	if s.idCustom {
+		definition.ID = s.id()
 	}
 
 	return s.definitions.Create(ctx, definition)
