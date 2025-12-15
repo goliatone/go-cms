@@ -1842,17 +1842,17 @@ func (c *Container) seedLocales() {
 		lower := strings.ToLower(normalized)
 		if _, ok := seen[lower]; ok {
 			continue
+			}
+			seen[lower] = struct{}{}
+			c.memoryLocaleRepo.Put(&content.Locale{
+				ID:        identity.LocaleUUID(lower),
+				Code:      lower,
+				Display:   normalized,
+				IsActive:  true,
+				IsDefault: strings.EqualFold(normalized, c.Config.DefaultLocale),
+			})
 		}
-		seen[lower] = struct{}{}
-		c.memoryLocaleRepo.Put(&content.Locale{
-			ID:        uuid.New(),
-			Code:      lower,
-			Display:   normalized,
-			IsActive:  true,
-			IsDefault: strings.EqualFold(normalized, c.Config.DefaultLocale),
-		})
 	}
-}
 
 // GeneratorService returns the configured static site generator service.
 func (c *Container) GeneratorService() generator.Service {
