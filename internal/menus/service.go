@@ -1,6 +1,7 @@
 package menus
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -260,6 +261,7 @@ type PageRepository interface {
 // NavigationNode represents a localized menu item ready for presentation.
 type NavigationNode struct {
 	ID            uuid.UUID         `json:"id"`
+	Position      int               `json:"position"`
 	Type          string            `json:"type,omitempty"`
 	Label         string            `json:"label,omitempty"`
 	LabelKey      string            `json:"label_key,omitempty"`
@@ -1801,6 +1803,7 @@ func (s *service) InvalidateCache(ctx context.Context) error {
 func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) (NavigationNode, error) {
 	node := NavigationNode{
 		ID:          item.ID,
+		Position:    item.Position,
 		Type:        normalizeMenuItemTypeValueOrDefault(item.Type),
 		Icon:        strings.TrimSpace(item.Icon),
 		Badge:       cloneMapAny(item.Badge),
@@ -3044,14 +3047,45 @@ func normalizeNavigationNodes(nodes []NavigationNode) []NavigationNode {
 	if len(nodes) == 0 {
 		return nil
 	}
-	normalized := make([]NavigationNode, 0, len(nodes))
-	prevSeparator := false
+	candidates := make([]NavigationNode, 0, len(nodes))
 
 	for _, node := range nodes {
 		if node.Type == "" {
 			node.Type = MenuItemTypeItem
 		}
 
+		node.Children = normalizeNavigationNodes(node.Children)
+		if node.Type == MenuItemTypeGroup && len(node.Children) == 0 && isEffectivelyEmptyGroupNode(node) {
+			continue
+		}
+
+		if node.Type == MenuItemTypeSeparator {
+			node.Collapsible = false
+			node.Collapsed = false
+		} else if len(node.Children) == 0 {
+			node.Collapsible = false
+			node.Collapsed = false
+		} else if !node.Collapsible {
+			node.Collapsed = false
+		}
+
+		candidates = append(candidates, node)
+	}
+
+	slices.SortStableFunc(candidates, func(a, b NavigationNode) int {
+		switch {
+		case a.Position < b.Position:
+			return -1
+		case a.Position > b.Position:
+			return 1
+		}
+		return bytes.Compare(a.ID[:], b.ID[:])
+	})
+
+	normalized := make([]NavigationNode, 0, len(candidates))
+	prevSeparator := false
+
+	for _, node := range candidates {
 		if node.Type == MenuItemTypeSeparator {
 			if prevSeparator || len(normalized) == 0 {
 				continue
@@ -3059,17 +3093,6 @@ func normalizeNavigationNodes(nodes []NavigationNode) []NavigationNode {
 			prevSeparator = true
 			normalized = append(normalized, node)
 			continue
-		}
-
-		node.Children = normalizeNavigationNodes(node.Children)
-		if node.Type == MenuItemTypeGroup && len(node.Children) == 0 && isEffectivelyEmptyGroupNode(node) {
-			continue
-		}
-		if len(node.Children) == 0 {
-			node.Collapsible = false
-			node.Collapsed = false
-		} else if !node.Collapsible {
-			node.Collapsed = false
 		}
 
 		prevSeparator = false
