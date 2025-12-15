@@ -6,6 +6,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/goliatone/go-cms/internal/util"
 	"github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 )
@@ -151,7 +152,7 @@ func (r *URLKitResolver) collectParams(req ResolveRequest) map[string]any {
 
 	if r.paramsField != "" {
 		if raw, ok := req.Item.Target[r.paramsField]; ok {
-			for key, val := range cloneAnyMap(raw) {
+			for key, val := range util.CloneAnyMap(raw) {
 				params[key] = val
 			}
 		}
@@ -276,19 +277,4 @@ func lookupChildGroup(parent *urlkit.Group, name string) (*urlkit.Group, error) 
 	}()
 	group = parent.Group(name)
 	return group, err
-}
-
-func cloneAnyMap(raw any) map[string]any {
-	result := make(map[string]any)
-	switch values := raw.(type) {
-	case map[string]any:
-		for k, v := range values {
-			result[k] = v
-		}
-	case map[string]string:
-		for k, v := range values {
-			result[k] = v
-		}
-	}
-	return result
 }
