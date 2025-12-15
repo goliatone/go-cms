@@ -481,6 +481,7 @@ func cloneNavigationNodes(nodes []menus.NavigationNode) []menus.NavigationNode {
 	for i, node := range nodes {
 		cloned[i] = menus.NavigationNode{
 			ID:       node.ID,
+			Position: node.Position,
 			Label:    node.Label,
 			URL:      node.URL,
 			Target:   maps.Clone(node.Target),
