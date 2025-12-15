@@ -19,6 +19,7 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/i18n"
+	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/logging/console"
@@ -548,6 +549,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		requireTranslations = false
 	}
 
+	if c.auditRecorder == nil {
+		c.auditRecorder = jobs.NewInMemoryAuditRecorder()
+	}
+
 	if c.contentSvc == nil {
 		contentOpts := []content.ServiceOption{
 			content.WithVersioningEnabled(c.Config.Features.Versioning),
@@ -656,6 +661,17 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			menus.WithRequireTranslations(requireTranslations),
 			menus.WithTranslationsEnabled(translationsEnabled),
 			menus.WithActivityEmitter(c.activityEmitter),
+			menus.WithAuditRecorder(c.auditRecorder),
+			menus.WithMenuIDDeriver(identity.MenuUUID),
+			menus.WithIDGenerator(func(input menus.AddMenuItemInput) uuid.UUID {
+				if canonicalKey := strings.TrimSpace(input.CanonicalKey); canonicalKey != "" {
+					return identity.MenuItemUUID(input.MenuID, canonicalKey)
+				}
+				if external := strings.TrimSpace(input.ExternalCode); external != "" {
+					return identity.UUID("go-cms:menu_item_path:" + external)
+				}
+				return identity.UUID("go-cms:menu_item_fallback:" + input.MenuID.String())
+			}),
 		)
 		if c.pageRepo != nil {
 			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
@@ -670,10 +686,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			c.localeRepo,
 			menuOpts...,
 		)
-	}
-
-	if c.auditRecorder == nil {
-		c.auditRecorder = jobs.NewInMemoryAuditRecorder()
 	}
 	if c.jobWorker == nil {
 		c.jobWorker = jobs.NewWorker(c.scheduler, c.contentRepo, c.pageRepo,
