@@ -95,6 +95,7 @@ func (r *BunMenuRepository) InvalidateCache(ctx context.Context) error {
 
 // BunMenuItemRepository implements MenuItemRepository with optional caching.
 type BunMenuItemRepository struct {
+	db           *bun.DB
 	repo         repository.Repository[*MenuItem]
 	cacheService cache.CacheService
 	cachePrefix  string
@@ -119,7 +120,7 @@ func NewBunMenuItemRepositoryWithCache(db *bun.DB, cacheService cache.CacheServi
 	if svc != nil {
 		prefix = cachePrefix(menuItemNamespace)
 	}
-	return &BunMenuItemRepository{repo: base, cacheService: svc, cachePrefix: prefix}
+	return &BunMenuItemRepository{db: db, repo: base, cacheService: svc, cachePrefix: prefix}
 }
 
 func (r *BunMenuItemRepository) Create(ctx context.Context, item *MenuItem) (*MenuItem, error) {
@@ -229,6 +230,54 @@ func (r *BunMenuItemRepository) InvalidateCache(ctx context.Context) error {
 		return nil
 	}
 	return r.cacheService.DeleteByPrefix(ctx, r.cachePrefix)
+}
+
+func (r *BunMenuItemRepository) ResetMenuContents(ctx context.Context, menuID uuid.UUID) (itemsDeleted int, translationsDeleted int, err error) {
+	if r.db == nil {
+		return 0, 0, fmt.Errorf("menu item repository: database not configured")
+	}
+
+	var (
+		itemsAffected        int64
+		translationsAffected int64
+	)
+
+	err = r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
+		var ids []uuid.UUID
+		if err := tx.NewSelect().
+			Model((*MenuItem)(nil)).
+			Column("id").
+			Where("?TableAlias.menu_id = ?", menuID).
+			Scan(ctx, &ids); err != nil {
+			return fmt.Errorf("list menu item ids: %w", err)
+		}
+
+		if len(ids) > 0 {
+			res, err := tx.NewDelete().
+				Model((*MenuItemTranslation)(nil)).
+				Where("?TableAlias.menu_item_id IN (?)", bun.In(ids)).
+				Exec(ctx)
+			if err != nil {
+				return fmt.Errorf("delete menu item translations: %w", err)
+			}
+			affected, _ := res.RowsAffected()
+			translationsAffected += affected
+		}
+
+		res, err := tx.NewDelete().
+			Model((*MenuItem)(nil)).
+			Where("?TableAlias.menu_id = ?", menuID).
+			Exec(ctx)
+		if err != nil {
+			return fmt.Errorf("delete menu items: %w", err)
+		}
+		affected, _ := res.RowsAffected()
+		itemsAffected += affected
+
+		return nil
+	})
+
+	return int(itemsAffected), int(translationsAffected), err
 }
 
 // BunMenuItemTranslationRepository implements MenuItemTranslationRepository with optional caching.
