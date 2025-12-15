@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.13.0](https://github.com/goliatone/go-cms/compare/v0.12.0...v0.13.0) - (2025-12-15)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Accept empty groups ([f824847](https://github.com/goliatone/go-cms/commit/f824847745bb7bf2e6c8628558ada7222f2961ad))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.13.0 ([0fb71a8](https://github.com/goliatone/go-cms/commit/0fb71a8d1a58a944a715fb80ce646a2d6e412cbc))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- MenuConfig struct ([4b2049b](https://github.com/goliatone/go-cms/commit/4b2049b779ddfce071e7ae8fe9a0c257115f0f0c))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.12.0 ([10524f3](https://github.com/goliatone/go-cms/commit/10524f38f0943d0e9979655a6993318e957335eb))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update readme ([676c746](https://github.com/goliatone/go-cms/commit/676c74684e7b28ddc60b232bb0d5d4abbedc09b7))  - (goliatone)
+- Update tests ([9dd199e](https://github.com/goliatone/go-cms/commit/9dd199ea3fc120e88bb7a1c1822ff9230fe8f334))  - (goliatone)
+
 # [0.12.0](https://github.com/goliatone/go-cms/compare/v0.11.0...v0.12.0) - (2025-12-15)
 
 ## <!-- 1 -->🐛 Bug Fixes
