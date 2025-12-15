@@ -34,7 +34,7 @@ func TestCRUDRegression_BlockWidgetMenu(t *testing.T) {
 		exerciseWidgetCRUD(t, ctx, module.Widgets())
 	})
 	t.Run("menus", func(t *testing.T) {
-		exerciseMenuCRUD(t, ctx, module.Menus())
+		exerciseMenuCRUD(t, ctx, module.Container().MenuService())
 	})
 }
 
@@ -197,7 +197,7 @@ func exerciseWidgetCRUD(t *testing.T, ctx context.Context, svc cms.WidgetService
 	}
 }
 
-func exerciseMenuCRUD(t *testing.T, ctx context.Context, svc cms.MenuService) {
+func exerciseMenuCRUD(t *testing.T, ctx context.Context, svc menus.Service) {
 	t.Helper()
 	actor := uuid.New()
 

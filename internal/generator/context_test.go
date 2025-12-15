@@ -586,6 +586,14 @@ func (s *stubMenusService) AddMenuItemTranslation(context.Context, menus.AddMenu
 	return nil, errUnsupported
 }
 
+func (s *stubMenusService) UpsertMenuItemTranslation(context.Context, menus.UpsertMenuItemTranslationInput) (*menus.MenuItemTranslation, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) GetMenuItemByExternalCode(context.Context, string, string) (*menus.MenuItem, error) {
+	return nil, errUnsupported
+}
+
 func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string, locale string) ([]menus.NavigationNode, error) {
 	s.calls[locale]++
 	id := uuid.NewSHA1(uuid.NameSpaceURL, []byte(menuCode+"-"+locale))
@@ -603,6 +611,10 @@ func (s *stubMenusService) InvalidateCache(context.Context) error {
 }
 
 func (s *stubMenusService) DeleteMenu(context.Context, menus.DeleteMenuRequest) error {
+	return errUnsupported
+}
+
+func (s *stubMenusService) ResetMenuByCode(context.Context, string, uuid.UUID, bool) error {
 	return errUnsupported
 }
 

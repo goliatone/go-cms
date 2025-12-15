@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/pkg/activity"
@@ -1669,6 +1670,211 @@ func TestService_DeleteMenu_GuardrailsRequireForce(t *testing.T) {
 		Force:     true,
 	}); err != nil {
 		t.Fatalf("DeleteMenu force: %v", err)
+	}
+}
+
+func TestService_ResetMenuByCode_BlockedWhenMenuInUse(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	menuRepo := menus.NewMemoryMenuRepository()
+	itemRepo := menus.NewMemoryMenuItemRepository()
+	trRepo := menus.NewMemoryMenuItemTranslationRepository()
+	localeRepo := content.NewMemoryLocaleRepository()
+	for _, loc := range fixture.locales() {
+		locale := loc
+		localeRepo.Put(&locale)
+	}
+
+	resolver := &stubMenuUsageResolver{
+		bindings: []menus.MenuUsageBinding{
+			{ThemeName: "aurora", LocationCode: "primary"},
+		},
+	}
+
+	audit := jobs.NewInMemoryAuditRecorder()
+
+	service := menus.NewService(
+		menuRepo,
+		itemRepo,
+		trRepo,
+		localeRepo,
+		menus.WithMenuUsageResolver(resolver),
+		menus.WithAuditRecorder(audit),
+	)
+
+	actor := uuid.New()
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: actor,
+		UpdatedBy: actor,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	parent, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "parent"},
+		Translations: fixture.translations("parent"),
+		CreatedBy:    actor,
+		UpdatedBy:    actor,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem parent: %v", err)
+	}
+	if _, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		ParentID:     &parent.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "child"},
+		Translations: fixture.translations("child"),
+		CreatedBy:    actor,
+		UpdatedBy:    actor,
+	}); err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	err = service.ResetMenuByCode(ctx, "primary", actor, false)
+	if !errors.Is(err, menus.ErrMenuInUse) {
+		t.Fatalf("expected ErrMenuInUse, got %v", err)
+	}
+
+	items, err := itemRepo.ListByMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("item repo list: %v", err)
+	}
+	if len(items) == 0 {
+		t.Fatalf("expected menu contents preserved after blocked reset")
+	}
+
+	events := audit.Events()
+	if len(events) == 0 {
+		t.Fatalf("expected audit event to be recorded")
+	}
+	last := events[len(events)-1]
+	if last.Action != "menu_reset_blocked" {
+		t.Fatalf("expected menu_reset_blocked audit action, got %q", last.Action)
+	}
+}
+
+func TestService_ResetMenuByCode_ForcePreservesMenuAndClearsContents(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	menuRepo := menus.NewMemoryMenuRepository()
+	itemRepo := menus.NewMemoryMenuItemRepository()
+	trRepo := menus.NewMemoryMenuItemTranslationRepository()
+	localeRepo := content.NewMemoryLocaleRepository()
+	for _, loc := range fixture.locales() {
+		locale := loc
+		localeRepo.Put(&locale)
+	}
+
+	resolver := &stubMenuUsageResolver{
+		bindings: []menus.MenuUsageBinding{
+			{ThemeName: "aurora", LocationCode: "primary"},
+		},
+	}
+
+	audit := jobs.NewInMemoryAuditRecorder()
+
+	service := menus.NewService(
+		menuRepo,
+		itemRepo,
+		trRepo,
+		localeRepo,
+		menus.WithMenuUsageResolver(resolver),
+		menus.WithAuditRecorder(audit),
+	)
+
+	actor := uuid.New()
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: actor,
+		UpdatedBy: actor,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	parentTranslations := fixture.translations("parent")
+	childTranslations := fixture.translations("child")
+
+	parent, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "parent"},
+		Translations: parentTranslations,
+		CreatedBy:    actor,
+		UpdatedBy:    actor,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem parent: %v", err)
+	}
+
+	child, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:       menu.ID,
+		ParentID:     &parent.ID,
+		Position:     0,
+		Target:       map[string]any{"type": "page", "slug": "child"},
+		Translations: childTranslations,
+		CreatedBy:    actor,
+		UpdatedBy:    actor,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	if err := service.ResetMenuByCode(ctx, "primary", actor, true); err != nil {
+		t.Fatalf("ResetMenuByCode force: %v", err)
+	}
+
+	menuAfter, err := menuRepo.GetByCode(ctx, "primary")
+	if err != nil {
+		t.Fatalf("menu repo get: %v", err)
+	}
+	if menuAfter.ID != menu.ID {
+		t.Fatalf("expected menu record preserved (id %s), got %s", menu.ID, menuAfter.ID)
+	}
+
+	items, err := itemRepo.ListByMenu(ctx, menu.ID)
+	if err != nil {
+		t.Fatalf("item repo list: %v", err)
+	}
+	if len(items) != 0 {
+		t.Fatalf("expected zero items after reset, got %d", len(items))
+	}
+
+	if translations, err := trRepo.ListByMenuItem(ctx, parent.ID); err != nil {
+		t.Fatalf("parent translations: %v", err)
+	} else if len(translations) != 0 {
+		t.Fatalf("expected parent translations removed, got %d", len(translations))
+	}
+
+	if translations, err := trRepo.ListByMenuItem(ctx, child.ID); err != nil {
+		t.Fatalf("child translations: %v", err)
+	} else if len(translations) != 0 {
+		t.Fatalf("expected child translations removed, got %d", len(translations))
+	}
+
+	events := audit.Events()
+	if len(events) == 0 {
+		t.Fatalf("expected audit event to be recorded")
+	}
+	last := events[len(events)-1]
+	if last.Action != "menu_reset" {
+		t.Fatalf("expected menu_reset audit action, got %q", last.Action)
+	}
+	if last.Metadata["force"] != true {
+		t.Fatalf("expected force=true metadata, got %v", last.Metadata["force"])
+	}
+	if want := 2; last.Metadata["items_deleted"] != want {
+		t.Fatalf("expected items_deleted %d, got %v", want, last.Metadata["items_deleted"])
+	}
+	if want := len(parentTranslations) + len(childTranslations); last.Metadata["translations_deleted"] != want {
+		t.Fatalf("expected translations_deleted %d, got %v", want, last.Metadata["translations_deleted"])
 	}
 }
 
