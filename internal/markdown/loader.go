@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/goliatone/go-cms/internal/util"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 )
 
@@ -51,7 +52,7 @@ func NewLoader(filesystem fs.FS, cfg LoaderConfig) *Loader {
 		basePath:       filepath.Clean(cfg.BasePath),
 		defaultLocale:  cfg.DefaultLocale,
 		locales:        append([]string(nil), cfg.Locales...),
-		localePatterns: cloneStringMap(cfg.LocalePatterns),
+		localePatterns: util.CloneStringMap(cfg.LocalePatterns),
 		pattern:        pattern,
 		recursive:      cfg.Recursive,
 	}
@@ -264,15 +265,4 @@ type LoadParams struct {
 	Pattern        string
 	LocalePatterns map[string]string
 	Recursive      *bool
-}
-
-func cloneStringMap(input map[string]string) map[string]string {
-	if input == nil {
-		return map[string]string{}
-	}
-	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
-	return out
 }
