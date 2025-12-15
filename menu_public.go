@@ -28,6 +28,7 @@ type MenuInfo struct {
 // NavigationNode is a localized, presentation-ready navigation node.
 // This type intentionally omits UUIDs; menu identity is expressed via menu codes and item paths.
 type NavigationNode struct {
+	Position      int               `json:"position"`
 	Type          string            `json:"type,omitempty"`
 	Label         string            `json:"label,omitempty"`
 	LabelKey      string            `json:"label_key,omitempty"`
@@ -106,8 +107,8 @@ type ReconcileMenuResult struct {
 }
 
 type UpsertMenuItemByPathInput struct {
-	Path        string
-	ParentPath  string
+	Path       string
+	ParentPath string
 	// Position is a 0-based insertion index among siblings.
 	// Values past the end are clamped to append. Nil defaults to append for new items.
 	Position    *int
@@ -141,8 +142,8 @@ type UpdateMenuItemByPathInput struct {
 	Metadata    map[string]any
 	// Position is a 0-based insertion index among siblings.
 	// Values past the end are clamped to append. Nil leaves the current position unchanged.
-	Position    *int
-	Actor       uuid.UUID
+	Position *int
+	Actor    uuid.UUID
 }
 
 type menuService struct {
@@ -527,6 +528,7 @@ func (s *menuService) UpsertMenuItemTranslationByPath(ctx context.Context, menuC
 
 func toPublicNavigationNode(node menus.NavigationNode) NavigationNode {
 	out := NavigationNode{
+		Position:      node.Position,
 		Type:          node.Type,
 		Label:         node.Label,
 		LabelKey:      node.LabelKey,
@@ -666,10 +668,10 @@ func (s *menuService) reorderByPaths(ctx context.Context, menuCode string, actor
 	}
 
 	_, err = s.svc.BulkReorderMenuItems(ctx, menus.BulkReorderMenuItemsInput{
-		MenuID:     menu.ID,
-		Items:      orders,
-		UpdatedBy:  actor,
-		Version:    nil,
+		MenuID:    menu.ID,
+		Items:     orders,
+		UpdatedBy: actor,
+		Version:   nil,
 	})
 	return err
 }
