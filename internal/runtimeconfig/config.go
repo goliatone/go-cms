@@ -60,6 +60,7 @@ type Config struct {
 	I18N          I18NConfig
 	Storage       StorageConfig
 	Cache         CacheConfig
+	Menus         MenusConfig
 	Navigation    NavigationConfig
 	Themes        ThemeConfig
 	Widgets       WidgetConfig
@@ -71,6 +72,14 @@ type Config struct {
 	Logging       LoggingConfig
 	Workflow      WorkflowConfig
 	Activity      ActivityConfig
+}
+
+// MenusConfig captures menu write semantics that influence bootstrap/upsert behavior.
+type MenusConfig struct {
+	// AllowOutOfOrderUpserts enables order-independent menu bootstraps:
+	// missing parents are deferred, collapsible intent can be persisted before children exist,
+	// and reconciliation runs automatically after writes (and before navigation resolution).
+	AllowOutOfOrderUpserts bool
 }
 
 // ContentConfig captures configuration for the core content module.
@@ -297,6 +306,9 @@ func DefaultConfig() Config {
 			Locales:               []string{"en"},
 			RequireTranslations:   true,
 			DefaultLocaleRequired: true,
+		},
+		Menus: MenusConfig{
+			AllowOutOfOrderUpserts: true,
 		},
 		Shortcodes: ShortcodeConfig{
 			Enabled:               false,

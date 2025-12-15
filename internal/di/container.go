@@ -658,6 +658,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if c.menuSvc == nil {
 		menuOpts := []menus.ServiceOption{}
 		menuOpts = append(menuOpts,
+			menus.WithForgivingMenuBootstrap(c.Config.Menus.AllowOutOfOrderUpserts),
 			menus.WithRequireTranslations(requireTranslations),
 			menus.WithTranslationsEnabled(translationsEnabled),
 			menus.WithActivityEmitter(c.activityEmitter),
@@ -1842,17 +1843,17 @@ func (c *Container) seedLocales() {
 		lower := strings.ToLower(normalized)
 		if _, ok := seen[lower]; ok {
 			continue
-			}
-			seen[lower] = struct{}{}
-			c.memoryLocaleRepo.Put(&content.Locale{
-				ID:        identity.LocaleUUID(lower),
-				Code:      lower,
-				Display:   normalized,
-				IsActive:  true,
-				IsDefault: strings.EqualFold(normalized, c.Config.DefaultLocale),
-			})
 		}
+		seen[lower] = struct{}{}
+		c.memoryLocaleRepo.Put(&content.Locale{
+			ID:        identity.LocaleUUID(lower),
+			Code:      lower,
+			Display:   normalized,
+			IsActive:  true,
+			IsDefault: strings.EqualFold(normalized, c.Config.DefaultLocale),
+		})
 	}
+}
 
 // GeneratorService returns the configured static site generator service.
 func (c *Container) GeneratorService() generator.Service {
