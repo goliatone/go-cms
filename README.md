@@ -229,6 +229,8 @@ cfg.Retention = cms.RetentionConfig{Content: 5, Pages: 3, Blocks: 2}
 
 Menus generate navigation trees with locale aware labels, translation keys, and UI hints for groups/separators/collapsible items.
 
+`cms.DefaultConfig()` enables order-independent menu upserts (`cfg.Menus.AllowOutOfOrderUpserts=true`), so modules can insert parents/children in any order and persist collapsible intent before children exist. Set it to `false` if you want strict validation (missing parents and `Collapsible` without children will error).
+
 ```go
 menuSvc := module.Menus()
 
@@ -292,7 +294,12 @@ Menu item types:
 
 Translation precedence: `LabelKey` (or `GroupTitleKey`) → translated value → `Label`/`GroupTitle` fallback. URL resolution only runs for `item` types.
 
-Migration note: apply `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` to add menu item/translation columns (`type`, collapsible flags, metadata, styling, translation keys, group titles). Undo with the matching `.down.sql` if needed.
+Migration note: menu features rely on migrations:
+- `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` (menu item/translation fields: type, collapsible flags, metadata, styling, translation keys, group titles)
+- `data/sql/migrations/20250301000000_menu_item_canonical_dedupe.up.sql` (canonical key + uniqueness)
+- `data/sql/migrations/20251213000000_menu_item_external_parent_refs.up.sql` (external_code + parent_ref for out-of-order upserts)
+
+When using BunDB, these migrations are embedded and registered via `cms.GetMigrationsFS()` (see “Database Migrations”).
 
 ### Localization Helpers
 Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy “at least one translation” guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback-locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
