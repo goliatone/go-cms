@@ -3109,9 +3109,7 @@ func isEffectivelyEmptyGroupNode(node NavigationNode) bool {
 	if node.Type != MenuItemTypeGroup {
 		return false
 	}
-	if strings.TrimSpace(node.Label) != "" ||
-		strings.TrimSpace(node.LabelKey) != "" ||
-		strings.TrimSpace(node.GroupTitle) != "" ||
+	if strings.TrimSpace(node.GroupTitle) != "" ||
 		strings.TrimSpace(node.GroupTitleKey) != "" {
 		return false
 	}
