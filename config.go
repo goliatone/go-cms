@@ -22,6 +22,7 @@ type (
 	I18NConfig                = runtimeconfig.I18NConfig
 	StorageConfig             = runtimeconfig.StorageConfig
 	CacheConfig               = runtimeconfig.CacheConfig
+	MenusConfig               = runtimeconfig.MenusConfig
 	NavigationConfig          = runtimeconfig.NavigationConfig
 	ThemeConfig               = runtimeconfig.ThemeConfig
 	URLKitResolverConfig      = runtimeconfig.URLKitResolverConfig
