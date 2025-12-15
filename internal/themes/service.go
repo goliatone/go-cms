@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/google/uuid"
 )
 
@@ -76,6 +77,7 @@ func WithThemeIDGenerator(generator IDGenerator) ServiceOption {
 	return func(s *service) {
 		if generator != nil {
 			s.id = generator
+			s.idCustom = true
 		}
 	}
 }
@@ -93,6 +95,7 @@ type service struct {
 	themes    ThemeRepository
 	templates TemplateRepository
 	id        IDGenerator
+	idCustom  bool
 	now       func() time.Time
 }
 
@@ -145,7 +148,7 @@ func (s *service) RegisterTheme(ctx context.Context, input RegisterThemeInput) (
 	}
 
 	record := &Theme{
-		ID:          s.id(),
+		ID:          identity.ThemeUUID(themePath),
 		Name:        name,
 		Description: cloneString(input.Description),
 		Version:     version,
@@ -155,6 +158,9 @@ func (s *service) RegisterTheme(ctx context.Context, input RegisterThemeInput) (
 		Config:      cloneThemeConfig(input.Config),
 		CreatedAt:   s.now().UTC(),
 		UpdatedAt:   s.now().UTC(),
+	}
+	if s.idCustom {
+		record.ID = s.id()
 	}
 
 	created, err := s.themes.Create(ctx, record)
@@ -258,7 +264,15 @@ func (s *service) RegisterTemplate(ctx context.Context, input RegisterTemplateIn
 		return nil, err
 	}
 
-	record := PrepareTemplateRecord(input, s.id)
+	slug := canonicalSlug(input.Slug)
+	idGenerator := s.id
+	if !s.idCustom {
+		idGenerator = func() uuid.UUID {
+			return identity.TemplateUUID(input.ThemeID, slug)
+		}
+	}
+
+	record := PrepareTemplateRecord(input, idGenerator)
 	record.CreatedAt = s.now().UTC()
 	record.UpdatedAt = s.now().UTC()
 

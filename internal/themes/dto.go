@@ -91,7 +91,7 @@ func ValidateRegisterTemplate(ctx context.Context, repo TemplateRepository, inpu
 // PrepareTemplateRecord normalises register template input for persistence.
 func PrepareTemplateRecord(input RegisterTemplateInput, idGenerator func() uuid.UUID) *Template {
 	record := &Template{
-		ID:           uuid.New(),
+		ID:           uuid.Nil,
 		ThemeID:      input.ThemeID,
 		Name:         strings.TrimSpace(input.Name),
 		Slug:         canonicalSlug(input.Slug),
@@ -100,7 +100,9 @@ func PrepareTemplateRecord(input RegisterTemplateInput, idGenerator func() uuid.
 		Regions:      cloneTemplateRegions(input.Regions),
 		Metadata:     deepCloneMap(input.Metadata),
 	}
-	if idGenerator != nil {
+	if idGenerator == nil {
+		record.ID = uuid.New()
+	} else {
 		record.ID = idGenerator()
 	}
 	return record
