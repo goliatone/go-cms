@@ -1,6 +1,7 @@
 package menus_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1380,6 +1381,212 @@ func TestService_ResolveNavigation_LabelFallbacksAndReferenceTree(t *testing.T) 
 	}
 	if len(nav[2].Children) != 2 {
 		t.Fatalf("expected Others children 2, got %d", len(nav[2].Children))
+	}
+}
+
+func TestService_ResolveNavigation_IncludesPositionAndOrdersDeterministically(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+
+	menuRepo := menus.NewMemoryMenuRepository()
+	itemRepo := menus.NewMemoryMenuItemRepository()
+	trRepo := menus.NewMemoryMenuItemTranslationRepository()
+	localeRepo := content.NewMemoryLocaleRepository()
+	for _, locale := range fixture.locales() {
+		locale := locale
+		localeRepo.Put(&locale)
+	}
+
+	now := func() time.Time { return time.Unix(0, 0) }
+	idGen := func(menus.AddMenuItemInput) uuid.UUID { return uuid.New() }
+	service := menus.NewService(menuRepo, itemRepo, trRepo, localeRepo, menus.WithClock(now), menus.WithIDGenerator(idGen))
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	group, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID: menu.ID,
+		Type:   menus.MenuItemTypeGroup,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Content"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem group: %v", err)
+	}
+	dashboard, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID: menu.ID,
+		Type:   menus.MenuItemTypeItem,
+		Target: map[string]any{"type": "page", "slug": "dashboard"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Dashboard"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem dashboard: %v", err)
+	}
+	separator, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID: menu.ID,
+		Type:   menus.MenuItemTypeSeparator,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem separator: %v", err)
+	}
+	analytics, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID: menu.ID,
+		Type:   menus.MenuItemTypeItem,
+		Target: map[string]any{"type": "page", "slug": "analytics"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Analytics"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem analytics: %v", err)
+	}
+
+	childFirst, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Type:     menus.MenuItemTypeItem,
+		Target:   map[string]any{"type": "page", "slug": "first"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "First"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem childFirst: %v", err)
+	}
+	childTieA, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Type:     menus.MenuItemTypeItem,
+		Target:   map[string]any{"type": "page", "slug": "tie-a"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Tie A"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem childTieA: %v", err)
+	}
+	childTieB, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Type:     menus.MenuItemTypeItem,
+		Target:   map[string]any{"type": "page", "slug": "tie-b"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Tie B"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem childTieB: %v", err)
+	}
+	childSep, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Type:     menus.MenuItemTypeSeparator,
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem childSep: %v", err)
+	}
+	childLast, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Type:     menus.MenuItemTypeItem,
+		Target:   map[string]any{"type": "page", "slug": "last"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "Last"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem childLast: %v", err)
+	}
+
+	setPos := func(id uuid.UUID, pos int) {
+		t.Helper()
+		item, err := itemRepo.GetByID(ctx, id)
+		if err != nil {
+			t.Fatalf("GetByID %s: %v", id, err)
+		}
+		item.Position = pos
+		if _, err := itemRepo.Update(ctx, item); err != nil {
+			t.Fatalf("Update %s: %v", id, err)
+		}
+	}
+
+	setPos(group.ID, 1)
+	setPos(dashboard.ID, 10)
+	setPos(separator.ID, 60)
+	setPos(analytics.ID, 80)
+
+	setPos(childFirst.ID, 1)
+	setPos(childTieA.ID, 10)
+	setPos(childTieB.ID, 10)
+	setPos(childSep.ID, 60)
+	setPos(childLast.ID, 80)
+
+	nav, err := service.ResolveNavigation(ctx, "primary", "en")
+	if err != nil {
+		t.Fatalf("ResolveNavigation: %v", err)
+	}
+
+	if len(nav) != 4 {
+		t.Fatalf("expected 4 root nodes, got %d", len(nav))
+	}
+
+	if nav[0].ID != group.ID || nav[0].Position != 1 {
+		t.Fatalf("expected group first with position 1, got id=%s position=%d", nav[0].ID, nav[0].Position)
+	}
+	if nav[1].ID != dashboard.ID || nav[1].Position != 10 {
+		t.Fatalf("expected dashboard second with position 10, got id=%s position=%d", nav[1].ID, nav[1].Position)
+	}
+	if nav[2].Type != menus.MenuItemTypeSeparator || nav[2].ID != separator.ID || nav[2].Position != 60 {
+		t.Fatalf("expected separator third with position 60, got type=%s id=%s position=%d", nav[2].Type, nav[2].ID, nav[2].Position)
+	}
+	if nav[3].ID != analytics.ID || nav[3].Position != 80 {
+		t.Fatalf("expected analytics fourth with position 80, got id=%s position=%d", nav[3].ID, nav[3].Position)
+	}
+
+	children := nav[0].Children
+	if len(children) != 5 {
+		t.Fatalf("expected 5 group children, got %d", len(children))
+	}
+
+	expectedTieFirst := childTieA.ID
+	expectedTieSecond := childTieB.ID
+	if bytes.Compare(childTieB.ID[:], childTieA.ID[:]) < 0 {
+		expectedTieFirst, expectedTieSecond = childTieB.ID, childTieA.ID
+	}
+
+	if children[0].ID != childFirst.ID || children[0].Position != 1 {
+		t.Fatalf("expected first child with position 1, got id=%s position=%d", children[0].ID, children[0].Position)
+	}
+	if children[1].ID != expectedTieFirst || children[1].Position != 10 {
+		t.Fatalf("expected second child tie-breaker id=%s position=10, got id=%s position=%d", expectedTieFirst, children[1].ID, children[1].Position)
+	}
+	if children[2].ID != expectedTieSecond || children[2].Position != 10 {
+		t.Fatalf("expected third child tie-breaker id=%s position=10, got id=%s position=%d", expectedTieSecond, children[2].ID, children[2].Position)
+	}
+	if children[3].Type != menus.MenuItemTypeSeparator || children[3].ID != childSep.ID || children[3].Position != 60 {
+		t.Fatalf("expected separator child with position 60, got type=%s id=%s position=%d", children[3].Type, children[3].ID, children[3].Position)
+	}
+	if children[4].ID != childLast.ID || children[4].Position != 80 {
+		t.Fatalf("expected last child with position 80, got id=%s position=%d", children[4].ID, children[4].Position)
+	}
+}
+
+func TestNavigationNode_JSONIncludesPositionWhenZero(t *testing.T) {
+	raw, err := json.Marshal(menus.NavigationNode{ID: uuid.Nil})
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !bytes.Contains(raw, []byte(`"position":0`)) {
+		t.Fatalf("expected json to include position=0, got %s", raw)
 	}
 }
 
