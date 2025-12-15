@@ -67,19 +67,19 @@ type AddMenuItemInput struct {
 	CanonicalKey string
 	// Position is a 0-based insertion index among siblings.
 	// Values past the end are clamped to append.
-	Position     int
-	Type         string
-	Target       map[string]any
-	Icon         string
-	Badge        map[string]any
-	Permissions  []string
-	Classes      []string
-	Styles       map[string]string
-	Collapsible  bool
-	Collapsed    bool
-	Metadata     map[string]any
-	CreatedBy    uuid.UUID
-	UpdatedBy    uuid.UUID
+	Position    int
+	Type        string
+	Target      map[string]any
+	Icon        string
+	Badge       map[string]any
+	Permissions []string
+	Classes     []string
+	Styles      map[string]string
+	Collapsible bool
+	Collapsed   bool
+	Metadata    map[string]any
+	CreatedBy   uuid.UUID
+	UpdatedBy   uuid.UUID
 
 	Translations             []MenuItemTranslationInput
 	AllowMissingTranslations bool
@@ -101,7 +101,7 @@ type UpsertMenuItemInput struct {
 	ParentCode string
 	// Position is a 0-based insertion index among siblings.
 	// When nil, new items default to append (clamped to sibling length).
-	Position   *int
+	Position *int
 
 	Type        string
 	Target      map[string]any
@@ -135,9 +135,9 @@ type UpdateMenuItemInput struct {
 	Metadata    map[string]any
 	// Position is a 0-based insertion index among siblings.
 	// Values past the end are clamped to append. Nil leaves the current position unchanged.
-	Position    *int
-	ParentID    *uuid.UUID
-	UpdatedBy   uuid.UUID
+	Position  *int
+	ParentID  *uuid.UUID
+	UpdatedBy uuid.UUID
 }
 
 // ReorderMenuItemsInput defines a new hierarchical ordering for menu items.
@@ -3062,7 +3062,7 @@ func normalizeNavigationNodes(nodes []NavigationNode) []NavigationNode {
 		}
 
 		node.Children = normalizeNavigationNodes(node.Children)
-		if node.Type == MenuItemTypeGroup && len(node.Children) == 0 {
+		if node.Type == MenuItemTypeGroup && len(node.Children) == 0 && isEffectivelyEmptyGroupNode(node) {
 			continue
 		}
 		if len(node.Children) == 0 {
@@ -3080,6 +3080,40 @@ func normalizeNavigationNodes(nodes []NavigationNode) []NavigationNode {
 		normalized = normalized[:len(normalized)-1]
 	}
 	return normalized
+}
+
+func isEffectivelyEmptyGroupNode(node NavigationNode) bool {
+	if node.Type != MenuItemTypeGroup {
+		return false
+	}
+	if strings.TrimSpace(node.Label) != "" ||
+		strings.TrimSpace(node.LabelKey) != "" ||
+		strings.TrimSpace(node.GroupTitle) != "" ||
+		strings.TrimSpace(node.GroupTitleKey) != "" {
+		return false
+	}
+	if strings.TrimSpace(node.URL) != "" {
+		return false
+	}
+	if len(node.Target) > 0 {
+		return false
+	}
+	if strings.TrimSpace(node.Icon) != "" {
+		return false
+	}
+	if len(node.Badge) > 0 {
+		return false
+	}
+	if len(node.Permissions) > 0 || len(node.Classes) > 0 {
+		return false
+	}
+	if len(node.Styles) > 0 {
+		return false
+	}
+	if len(node.Metadata) > 0 {
+		return false
+	}
+	return true
 }
 
 func parseUUIDValue(value any) (uuid.UUID, bool, error) {
