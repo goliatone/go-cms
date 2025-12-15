@@ -1,5 +1,27 @@
 # Changelog
 
+# [0.14.0](https://github.com/goliatone/go-cms/compare/v0.13.0...v0.14.0) - (2025-12-15)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- How we sort items ([ea8f1af](https://github.com/goliatone/go-cms/commit/ea8f1af7253de0395a50d0d127d620a1f0e094bb))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.14.0 ([1fcac13](https://github.com/goliatone/go-cms/commit/1fcac13f739a67e8c0a4976507d659b0fd70c395))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Expose Position ([1e95307](https://github.com/goliatone/go-cms/commit/1e9530736978590e28e693b38f196b16687ea27c))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.13.0 ([6580328](https://github.com/goliatone/go-cms/commit/658032836fe0ec1da12913390b44e2fb43547b6a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([a07090c](https://github.com/goliatone/go-cms/commit/a07090c599c25fbdcdb01b741868381556d1ef69))  - (goliatone)
+
 # [0.13.0](https://github.com/goliatone/go-cms/compare/v0.12.0...v0.13.0) - (2025-12-15)
 
 ## <!-- 1 -->🐛 Bug Fixes
