@@ -29,3 +29,27 @@ func MenuUUID(menuCode string) uuid.UUID {
 func MenuItemUUID(menuID uuid.UUID, canonicalKey string) uuid.UUID {
 	return UUID("go-cms:menu_item:" + menuID.String() + ":" + strings.TrimSpace(canonicalKey))
 }
+
+func LocaleUUID(localeCode string) uuid.UUID {
+	return UUID("go-cms:locale:" + strings.ToLower(strings.TrimSpace(localeCode)))
+}
+
+func ThemeUUID(themePath string) uuid.UUID {
+	return UUID("go-cms:theme:" + strings.TrimSpace(themePath))
+}
+
+func TemplateUUID(themeID uuid.UUID, slug string) uuid.UUID {
+	return UUID("go-cms:template:" + themeID.String() + ":" + strings.ToLower(strings.TrimSpace(slug)))
+}
+
+func WidgetDefinitionUUID(name string) uuid.UUID {
+	return UUID("go-cms:widget_definition:" + strings.ToLower(strings.TrimSpace(name)))
+}
+
+func WidgetAreaDefinitionUUID(code string) uuid.UUID {
+	return UUID("go-cms:widget_area_definition:" + strings.ToLower(strings.TrimSpace(code)))
+}
+
+func BlockDefinitionUUID(name string) uuid.UUID {
+	return UUID("go-cms:block_definition:" + strings.ToLower(strings.TrimSpace(name)))
+}
