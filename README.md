@@ -3,6 +3,7 @@
 go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services for content, pages, blocks, widgets, menus, localization, and static generation so you can embed editorial workflows in any Go application.
 
 ## Table of Contents
+
 - [Why go-cms](#why-go-cms)
 - [Installation](#installation)
 - [Quick Start](#quick-start)
@@ -18,6 +19,7 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - [Further Reading](#further-reading)
 
 ## Features
+
 - **Composable services**: opt into content, page, widget, or menu modules independently.
 - **Storage flexibility**: switch between "in memory" or Bun backed SQL repositories without touching application code.
 - **Localization first**: every entity carries locale aware translations and fallbacks.
@@ -113,6 +115,7 @@ See `cmd/example/main.go` for a more complete walkthrough.
 ## Core Concepts
 
 ### Content Types & Content
+
 Define schemas that describe editorial data. Content records reference a type and store localized payloads.
 
 ```go
@@ -132,6 +135,7 @@ contentType, _ := contentSvc.CreateContentType(ctx, content.CreateContentTypeReq
 ```
 
 ### Pages
+
 Pages form the site map. They link to content, choose templates, and emit locale aware routes with SEO metadata.
 
 ```go
@@ -155,6 +159,7 @@ page, _ := pageSvc.Create(ctx, pages.CreatePageRequest{
 ```
 
 ### Blocks
+
 Blocks are reusable fragments that can be attached to pages or content regions with translations.
 
 ```go
@@ -176,6 +181,7 @@ instance, _ := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
 ```
 
 ### Widgets
+
 Widgets add behavioral components with scheduling, visibility rules, and per-area placement.
 
 ```go
@@ -288,21 +294,24 @@ _ = navigation
 ```
 
 Menu item types:
+
 - `item` (default): clickable row, may have children and optional `Collapsible/Collapsed` hints.
-- `group`: non-clickable header; no target/icon/badge; children only; use `GroupTitle`/`GroupTitleKey` for display.
+- `group`: non-clickable header; no target/icon/badge; children only; use `GroupTitle`/`GroupTitleKey` for display. Groups with no children are still returned when they contain presentation data (label/title/metadata/etc); "empty" groups without meaningful data are omitted.
 - `separator`: visual divider; no target/children/icon/badge/translations.
 
 Translation precedence: `LabelKey` (or `GroupTitleKey`) → translated value → `Label`/`GroupTitle` fallback. URL resolution only runs for `item` types.
 
 Migration note: menu features rely on migrations:
+
 - `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` (menu item/translation fields: type, collapsible flags, metadata, styling, translation keys, group titles)
 - `data/sql/migrations/20250301000000_menu_item_canonical_dedupe.up.sql` (canonical key + uniqueness)
 - `data/sql/migrations/20251213000000_menu_item_external_parent_refs.up.sql` (external_code + parent_ref for out-of-order upserts)
 
-When using BunDB, these migrations are embedded and registered via `cms.GetMigrationsFS()` (see “Database Migrations”).
+When using BunDB, these migrations are embedded and registered via `cms.GetMigrationsFS()` (see "Database Migrations").
 
 ### Localization Helpers
-Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy “at least one translation” guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback-locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
+
+Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy "at least one translation" guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
 
 ## Static Site Generation
 
@@ -371,6 +380,7 @@ func main() {
 ```
 
 Contracts:
+
 - `generator.Service` exposing `Build`, `BuildPage`, `BuildAssets`, `BuildSitemap`, and `Clean`.
 - `generator.Config`/`BuildOptions`/`BuildResult`/`BuildMetrics` for behavior toggles and reporting.
 - `generator.Dependencies` to inject CMS services, renderer, storage, logger, optional hooks, and asset resolver (`AssetResolver` or `NoOpAssetResolver`).
@@ -382,14 +392,16 @@ Templates receive `generator.TemplateContext` with resolved dependencies:
 <html lang="{{ .Page.Locale.Code }}">
   <head>
     <title>{{ .Page.Translation.Title }}</title>
-    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL (.Theme.AssetURL "style") }}">
-    <style>:root { {{- range $k, $v := .Theme.CSSVars }}{{ $k }}: {{ $v }};{{ end }} }</style>
+    <link rel="stylesheet" href="{{ .Helpers.WithBaseURL (.Theme.AssetURL
+    "style") }}">
+    <style>
+      :root { {{- range $k, $v := .Theme.CSSVars }}{{ $k }}: {{ $v }};{{ end }} }
+    </style>
   </head>
   <body>
-    {{ range .Page.Blocks }}{{ template .TemplatePath . }}{{ end }}
-    {{ range $code, $menu := .Page.Menus }}
-      {{ template "menu" (dict "code" $code "nodes" $menu) }}
-    {{ end }}
+    {{ range .Page.Blocks }}{{ template .TemplatePath . }}{{ end }} {{ range
+    $code, $menu := .Page.Menus }} {{ template "menu" (dict "code" $code "nodes"
+    $menu) }} {{ end }}
   </body>
 </html>
 {{ end }}
@@ -398,6 +410,7 @@ Templates receive `generator.TemplateContext` with resolved dependencies:
 The `Theme` block on the context comes from [`go-theme`](https://github.com/goliatone/go-theme): configure `cfg.Themes.DefaultTheme`/`DefaultVariant`, ship a `theme.json` alongside your templates/assets, and call helpers such as `.Theme.AssetURL`, `.Theme.Partials`, and `.Theme.CSSVars` (pair them with `.Helpers.WithBaseURL` to honour your site prefix).
 
 Troubleshooting tips:
+
 - `static: static command handlers not configured` &mdash; ensure the generator feature is enabled and that the static command constructors receive the generator service (the provided CLI already injects it); use the adapter submodule only when you need registry/dispatcher/cron wiring.
 - `static: static sitemap handler not configured` &mdash; enable `Config.Generator.GenerateSitemap` or provide `--output` / `--base-url`.
 - Missing telemetry &mdash; attach a `ResultCallback` that logs or forwards metrics.
@@ -617,6 +630,7 @@ container := di.NewContainer(cfg,
 ```
 
 Additional guides:
+
 - Observability & logging: `docs/LOGGING_GUIDE.md`
 - Static bootstrapper: `cmd/static/internal/bootstrap`
 - DI wiring options: `internal/di/options.go`
@@ -695,6 +709,7 @@ if report := client.Report(); report != nil && !report.IsZero() {
 ```
 
 The CMS includes migrations for all core tables:
+
 - Locales and content types
 - Contents with translations and versions
 - Themes and templates
@@ -772,6 +787,7 @@ When using the built-in engine, the environment variables can be omitted.
 - Optional SQL backend supported by uptrace/bun (PostgreSQL, MySQL, SQLite)
 
 Key modules:
+
 - [github.com/uptrace/bun](https://github.com/uptrace/bun)
 - [github.com/goliatone/go-urlkit](https://github.com/goliatone/go-urlkit)
 - [github.com/goliatone/go-repository-cache](https://github.com/goliatone/go-repository-cache)
