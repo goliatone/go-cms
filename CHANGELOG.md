@@ -1,5 +1,43 @@
 # Changelog
 
+# [0.12.0](https://github.com/goliatone/go-cms/compare/v0.11.0...v0.12.0) - (2025-12-15)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Wrap memory local repo access to seen ([547555f](https://github.com/goliatone/go-cms/commit/547555fa0856da13708c55d7d0d8789acbbcfdb1))  - (goliatone)
+- ID setup for blocks service ([881a877](https://github.com/goliatone/go-cms/commit/881a87712ee60bbe1f58fdfad33013764691393a))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.12.0 ([bcb4698](https://github.com/goliatone/go-cms/commit/bcb469891ff6b592c5650c8b0921f86f105e19c9))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Deterministic identity provider ([799c271](https://github.com/goliatone/go-cms/commit/799c2719e7d6a983955ad2f86418c64439311382))  - (goliatone)
+- Theme service udpate ([091a6a9](https://github.com/goliatone/go-cms/commit/091a6a9d5856384f98ff40e879274d71c32e980f))  - (goliatone)
+- New menu service ([da48cf1](https://github.com/goliatone/go-cms/commit/da48cf10cbb006f35ab7f731ea2230eed0ddc147))  - (goliatone)
+- Menu bun repository ([e6cb28b](https://github.com/goliatone/go-cms/commit/e6cb28bc220f76eb5e9efbfdfa47e58b361a1e55))  - (goliatone)
+- Clone string map ([ebeaae0](https://github.com/goliatone/go-cms/commit/ebeaae067f623f96360bef637c01be7701ab7acb))  - (goliatone)
+- Audit record and ID driver ([0614e6f](https://github.com/goliatone/go-cms/commit/0614e6fb6e1c281dd3b3a62c6c8a6042b1a9fe7e))  - (goliatone)
+- Internal identity package ([2bfc257](https://github.com/goliatone/go-cms/commit/2bfc25754f58d0348c924cb5a0ec81ddb7c04e1e))  - (goliatone)
+- Util helpers ([bafc181](https://github.com/goliatone/go-cms/commit/bafc1814a79b21121f11b8973184a7f7e8e8a3f7))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- Util components ([76f2629](https://github.com/goliatone/go-cms/commit/76f26290ab91cd9cd1318d14032f0bdea7366c4e))  - (goliatone)
+- Menu management ([40ad158](https://github.com/goliatone/go-cms/commit/40ad15806bef475262acfa051bfb3cd5ce28ea5f))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.11.0 ([0f8d430](https://github.com/goliatone/go-cms/commit/0f8d4306626e0fe9d6f2cafe1233ccd0a2931caf))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([d7cadf9](https://github.com/goliatone/go-cms/commit/d7cadf967cace078c790e1c4e4ac86a52aec906b))  - (goliatone)
+- Update readme ([65d42ad](https://github.com/goliatone/go-cms/commit/65d42ad3555aec4bb7afd9f2eb6521cb00676f9a))  - (goliatone)
+- Udpate example ([eb7ef98](https://github.com/goliatone/go-cms/commit/eb7ef98d848b70e14a493636de29f2a517545b08))  - (goliatone)
+- Update tests ([4aa6151](https://github.com/goliatone/go-cms/commit/4aa6151176d70815d84606120f96b443133d2fdb))  - (goliatone)
+
 # [0.11.0](https://github.com/goliatone/go-cms/compare/v0.10.0...v0.11.0) - (2025-12-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
