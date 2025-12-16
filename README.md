@@ -10,7 +10,6 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - [Core Concepts](#core-concepts)
 - [Static Site Generation](#static-site-generation)
 - [Markdown Import & Sync](#markdown-import--sync)
-- [COLABS Site Module](#colabs-site-module)
 - [Configuration](#configuration)
 - [Architecture & Extensibility](#architecture--extensibility)
 - [CLI Reference](#cli-reference)
@@ -411,11 +410,11 @@ The `Theme` block on the context comes from [`go-theme`](https://github.com/goli
 
 Troubleshooting tips:
 
-- `static: static command handlers not configured` &mdash; ensure the generator feature is enabled and that the static command constructors receive the generator service (the provided CLI already injects it); use the adapter submodule only when you need registry/dispatcher/cron wiring.
-- `static: static sitemap handler not configured` &mdash; enable `Config.Generator.GenerateSitemap` or provide `--output` / `--base-url`.
-- Missing telemetry &mdash; attach a `ResultCallback` that logs or forwards metrics.
-- Commands timing out or missing log fields &mdash; pass a deadline in the context you supply to `Execute` or use the per-command timeout options (for example, `staticcmd.BuildSiteWithTimeout`); inject a logger provider with `di.WithLoggerProvider` so commands include `operation` and domain identifiers in logs.
-- Custom storage integration &mdash; set `bootstrap.Options.Storage` to an implementation of `interfaces.StorageProvider`.
+- `static: static command handlers not configured`: ensure the generator feature is enabled and that the static command constructors receive the generator service (the provided CLI already injects it); use the adapter submodule only when you need registry/dispatcher/cron wiring.
+- `static: static sitemap handler not configured`: enable `Config.Generator.GenerateSitemap` or provide `--output` / `--base-url`.
+- Missing telemetry: attach a `ResultCallback` that logs or forwards metrics.
+- Commands timing out or missing log fields: pass a deadline in the context you supply to `Execute` or use the per command timeout options (for example, `staticcmd.BuildSiteWithTimeout`); inject a logger provider with `di.WithLoggerProvider` so commands include `operation` and domain identifiers in logs.
+- Custom storage integration: set `bootstrap.Options.Storage` to an implementation of `interfaces.StorageProvider`.
 
 ## Markdown Import & Sync
 
@@ -501,14 +500,27 @@ Use `di.WithShortcodeCacheProvider` to register named cache implementations (Red
 
 ### Activity Hooks
 
-Enable activity emission with `cfg.Features.Activity` and `cfg.Activity.Enabled`; set `cfg.Activity.Channel` to tag events. Inject hooks via `di.WithActivityHooks` or pass a go-users sink with `di.WithActivitySink` (internally adapted by `pkg/activity/usersink.Hook`). Activity events fan out to all hooks and carry verb, actor IDs, object type/ID, channel, and module-specific metadata (slug, status, locale, path, menu code). When no hooks are provided, emissions no-op. In tests, pair `activity.CaptureHook` with `activity.NewEmitter` to assert events without persisting them.
+Enable activity emission with `cfg.Features.Activity` and `cfg.Activity.Enabled`, set `cfg.Activity.Channel` to tag events. Inject hooks via `di.WithActivityHooks` or pass a go-users sink with `di.WithActivitySink` (internally adapted by `pkg/activity/usersink.Hook`). Activity events fan out to all hooks and carry verb, actor IDs, object type/ID, channel, and module specific metadata (slug, status, locale, path, menu code). When no hooks are provided, emissions noop. In tests, pair `activity.CaptureHook` with `activity.NewEmitter` to assert events without persisting them.
 
 ## Commands & Adapters
 
 - Core commands are plain structs with direct constructors (for example, `staticcmd.NewBuildSiteHandler`, `markdowncmd.NewSyncDirectoryHandler`) that satisfy `command.CLICommand`/`command.CronCommand` when exposed via CLI or cron. CLIs in this repo wire those constructors directly; there is no collector or registry inside the core module.
-- Cross-cutting concerns live on the structs: each command applies a default timeout (`commands.WithCommandTimeout` with `commands.DefaultCommandTimeout`) and expects a logger from DI. Override the timeout with options such as `staticcmd.BuildSiteWithTimeout` or pass a logger provider via `di.WithLoggerProvider` so command logs include `operation` and domain identifiers.
+- Cross cutting concerns live on the structs: each command applies a default timeout (`commands.WithCommandTimeout` with `commands.DefaultCommandTimeout`) and expects a logger from DI. Override the timeout with options such as `staticcmd.BuildSiteWithTimeout` or pass a logger provider via `di.WithLoggerProvider` so command logs include `operation` and domain identifiers.
 - To layer telemetry or retries, derive a context with your own deadline, invoke `Execute`, and forward the returned error to your monitoring hooks.
 - Legacy registry/dispatcher/cron wiring lives in the optional adapter submodule. Install it with `go get github.com/goliatone/go-cms/commands`, then call `commands.RegisterContainerCommands(container, commands.RegistrationOptions{Dispatcher: ..., Cron: ...})` to rebuild the old flow when migrating hosts.
+
+```go
+module, _ := cms.New(cfg)
+
+result, err := commands.RegisterContainerCommands(module.Container(), commands.RegistrationOptions{
+  Registry:       registry,       // optional
+  Dispatcher:     dispatcher,     // optional
+  CronRegistrar:  cronRegistrar,  // optional
+  LoggerProvider: loggerProvider, // optional
+})
+_ = result // keep result.Subscriptions for shutdown
+```
+
 
 ### Managing Storage Profiles at Runtime
 
@@ -798,6 +810,7 @@ Key modules:
 - Examples: `cmd/example/main.go`, `examples/web/`
 - Logging & observability: `docs/LOGGING_GUIDE.md`
 - Feature walkthroughs: `docs/FEAT_STATIC.md`, `docs/FEAT_MARKDOWN.md`
+- Menu canonicalization (go-admin alignment): `MENU_CANONICALIZATION.md`
 - Task-driven design: `docs/CMS_TDD.md`, `docs/CMD_TDD.md`
 
 ## License
