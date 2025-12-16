@@ -14,6 +14,7 @@ import (
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/google/uuid"
 )
@@ -381,6 +382,13 @@ func WithTranslationsEnabled(enabled bool) ServiceOption {
 	}
 }
 
+// WithTranslationState wires a shared, runtime-configurable translation state.
+func WithTranslationState(state *translationconfig.State) ServiceOption {
+	return func(s *service) {
+		s.translationState = state
+	}
+}
+
 // WithActivityEmitter wires the activity emitter used for activity records.
 func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	return func(s *service) {
@@ -460,6 +468,7 @@ type service struct {
 	urlResolver         URLResolver
 	requireTranslations bool
 	translationsEnabled bool
+	translationState    *translationconfig.State
 	activity            *activity.Emitter
 	forgivingBootstrap  bool
 	reconcileOnResolve  bool
@@ -509,7 +518,13 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 }
 
 func (s *service) translationsRequired() bool {
-	return s.translationsEnabled && s.requireTranslations
+	enabled := s.translationsEnabled
+	required := s.requireTranslations
+	if s.translationState != nil {
+		enabled = s.translationState.Enabled()
+		required = s.translationState.RequireTranslations()
+	}
+	return enabled && required
 }
 
 // CreateMenu registers a new menu ensuring code uniqueness.
