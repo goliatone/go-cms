@@ -14,6 +14,12 @@ var (
 
 // MenuItemPath captures parsed information about a dot-path menu item identifier.
 //
+// Canonicalization contract (Phase 8):
+//   - Menu codes and path segments are treated as lowercase.
+//   - Callers may supply dot-paths, slash-paths, or relative paths; go-cms will canonicalize inputs
+//     into a stable dot-path (`<menuCode>.<seg>...`) and validate against `isPathSegment`.
+//   - Canonicalization rules are documented in `MENU_CANONICALIZATION.md`.
+//
 // Example:
 // - Path:      "admin.content.pages"
 // - MenuCode:  "admin"

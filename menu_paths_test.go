@@ -33,34 +33,51 @@ func TestParseMenuItemPath(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "leading_dot",
-			path:    ".admin.content",
-			wantErr: true,
+			name:       "leading_dot",
+			path:       ".admin.content",
+			wantMenu:   "admin",
+			wantParent: "admin",
+			wantKey:    "content",
 		},
 		{
-			name:    "trailing_dot",
-			path:    "admin.content.",
-			wantErr: true,
+			name:       "trailing_dot",
+			path:       "admin.content.",
+			wantMenu:   "admin",
+			wantParent: "admin",
+			wantKey:    "content",
 		},
 		{
-			name:    "double_dot",
-			path:    "admin..content",
-			wantErr: true,
+			name:       "double_dot",
+			path:       "admin..content",
+			wantMenu:   "admin",
+			wantParent: "admin",
+			wantKey:    "content",
 		},
 		{
-			name:    "invalid_segment_space",
-			path:    "admin.con tent.pages",
-			wantErr: true,
+			name:       "invalid_segment_space",
+			path:       "admin.con tent.pages",
+			wantMenu:   "admin",
+			wantParent: "admin.con-tent",
+			wantKey:    "pages",
 		},
 		{
-			name:    "invalid_segment_symbol",
-			path:    "admin.content.$pages",
-			wantErr: true,
+			name:       "invalid_segment_symbol",
+			path:       "admin.content.$pages",
+			wantMenu:   "admin",
+			wantParent: "admin.content",
+			wantKey:    "pages",
 		},
 		{
 			name:    "empty",
 			path:    "   ",
 			wantErr: true,
+		},
+		{
+			name:       "slash_path",
+			path:       "Admin/Content/Pages",
+			wantMenu:   "admin",
+			wantParent: "admin.content",
+			wantKey:    "pages",
 		},
 	}
 
@@ -105,5 +122,10 @@ func TestParseMenuItemPathForMenu(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	} else if parsed.ParentPath != "admin" {
 		t.Fatalf("expected parent to be admin, got %q", parsed.ParentPath)
+	}
+	if parsed, err := ParseMenuItemPathForMenu("Admin", "ADMIN/Pages"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	} else if parsed.Path != "admin.pages" {
+		t.Fatalf("expected canonical path to be admin.pages, got %q", parsed.Path)
 	}
 }
