@@ -15,6 +15,7 @@ import (
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	storageadapter "github.com/goliatone/go-cms/internal/adapters/storage"
 	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
+	admintranslations "github.com/goliatone/go-cms/internal/admin/translations"
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/generator"
@@ -33,6 +34,7 @@ import (
 	shortcode "github.com/goliatone/go-cms/internal/shortcode"
 	"github.com/goliatone/go-cms/internal/storageconfig"
 	"github.com/goliatone/go-cms/internal/themes"
+	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
@@ -65,6 +67,12 @@ type Container struct {
 	storageLogger    interfaces.Logger
 	storageAdminSvc  *adminstorage.Service
 	activeProfile    string
+
+	translationRepo     translationconfig.Repository
+	translationDefaults translationconfig.Settings
+	translationState    *translationconfig.State
+	translationCancel   context.CancelFunc
+	translationAdminSvc *admintranslations.Service
 
 	cache     interfaces.CacheProvider
 	template  interfaces.TemplateRenderer
@@ -405,6 +413,15 @@ func WithStorageRepository(repo storageconfig.Repository) Option {
 	}
 }
 
+// WithTranslationSettingsRepository overrides the translation settings repository used for runtime configuration.
+func WithTranslationSettingsRepository(repo translationconfig.Repository) Option {
+	return func(c *Container) {
+		if repo != nil {
+			c.translationRepo = repo
+		}
+	}
+}
+
 // WithStorageFactory registers a storage provider factory under the given kind.
 func WithStorageFactory(kind string, factory StorageFactory) Option {
 	return func(c *Container) {
@@ -460,19 +477,27 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryThemeRepo := themes.NewMemoryThemeRepository()
 	memoryTemplateRepo := themes.NewMemoryTemplateRepository()
 
+	translationDefaults := translationconfig.Settings{
+		TranslationsEnabled: cfg.I18N.Enabled,
+		RequireTranslations: cfg.I18N.RequireTranslations,
+	}
+
 	c := &Container{
-		Config:           cfg,
-		storage:          storageadapter.NewNoOpProvider(),
-		storageRepo:      storageconfig.NewMemoryRepository(),
-		storageFactories: map[string]StorageFactory{},
-		storageProfiles:  map[string]storage.Profile{},
-		template:         noop.Template(),
-		media:            noop.Media(),
-		auth:             noop.Auth(),
-		cache:            noop.Cache(),
-		cacheTTL:         cacheTTL,
-		shortcodeMetrics: shortcode.NoOpMetrics(),
-		shortcodeCaches:  map[string]interfaces.CacheProvider{},
+		Config:              cfg,
+		storage:             storageadapter.NewNoOpProvider(),
+		storageRepo:         storageconfig.NewMemoryRepository(),
+		storageFactories:    map[string]StorageFactory{},
+		storageProfiles:     map[string]storage.Profile{},
+		translationRepo:     translationconfig.NewMemoryRepository(),
+		translationDefaults: translationDefaults,
+		translationState:    translationconfig.NewState(translationDefaults),
+		template:            noop.Template(),
+		media:               noop.Media(),
+		auth:                noop.Auth(),
+		cache:               noop.Cache(),
+		cacheTTL:            cacheTTL,
+		shortcodeMetrics:    shortcode.NoOpMetrics(),
+		shortcodeCaches:     map[string]interfaces.CacheProvider{},
 
 		memoryContentRepo:     memoryContentRepo,
 		memoryContentTypeRepo: memoryContentTypeRepo,
@@ -526,6 +551,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		opt(c)
 	}
 
+	c.initializeTranslationSettings(context.Background())
+
 	if err := c.configureLoggerProvider(); err != nil {
 		return nil, err
 	}
@@ -541,16 +568,17 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if err := c.configureWorkflowEngine(); err != nil {
 		return nil, err
 	}
-	c.configureStorageAdminService()
-
-	requireTranslations := c.Config.I18N.RequireTranslations
-	translationsEnabled := c.Config.I18N.Enabled
-	if !translationsEnabled && requireTranslations {
-		requireTranslations = false
-	}
 
 	if c.auditRecorder == nil {
 		c.auditRecorder = jobs.NewInMemoryAuditRecorder()
+	}
+	c.configureStorageAdminService()
+	c.configureTranslationAdminService()
+
+	requireTranslations := c.translationState.RequireTranslations()
+	translationsEnabled := c.translationState.Enabled()
+	if !translationsEnabled && requireTranslations {
+		requireTranslations = false
 	}
 
 	if c.contentSvc == nil {
@@ -565,6 +593,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		contentOpts = append(contentOpts,
 			content.WithRequireTranslations(requireTranslations),
 			content.WithTranslationsEnabled(translationsEnabled),
+			content.WithTranslationState(c.translationState),
 		)
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
 	}
@@ -642,6 +671,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		pageOpts = append(pageOpts,
 			pages.WithRequireTranslations(requireTranslations),
 			pages.WithTranslationsEnabled(translationsEnabled),
+			pages.WithTranslationState(c.translationState),
 		)
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
@@ -661,6 +691,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			menus.WithForgivingMenuBootstrap(c.Config.Menus.AllowOutOfOrderUpserts),
 			menus.WithRequireTranslations(requireTranslations),
 			menus.WithTranslationsEnabled(translationsEnabled),
+			menus.WithTranslationState(c.translationState),
 			menus.WithActivityEmitter(c.activityEmitter),
 			menus.WithAuditRecorder(c.auditRecorder),
 			menus.WithMenuIDDeriver(identity.MenuUUID),
@@ -742,6 +773,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	}
 
 	c.subscribeStorageEvents()
+	c.subscribeTranslationEvents()
 	c.registerShortcodeTemplateHelpers()
 
 	return c, nil
@@ -1236,6 +1268,82 @@ func (c *Container) handleStorageEvent(ctx context.Context, evt storageconfig.Ch
 	}
 }
 
+func (c *Container) initializeTranslationSettings(ctx context.Context) {
+	defaults := translationconfig.Settings{
+		TranslationsEnabled: c.Config.I18N.Enabled,
+		RequireTranslations: c.Config.I18N.RequireTranslations,
+	}
+	c.translationDefaults = defaults
+
+	if c.translationState == nil {
+		c.translationState = translationconfig.NewState(defaults)
+	} else {
+		c.translationState.SetEnabled(defaults.TranslationsEnabled)
+		c.translationState.SetRequireTranslations(defaults.RequireTranslations)
+	}
+
+	if c.translationRepo == nil {
+		c.applyTranslationSettings(defaults)
+		return
+	}
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	stored, err := c.translationRepo.Get(ctx)
+	if err != nil {
+		if errors.Is(err, translationconfig.ErrSettingsNotFound) {
+			if _, err := c.translationRepo.Upsert(ctx, defaults); err == nil {
+				c.applyTranslationSettings(defaults)
+				return
+			}
+		}
+		c.applyTranslationSettings(defaults)
+		return
+	}
+	c.applyTranslationSettings(stored)
+}
+
+func (c *Container) applyTranslationSettings(settings translationconfig.Settings) {
+	if c.translationState == nil {
+		c.translationState = translationconfig.NewState(settings)
+	} else {
+		c.translationState.SetEnabled(settings.TranslationsEnabled)
+		c.translationState.SetRequireTranslations(settings.RequireTranslations)
+	}
+	c.Config.I18N.Enabled = settings.TranslationsEnabled
+	c.Config.I18N.RequireTranslations = settings.RequireTranslations
+	c.i18nSvc = nil
+}
+
+func (c *Container) subscribeTranslationEvents() {
+	if c.translationRepo == nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	events, err := c.translationRepo.Subscribe(ctx)
+	if err != nil {
+		cancel()
+		return
+	}
+	c.translationCancel = cancel
+	go func() {
+		for evt := range events {
+			c.handleTranslationEvent(ctx, evt)
+		}
+	}()
+}
+
+func (c *Container) handleTranslationEvent(ctx context.Context, evt translationconfig.ChangeEvent) {
+	switch evt.Type {
+	case translationconfig.ChangeCreated, translationconfig.ChangeUpdated:
+		c.applyTranslationSettings(evt.Settings)
+	case translationconfig.ChangeDeleted:
+		c.applyTranslationSettings(c.translationDefaults)
+	}
+}
+
 func cloneStorageProfile(profile storage.Profile) storage.Profile {
 	cloned := profile
 	if profile.Config.Options != nil {
@@ -1322,6 +1430,13 @@ func (c *Container) configureStorageAdminService() {
 		options = append(options, adminstorage.WithPreviewer(previewer))
 	}
 	c.storageAdminSvc = adminstorage.NewService(c.storageRepo, c.auditRecorder, options...)
+}
+
+func (c *Container) configureTranslationAdminService() {
+	if c.translationRepo == nil || c.translationAdminSvc != nil {
+		return
+	}
+	c.translationAdminSvc = admintranslations.NewService(c.translationRepo, c.auditRecorder)
 }
 
 func (c *Container) initShortcodeRegistry() interfaces.ShortcodeRegistry {
@@ -1633,7 +1748,10 @@ func (c *Container) TranslationsEnabled() bool {
 	if c == nil {
 		return false
 	}
-	return c.Config.I18N.Enabled
+	if c.translationState == nil {
+		return c.Config.I18N.Enabled
+	}
+	return c.translationState.Enabled()
 }
 
 // TranslationsRequired reports whether translations must be provided when enabled.
@@ -1641,10 +1759,13 @@ func (c *Container) TranslationsRequired() bool {
 	if c == nil {
 		return false
 	}
-	if !c.Config.I18N.Enabled {
-		return false
+	if c.translationState == nil {
+		if !c.Config.I18N.Enabled {
+			return false
+		}
+		return c.Config.I18N.RequireTranslations
 	}
-	return c.Config.I18N.RequireTranslations
+	return c.translationState.Required()
 }
 
 // ContentService returns the configured content service.
@@ -1655,6 +1776,11 @@ func (c *Container) ContentService() content.Service {
 // StorageAdminService exposes the storage admin helper.
 func (c *Container) StorageAdminService() *adminstorage.Service {
 	return c.storageAdminSvc
+}
+
+// TranslationAdminService exposes the translation settings admin helper.
+func (c *Container) TranslationAdminService() *admintranslations.Service {
+	return c.translationAdminSvc
 }
 
 // PageService returns the configured page service.
