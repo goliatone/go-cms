@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.15.0](https://github.com/goliatone/go-cms/compare/v0.14.0...v0.15.0) - (2025-12-16)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Make canonical key paths ([eafb33d](https://github.com/goliatone/go-cms/commit/eafb33db82412a62ba05ab5dda9ff72a96ce608e))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.15.0 ([d3e8103](https://github.com/goliatone/go-cms/commit/d3e81036746237fe307ac9e09f99a59479446534))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Menu normalization helper ([1eb797e](https://github.com/goliatone/go-cms/commit/1eb797ed6905a77da1ea64b07bf0414cb6c08267))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.14.0 ([a315ca4](https://github.com/goliatone/go-cms/commit/a315ca490c9857bdb2f4b77ab3cf5d7958540b4a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([bdb2124](https://github.com/goliatone/go-cms/commit/bdb212425395997b700cbcfb9d744633be15a7f6))  - (goliatone)
+- Update tests ([027560c](https://github.com/goliatone/go-cms/commit/027560c1125559b3b7afa04e4f0c5b0429b76ecb))  - (goliatone)
+
 # [0.14.0](https://github.com/goliatone/go-cms/compare/v0.13.0...v0.14.0) - (2025-12-15)
 
 ## <!-- 1 -->🐛 Bug Fixes
