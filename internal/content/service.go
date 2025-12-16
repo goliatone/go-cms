@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
@@ -259,6 +260,13 @@ func WithTranslationsEnabled(enabled bool) ServiceOption {
 	}
 }
 
+// WithTranslationState wires a shared, runtime-configurable translation state.
+func WithTranslationState(state *translationconfig.State) ServiceOption {
+	return func(svc *service) {
+		svc.translationState = state
+	}
+}
+
 // WithActivityEmitter wires the activity emitter used for activity records.
 func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	return func(svc *service) {
@@ -282,6 +290,7 @@ type service struct {
 	logger                interfaces.Logger
 	requireTranslations   bool
 	translationsEnabled   bool
+	translationState      *translationconfig.State
 	activity              *activity.Emitter
 }
 
@@ -323,7 +332,20 @@ func (s *service) opLogger(ctx context.Context, operation string, extra map[stri
 }
 
 func (s *service) translationsRequired() bool {
-	return s.translationsEnabled && s.requireTranslations
+	enabled := s.translationsEnabled
+	required := s.requireTranslations
+	if s.translationState != nil {
+		enabled = s.translationState.Enabled()
+		required = s.translationState.RequireTranslations()
+	}
+	return enabled && required
+}
+
+func (s *service) translationsEnabledFlag() bool {
+	if s.translationState != nil {
+		return s.translationState.Enabled()
+	}
+	return s.translationsEnabled
 }
 
 func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
@@ -587,7 +609,7 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 
 // UpdateTranslation mutates a single translation without replacing the entire set.
 func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTranslationRequest) (*ContentTranslation, error) {
-	if !s.translationsEnabled {
+	if !s.translationsEnabledFlag() {
 		return nil, ErrContentTranslationsDisabled
 	}
 	if req.ContentID == uuid.Nil {
@@ -683,7 +705,7 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 
 // DeleteTranslation removes a locale from the translation set.
 func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTranslationRequest) error {
-	if !s.translationsEnabled {
+	if !s.translationsEnabledFlag() {
 		return ErrContentTranslationsDisabled
 	}
 	if req.ContentID == uuid.Nil {
