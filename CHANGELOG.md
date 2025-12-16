@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.16.0](https://github.com/goliatone/go-cms/compare/v0.15.0...v0.16.0) - (2025-12-16)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.16.0 ([bd73027](https://github.com/goliatone/go-cms/commit/bd730270d880c74e5f76e39ba30876a4fc249687))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Seed locales ([783604b](https://github.com/goliatone/go-cms/commit/783604bf4fa326886c3ca820c2d2fa4dc3fb26ba))  - (goliatone)
+- Count locales ([6f9c830](https://github.com/goliatone/go-cms/commit/6f9c8306e2abd74ac7e905f4214352f829b31500))  - (goliatone)
+- Translation config ([da8b536](https://github.com/goliatone/go-cms/commit/da8b53670a0f37c19ef8fe77418338fc56344320))  - (goliatone)
+- Translation management ([570cc9f](https://github.com/goliatone/go-cms/commit/570cc9f4907b0287f359d700297b4219e7635f67))  - (goliatone)
+- I18n settings for translation management ([e04c883](https://github.com/goliatone/go-cms/commit/e04c883f54e7cc3c07127c8a138c8f42b7c651ee))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.15.0 ([fb0ca24](https://github.com/goliatone/go-cms/commit/fb0ca24d8a429116cc9d0e2eb2c31b75ba6eb19a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([fe75576](https://github.com/goliatone/go-cms/commit/fe7557677a04152b089a5d7de6c0a73bc55263b2))  - (goliatone)
+- Update tests ([b55a3cd](https://github.com/goliatone/go-cms/commit/b55a3cd65af1488c0d53633fddd75e4822b78723))  - (goliatone)
+
 # [0.15.0](https://github.com/goliatone/go-cms/compare/v0.14.0...v0.15.0) - (2025-12-16)
 
 ## <!-- 1 -->🐛 Bug Fixes
