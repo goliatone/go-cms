@@ -1,14 +1,20 @@
 # go-cms Command Adapters
 
-This module hosts the legacy registry/collector/cron wiring for `go-cms` commands. Core commands remain direct structs in `github.com/goliatone/go-cms`; consumers that still want automatic registration or CLI collectors can depend on this submodule.
+This submodule provides an integration layer for wiring `go-cms` command handlers into host applications.
+
+It builds command handler structs from a `go-cms` DI container and (optionally) registers them with:
+
+- a command registry (to discover/execute commands),
+- a dispatcher (to subscribe handlers), and/or
+- a cron scheduler (for handlers that implement `go-command` cron support).
+
+If you don’t need automatic registration/collection and prefer explicit construction, you can instantiate the command handler structs directly in the main `github.com/goliatone/go-cms` module.
 
 ## Install
 
 ```
 go get github.com/goliatone/go-cms/commands
 ```
-
-`go.work` already wires this module for local development; external consumers should add a replace to point at their checkout when working locally.
 
 ## Quick Start
 
@@ -22,7 +28,7 @@ if err != nil {
 result, err := commands.RegisterContainerCommands(module.Container(), commands.RegistrationOptions{
 	Registry:   myRegistry,
 	Dispatcher: myDispatcher,
-	Cron:       myCron,
+	CronRegistrar: myCronRegistrar,
 })
 if err != nil {
 	log.Fatal(err)
@@ -34,8 +40,9 @@ _ = result.Handlers
 
 ## Usage
 
-- Build a CMS module in core and pass its container to `commands.RegisterContainerCommands` to construct and optionally register command handlers against a registry/dispatcher/cron.
-- Reuse the CLI bootstraps under `commands/bootstrap` if you still rely on collector-based CLIs for markdown or static commands.
-- Registry helpers (e.g., `commands/markdown.RegisterMarkdownCommands`) and fixtures are available for tests and host integrations that need the old path.
+- Call `commands.RegisterContainerCommands(container, opts)`; it inspects the container for configured services and feature flags, then builds a set of handlers and registers them using the integrations you provide.
+- `opts.Registry`, `opts.Dispatcher`, and `opts.CronRegistrar` are optional; if you pass none of them you still get back the constructed handlers so you can invoke them yourself.
+- `commands/bootstrap/*` provides convenience bootstraps for building a `cms.Module` preconfigured for common CLIs (e.g. markdown and static generation) and can collect handlers for direct execution.
+- The `commands/markdown` package exposes helper registration for markdown-specific handlers.
 
-This adapter surface will remain outside the core module; future rewires should prefer constructing command structs directly.
+This submodule exists to support hosts that want centralized registration and/or cron/dispatcher wiring without duplicating that plumbing.
