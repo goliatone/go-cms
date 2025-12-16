@@ -14,7 +14,7 @@ var (
 
 // MenuItemPath captures parsed information about a dot-path menu item identifier.
 //
-// Canonicalization contract (Phase 8):
+// Canonicalization contract
 //   - Menu codes and path segments are treated as lowercase.
 //   - Callers may supply dot-paths, slash-paths, or relative paths; go-cms will canonicalize inputs
 //     into a stable dot-path (`<menuCode>.<seg>...`) and validate against `isPathSegment`.
@@ -42,15 +42,22 @@ func ParseMenuItemPath(path string) (MenuItemPath, error) {
 	if trimmed == "" {
 		return MenuItemPath{}, ErrMenuItemPathRequired
 	}
-	parts := strings.Split(trimmed, ".")
+
+	canonical := sanitizeDotPath(trimmed)
+	if canonical == "" {
+		return MenuItemPath{}, ErrMenuItemPathInvalid
+	}
+
+	parts := strings.Split(canonical, ".")
 	if len(parts) < 2 {
 		return MenuItemPath{}, ErrMenuItemPathInvalid
 	}
 	for _, part := range parts {
-		if strings.TrimSpace(part) == "" {
+		part = strings.TrimSpace(part)
+		if part == "" {
 			return MenuItemPath{}, ErrMenuItemPathInvalid
 		}
-		if !isPathSegment(strings.TrimSpace(part)) {
+		if !isPathSegment(part) {
 			return MenuItemPath{}, ErrMenuItemPathInvalid
 		}
 	}
@@ -66,7 +73,7 @@ func ParseMenuItemPath(path string) (MenuItemPath, error) {
 	}
 
 	return MenuItemPath{
-		Path:       trimmed,
+		Path:       canonical,
 		MenuCode:   menuCode,
 		ParentPath: parent,
 		Key:        key,
@@ -75,14 +82,15 @@ func ParseMenuItemPath(path string) (MenuItemPath, error) {
 
 // ParseMenuItemPathForMenu validates that the provided path belongs to the given menu code.
 func ParseMenuItemPathForMenu(menuCode string, path string) (MenuItemPath, error) {
-	if strings.TrimSpace(menuCode) == "" {
+	code := CanonicalMenuCode(menuCode)
+	if code == "" {
 		return MenuItemPath{}, ErrMenuCodeRequired
 	}
 	parsed, err := ParseMenuItemPath(path)
 	if err != nil {
 		return MenuItemPath{}, err
 	}
-	if parsed.MenuCode != strings.TrimSpace(menuCode) {
+	if parsed.MenuCode != code {
 		return MenuItemPath{}, ErrMenuItemPathMismatch
 	}
 	return parsed, nil
@@ -95,8 +103,6 @@ func isPathSegment(seg string) bool {
 	for _, r := range seg {
 		switch {
 		case r >= 'a' && r <= 'z':
-			continue
-		case r >= 'A' && r <= 'Z':
 			continue
 		case r >= '0' && r <= '9':
 			continue
