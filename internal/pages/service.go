@@ -16,6 +16,7 @@ import (
 	"github.com/goliatone/go-cms/internal/media"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/themes"
+	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
@@ -266,6 +267,7 @@ type pageService struct {
 	workflow              interfaces.WorkflowEngine
 	requireTranslations   bool
 	translationsEnabled   bool
+	translationState      *translationconfig.State
 	activity              *activity.Emitter
 }
 
@@ -298,6 +300,13 @@ func WithRequireTranslations(required bool) ServiceOption {
 func WithTranslationsEnabled(enabled bool) ServiceOption {
 	return func(ps *pageService) {
 		ps.translationsEnabled = enabled
+	}
+}
+
+// WithTranslationState wires a shared, runtime-configurable translation state.
+func WithTranslationState(state *translationconfig.State) ServiceOption {
+	return func(ps *pageService) {
+		ps.translationState = state
 	}
 }
 
@@ -408,7 +417,20 @@ func (s *pageService) opLogger(ctx context.Context, operation string, extra map[
 }
 
 func (s *pageService) translationsRequired() bool {
-	return s.translationsEnabled && s.requireTranslations
+	enabled := s.translationsEnabled
+	required := s.requireTranslations
+	if s.translationState != nil {
+		enabled = s.translationState.Enabled()
+		required = s.translationState.RequireTranslations()
+	}
+	return enabled && required
+}
+
+func (s *pageService) translationsEnabledFlag() bool {
+	if s.translationState != nil {
+		return s.translationState.Enabled()
+	}
+	return s.translationsEnabled
 }
 
 func (s *pageService) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
@@ -797,7 +819,7 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 
 // UpdateTranslation mutates a single localized entry without replacing the full set.
 func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTranslationRequest) (*PageTranslation, error) {
-	if !s.translationsEnabled {
+	if !s.translationsEnabledFlag() {
 		return nil, ErrPageTranslationsDisabled
 	}
 	if req.PageID == uuid.Nil {
@@ -933,7 +955,7 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 
 // DeleteTranslation removes a translation for a page.
 func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTranslationRequest) error {
-	if !s.translationsEnabled {
+	if !s.translationsEnabledFlag() {
 		return ErrPageTranslationsDisabled
 	}
 	if req.PageID == uuid.Nil {
