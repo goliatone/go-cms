@@ -163,6 +163,11 @@ func (s *menuService) GetOrCreateMenu(ctx context.Context, code string, descript
 		return nil, errNilModule
 	}
 
+	code = CanonicalMenuCode(code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
 	record, err := s.svc.GetOrCreateMenu(ctx, menus.CreateMenuInput{
 		Code:        code,
 		Description: description,
@@ -182,6 +187,11 @@ func (s *menuService) GetOrCreateMenu(ctx context.Context, code string, descript
 func (s *menuService) UpsertMenu(ctx context.Context, code string, description *string, actor uuid.UUID) (*MenuInfo, error) {
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return nil, errNilModule
+	}
+
+	code = CanonicalMenuCode(code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
 	}
 
 	record, err := s.svc.UpsertMenu(ctx, menus.UpsertMenuInput{
@@ -204,6 +214,11 @@ func (s *menuService) GetMenuByCode(ctx context.Context, code string) (*MenuInfo
 		return nil, errNilModule
 	}
 
+	code = CanonicalMenuCode(code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
 	record, err := s.svc.GetMenuByCode(ctx, code)
 	if err != nil {
 		return nil, err
@@ -221,6 +236,11 @@ func (s *menuService) GetMenuByCode(ctx context.Context, code string) (*MenuInfo
 func (s *menuService) ListMenuItemsByCode(ctx context.Context, menuCode string) ([]*MenuItemInfo, error) {
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return nil, errNilModule
+	}
+
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
 	}
 
 	menu, err := s.svc.GetMenuByCode(ctx, menuCode)
@@ -252,6 +272,11 @@ func (s *menuService) ResolveNavigation(ctx context.Context, menuCode string, lo
 		return nil, errNilModule
 	}
 
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
 	nodes, err := s.svc.ResolveNavigation(ctx, menuCode, locale)
 	if err != nil {
 		return nil, err
@@ -268,6 +293,12 @@ func (s *menuService) ReconcileMenuByCode(ctx context.Context, menuCode string, 
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return nil, errNilModule
 	}
+
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
 	menu, err := s.svc.GetMenuByCode(ctx, menuCode)
 	if err != nil {
 		return nil, err
@@ -292,18 +323,27 @@ func (s *menuService) ResetMenuByCode(ctx context.Context, code string, actor uu
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return errNilModule
 	}
+	code = CanonicalMenuCode(code)
+	if code == "" {
+		return ErrMenuCodeRequired
+	}
 	return s.svc.ResetMenuByCode(ctx, code, actor, force)
 }
 
 func (s *menuService) MoveMenuItemToTop(ctx context.Context, menuCode string, path string, actor uuid.UUID) error {
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
+	}
+	canonicalPath, err := CanonicalMenuItemPath(menuCode, path)
+	if err != nil {
+		return err
+	}
+
 	return s.reorderByPaths(ctx, menuCode, actor, func(menuID uuid.UUID, items []*menus.MenuItem, byPath map[string]*menus.MenuItem) error {
-		parsed, err := ParseMenuItemPathForMenu(menuCode, path)
-		if err != nil {
-			return err
-		}
-		item := byPath[parsed.Path]
+		item := byPath[canonicalPath]
 		if item == nil {
-			return fmt.Errorf("cms: menu item %q not found", parsed.Path)
+			return fmt.Errorf("cms: menu item %q not found", canonicalPath)
 		}
 		targetParent := normalizeUUIDPtr(item.ParentID)
 		moveSiblingToIndex(items, item.ID, targetParent, 0)
@@ -312,14 +352,19 @@ func (s *menuService) MoveMenuItemToTop(ctx context.Context, menuCode string, pa
 }
 
 func (s *menuService) MoveMenuItemToBottom(ctx context.Context, menuCode string, path string, actor uuid.UUID) error {
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
+	}
+	canonicalPath, err := CanonicalMenuItemPath(menuCode, path)
+	if err != nil {
+		return err
+	}
+
 	return s.reorderByPaths(ctx, menuCode, actor, func(menuID uuid.UUID, items []*menus.MenuItem, byPath map[string]*menus.MenuItem) error {
-		parsed, err := ParseMenuItemPathForMenu(menuCode, path)
-		if err != nil {
-			return err
-		}
-		item := byPath[parsed.Path]
+		item := byPath[canonicalPath]
 		if item == nil {
-			return fmt.Errorf("cms: menu item %q not found", parsed.Path)
+			return fmt.Errorf("cms: menu item %q not found", canonicalPath)
 		}
 		targetParent := normalizeUUIDPtr(item.ParentID)
 		moveSiblingToIndex(items, item.ID, targetParent, int(^uint(0)>>1))
@@ -336,6 +381,16 @@ func (s *menuService) MoveMenuItemAfter(ctx context.Context, menuCode string, pa
 }
 
 func (s *menuService) SetMenuSiblingOrder(ctx context.Context, menuCode string, parentPath string, siblingPaths []string, actor uuid.UUID) error {
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
+	}
+
+	parentPath, err := canonicalParentPath(menuCode, parentPath)
+	if err != nil {
+		return err
+	}
+
 	return s.reorderByPaths(ctx, menuCode, actor, func(_ uuid.UUID, items []*menus.MenuItem, byPath map[string]*menus.MenuItem) error {
 		parentID, err := resolveParentIDForPath(menuCode, parentPath, byPath)
 		if err != nil {
@@ -345,18 +400,18 @@ func (s *menuService) SetMenuSiblingOrder(ctx context.Context, menuCode string, 
 		desired := make([]uuid.UUID, 0, len(siblingPaths))
 		seen := make(map[string]struct{}, len(siblingPaths))
 		for _, raw := range siblingPaths {
-			parsed, err := ParseMenuItemPathForMenu(menuCode, raw)
+			canonicalSiblingPath, err := CanonicalMenuItemPath(menuCode, raw)
 			if err != nil {
 				return err
 			}
-			if _, ok := seen[parsed.Path]; ok {
-				return fmt.Errorf("cms: duplicate sibling path %q", parsed.Path)
+			if _, ok := seen[canonicalSiblingPath]; ok {
+				return fmt.Errorf("cms: duplicate sibling path %q", canonicalSiblingPath)
 			}
-			seen[parsed.Path] = struct{}{}
+			seen[canonicalSiblingPath] = struct{}{}
 
-			item := byPath[parsed.Path]
+			item := byPath[canonicalSiblingPath]
 			if item == nil {
-				return fmt.Errorf("cms: menu item %q not found", parsed.Path)
+				return fmt.Errorf("cms: menu item %q not found", canonicalSiblingPath)
 			}
 			item.ParentID = parentID
 			desired = append(desired, item.ID)
@@ -372,21 +427,53 @@ func (s *menuService) UpsertMenuItemByPath(ctx context.Context, input UpsertMenu
 		return nil, errNilModule
 	}
 
-	parsed, err := ParseMenuItemPath(input.Path)
+	trimmedPath := strings.TrimSpace(input.Path)
+	if trimmedPath == "" {
+		return nil, ErrMenuItemPathRequired
+	}
+
+	menuCode := ""
+	trimmedParent := strings.TrimSpace(input.ParentPath)
+	switch {
+	case trimmedParent != "" && (strings.Contains(trimmedParent, ".") || strings.Contains(trimmedParent, "/")):
+		parentParsed, err := ParseMenuItemPath(trimmedParent)
+		if err != nil {
+			return nil, err
+		}
+		menuCode = CanonicalMenuCode(parentParsed.MenuCode)
+	case trimmedParent != "":
+		menuCode = CanonicalMenuCode(trimmedParent)
+	default:
+		parsed, err := ParseMenuItemPath(trimmedPath)
+		if err != nil {
+			return nil, err
+		}
+		menuCode = CanonicalMenuCode(parsed.MenuCode)
+	}
+
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
+	derived, err := DeriveMenuItemPaths(menuCode, trimmedPath, trimmedParent, "")
+	if err != nil {
+		return nil, err
+	}
+	parsed, err := ParseMenuItemPathForMenu(menuCode, derived.Path)
 	if err != nil {
 		return nil, err
 	}
 
 	parentCode := ""
-	if trimmedParent := strings.TrimSpace(input.ParentPath); trimmedParent != "" {
-		if trimmedParent != parsed.MenuCode {
-			parentParsed, err := ParseMenuItemPathForMenu(parsed.MenuCode, trimmedParent)
-			if err != nil {
-				return nil, err
-			}
-			parentCode = parentParsed.Path
+	if trimmedParent != "" {
+		parentPath, err := canonicalParentPath(menuCode, trimmedParent)
+		if err != nil {
+			return nil, err
 		}
-	} else if parsed.ParentPath != "" && parsed.ParentPath != parsed.MenuCode {
+		if parentPath != "" && parentPath != menuCode {
+			parentCode = parentPath
+		}
+	} else if parsed.ParentPath != "" && parsed.ParentPath != menuCode {
 		parentCode = parsed.ParentPath
 	}
 
@@ -403,7 +490,7 @@ func (s *menuService) UpsertMenuItemByPath(ctx context.Context, input UpsertMenu
 	}
 
 	item, err := s.svc.UpsertMenuItem(ctx, menus.UpsertMenuItemInput{
-		MenuCode:                 parsed.MenuCode,
+		MenuCode:                 menuCode,
 		ExternalCode:             parsed.Path,
 		ParentCode:               parentCode,
 		Position:                 input.Position,
@@ -432,7 +519,17 @@ func (s *menuService) UpdateMenuItemByPath(ctx context.Context, menuCode string,
 		return nil, errNilModule
 	}
 
-	parsed, err := ParseMenuItemPathForMenu(menuCode, path)
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
+	canonicalPath, err := CanonicalMenuItemPath(menuCode, path)
+	if err != nil {
+		return nil, err
+	}
+
+	parsed, err := ParseMenuItemPathForMenu(menuCode, canonicalPath)
 	if err != nil {
 		return nil, err
 	}
@@ -444,16 +541,15 @@ func (s *menuService) UpdateMenuItemByPath(ctx context.Context, menuCode string,
 
 	var parentID *uuid.UUID
 	if input.ParentPath != nil {
-		trimmed := strings.TrimSpace(*input.ParentPath)
+		parentPath, err := canonicalParentPath(menuCode, *input.ParentPath)
+		if err != nil {
+			return nil, err
+		}
 		switch {
-		case trimmed == "" || trimmed == menuCode:
+		case parentPath == "" || parentPath == menuCode:
 			parentID = nil
 		default:
-			parentParsed, err := ParseMenuItemPathForMenu(menuCode, trimmed)
-			if err != nil {
-				return nil, err
-			}
-			parent, err := s.svc.GetMenuItemByExternalCode(ctx, menuCode, parentParsed.Path)
+			parent, err := s.svc.GetMenuItemByExternalCode(ctx, menuCode, parentPath)
 			if err != nil {
 				return nil, err
 			}
@@ -487,7 +583,17 @@ func (s *menuService) DeleteMenuItemByPath(ctx context.Context, menuCode string,
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return errNilModule
 	}
-	parsed, err := ParseMenuItemPathForMenu(menuCode, path)
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
+	}
+
+	canonicalPath, err := CanonicalMenuItemPath(menuCode, path)
+	if err != nil {
+		return err
+	}
+
+	parsed, err := ParseMenuItemPathForMenu(menuCode, canonicalPath)
 	if err != nil {
 		return err
 	}
@@ -506,7 +612,17 @@ func (s *menuService) UpsertMenuItemTranslationByPath(ctx context.Context, menuC
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return errNilModule
 	}
-	parsed, err := ParseMenuItemPathForMenu(menuCode, path)
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
+	}
+
+	canonicalPath, err := CanonicalMenuItemPath(menuCode, path)
+	if err != nil {
+		return err
+	}
+
+	parsed, err := ParseMenuItemPathForMenu(menuCode, canonicalPath)
 	if err != nil {
 		return err
 	}
@@ -575,23 +691,27 @@ func toPublicMenuItemInfo(item *menus.MenuItem) *MenuItemInfo {
 }
 
 func (s *menuService) moveMenuItemRelative(ctx context.Context, menuCode string, path string, anchorPath string, actor uuid.UUID, before bool) error {
-	return s.reorderByPaths(ctx, menuCode, actor, func(_ uuid.UUID, items []*menus.MenuItem, byPath map[string]*menus.MenuItem) error {
-		parsed, err := ParseMenuItemPathForMenu(menuCode, path)
-		if err != nil {
-			return err
-		}
-		anchorParsed, err := ParseMenuItemPathForMenu(menuCode, anchorPath)
-		if err != nil {
-			return err
-		}
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
+	}
+	canonicalPath, err := CanonicalMenuItemPath(menuCode, path)
+	if err != nil {
+		return err
+	}
+	canonicalAnchorPath, err := CanonicalMenuItemPath(menuCode, anchorPath)
+	if err != nil {
+		return err
+	}
 
-		item := byPath[parsed.Path]
+	return s.reorderByPaths(ctx, menuCode, actor, func(_ uuid.UUID, items []*menus.MenuItem, byPath map[string]*menus.MenuItem) error {
+		item := byPath[canonicalPath]
 		if item == nil {
-			return fmt.Errorf("cms: menu item %q not found", parsed.Path)
+			return fmt.Errorf("cms: menu item %q not found", canonicalPath)
 		}
-		anchor := byPath[anchorParsed.Path]
+		anchor := byPath[canonicalAnchorPath]
 		if anchor == nil {
-			return fmt.Errorf("cms: menu item %q not found", anchorParsed.Path)
+			return fmt.Errorf("cms: menu item %q not found", canonicalAnchorPath)
 		}
 		if item.ID == anchor.ID {
 			return nil
@@ -616,7 +736,7 @@ func (s *menuService) moveMenuItemRelative(ctx context.Context, menuCode string,
 			}
 		}
 		if insertIndex < 0 {
-			return fmt.Errorf("cms: failed to locate anchor %q in siblings", anchorParsed.Path)
+			return fmt.Errorf("cms: failed to locate anchor %q in siblings", canonicalAnchorPath)
 		}
 		if !before {
 			insertIndex++
@@ -630,6 +750,10 @@ func (s *menuService) moveMenuItemRelative(ctx context.Context, menuCode string,
 func (s *menuService) reorderByPaths(ctx context.Context, menuCode string, actor uuid.UUID, mutate func(menuID uuid.UUID, items []*menus.MenuItem, byPath map[string]*menus.MenuItem) error) error {
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return errNilModule
+	}
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return ErrMenuCodeRequired
 	}
 	menu, err := s.svc.GetMenuByCode(ctx, menuCode)
 	if err != nil {
@@ -713,19 +837,24 @@ func normalizeUUIDPtr(id *uuid.UUID) *uuid.UUID {
 }
 
 func resolveParentIDForPath(menuCode string, parentPath string, byPath map[string]*menus.MenuItem) (*uuid.UUID, error) {
-	trimmed := strings.TrimSpace(parentPath)
-	if trimmed == "" || trimmed == menuCode {
-		return nil, nil
+	menuCode = CanonicalMenuCode(menuCode)
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
 	}
-	parsed, err := ParseMenuItemPathForMenu(menuCode, trimmed)
+
+	trimmed := strings.TrimSpace(parentPath)
+	parent, err := canonicalParentPath(menuCode, trimmed)
 	if err != nil {
 		return nil, err
 	}
-	parent := byPath[parsed.Path]
-	if parent == nil {
-		return nil, fmt.Errorf("cms: menu item %q not found", parsed.Path)
+	if parent == "" || parent == menuCode {
+		return nil, nil
 	}
-	return normalizeUUIDPtr(&parent.ID), nil
+	record := byPath[parent]
+	if record == nil {
+		return nil, fmt.Errorf("cms: menu item %q not found", parent)
+	}
+	return normalizeUUIDPtr(&record.ID), nil
 }
 
 func moveSiblingToIndex(items []*menus.MenuItem, itemID uuid.UUID, parentID *uuid.UUID, insertIndex int) {
