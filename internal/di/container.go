@@ -545,8 +545,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		generatorStorage: storageadapter.NewNoOpProvider(),
 	}
 
-	c.seedLocales()
-
 	for _, opt := range opts {
 		opt(c)
 	}
@@ -562,6 +560,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if err := c.initializeStorage(context.Background()); err != nil {
 		return nil, err
 	}
+	c.seedLocales(context.Background())
 	c.configureNavigation()
 	c.configureScheduler()
 	c.configureMediaService()
@@ -1950,17 +1949,32 @@ func (c *Container) I18nService() i18n.Service {
 	return c.i18nSvc
 }
 
-func (c *Container) seedLocales() {
-	if c.memoryLocaleRepo == nil {
-		return
+func (c *Container) seedLocales(ctx context.Context) {
+	logger := logging.ModuleLogger(c.loggerProvider, "cms.locales")
+
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	translationsEnabled := c.Config.I18N.Enabled
+	requireTranslations := c.Config.I18N.RequireTranslations
+	if c.translationState != nil {
+		translationsEnabled = c.translationState.Enabled()
+		requireTranslations = c.translationState.RequireTranslations()
+		if !translationsEnabled && requireTranslations {
+			requireTranslations = false
+		}
 	}
 
 	locales := c.Config.I18N.Locales
 	if len(locales) == 0 {
-		locales = []string{c.Config.DefaultLocale}
+		if trimmed := strings.TrimSpace(c.Config.DefaultLocale); trimmed != "" {
+			locales = []string{trimmed}
+		}
 	}
 
 	seen := map[string]struct{}{}
+	seed := make([]content.Locale, 0, len(locales))
 	for _, code := range locales {
 		normalized := strings.TrimSpace(code)
 		if normalized == "" {
@@ -1971,14 +1985,78 @@ func (c *Container) seedLocales() {
 			continue
 		}
 		seen[lower] = struct{}{}
-		c.memoryLocaleRepo.Put(&content.Locale{
+		seed = append(seed, content.Locale{
 			ID:        identity.LocaleUUID(lower),
 			Code:      lower,
 			Display:   normalized,
 			IsActive:  true,
-			IsDefault: strings.EqualFold(normalized, c.Config.DefaultLocale),
+			IsDefault: strings.EqualFold(lower, c.Config.DefaultLocale),
 		})
 	}
+
+	if len(seed) == 0 {
+		logger.Debug("locale.seed.skipped",
+			"reason", "no_locales_configured",
+			"translations_enabled", translationsEnabled,
+			"require_translations", requireTranslations,
+		)
+		return
+	}
+
+	if c.bunDB != nil {
+		count, err := c.bunDB.NewSelect().Model((*content.Locale)(nil)).Count(ctx)
+		if err != nil {
+			logger.Warn("locale.seed.failed", "reason", "count_failed", "error", err)
+			return
+		}
+		if count > 0 {
+			logger.Debug("locale.seed.skipped",
+				"reason", "locales_exist",
+				"count", count,
+				"translations_enabled", translationsEnabled,
+				"require_translations", requireTranslations,
+			)
+			return
+		}
+		if _, err := c.bunDB.NewInsert().Model(&seed).Exec(ctx); err != nil {
+			logger.Warn("locale.seed.failed", "reason", "insert_failed", "error", err)
+			return
+		}
+		logger.Info("locale.seed.completed",
+			"seeded", len(seed),
+			"translations_enabled", translationsEnabled,
+			"require_translations", requireTranslations,
+		)
+		return
+	}
+
+	if c.memoryLocaleRepo == nil {
+		logger.Debug("locale.seed.skipped",
+			"reason", "no_locale_repository",
+			"translations_enabled", translationsEnabled,
+			"require_translations", requireTranslations,
+		)
+		return
+	}
+	if count := c.memoryLocaleRepo.Count(); count > 0 {
+		logger.Debug("locale.seed.skipped",
+			"reason", "locales_exist",
+			"count", count,
+			"translations_enabled", translationsEnabled,
+			"require_translations", requireTranslations,
+		)
+		return
+	}
+
+	for idx := range seed {
+		record := seed[idx]
+		c.memoryLocaleRepo.Put(&record)
+	}
+	logger.Info("locale.seed.completed",
+		"seeded", len(seed),
+		"translations_enabled", translationsEnabled,
+		"require_translations", requireTranslations,
+	)
 }
 
 // GeneratorService returns the configured static site generator service.
