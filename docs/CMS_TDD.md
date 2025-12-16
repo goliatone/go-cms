@@ -350,6 +350,9 @@ Configuration highlights:
 - `cms.Config.I18N.RequireTranslations` (defaults to `true`) preserves the legacy requirement that every entity carries at least one translation. Disable it to support staged rollouts or monolingual publishing; see `TRANS_FIX.md` for the rollout rationale.
 - `cms.Config.I18N.DefaultLocaleRequired` (defaults to `true`) enforces that a fallback locale exists even when translations are optional, allowing hosts to relax the constraint in tightly scoped deployments.
 - When `cms.Config.I18N.Enabled` is `false`, both requirement flags are ignored and services operate in monolingual mode while still accepting explicit translations if provided.
+- Operators can toggle translation enforcement at runtime via `module.TranslationAdmin()`:
+  - `TranslationsEnabled=false` disables translation mutation APIs (`UpdateTranslation`/`DeleteTranslation`) and skips locale lookups unless explicit translations are provided.
+  - `RequireTranslations=false` allows status-only create/update workflows to omit translations while keeping translations enabled for callers that still supply them.
 
 #### Translation Flexibility Migration
 
