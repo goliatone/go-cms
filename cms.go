@@ -2,6 +2,7 @@ package cms
 
 import (
 	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
+	admintranslations "github.com/goliatone/go-cms/internal/admin/translations"
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
@@ -37,6 +38,9 @@ type GeneratorService = generator.Service
 // StorageAdminService exports the storage admin helper contract.
 type StorageAdminService = *adminstorage.Service
 
+// TranslationAdminService exports the translation settings admin helper contract.
+type TranslationAdminService = *admintranslations.Service
+
 // Module represents the top level CMS runtime façade.
 type Module struct {
 	container *di.Container
@@ -67,6 +71,14 @@ func (m *Module) StorageAdmin() StorageAdminService {
 		return nil
 	}
 	return m.container.StorageAdminService()
+}
+
+// TranslationAdmin returns the translations admin helper service.
+func (m *Module) TranslationAdmin() TranslationAdminService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.TranslationAdminService()
 }
 
 // Pages returns the configured page service.
