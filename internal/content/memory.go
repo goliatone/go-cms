@@ -362,6 +362,13 @@ func NewMemoryLocaleRepository() *MemoryLocaleRepository {
 	}
 }
 
+// Count returns the number of locales stored in memory.
+func (m *MemoryLocaleRepository) Count() int {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	return len(m.locales)
+}
+
 // Put inserts or replaces a locale.
 func (m *MemoryLocaleRepository) Put(locale *Locale) {
 	m.mu.Lock()
