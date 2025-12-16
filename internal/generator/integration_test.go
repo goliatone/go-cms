@@ -16,6 +16,7 @@ import (
 	"github.com/goliatone/go-cms/internal/di"
 	ditesting "github.com/goliatone/go-cms/internal/di/testing"
 	"github.com/goliatone/go-cms/internal/generator"
+	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/internal/themes"
@@ -268,31 +269,8 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 		t.Fatalf("build container: %v", err)
 	}
 
-	enLocaleID := uuid.New()
-	esLocaleID := uuid.New()
-
-	enLocale := &content.Locale{
-		ID:        enLocaleID,
-		Code:      "en",
-		Display:   "English",
-		IsActive:  true,
-		IsDefault: true,
-		CreatedAt: now,
-	}
-	esLocale := &content.Locale{
-		ID:        esLocaleID,
-		Code:      "es",
-		Display:   "Spanish",
-		IsActive:  true,
-		IsDefault: false,
-		CreatedAt: now,
-	}
-	if _, err := bunDB.NewInsert().Model(enLocale).Exec(ctx); err != nil {
-		t.Fatalf("insert en locale: %v", err)
-	}
-	if _, err := bunDB.NewInsert().Model(esLocale).Exec(ctx); err != nil {
-		t.Fatalf("insert es locale: %v", err)
-	}
+	enLocaleID := identity.LocaleUUID("en")
+	esLocaleID := identity.LocaleUUID("es")
 
 	contentTypeID := uuid.New()
 	contentType := &content.ContentType{
