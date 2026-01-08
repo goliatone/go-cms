@@ -161,12 +161,6 @@ type ResolveAreaInput struct {
 	Now               time.Time
 }
 
-// ResolvedWidget pairs a widget instance with its placement metadata.
-type ResolvedWidget struct {
-	Instance  *Instance      `json:"instance"`
-	Placement *AreaPlacement `json:"placement"`
-}
-
 // VisibilityContext provides ambient information for visibility evaluation.
 type VisibilityContext struct {
 	Now         time.Time
