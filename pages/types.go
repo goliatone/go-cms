@@ -66,6 +66,7 @@ type PageTranslation struct {
 	ID             uuid.UUID                      `bun:",pk,type:uuid" json:"id"`
 	PageID         uuid.UUID                      `bun:"page_id,notnull,type:uuid" json:"page_id"`
 	LocaleID       uuid.UUID                      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	TranslationGroupID *uuid.UUID                 `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
 	Title          string                         `bun:"title,notnull" json:"title"`
 	Path           string                         `bun:"path,notnull" json:"path"`
 	SEOTitle       *string                        `bun:"seo_title" json:"seo_title,omitempty"`
