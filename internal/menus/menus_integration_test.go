@@ -319,11 +319,15 @@ func TestMenuService_BulkReorderMaintainsHierarchy(t *testing.T) {
 
 	menu, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
 		Code:      "primary",
+		Location:  "site.primary",
 		CreatedBy: uuid.Nil,
 		UpdatedBy: uuid.Nil,
 	})
 	if err != nil {
 		t.Fatalf("create menu: %v", err)
+	}
+	if menu.Location != "site.primary" {
+		t.Fatalf("expected location persisted, got %q", menu.Location)
 	}
 
 	rootA, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
