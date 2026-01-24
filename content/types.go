@@ -70,6 +70,7 @@ type ContentTranslation struct {
 	ID        uuid.UUID      `bun:",pk,type:uuid" json:"id"`
 	ContentID uuid.UUID      `bun:"content_id,notnull,type:uuid" json:"content_id"`
 	LocaleID  uuid.UUID      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	TranslationGroupID *uuid.UUID `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
 	Title     string         `bun:"title,notnull" json:"title"`
 	Summary   *string        `bun:"summary" json:"summary,omitempty"`
 	Content   map[string]any `bun:"content,type:jsonb,notnull" json:"content"`
