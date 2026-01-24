@@ -2,6 +2,8 @@ package menus
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	goerrors "github.com/goliatone/go-errors"
@@ -14,6 +16,7 @@ import (
 
 // BunMenuRepository implements MenuRepository with optional caching.
 type BunMenuRepository struct {
+	db           *bun.DB
 	repo         repository.Repository[*Menu]
 	cacheService cache.CacheService
 	cachePrefix  string
@@ -39,6 +42,7 @@ func NewBunMenuRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, 
 		prefix = cachePrefix(menuNamespace)
 	}
 	return &BunMenuRepository{
+		db:           db,
 		repo:         base,
 		cacheService: svc,
 		cachePrefix:  prefix,
@@ -65,6 +69,25 @@ func (r *BunMenuRepository) GetByCode(ctx context.Context, code string) (*Menu, 
 	record, err := r.repo.GetByIdentifier(ctx, code)
 	if err != nil {
 		return nil, mapRepositoryError(err, "menu", code)
+	}
+	return record, nil
+}
+
+func (r *BunMenuRepository) GetByLocation(ctx context.Context, location string) (*Menu, error) {
+	if r == nil || r.db == nil {
+		return nil, &NotFoundError{Resource: "menu", Key: location}
+	}
+	record := new(Menu)
+	err := r.db.NewSelect().
+		Model(record).
+		Where("location = ?", location).
+		Limit(1).
+		Scan(ctx)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, &NotFoundError{Resource: "menu", Key: location}
+		}
+		return nil, mapRepositoryError(err, "menu", location)
 	}
 	return record, nil
 }
