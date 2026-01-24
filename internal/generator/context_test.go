@@ -570,6 +570,10 @@ func (s *stubMenusService) GetMenuByCode(context.Context, string) (*menus.Menu, 
 	return nil, errUnsupported
 }
 
+func (s *stubMenusService) GetMenuByLocation(context.Context, string) (*menus.Menu, error) {
+	return nil, errUnsupported
+}
+
 func (s *stubMenusService) AddMenuItem(context.Context, menus.AddMenuItemInput) (*menus.MenuItem, error) {
 	return nil, errUnsupported
 }
@@ -606,6 +610,10 @@ func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string,
 	}, nil
 }
 
+func (s *stubMenusService) ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]menus.NavigationNode, error) {
+	return s.ResolveNavigation(ctx, location, locale)
+}
+
 func (s *stubMenusService) InvalidateCache(context.Context) error {
 	return nil
 }
@@ -636,6 +644,10 @@ type errorMenuService struct {
 }
 
 func (s *errorMenuService) ResolveNavigation(context.Context, string, string) ([]menus.NavigationNode, error) {
+	return nil, s.err
+}
+
+func (s *errorMenuService) ResolveNavigationByLocation(context.Context, string, string) ([]menus.NavigationNode, error) {
 	return nil, s.err
 }
 

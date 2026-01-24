@@ -22,6 +22,7 @@ var errNilModule = errors.New("cms: module is nil")
 // MenuInfo is a stable public view of a menu record.
 type MenuInfo struct {
 	Code        string
+	Location    string
 	Description *string
 }
 
@@ -56,10 +57,14 @@ type NavigationNode struct {
 // UUIDs remain a persistence detail and must not be required for callers to use this API.
 type MenuService interface {
 	GetOrCreateMenu(ctx context.Context, code string, description *string, actor uuid.UUID) (*MenuInfo, error)
+	GetOrCreateMenuWithLocation(ctx context.Context, code string, location string, description *string, actor uuid.UUID) (*MenuInfo, error)
 	UpsertMenu(ctx context.Context, code string, description *string, actor uuid.UUID) (*MenuInfo, error)
+	UpsertMenuWithLocation(ctx context.Context, code string, location string, description *string, actor uuid.UUID) (*MenuInfo, error)
 	GetMenuByCode(ctx context.Context, code string) (*MenuInfo, error)
+	GetMenuByLocation(ctx context.Context, location string) (*MenuInfo, error)
 	ListMenuItemsByCode(ctx context.Context, menuCode string) ([]*MenuItemInfo, error)
 	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
+	ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error)
 	ReconcileMenuByCode(ctx context.Context, menuCode string, actor uuid.UUID) (*ReconcileMenuResult, error)
 	ResetMenuByCode(ctx context.Context, code string, actor uuid.UUID, force bool) error
 
@@ -159,6 +164,10 @@ func newMenuService(m *Module) MenuService {
 }
 
 func (s *menuService) GetOrCreateMenu(ctx context.Context, code string, description *string, actor uuid.UUID) (*MenuInfo, error) {
+	return s.GetOrCreateMenuWithLocation(ctx, code, "", description, actor)
+}
+
+func (s *menuService) GetOrCreateMenuWithLocation(ctx context.Context, code string, location string, description *string, actor uuid.UUID) (*MenuInfo, error) {
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return nil, errNilModule
 	}
@@ -170,6 +179,7 @@ func (s *menuService) GetOrCreateMenu(ctx context.Context, code string, descript
 
 	record, err := s.svc.GetOrCreateMenu(ctx, menus.CreateMenuInput{
 		Code:        code,
+		Location:    location,
 		Description: description,
 		CreatedBy:   actor,
 		UpdatedBy:   actor,
@@ -180,11 +190,16 @@ func (s *menuService) GetOrCreateMenu(ctx context.Context, code string, descript
 
 	return &MenuInfo{
 		Code:        record.Code,
+		Location:    record.Location,
 		Description: record.Description,
 	}, nil
 }
 
 func (s *menuService) UpsertMenu(ctx context.Context, code string, description *string, actor uuid.UUID) (*MenuInfo, error) {
+	return s.UpsertMenuWithLocation(ctx, code, "", description, actor)
+}
+
+func (s *menuService) UpsertMenuWithLocation(ctx context.Context, code string, location string, description *string, actor uuid.UUID) (*MenuInfo, error) {
 	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
 		return nil, errNilModule
 	}
@@ -196,6 +211,7 @@ func (s *menuService) UpsertMenu(ctx context.Context, code string, description *
 
 	record, err := s.svc.UpsertMenu(ctx, menus.UpsertMenuInput{
 		Code:        code,
+		Location:    location,
 		Description: description,
 		Actor:       actor,
 	})
@@ -205,6 +221,7 @@ func (s *menuService) UpsertMenu(ctx context.Context, code string, description *
 
 	return &MenuInfo{
 		Code:        record.Code,
+		Location:    record.Location,
 		Description: record.Description,
 	}, nil
 }
@@ -229,6 +246,32 @@ func (s *menuService) GetMenuByCode(ctx context.Context, code string) (*MenuInfo
 
 	return &MenuInfo{
 		Code:        record.Code,
+		Location:    record.Location,
+		Description: record.Description,
+	}, nil
+}
+
+func (s *menuService) GetMenuByLocation(ctx context.Context, location string) (*MenuInfo, error) {
+	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
+		return nil, errNilModule
+	}
+
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
+	record, err := s.svc.GetMenuByLocation(ctx, location)
+	if err != nil {
+		return nil, err
+	}
+	if record == nil {
+		return nil, ErrMenuNotFound
+	}
+
+	return &MenuInfo{
+		Code:        record.Code,
+		Location:    record.Location,
 		Description: record.Description,
 	}, nil
 }
@@ -278,6 +321,27 @@ func (s *menuService) ResolveNavigation(ctx context.Context, menuCode string, lo
 	}
 
 	nodes, err := s.svc.ResolveNavigation(ctx, menuCode, locale)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make([]NavigationNode, 0, len(nodes))
+	for _, node := range nodes {
+		out = append(out, toPublicNavigationNode(node))
+	}
+	return out, nil
+}
+
+func (s *menuService) ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error) {
+	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
+		return nil, errNilModule
+	}
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return nil, ErrMenuCodeRequired
+	}
+
+	nodes, err := s.svc.ResolveNavigationByLocation(ctx, location, locale)
 	if err != nil {
 		return nil, err
 	}

@@ -20,6 +20,7 @@ type Menu struct {
 
 	ID          uuid.UUID   `bun:",pk,type:uuid" json:"id"`
 	Code        string      `bun:"code,notnull" json:"code"`
+	Location    string      `bun:"location" json:"location,omitempty"`
 	Description *string     `bun:"description" json:"description,omitempty"`
 	CreatedBy   uuid.UUID   `bun:"created_by,notnull,type:uuid" json:"created_by"`
 	UpdatedBy   uuid.UUID   `bun:"updated_by,notnull,type:uuid" json:"updated_by"`

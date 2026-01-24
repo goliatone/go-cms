@@ -662,6 +662,13 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		ID:        target.ID,
 		ContentID: req.ContentID,
 		LocaleID:  loc.ID,
+		TranslationGroupID: func() *uuid.UUID {
+			if target.TranslationGroupID != nil {
+				return target.TranslationGroupID
+			}
+			groupID := req.ContentID
+			return &groupID
+		}(),
 		Title:     req.Title,
 		Summary:   cloneString(req.Summary),
 		Content:   cloneMap(req.Content),
@@ -1208,6 +1215,13 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 		translation := &ContentTranslation{
 			ContentID: contentID,
 			LocaleID:  loc.ID,
+			TranslationGroupID: func() *uuid.UUID {
+				if existingTranslation, ok := existing[loc.ID]; ok && existingTranslation != nil && existingTranslation.TranslationGroupID != nil {
+					return existingTranslation.TranslationGroupID
+				}
+				groupID := contentID
+				return &groupID
+			}(),
 			Title:     input.Title,
 			Summary:   summary,
 			Content:   cloneMap(input.Content),

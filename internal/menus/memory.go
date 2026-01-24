@@ -13,13 +13,15 @@ type memoryMenuRepository struct {
 	mu     sync.RWMutex
 	byID   map[uuid.UUID]*Menu
 	byCode map[string]uuid.UUID
+	byLocation map[string]uuid.UUID
 }
 
 // NewMemoryMenuRepository constructs an in-memory repository for menus
 func NewMemoryMenuRepository() MenuRepository {
 	return &memoryMenuRepository{
-		byID:   make(map[uuid.UUID]*Menu),
-		byCode: make(map[string]uuid.UUID),
+		byID:       make(map[uuid.UUID]*Menu),
+		byCode:     make(map[string]uuid.UUID),
+		byLocation: make(map[string]uuid.UUID),
 	}
 }
 
@@ -31,6 +33,9 @@ func (m *memoryMenuRepository) Create(_ context.Context, menu *Menu) (*Menu, err
 	m.byID[cloned.ID] = cloned
 	if cloned.Code != "" {
 		m.byCode[cloned.Code] = cloned.ID
+	}
+	if cloned.Location != "" {
+		m.byLocation[cloned.Location] = cloned.ID
 	}
 	return cloneMenu(cloned), nil
 }
@@ -57,6 +62,17 @@ func (m *memoryMenuRepository) GetByCode(_ context.Context, code string) (*Menu,
 	return cloneMenu(m.byID[id]), nil
 }
 
+func (m *memoryMenuRepository) GetByLocation(_ context.Context, location string) (*Menu, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	id, ok := m.byLocation[location]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu", Key: location}
+	}
+	return cloneMenu(m.byID[id]), nil
+}
+
 func (m *memoryMenuRepository) List(_ context.Context) ([]*Menu, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -78,6 +94,7 @@ func (m *memoryMenuRepository) Update(_ context.Context, menu *Menu) (*Menu, err
 	}
 
 	oldCode := existing.Code
+	oldLocation := existing.Location
 	cloned := cloneMenu(menu)
 
 	m.byID[cloned.ID] = cloned
@@ -87,6 +104,12 @@ func (m *memoryMenuRepository) Update(_ context.Context, menu *Menu) (*Menu, err
 	}
 	if cloned.Code != "" {
 		m.byCode[cloned.Code] = cloned.ID
+	}
+	if oldLocation != "" && oldLocation != cloned.Location {
+		delete(m.byLocation, oldLocation)
+	}
+	if cloned.Location != "" {
+		m.byLocation[cloned.Location] = cloned.ID
 	}
 
 	return cloneMenu(cloned), nil
@@ -103,6 +126,9 @@ func (m *memoryMenuRepository) Delete(_ context.Context, id uuid.UUID) error {
 	delete(m.byID, id)
 	if existing.Code != "" {
 		delete(m.byCode, existing.Code)
+	}
+	if existing.Location != "" {
+		delete(m.byLocation, existing.Location)
 	}
 	return nil
 }

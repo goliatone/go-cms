@@ -26,6 +26,7 @@ type Service interface {
 	UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu, error)
 	GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error)
 	GetMenuByCode(ctx context.Context, code string) (*Menu, error)
+	GetMenuByLocation(ctx context.Context, location string) (*Menu, error)
 	DeleteMenu(ctx context.Context, req DeleteMenuRequest) error
 	ResetMenuByCode(ctx context.Context, code string, actor uuid.UUID, force bool) error
 
@@ -40,12 +41,14 @@ type Service interface {
 	UpsertMenuItemTranslation(ctx context.Context, input UpsertMenuItemTranslationInput) (*MenuItemTranslation, error)
 	GetMenuItemByExternalCode(ctx context.Context, menuCode string, externalCode string) (*MenuItem, error)
 	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
+	ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error)
 	InvalidateCache(ctx context.Context) error
 }
 
 // CreateMenuInput captures the information required to register a menu.
 type CreateMenuInput struct {
 	Code        string
+	Location    string
 	Description *string
 	CreatedBy   uuid.UUID
 	UpdatedBy   uuid.UUID
@@ -54,6 +57,7 @@ type CreateMenuInput struct {
 // UpsertMenuInput captures the information required to create or update a menu by code.
 type UpsertMenuInput struct {
 	Code        string
+	Location    string
 	Description *string
 	Actor       uuid.UUID
 }
@@ -556,6 +560,7 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 	menu := &Menu{
 		ID:          menuID,
 		Code:        code,
+		Location:    strings.TrimSpace(input.Location),
 		Description: input.Description,
 		CreatedBy:   input.CreatedBy,
 		UpdatedBy:   input.UpdatedBy,
@@ -585,6 +590,16 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 
 	existing, err := s.menus.GetByCode(ctx, code)
 	if err == nil {
+		location := strings.TrimSpace(input.Location)
+		if location != "" && existing.Location != location {
+			existing.Location = location
+			existing.Description = input.Description
+			existing.UpdatedBy = input.UpdatedBy
+			existing.UpdatedAt = s.now()
+			if _, updateErr := s.menus.Update(ctx, existing); updateErr == nil {
+				return existing, nil
+			}
+		}
 		return existing, nil
 	}
 	var notFound *NotFoundError
@@ -602,6 +617,7 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 	menu := &Menu{
 		ID:          menuID,
 		Code:        code,
+		Location:    strings.TrimSpace(input.Location),
 		Description: input.Description,
 		CreatedBy:   input.CreatedBy,
 		UpdatedBy:   input.UpdatedBy,
@@ -644,6 +660,7 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 		}
 		created, err := s.CreateMenu(ctx, CreateMenuInput{
 			Code:        code,
+		Location:    input.Location,
 			Description: input.Description,
 			CreatedBy:   input.Actor,
 			UpdatedBy:   input.Actor,
@@ -656,6 +673,9 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 
 	// Update description if provided (can be nil to clear).
 	existing.Description = input.Description
+	if location := strings.TrimSpace(input.Location); location != "" {
+		existing.Location = location
+	}
 	existing.UpdatedBy = input.Actor
 	existing.UpdatedAt = s.now()
 	updated, err := s.menus.Update(ctx, existing)
@@ -687,6 +707,19 @@ func (s *service) GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error) {
 // GetMenuByCode retrieves a menu using its code.
 func (s *service) GetMenuByCode(ctx context.Context, code string) (*Menu, error) {
 	menu, err := s.menus.GetByCode(ctx, strings.TrimSpace(code))
+	if err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrMenuNotFound
+		}
+		return nil, err
+	}
+	return s.hydrateMenu(ctx, menu)
+}
+
+// GetMenuByLocation retrieves a menu using its assigned location.
+func (s *service) GetMenuByLocation(ctx context.Context, location string) (*Menu, error) {
+	menu, err := s.menus.GetByLocation(ctx, strings.TrimSpace(location))
 	if err != nil {
 		var notFound *NotFoundError
 		if errors.As(err, &notFound) {
@@ -1792,6 +1825,15 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 		nodes = append(nodes, node)
 	}
 	return normalizeNavigationNodes(nodes), nil
+}
+
+// ResolveNavigationByLocation resolves navigation for a menu location.
+func (s *service) ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error) {
+	menu, err := s.GetMenuByLocation(ctx, location)
+	if err != nil {
+		return nil, err
+	}
+	return s.ResolveNavigation(ctx, menu.Code, locale)
 }
 
 func (s *service) InvalidateCache(ctx context.Context) error {

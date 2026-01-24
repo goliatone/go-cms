@@ -908,6 +908,13 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		ID:             target.ID,
 		PageID:         req.PageID,
 		LocaleID:       locale.ID,
+		TranslationGroupID: func() *uuid.UUID {
+			if target.TranslationGroupID != nil {
+				return target.TranslationGroupID
+			}
+			groupID := req.PageID
+			return &groupID
+		}(),
 		Locale:         locale.Code,
 		Title:          title,
 		Path:           path,
@@ -2386,6 +2393,13 @@ func (s *pageService) buildPageTranslations(ctx context.Context, pageID uuid.UUI
 		translation := &PageTranslation{
 			PageID:        pageID,
 			LocaleID:      locale.ID,
+			TranslationGroupID: func() *uuid.UUID {
+				if existingTranslation, ok := byLocale[locale.ID]; ok && existingTranslation != nil && existingTranslation.TranslationGroupID != nil {
+					return existingTranslation.TranslationGroupID
+				}
+				groupID := pageID
+				return &groupID
+			}(),
 			Locale:        locale.Code,
 			Title:         input.Title,
 			Path:          path,
