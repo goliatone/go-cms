@@ -1,5 +1,35 @@
 # Changelog
 
+# [0.19.0](https://github.com/goliatone/go-cms/compare/v0.18.0...v0.19.0) - (2026-01-24)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.19.0 ([9174456](https://github.com/goliatone/go-cms/commit/91744565ed66f3b1d76223f44e96def12be52f34))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Markdown commands ([4033684](https://github.com/goliatone/go-cms/commit/4033684992477f0cd774c435d3b7f2c1d019a26f))  - (goliatone)
+- Get by location menu ([030ee79](https://github.com/goliatone/go-cms/commit/030ee7907ebdf9f97bebe53d68e44c38c715fd54))  - (goliatone)
+- Menu by location in memo ([acf195b](https://github.com/goliatone/go-cms/commit/acf195b80fc84a17b668bcac72b85db4a1c71e81))  - (goliatone)
+- Page translation group ([575c039](https://github.com/goliatone/go-cms/commit/575c03938562104def7b2b07eaf10e37501ce653))  - (goliatone)
+- Bun repo implement GetByLocation ([8c66b0d](https://github.com/goliatone/go-cms/commit/8c66b0d7bd51233e27fcc2f7f619ac051e752077))  - (goliatone)
+- Menu support for location ([5e110ee](https://github.com/goliatone/go-cms/commit/5e110ee5109feb5c5484945d6ee74d66ede431b0))  - (goliatone)
+- Location to menu ([a0e7f1f](https://github.com/goliatone/go-cms/commit/a0e7f1f06a444b45609ad93747728fa15f1d4eb7))  - (goliatone)
+- Translation group ID to page translation ([6d1bcbf](https://github.com/goliatone/go-cms/commit/6d1bcbfc7d08df825ef094311580802eb6f93a20))  - (goliatone)
+- Migrations for translation groups and menu locations ([a94b2d1](https://github.com/goliatone/go-cms/commit/a94b2d1810efe8dfefe4e11db7700a865f90bb06))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.18.0 ([741c7e0](https://github.com/goliatone/go-cms/commit/741c7e0b8b14a93ae563fdb6e765da44f6fe8b23))  - (goliatone)
+
+## <!-- 30 -->📝 Other
+
+- PR [#2](https://github.com/goliatone/go-cms/pull/2): location support ([a204c69](https://github.com/goliatone/go-cms/commit/a204c69979bfff526a4f74f44d63da82a6e96247))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([056ff7b](https://github.com/goliatone/go-cms/commit/056ff7bd3872d3e37a1aa977e803f75867495330))  - (goliatone)
+
 # [0.18.0](https://github.com/goliatone/go-cms/compare/v0.17.0...v0.18.0) - (2026-01-08)
 
 ## <!-- 13 -->📦 Bumps
