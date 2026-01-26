@@ -125,6 +125,10 @@ func normalizeFields(fields any) (map[string]any, []string) {
 		for _, entry := range typed {
 			if fieldMap, ok := entry.(map[string]any); ok {
 				addField(properties, &required, fieldMap)
+				continue
+			}
+			if name, ok := entry.(string); ok {
+				addField(properties, &required, map[string]any{"name": name})
 			}
 		}
 	case []map[string]any:
