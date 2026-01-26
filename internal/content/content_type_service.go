@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-slug"
 	"github.com/google/uuid"
 )
 
@@ -51,6 +52,7 @@ var (
 	ErrContentTypeNameRequired   = errors.New("content type: name is required")
 	ErrContentTypeSchemaRequired = errors.New("content type: schema is required")
 	ErrContentTypeIDRequired     = errors.New("content type: id required")
+	ErrContentTypeSlugInvalid    = errors.New("content type: slug contains invalid characters")
 )
 
 // ContentTypeOption mutates the content type service.
@@ -74,12 +76,22 @@ func WithContentTypeIDGenerator(generator IDGenerator) ContentTypeOption {
 	}
 }
 
+// WithContentTypeSlugNormalizer overrides the slug normalizer used by the service.
+func WithContentTypeSlugNormalizer(normalizer slug.Normalizer) ContentTypeOption {
+	return func(s *contentTypeService) {
+		if normalizer != nil {
+			s.slugger = normalizer
+		}
+	}
+}
+
 // NewContentTypeService constructs a content type service.
 func NewContentTypeService(repo ContentTypeRepository, opts ...ContentTypeOption) ContentTypeService {
 	svc := &contentTypeService{
-		repo: repo,
-		now:  func() time.Time { return time.Now().UTC() },
-		id:   uuid.New,
+		repo:    repo,
+		now:     func() time.Time { return time.Now().UTC() },
+		id:      uuid.New,
+		slugger: slug.Default(),
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -90,9 +102,10 @@ func NewContentTypeService(repo ContentTypeRepository, opts ...ContentTypeOption
 }
 
 type contentTypeService struct {
-	repo ContentTypeRepository
-	now  func() time.Time
-	id   IDGenerator
+	repo    ContentTypeRepository
+	now     func() time.Time
+	id      IDGenerator
+	slugger slug.Normalizer
 }
 
 func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRequest) (*ContentType, error) {
@@ -120,9 +133,10 @@ func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRe
 		UpdatedAt:    s.now(),
 	}
 
-	record.Slug = strings.TrimSpace(DeriveContentTypeSlug(record))
-	if record.Slug == "" {
-		return nil, ErrContentTypeSlugRequired
+	var err error
+	record.Slug, err = s.normalizeSlug(record)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID); err != nil {
@@ -176,9 +190,9 @@ func (s *contentTypeService) Update(ctx context.Context, req UpdateContentTypeRe
 		return nil, ErrContentTypeSchemaRequired
 	}
 
-	record.Slug = strings.TrimSpace(DeriveContentTypeSlug(record))
-	if record.Slug == "" {
-		return nil, ErrContentTypeSlugRequired
+	record.Slug, err = s.normalizeSlug(record)
+	if err != nil {
+		return nil, err
 	}
 
 	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID); err != nil {
@@ -213,11 +227,23 @@ func (s *contentTypeService) Get(ctx context.Context, id uuid.UUID) (*ContentTyp
 	return s.repo.GetByID(ctx, id)
 }
 
-func (s *contentTypeService) GetBySlug(ctx context.Context, slug string) (*ContentType, error) {
+func (s *contentTypeService) GetBySlug(ctx context.Context, rawSlug string) (*ContentType, error) {
 	if s == nil || s.repo == nil {
 		return nil, errors.New("content type service unavailable")
 	}
-	return s.repo.GetBySlug(ctx, strings.TrimSpace(slug))
+	slugValue := strings.TrimSpace(rawSlug)
+	if slugValue == "" {
+		return nil, ErrContentTypeSlugRequired
+	}
+	if s.slugger == nil {
+		s.slugger = slug.Default()
+	}
+	normalized, err := s.slugger.Normalize(slugValue)
+	if err != nil || normalized == "" {
+		return nil, ErrContentTypeSlugInvalid
+	}
+	slugValue = normalized
+	return s.repo.GetBySlug(ctx, slugValue)
 }
 
 func (s *contentTypeService) List(ctx context.Context) ([]*ContentType, error) {
@@ -236,6 +262,33 @@ func (s *contentTypeService) Search(ctx context.Context, query string) ([]*Conte
 		return s.repo.List(ctx)
 	}
 	return s.repo.Search(ctx, query)
+}
+
+func (s *contentTypeService) normalizeSlug(ct *ContentType) (string, error) {
+	if ct == nil {
+		return "", ErrContentTypeSlugRequired
+	}
+	if s.slugger == nil {
+		s.slugger = slug.Default()
+	}
+	candidate := strings.TrimSpace(ct.Slug)
+	if candidate == "" {
+		candidate = strings.TrimSpace(extractSchemaSlug(ct.Schema))
+	}
+	if candidate == "" {
+		candidate = strings.TrimSpace(ct.Name)
+	}
+	if candidate == "" {
+		return "", ErrContentTypeSlugRequired
+	}
+	normalized, err := s.slugger.Normalize(candidate)
+	if err != nil || normalized == "" {
+		return "", ErrContentTypeSlugRequired
+	}
+	if !slug.IsValid(normalized) {
+		return "", ErrContentTypeSlugInvalid
+	}
+	return normalized, nil
 }
 
 func (s *contentTypeService) ensureSlugAvailable(ctx context.Context, slug string, currentID uuid.UUID) error {
