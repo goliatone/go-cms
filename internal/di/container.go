@@ -614,6 +614,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithRequireTranslations(requireTranslations),
 			content.WithTranslationsEnabled(translationsEnabled),
 			content.WithTranslationState(c.translationState),
+			content.WithDefaultLocale(c.Config.DefaultLocale, c.Config.I18N.DefaultLocaleRequired),
 		)
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
 	}
@@ -632,6 +633,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
 			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
 			blocks.WithActivityEmitter(c.activityEmitter),
+			blocks.WithRequireTranslations(requireTranslations),
+			blocks.WithTranslationsEnabled(translationsEnabled),
+			blocks.WithTranslationState(c.translationState),
 		}
 		if c.blockVersionRepo != nil {
 			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
@@ -700,6 +704,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithRequireTranslations(requireTranslations),
 			pages.WithTranslationsEnabled(translationsEnabled),
 			pages.WithTranslationState(c.translationState),
+			pages.WithDefaultLocale(c.Config.DefaultLocale, c.Config.I18N.DefaultLocaleRequired),
 		)
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
