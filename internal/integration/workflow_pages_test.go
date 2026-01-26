@@ -103,7 +103,9 @@ func TestWorkflowIntegration_GeneratorPropagatesStatuses(t *testing.T) {
 	template, _ := registerThemeFixtures(t, ctx, themeSvc)
 
 	typeRepo := container.ContentTypeRepository()
-	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) error })
+	seedTypes, ok := typeRepo.(interface {
+		Put(*content.ContentType) error
+	})
 	if !ok {
 		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}

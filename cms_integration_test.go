@@ -279,7 +279,9 @@ func TestModuleContentRetentionLimitEnforced(t *testing.T) {
 	}
 
 	typeRepo := module.Container().ContentTypeRepository()
-	seeder, ok := typeRepo.(interface{ Put(*content.ContentType) error })
+	seeder, ok := typeRepo.(interface {
+		Put(*content.ContentType) error
+	})
 	if !ok {
 		t.Fatalf("content type repository not seedable")
 	}

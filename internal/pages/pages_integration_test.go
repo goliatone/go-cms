@@ -94,7 +94,9 @@ func TestPagesIntegration_CreateAndFetchPage(t *testing.T) {
 }
 
 func maybePutContentType(repo content.ContentTypeRepository, ct *content.ContentType) {
-	if seeder, ok := repo.(interface{ Put(*content.ContentType) error }); ok {
+	if seeder, ok := repo.(interface {
+		Put(*content.ContentType) error
+	}); ok {
 		if err := seeder.Put(ct); err != nil {
 			panic(err)
 		}

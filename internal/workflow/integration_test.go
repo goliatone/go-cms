@@ -72,7 +72,9 @@ func TestWorkflowIntegration_MultiStepPageLifecycle(t *testing.T) {
 	}
 
 	typeRepo := module.Container().ContentTypeRepository()
-	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) error })
+	seedTypes, ok := typeRepo.(interface {
+		Put(*content.ContentType) error
+	})
 	if !ok {
 		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}
@@ -225,7 +227,9 @@ func TestWorkflowIntegration_StatusTransitionsWithoutTranslations(t *testing.T) 
 			}
 
 			typeRepo := module.Container().ContentTypeRepository()
-			seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) error })
+			seedTypes, ok := typeRepo.(interface {
+				Put(*content.ContentType) error
+			})
 			if !ok {
 				t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 			}
