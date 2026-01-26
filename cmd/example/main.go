@@ -238,6 +238,7 @@ func main() {
 	maybeSeedContentType(ctx, container, &content.ContentType{
 		ID:   typeID,
 		Name: "page",
+		Slug: "page",
 		Schema: map[string]any{
 			"fields": []map[string]any{
 				{
@@ -791,7 +792,11 @@ func maybeSeedContentType(_ context.Context, container *di.Container, ct *conten
 		return
 	}
 
-	if seeder, ok := repo.(interface{ Put(*content.ContentType) }); ok {
-		seeder.Put(ct)
+	if seeder, ok := repo.(interface {
+		Put(*content.ContentType) error
+	}); ok {
+		if err := seeder.Put(ct); err != nil {
+			log.Printf("seed content type %s: %v", ct.Slug, err)
+		}
 	}
 }
