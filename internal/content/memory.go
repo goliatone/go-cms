@@ -339,10 +339,7 @@ func (m *MemoryContentTypeRepository) Put(ct *ContentType) error {
 		return ErrContentTypeSlugRequired
 	}
 
-	slug := strings.TrimSpace(ct.Slug)
-	if slug == "" {
-		slug = strings.TrimSpace(ct.Name)
-	}
+	slug := strings.TrimSpace(DeriveContentTypeSlug(ct))
 	if slug == "" {
 		return ErrContentTypeSlugRequired
 	}
