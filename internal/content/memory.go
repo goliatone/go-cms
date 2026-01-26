@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"errors"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -330,6 +331,14 @@ func NewMemoryContentTypeRepository() *MemoryContentTypeRepository {
 	}
 }
 
+// Create inserts a content type record.
+func (m *MemoryContentTypeRepository) Create(ctx context.Context, ct *ContentType) (*ContentType, error) {
+	if err := m.Put(ct); err != nil {
+		return nil, err
+	}
+	return m.GetByID(ctx, ct.ID)
+}
+
 // Put inserts or replaces a content type.
 func (m *MemoryContentTypeRepository) Put(ct *ContentType) error {
 	m.mu.Lock()
@@ -408,6 +417,100 @@ func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string) 
 		copied.Schema = cloneMap(ct.Schema)
 	}
 	return &copied, nil
+}
+
+// List returns all content types.
+func (m *MemoryContentTypeRepository) List(_ context.Context) ([]*ContentType, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	records := make([]*ContentType, 0, len(m.types))
+	for _, ct := range m.types {
+		if ct == nil {
+			continue
+		}
+		copied := *ct
+		if ct.Capabilities != nil {
+			copied.Capabilities = cloneMap(ct.Capabilities)
+		}
+		if ct.Schema != nil {
+			copied.Schema = cloneMap(ct.Schema)
+		}
+		records = append(records, &copied)
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return strings.ToLower(records[i].Name) < strings.ToLower(records[j].Name)
+	})
+	return records, nil
+}
+
+// Search returns content types whose name or slug contains the query.
+func (m *MemoryContentTypeRepository) Search(ctx context.Context, query string) ([]*ContentType, error) {
+	query = strings.TrimSpace(strings.ToLower(query))
+	if query == "" {
+		return m.List(ctx)
+	}
+
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	records := make([]*ContentType, 0)
+	for _, ct := range m.types {
+		if ct == nil {
+			continue
+		}
+		name := strings.ToLower(ct.Name)
+		slug := strings.ToLower(ct.Slug)
+		if strings.Contains(name, query) || strings.Contains(slug, query) {
+			copied := *ct
+			if ct.Capabilities != nil {
+				copied.Capabilities = cloneMap(ct.Capabilities)
+			}
+			if ct.Schema != nil {
+				copied.Schema = cloneMap(ct.Schema)
+			}
+			records = append(records, &copied)
+		}
+	}
+
+	sort.Slice(records, func(i, j int) bool {
+		return strings.ToLower(records[i].Name) < strings.ToLower(records[j].Name)
+	})
+	return records, nil
+}
+
+// Update updates an existing content type.
+func (m *MemoryContentTypeRepository) Update(ctx context.Context, ct *ContentType) (*ContentType, error) {
+	m.mu.RLock()
+	_, ok := m.types[ct.ID]
+	m.mu.RUnlock()
+	if !ok {
+		return nil, &NotFoundError{Resource: "content_type", Key: ct.ID.String()}
+	}
+	if err := m.Put(ct); err != nil {
+		return nil, err
+	}
+	return m.GetByID(ctx, ct.ID)
+}
+
+// Delete removes a content type.
+func (m *MemoryContentTypeRepository) Delete(_ context.Context, id uuid.UUID, _ bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	ct, ok := m.types[id]
+	if !ok {
+		return &NotFoundError{Resource: "content_type", Key: id.String()}
+	}
+	if ct != nil {
+		slug := strings.TrimSpace(ct.Slug)
+		if slug != "" {
+			delete(m.slugIndex, slug)
+		}
+	}
+	delete(m.types, id)
+	return nil
 }
 
 // MemoryLocaleRepository stores locales by code.
