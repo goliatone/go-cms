@@ -114,6 +114,26 @@ func (p *contentTypeRepositoryProxy) GetBySlug(ctx context.Context, slug string)
 	return p.current().GetBySlug(ctx, slug)
 }
 
+func (p *contentTypeRepositoryProxy) Create(ctx context.Context, record *content.ContentType) (*content.ContentType, error) {
+	return p.current().Create(ctx, record)
+}
+
+func (p *contentTypeRepositoryProxy) List(ctx context.Context) ([]*content.ContentType, error) {
+	return p.current().List(ctx)
+}
+
+func (p *contentTypeRepositoryProxy) Search(ctx context.Context, query string) ([]*content.ContentType, error) {
+	return p.current().Search(ctx, query)
+}
+
+func (p *contentTypeRepositoryProxy) Update(ctx context.Context, record *content.ContentType) (*content.ContentType, error) {
+	return p.current().Update(ctx, record)
+}
+
+func (p *contentTypeRepositoryProxy) Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error {
+	return p.current().Delete(ctx, id, hardDelete)
+}
+
 func (p *contentTypeRepositoryProxy) Put(ct *content.ContentType) error {
 	current := p.current()
 	if repo, ok := current.(interface {
