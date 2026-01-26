@@ -161,8 +161,13 @@ type ContentRepository interface {
 
 // ContentTypeRepository resolves content types.
 type ContentTypeRepository interface {
+	Create(ctx context.Context, record *ContentType) (*ContentType, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*ContentType, error)
 	GetBySlug(ctx context.Context, slug string) (*ContentType, error)
+	List(ctx context.Context) ([]*ContentType, error)
+	Search(ctx context.Context, query string) ([]*ContentType, error)
+	Update(ctx context.Context, record *ContentType) (*ContentType, error)
+	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
 }
 
 // LocaleRepository resolves locales by code.
