@@ -10,6 +10,11 @@ import (
 	"github.com/google/uuid"
 )
 
+var (
+	ErrContentTypeSlugRequired = errors.New("content type: slug is required")
+	ErrContentTypeSlugExists   = errors.New("content type: slug already exists")
+)
+
 // MemoryContentRepository is an "in memory" implementation for scaffolding and tests.
 type MemoryContentRepository struct {
 	mu        sync.RWMutex
@@ -312,23 +317,52 @@ func cloneUUIDPointer(src *uuid.UUID) *uuid.UUID {
 
 // MemoryContentTypeRepository stores content types "in memory".
 type MemoryContentTypeRepository struct {
-	mu    sync.RWMutex
-	types map[uuid.UUID]*ContentType
+	mu        sync.RWMutex
+	types     map[uuid.UUID]*ContentType
+	slugIndex map[string]uuid.UUID
 }
 
 // NewMemoryContentTypeRepository constructs the repository.
 func NewMemoryContentTypeRepository() *MemoryContentTypeRepository {
 	return &MemoryContentTypeRepository{
-		types: make(map[uuid.UUID]*ContentType),
+		types:     make(map[uuid.UUID]*ContentType),
+		slugIndex: make(map[string]uuid.UUID),
 	}
 }
 
 // Put inserts or replaces a content type.
-func (m *MemoryContentTypeRepository) Put(ct *ContentType) {
+func (m *MemoryContentTypeRepository) Put(ct *ContentType) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if ct == nil {
+		return ErrContentTypeSlugRequired
+	}
+
+	slug := strings.TrimSpace(ct.Slug)
+	if slug == "" {
+		slug = strings.TrimSpace(ct.Name)
+	}
+	if slug == "" {
+		return ErrContentTypeSlugRequired
+	}
+
+	if existingID, ok := m.slugIndex[slug]; ok && existingID != ct.ID {
+		return ErrContentTypeSlugExists
+	}
+
+	if existing, ok := m.types[ct.ID]; ok && existing != nil {
+		oldSlug := strings.TrimSpace(existing.Slug)
+		if oldSlug != "" && oldSlug != slug {
+			delete(m.slugIndex, oldSlug)
+		}
+	}
+
 	copied := *ct
+	copied.Slug = slug
 	m.types[ct.ID] = &copied
+	m.slugIndex[slug] = ct.ID
+	return nil
 }
 
 // GetByID fetches a content type.
@@ -339,6 +373,36 @@ func (m *MemoryContentTypeRepository) GetByID(_ context.Context, id uuid.UUID) (
 	if !ok {
 		return nil, &NotFoundError{Resource: "content_type", Key: id.String()}
 	}
+	copied := *ct
+	if ct.Capabilities != nil {
+		copied.Capabilities = cloneMap(ct.Capabilities)
+	}
+	if ct.Schema != nil {
+		copied.Schema = cloneMap(ct.Schema)
+	}
+	return &copied, nil
+}
+
+// GetBySlug fetches a content type by slug.
+func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string) (*ContentType, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := strings.TrimSpace(slug)
+	if key == "" {
+		return nil, &NotFoundError{Resource: "content_type", Key: slug}
+	}
+
+	id, ok := m.slugIndex[key]
+	if !ok {
+		return nil, &NotFoundError{Resource: "content_type", Key: slug}
+	}
+
+	ct, ok := m.types[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "content_type", Key: slug}
+	}
+
 	copied := *ct
 	if ct.Capabilities != nil {
 		copied.Capabilities = cloneMap(ct.Capabilities)
