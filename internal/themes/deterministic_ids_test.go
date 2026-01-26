@@ -89,4 +89,3 @@ func TestDeterministicTemplateIDs(t *testing.T) {
 		t.Fatalf("unexpected template id: got %s want %s", template2.ID, expectedTemplateID)
 	}
 }
-

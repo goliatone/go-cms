@@ -36,4 +36,3 @@ func TestDeterministicBlockDefinitionIDs(t *testing.T) {
 		t.Fatalf("unexpected definition id: got %s want %s", def2.ID, expected)
 	}
 }
-

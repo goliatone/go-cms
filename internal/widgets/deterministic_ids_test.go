@@ -72,4 +72,3 @@ func TestDeterministicWidgetAreaDefinitionIDs(t *testing.T) {
 		t.Fatalf("unexpected area definition id: got %s want %s", area2.ID, expected)
 	}
 }
-
