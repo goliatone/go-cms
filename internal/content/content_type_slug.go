@@ -1,6 +1,10 @@
 package content
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/goliatone/go-slug"
+)
 
 // DeriveContentTypeSlug derives a deterministic slug for backfill/seed flows.
 // Prefers explicit slug, then schema metadata, then normalized name.
@@ -9,10 +13,10 @@ func DeriveContentTypeSlug(ct *ContentType) string {
 		return ""
 	}
 	if slug := strings.TrimSpace(ct.Slug); slug != "" {
-		return slug
+		return normalizeContentTypeSlug(slug)
 	}
 	if slug := strings.TrimSpace(extractSchemaSlug(ct.Schema)); slug != "" {
-		return slug
+		return normalizeContentTypeSlug(slug)
 	}
 	return normalizeContentTypeSlug(strings.TrimSpace(ct.Name))
 }
@@ -40,5 +44,9 @@ func normalizeContentTypeSlug(value string) string {
 	if value == "" {
 		return ""
 	}
-	return strings.ReplaceAll(strings.ToLower(value), " ", "-")
+	normalized, err := slug.Normalize(value)
+	if err != nil {
+		return ""
+	}
+	return normalized
 }
