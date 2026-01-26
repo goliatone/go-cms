@@ -63,21 +63,21 @@ type PageVersion struct {
 type PageTranslation struct {
 	bun.BaseModel `bun:"table:page_translations,alias:pt"`
 
-	ID             uuid.UUID                      `bun:",pk,type:uuid" json:"id"`
-	PageID         uuid.UUID                      `bun:"page_id,notnull,type:uuid" json:"page_id"`
-	LocaleID       uuid.UUID                      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
-	TranslationGroupID *uuid.UUID                 `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
-	Title          string                         `bun:"title,notnull" json:"title"`
-	Path           string                         `bun:"path,notnull" json:"path"`
-	SEOTitle       *string                        `bun:"seo_title" json:"seo_title,omitempty"`
-	SEODescription *string                        `bun:"seo_description" json:"seo_description,omitempty"`
-	Summary        *string                        `bun:"summary" json:"summary,omitempty"`
-	MediaBindings  media.BindingSet               `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
-	ResolvedMedia  map[string][]*media.Attachment `bun:"-" json:"media,omitempty"`
-	Locale         string                         `bun:"-" json:"locale,omitempty"`
-	DeletedAt      *time.Time                     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
-	CreatedAt      time.Time                      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt      time.Time                      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	ID                 uuid.UUID                      `bun:",pk,type:uuid" json:"id"`
+	PageID             uuid.UUID                      `bun:"page_id,notnull,type:uuid" json:"page_id"`
+	LocaleID           uuid.UUID                      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	TranslationGroupID *uuid.UUID                     `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
+	Title              string                         `bun:"title,notnull" json:"title"`
+	Path               string                         `bun:"path,notnull" json:"path"`
+	SEOTitle           *string                        `bun:"seo_title" json:"seo_title,omitempty"`
+	SEODescription     *string                        `bun:"seo_description" json:"seo_description,omitempty"`
+	Summary            *string                        `bun:"summary" json:"summary,omitempty"`
+	MediaBindings      media.BindingSet               `bun:"media_bindings,type:jsonb" json:"media_bindings,omitempty"`
+	ResolvedMedia      map[string][]*media.Attachment `bun:"-" json:"media,omitempty"`
+	Locale             string                         `bun:"-" json:"locale,omitempty"`
+	DeletedAt          *time.Time                     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt          time.Time                      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt          time.Time                      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
 
 // PageVersionSnapshot captures layout, block, and widget placements at publish time.
