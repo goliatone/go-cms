@@ -660,7 +660,7 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 		}
 		created, err := s.CreateMenu(ctx, CreateMenuInput{
 			Code:        code,
-		Location:    input.Location,
+			Location:    input.Location,
 			Description: input.Description,
 			CreatedBy:   input.Actor,
 			UpdatedBy:   input.Actor,
