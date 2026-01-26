@@ -77,6 +77,7 @@ type ContentTranslationInput struct {
 type ContentRecord struct {
 	ID           uuid.UUID
 	ContentType  uuid.UUID
+	ContentTypeSlug string
 	Slug         string
 	Status       string
 	Translations []ContentTranslation
