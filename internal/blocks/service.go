@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
@@ -145,6 +146,7 @@ type RestoreInstanceVersionRequest struct {
 var (
 	ErrDefinitionNameRequired          = errors.New("blocks: definition name required")
 	ErrDefinitionSchemaRequired        = errors.New("blocks: definition schema required")
+	ErrDefinitionSchemaInvalid         = errors.New("blocks: definition schema invalid")
 	ErrDefinitionExists                = errors.New("blocks: definition already exists")
 	ErrDefinitionIDRequired            = errors.New("blocks: definition id required")
 	ErrDefinitionInUse                 = errors.New("blocks: definition has active instances")
@@ -159,6 +161,7 @@ var (
 	ErrTranslationContentRequired       = errors.New("blocks: translation content required")
 	ErrTranslationExists                = errors.New("blocks: translation already exists for locale")
 	ErrTranslationLocaleRequired        = errors.New("blocks: translation locale required")
+	ErrTranslationSchemaInvalid         = errors.New("blocks: translation content invalid")
 	ErrTranslationNotFound              = errors.New("blocks: translation not found")
 	ErrTranslationMinimum               = errors.New("blocks: at least one translation is required")
 	ErrInstanceIDRequired               = errors.New("blocks: instance id required")
@@ -316,6 +319,9 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	if len(input.Schema) == 0 {
 		return nil, ErrDefinitionSchemaRequired
 	}
+	if err := validation.ValidateSchema(input.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
+	}
 
 	if _, err := s.definitions.GetByName(ctx, name); err == nil {
 		return nil, ErrDefinitionExists
@@ -382,6 +388,9 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 	if input.Schema != nil {
 		if len(input.Schema) == 0 {
 			return nil, ErrDefinitionSchemaRequired
+		}
+		if err := validation.ValidateSchema(input.Schema); err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
 		}
 		definition.Schema = maps.Clone(input.Schema)
 	}
@@ -618,8 +627,16 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 		return nil, err
 	}
 
-	if _, err := s.instances.GetByID(ctx, input.BlockInstanceID); err != nil {
+	instance, err := s.instances.GetByID(ctx, input.BlockInstanceID)
+	if err != nil {
 		return nil, err
+	}
+	definition, err := s.definitions.GetByID(ctx, instance.DefinitionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validation.ValidatePayload(definition.Schema, input.Content); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrTranslationSchemaInvalid, err)
 	}
 
 	if existing, err := s.translations.GetByInstanceAndLocale(ctx, input.BlockInstanceID, input.LocaleID); err == nil && existing != nil {
@@ -643,10 +660,6 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	}
 
 	created, err := s.translations.Create(ctx, translation)
-	if err != nil {
-		return nil, err
-	}
-	instance, err := s.instances.GetByID(ctx, input.BlockInstanceID)
 	if err != nil {
 		return nil, err
 	}
@@ -693,6 +706,18 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 		}
 	}
 
+	instance, err := s.instances.GetByID(ctx, input.BlockInstanceID)
+	if err != nil {
+		return nil, err
+	}
+	definition, err := s.definitions.GetByID(ctx, instance.DefinitionID)
+	if err != nil {
+		return nil, err
+	}
+	if err := validation.ValidatePayload(definition.Schema, input.Content); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrTranslationSchemaInvalid, err)
+	}
+
 	translation, err := s.translations.GetByInstanceAndLocale(ctx, input.BlockInstanceID, input.LocaleID)
 	if err != nil {
 		return nil, err
@@ -712,10 +737,6 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 		return nil, err
 	}
 
-	instance, err := s.instances.GetByID(ctx, input.BlockInstanceID)
-	if err != nil {
-		return nil, err
-	}
 	instance.UpdatedBy = input.UpdatedBy
 	instance.UpdatedAt = translation.UpdatedAt
 
