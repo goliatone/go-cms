@@ -188,16 +188,21 @@ func seedContent(ctx context.Context, svc content.Service, repo content.ContentT
 		return nil, nil
 	}
 
-	if seeder, ok := repo.(interface{ Put(*content.ContentType) }); ok {
-		seeder.Put(&content.ContentType{
+	if seeder, ok := repo.(interface {
+		Put(*content.ContentType) error
+	}); ok {
+		if err := seeder.Put(&content.ContentType{
 			ID:   pageType,
 			Name: "Demo Page",
+			Slug: "demo-page",
 			Schema: map[string]any{
 				"fields": map[string]string{"body": "string"},
 			},
 			CreatedAt: time.Now().UTC(),
 			UpdatedAt: time.Now().UTC(),
-		})
+		}); err != nil {
+			return nil, err
+		}
 	}
 
 	pages := []struct {
