@@ -133,6 +133,7 @@ type Container struct {
 	templateRepo themes.TemplateRepository
 
 	contentSvc             content.Service
+	contentTypeSvc         content.ContentTypeService
 	pageSvc                pages.Service
 	blockSvc               blocks.Service
 	i18nSvc                i18n.Service
@@ -337,6 +338,13 @@ func WithBunDB(db *bun.DB) Option {
 func WithContentService(svc content.Service) Option {
 	return func(c *Container) {
 		c.contentSvc = svc
+	}
+}
+
+// WithContentTypeService overrides the default content type service binding.
+func WithContentTypeService(svc content.ContentTypeService) Option {
+	return func(c *Container) {
+		c.contentTypeSvc = svc
 	}
 }
 
@@ -595,6 +603,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithTranslationState(c.translationState),
 		)
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
+	}
+
+	if c.contentTypeSvc == nil {
+		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo)
 	}
 
 	if c.blockSvc == nil {
@@ -1770,6 +1782,11 @@ func (c *Container) TranslationsRequired() bool {
 // ContentService returns the configured content service.
 func (c *Container) ContentService() content.Service {
 	return c.contentSvc
+}
+
+// ContentTypeService returns the configured content type service.
+func (c *Container) ContentTypeService() content.ContentTypeService {
+	return c.contentTypeSvc
 }
 
 // StorageAdminService exposes the storage admin helper.
