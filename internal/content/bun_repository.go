@@ -320,6 +320,14 @@ func (r *BunContentTypeRepository) GetByID(ctx context.Context, id uuid.UUID) (*
 	return result, nil
 }
 
+func (r *BunContentTypeRepository) GetBySlug(ctx context.Context, slug string) (*ContentType, error) {
+	result, err := r.repo.GetByIdentifier(ctx, slug)
+	if err != nil {
+		return nil, mapRepositoryError(err, "content_type", slug)
+	}
+	return result, nil
+}
+
 type BunLocaleRepository struct {
 	repo repository.Repository[*Locale]
 }
