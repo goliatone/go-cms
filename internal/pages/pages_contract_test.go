@@ -22,6 +22,7 @@ type phase1ContentFixture struct {
 	ContentTypes []struct {
 		ID     string         `json:"id"`
 		Name   string         `json:"name"`
+		Slug   string         `json:"slug"`
 		Schema map[string]any `json:"schema"`
 	} `json:"content_types"`
 	Request struct {
@@ -84,10 +85,14 @@ func TestPageServiceContract_Phase1Fixture(t *testing.T) {
 	}
 
 	for _, ct := range contentFx.ContentTypes {
+		slug := ct.Slug
+		if slug == "" {
+			slug = ct.Name
+		}
 		if err := contentTypeRepo.Put(&content.ContentType{
 			ID:     mustParseUUID(t, ct.ID),
 			Name:   ct.Name,
-			Slug:   ct.Name,
+			Slug:   slug,
 			Schema: ct.Schema,
 		}); err != nil {
 			t.Fatalf("seed content type: %v", err)

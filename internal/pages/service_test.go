@@ -1491,6 +1491,9 @@ func TestPageServiceLogsWorkflowEvents(t *testing.T) {
 
 func seedContentType(t *testing.T, store *content.MemoryContentTypeRepository, ct *content.ContentType) {
 	t.Helper()
+	if ct != nil && ct.Slug == "" {
+		ct.Slug = content.DeriveContentTypeSlug(ct)
+	}
 	if err := store.Put(ct); err != nil {
 		t.Fatalf("seed content type: %v", err)
 	}

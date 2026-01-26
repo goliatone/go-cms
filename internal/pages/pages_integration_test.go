@@ -28,10 +28,14 @@ func TestPagesIntegration_CreateAndFetchPage(t *testing.T) {
 
 	typeRepo := container.ContentTypeRepository()
 	for _, ct := range contentFx.ContentTypes {
+		slug := ct.Slug
+		if slug == "" {
+			slug = ct.Name
+		}
 		maybePutContentType(typeRepo, &content.ContentType{
 			ID:     mustParseUUID(t, ct.ID),
 			Name:   ct.Name,
-			Slug:   ct.Name,
+			Slug:   slug,
 			Schema: ct.Schema,
 		})
 	}
