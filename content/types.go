@@ -29,6 +29,7 @@ type ContentType struct {
 
 	ID           uuid.UUID      `bun:",pk,type:uuid"                json:"id"`
 	Name         string         `bun:"name,notnull"                 json:"name"`
+	Slug         string         `bun:"slug,notnull"                 json:"slug"`
 	Description  *string        `bun:"description"                  json:"description,omitempty"`
 	Schema       map[string]any `bun:"schema,type:jsonb,notnull"    json:"schema"`
 	Capabilities map[string]any `bun:"capabilities,type:jsonb"      json:"capabilities,omitempty"`
