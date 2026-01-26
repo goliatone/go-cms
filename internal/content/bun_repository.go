@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	goerrors "github.com/goliatone/go-errors"
@@ -312,6 +313,14 @@ func NewBunContentTypeRepositoryWithCache(db *bun.DB, cacheService cache.CacheSe
 	return &BunContentTypeRepository{repo: wrapped}
 }
 
+func (r *BunContentTypeRepository) Create(ctx context.Context, record *ContentType) (*ContentType, error) {
+	created, err := r.repo.Create(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	return created, nil
+}
+
 func (r *BunContentTypeRepository) GetByID(ctx context.Context, id uuid.UUID) (*ContentType, error) {
 	result, err := r.repo.GetByID(ctx, id.String())
 	if err != nil {
@@ -326,6 +335,47 @@ func (r *BunContentTypeRepository) GetBySlug(ctx context.Context, slug string) (
 		return nil, mapRepositoryError(err, "content_type", slug)
 	}
 	return result, nil
+}
+
+func (r *BunContentTypeRepository) List(ctx context.Context) ([]*ContentType, error) {
+	records, _, err := r.repo.List(ctx)
+	return records, err
+}
+
+func (r *BunContentTypeRepository) Search(ctx context.Context, query string) ([]*ContentType, error) {
+	query = strings.TrimSpace(query)
+	if query == "" {
+		return r.List(ctx)
+	}
+	like := "%" + strings.ToLower(query) + "%"
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.Where("LOWER(?TableAlias.name) LIKE ?", like).
+			WhereOr("LOWER(?TableAlias.slug) LIKE ?", like)
+	}))
+	return records, err
+}
+
+func (r *BunContentTypeRepository) Update(ctx context.Context, record *ContentType) (*ContentType, error) {
+	updated, err := r.repo.Update(ctx, record,
+		repository.UpdateByID(record.ID.String()),
+		repository.UpdateColumns(
+			"name",
+			"slug",
+			"description",
+			"schema",
+			"capabilities",
+			"icon",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, mapRepositoryError(err, "content_type", record.ID.String())
+	}
+	return updated, nil
+}
+
+func (r *BunContentTypeRepository) Delete(ctx context.Context, id uuid.UUID, _ bool) error {
+	return r.repo.Delete(ctx, &ContentType{ID: id})
 }
 
 type BunLocaleRepository struct {
