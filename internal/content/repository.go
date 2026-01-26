@@ -34,10 +34,10 @@ func NewContentTypeRepository(db *bun.DB) repository.Repository[*ContentType] {
 			ct.ID = id
 		},
 		GetIdentifier: func() string {
-			return "name"
+			return "slug"
 		},
 		GetIdentifierValue: func(ct *ContentType) string {
-			return ct.Name
+			return ct.Slug
 		},
 	})
 }
