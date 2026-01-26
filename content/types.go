@@ -67,16 +67,16 @@ type Content struct {
 type ContentTranslation struct {
 	bun.BaseModel `bun:"table:content_translations,alias:ctn"`
 
-	ID        uuid.UUID      `bun:",pk,type:uuid" json:"id"`
-	ContentID uuid.UUID      `bun:"content_id,notnull,type:uuid" json:"content_id"`
-	LocaleID  uuid.UUID      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
-	TranslationGroupID *uuid.UUID `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
-	Title     string         `bun:"title,notnull" json:"title"`
-	Summary   *string        `bun:"summary" json:"summary,omitempty"`
-	Content   map[string]any `bun:"content,type:jsonb,notnull" json:"content"`
-	DeletedAt *time.Time     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
-	CreatedAt time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	ID                 uuid.UUID      `bun:",pk,type:uuid" json:"id"`
+	ContentID          uuid.UUID      `bun:"content_id,notnull,type:uuid" json:"content_id"`
+	LocaleID           uuid.UUID      `bun:"locale_id,notnull,type:uuid" json:"locale_id"`
+	TranslationGroupID *uuid.UUID     `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
+	Title              string         `bun:"title,notnull" json:"title"`
+	Summary            *string        `bun:"summary" json:"summary,omitempty"`
+	Content            map[string]any `bun:"content,type:jsonb,notnull" json:"content"`
+	DeletedAt          *time.Time     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
+	CreatedAt          time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt          time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 
 	Locale *Locale `bun:"rel:belongs-to,join:locale_id=id" json:"locale,omitempty"`
 }
