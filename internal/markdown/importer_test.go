@@ -466,12 +466,13 @@ func cloneContentRecord(record *interfaces.ContentRecord) *interfaces.ContentRec
 		return nil
 	}
 	out := &interfaces.ContentRecord{
-		ID:           record.ID,
-		ContentType:  record.ContentType,
-		Slug:         record.Slug,
-		Status:       record.Status,
-		Metadata:     cloneMapAny(record.Metadata),
-		Translations: make([]interfaces.ContentTranslation, len(record.Translations)),
+		ID:              record.ID,
+		ContentType:     record.ContentType,
+		ContentTypeSlug: record.ContentTypeSlug,
+		Slug:            record.Slug,
+		Status:          record.Status,
+		Metadata:        cloneMapAny(record.Metadata),
+		Translations:    make([]interfaces.ContentTranslation, len(record.Translations)),
 	}
 	for i, tr := range record.Translations {
 		out.Translations[i] = interfaces.ContentTranslation{

@@ -29,8 +29,10 @@ func TestIntegrationListIncludesBlocks(t *testing.T) {
 	}
 
 	typeID := uuid.New()
-	if repo, ok := container.ContentTypeRepository().(interface{ Put(*content.ContentType) }); ok {
-		repo.Put(&content.ContentType{ID: typeID, Name: "page"})
+	if repo, ok := container.ContentTypeRepository().(interface{ Put(*content.ContentType) error }); ok {
+		if err := repo.Put(&content.ContentType{ID: typeID, Name: "page", Slug: "page"}); err != nil {
+			t.Fatalf("seed content type: %v", err)
+		}
 	}
 
 	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{

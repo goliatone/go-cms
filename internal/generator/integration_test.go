@@ -276,6 +276,7 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	contentType := &content.ContentType{
 		ID:        contentTypeID,
 		Name:      "page",
+		Slug:      "page",
 		Schema:    map[string]any{"fields": []map[string]any{{"name": "body", "type": "richtext"}}},
 		CreatedAt: now,
 		UpdatedAt: now,

@@ -31,6 +31,7 @@ func TestPagesIntegration_CreateAndFetchPage(t *testing.T) {
 		maybePutContentType(typeRepo, &content.ContentType{
 			ID:     mustParseUUID(t, ct.ID),
 			Name:   ct.Name,
+			Slug:   ct.Name,
 			Schema: ct.Schema,
 		})
 	}
@@ -93,7 +94,9 @@ func TestPagesIntegration_CreateAndFetchPage(t *testing.T) {
 }
 
 func maybePutContentType(repo content.ContentTypeRepository, ct *content.ContentType) {
-	if seeder, ok := repo.(interface{ Put(*content.ContentType) }); ok {
-		seeder.Put(ct)
+	if seeder, ok := repo.(interface{ Put(*content.ContentType) error }); ok {
+		if err := seeder.Put(ct); err != nil {
+			panic(err)
+		}
 	}
 }

@@ -72,12 +72,14 @@ func TestWorkflowIntegration_MultiStepPageLifecycle(t *testing.T) {
 	}
 
 	typeRepo := module.Container().ContentTypeRepository()
-	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) })
+	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) error })
 	if !ok {
 		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}
 	contentTypeID := uuid.New()
-	seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration"})
+	if err := seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration", Slug: "integration"}); err != nil {
+		t.Fatalf("seed content type: %v", err)
+	}
 
 	localeRepo := module.Container().LocaleRepository()
 	seedLocales, ok := localeRepo.(interface{ Put(*content.Locale) })
@@ -223,12 +225,14 @@ func TestWorkflowIntegration_StatusTransitionsWithoutTranslations(t *testing.T) 
 			}
 
 			typeRepo := module.Container().ContentTypeRepository()
-			seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) })
+			seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) error })
 			if !ok {
 				t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 			}
 			contentTypeID := uuid.New()
-			seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration"})
+			if err := seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "integration", Slug: "integration"}); err != nil {
+				t.Fatalf("seed content type: %v", err)
+			}
 
 			localeRepo := module.Container().LocaleRepository()
 			seedLocales, ok := localeRepo.(interface{ Put(*content.Locale) })

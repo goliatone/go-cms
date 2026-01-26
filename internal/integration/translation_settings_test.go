@@ -26,12 +26,14 @@ func TestTranslationAdminApplySettingsUpdatesRuntimeEnforcement(t *testing.T) {
 	}
 
 	typeRepo := module.Container().ContentTypeRepository()
-	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) })
+	seedTypes, ok := typeRepo.(interface{ Put(*content.ContentType) error })
 	if !ok {
 		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}
 	contentTypeID := uuid.New()
-	seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "article"})
+	if err := seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "article", Slug: "article"}); err != nil {
+		t.Fatalf("seed content type: %v", err)
+	}
 
 	authorID := uuid.New()
 	contentSvc := module.Content()

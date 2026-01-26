@@ -228,7 +228,9 @@ func TestSchedulingCancellation(t *testing.T) {
 	localeRepo := content.NewMemoryLocaleRepository()
 
 	typeID := uuid.New()
-	contentTypeRepo.Put(&content.ContentType{ID: typeID, Name: "article"})
+	if err := contentTypeRepo.Put(&content.ContentType{ID: typeID, Name: "article"}); err != nil {
+		t.Fatalf("seed content type: %v", err)
+	}
 	localeRepo.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
 	svc := content.NewService(

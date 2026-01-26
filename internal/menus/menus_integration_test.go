@@ -582,6 +582,7 @@ func seedMenuIntegrationEntities(t *testing.T, db *bun.DB) {
 	ct := &content.ContentType{
 		ID:   mustUUID("00000000-0000-0000-0000-000000000210"),
 		Name: "page",
+		Slug: "page",
 		Schema: map[string]any{
 			"fields": []map[string]any{{"name": "body", "type": "richtext"}},
 		},

@@ -279,12 +279,14 @@ func TestModuleContentRetentionLimitEnforced(t *testing.T) {
 	}
 
 	typeRepo := module.Container().ContentTypeRepository()
-	seeder, ok := typeRepo.(interface{ Put(*content.ContentType) })
+	seeder, ok := typeRepo.(interface{ Put(*content.ContentType) error })
 	if !ok {
 		t.Fatalf("content type repository not seedable")
 	}
 	contentTypeID := uuid.New()
-	seeder.Put(&content.ContentType{ID: contentTypeID, Name: "article"})
+	if err := seeder.Put(&content.ContentType{ID: contentTypeID, Name: "article", Slug: "article"}); err != nil {
+		t.Fatalf("seed content type: %v", err)
+	}
 
 	author := uuid.New()
 	contentSvc := module.Content()
@@ -364,6 +366,7 @@ func seedPhase6Fixtures(t *testing.T, db *bun.DB, localeID, typeID uuid.UUID) {
 	ct := &content.ContentType{
 		ID:     typeID,
 		Name:   "page",
+		Slug:   "page",
 		Schema: map[string]any{"fields": []map[string]any{{"name": "body", "type": "richtext"}}},
 	}
 	if _, err := db.NewInsert().Model(ct).Exec(ctx); err != nil {

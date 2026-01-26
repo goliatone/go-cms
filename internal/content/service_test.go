@@ -18,7 +18,7 @@ func TestServiceCreateSuccess(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{
+	seedContentType(t, typeStore, &content.ContentType{
 		ID:   contentTypeID,
 		Name: "page",
 		Schema: map[string]any{
@@ -79,7 +79,7 @@ func TestServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	svc := content.NewService(
 		contentStore,
@@ -125,7 +125,7 @@ func TestServiceCreateAllowMissingTranslationsOverride(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	svc := content.NewService(contentStore, typeStore, localeStore)
 
@@ -170,7 +170,7 @@ func TestServiceListVersionsWithTranslationlessContent(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	svc := content.NewService(
 		contentStore,
@@ -207,7 +207,7 @@ func TestServiceUpdateTranslation(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	enLocale := uuid.New()
 	localeStore.Put(&content.Locale{ID: enLocale, Code: "en", Display: "English"})
@@ -270,7 +270,7 @@ func TestServiceDeleteTranslationRequiresMinimum(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
@@ -307,7 +307,7 @@ func TestServiceDeleteTranslationOptional(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
@@ -356,7 +356,7 @@ func TestServiceCreateDuplicateSlug(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
 	svc := content.NewService(contentStore, typeStore, localeStore)
@@ -395,7 +395,7 @@ func TestServiceUpdateReplacesTranslations(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	enLocale := uuid.New()
 	esLocale := uuid.New()
@@ -485,7 +485,7 @@ func TestServiceDeleteHard(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
 	svc := content.NewService(contentStore, typeStore, localeStore)
@@ -527,7 +527,7 @@ func TestServiceCreateEmitsActivityEvent(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 
 	hook := &activity.CaptureHook{}
@@ -620,7 +620,7 @@ func TestServiceCreateUnknownLocale(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "page"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
 
 	svc := content.NewService(contentStore, typeStore, localeStore)
 
@@ -644,7 +644,7 @@ func TestServiceVersionLifecycle(t *testing.T) {
 	localeStore := content.NewMemoryLocaleRepository()
 
 	contentTypeID := uuid.New()
-	typeStore.Put(&content.ContentType{ID: contentTypeID, Name: "article"})
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "article"})
 
 	enLocale := uuid.New()
 	esLocale := uuid.New()
@@ -808,5 +808,12 @@ func TestServiceVersionLifecycle(t *testing.T) {
 	}
 	if updatedContent.CurrentVersion != 3 {
 		t.Fatalf("expected current version 3 got %d", updatedContent.CurrentVersion)
+	}
+}
+
+func seedContentType(t *testing.T, store *content.MemoryContentTypeRepository, ct *content.ContentType) {
+	t.Helper()
+	if err := store.Put(ct); err != nil {
+		t.Fatalf("seed content type: %v", err)
 	}
 }

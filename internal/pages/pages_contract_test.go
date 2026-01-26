@@ -84,11 +84,14 @@ func TestPageServiceContract_Phase1Fixture(t *testing.T) {
 	}
 
 	for _, ct := range contentFx.ContentTypes {
-		contentTypeRepo.Put(&content.ContentType{
+		if err := contentTypeRepo.Put(&content.ContentType{
 			ID:     mustParseUUID(t, ct.ID),
 			Name:   ct.Name,
+			Slug:   ct.Name,
 			Schema: ct.Schema,
-		})
+		}); err != nil {
+			t.Fatalf("seed content type: %v", err)
+		}
 	}
 
 	contentSvc := content.NewService(contentRepo, contentTypeRepo, localeRepo, content.WithClock(func() time.Time {

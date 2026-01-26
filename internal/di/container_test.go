@@ -355,9 +355,11 @@ func TestContainerContentRetentionLimitTriggersWarning(t *testing.T) {
 	}
 
 	typeRepo := container.ContentTypeRepository()
-	if seeder, ok := typeRepo.(interface{ Put(*content.ContentType) }); ok {
+	if seeder, ok := typeRepo.(interface{ Put(*content.ContentType) error }); ok {
 		ctID := uuid.New()
-		seeder.Put(&content.ContentType{ID: ctID, Name: "article"})
+		if err := seeder.Put(&content.ContentType{ID: ctID, Name: "article", Slug: "article"}); err != nil {
+			t.Fatalf("seed content type: %v", err)
+		}
 
 		ctx := context.Background()
 		author := uuid.New()
@@ -425,9 +427,11 @@ func TestContainerPageRetentionLimitTriggersWarning(t *testing.T) {
 	}
 
 	typeRepo := container.ContentTypeRepository()
-	if seeder, ok := typeRepo.(interface{ Put(*content.ContentType) }); ok {
+	if seeder, ok := typeRepo.(interface{ Put(*content.ContentType) error }); ok {
 		ctID := uuid.New()
-		seeder.Put(&content.ContentType{ID: ctID, Name: "article"})
+		if err := seeder.Put(&content.ContentType{ID: ctID, Name: "article", Slug: "article"}); err != nil {
+			t.Fatalf("seed content type: %v", err)
+		}
 
 		ctx := context.Background()
 		author := uuid.New()
@@ -924,15 +928,18 @@ func TestContainerTranslationFlagsPropagateToServices(t *testing.T) {
 			}
 
 			typeRepo := container.ContentTypeRepository()
-			seeder, ok := typeRepo.(interface{ Put(*content.ContentType) })
+			seeder, ok := typeRepo.(interface{ Put(*content.ContentType) error })
 			if !ok {
 				t.Fatalf("content type repository cannot be seeded")
 			}
 			typeID := uuid.New()
-			seeder.Put(&content.ContentType{
+			if err := seeder.Put(&content.ContentType{
 				ID:   typeID,
 				Name: "article",
-			})
+				Slug: "article",
+			}); err != nil {
+				t.Fatalf("seed content type: %v", err)
+			}
 
 			ctx := context.Background()
 			author := uuid.New()
