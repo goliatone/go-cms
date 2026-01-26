@@ -162,6 +162,7 @@ type ContentRepository interface {
 // ContentTypeRepository resolves content types.
 type ContentTypeRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*ContentType, error)
+	GetBySlug(ctx context.Context, slug string) (*ContentType, error)
 }
 
 // LocaleRepository resolves locales by code.
@@ -387,7 +388,8 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		return nil, ErrNoTranslations
 	}
 
-	if _, err := s.contentTypes.GetByID(ctx, req.ContentTypeID); err != nil {
+	contentType, err := s.contentTypes.GetByID(ctx, req.ContentTypeID)
+	if err != nil {
 		logger.Debug("content type lookup failed", "error", err)
 		return nil, ErrContentTypeRequired
 	}
@@ -414,6 +416,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		CreatedAt:     now,
 		UpdatedAt:     now,
 		Translations:  []*ContentTranslation{},
+		Type:          contentType,
 	}
 
 	if len(req.Translations) > 0 {
@@ -454,6 +457,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		logger.Error("content repository create failed", "error", err)
 		return nil, err
 	}
+	if created != nil && created.Type == nil {
+		created.Type = contentType
+	}
 
 	logger = logging.WithFields(logger, map[string]any{
 		"content_id": created.ID,
@@ -479,6 +485,7 @@ func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
 		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
+	s.attachContentType(ctx, record)
 	logger.Debug("content retrieved")
 	return s.decorateContent(record), nil
 }
@@ -492,6 +499,7 @@ func (s *service) List(ctx context.Context) ([]*Content, error) {
 		return nil, err
 	}
 	for _, record := range records {
+		s.attachContentType(ctx, record)
 		s.decorateContent(record)
 	}
 	logger.Debug("content list returned records", "count", len(records))
@@ -515,6 +523,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
+	s.attachContentType(ctx, existing)
 
 	now := s.now()
 
@@ -563,6 +572,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		meta["locales"] = collectContentLocalesFromInputs(req.Translations)
 	}
 	s.emitActivity(ctx, req.UpdatedBy, "update", "content", existing.ID, meta)
+	s.attachContentType(ctx, updated)
 	return s.decorateContent(updated), nil
 }
 
@@ -1162,6 +1172,17 @@ func (s *service) decorateContent(record *Content) *Content {
 	record.EffectiveStatus = status
 	record.IsVisible = status == domain.StatusPublished
 	return record
+}
+
+func (s *service) attachContentType(ctx context.Context, record *Content) {
+	if record == nil || record.Type != nil || record.ContentTypeID == uuid.Nil || s.contentTypes == nil {
+		return
+	}
+	ct, err := s.contentTypes.GetByID(ctx, record.ContentTypeID)
+	if err != nil {
+		return
+	}
+	record.Type = ct
 }
 
 func effectiveContentStatus(record *Content, now time.Time) domain.Status {
