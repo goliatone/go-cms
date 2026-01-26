@@ -160,6 +160,7 @@ var (
 	ErrDuplicateLocale            = errors.New("pages: duplicate locale provided")
 	ErrParentNotFound             = errors.New("pages: parent page not found")
 	ErrNoPageTranslations         = errors.New("pages: at least one translation is required")
+	ErrDefaultLocaleRequired      = errors.New("pages: default locale translation is required")
 	ErrTemplateUnknown            = errors.New("pages: template not found")
 	ErrPageRequired               = errors.New("pages: page id required")
 	ErrVersioningDisabled         = errors.New("pages: versioning feature disabled")
@@ -268,6 +269,8 @@ type pageService struct {
 	requireTranslations   bool
 	translationsEnabled   bool
 	translationState      *translationconfig.State
+	defaultLocale         string
+	defaultLocaleRequired bool
 	activity              *activity.Emitter
 }
 
@@ -307,6 +310,14 @@ func WithTranslationsEnabled(enabled bool) ServiceOption {
 func WithTranslationState(state *translationconfig.State) ServiceOption {
 	return func(ps *pageService) {
 		ps.translationState = state
+	}
+}
+
+// WithDefaultLocale sets the locale required for default fallback handling.
+func WithDefaultLocale(locale string, required bool) ServiceOption {
+	return func(ps *pageService) {
+		ps.defaultLocale = strings.TrimSpace(locale)
+		ps.defaultLocaleRequired = required
 	}
 }
 
@@ -433,6 +444,28 @@ func (s *pageService) translationsEnabledFlag() bool {
 	return s.translationsEnabled
 }
 
+func (s *pageService) defaultLocaleKey() string {
+	return strings.ToLower(strings.TrimSpace(s.defaultLocale))
+}
+
+func (s *pageService) requiresDefaultLocale() bool {
+	return s.defaultLocaleRequired && s.translationsRequired() && s.defaultLocaleKey() != ""
+}
+
+func (s *pageService) hasDefaultLocale(inputs []PageTranslationInput) bool {
+	target := s.defaultLocaleKey()
+	for _, input := range inputs {
+		if strings.ToLower(strings.TrimSpace(input.Locale)) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *pageService) isDefaultLocale(code string) bool {
+	return strings.ToLower(strings.TrimSpace(code)) == s.defaultLocaleKey()
+}
+
 func (s *pageService) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
@@ -478,6 +511,12 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoPageTranslations
+	}
+	if s.requiresDefaultLocale() && !req.AllowMissingTranslations && len(req.Translations) > 0 && !s.hasDefaultLocale(req.Translations) {
+		return nil, ErrDefaultLocaleRequired
+	}
+	if s.requiresDefaultLocale() && !req.AllowMissingTranslations && len(req.Translations) > 0 && !s.hasDefaultLocale(req.Translations) {
+		return nil, ErrDefaultLocaleRequired
 	}
 
 	if _, err := s.content.GetByID(ctx, req.ContentID); err != nil {
@@ -537,6 +576,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		err           error
 	)
 	if len(req.Translations) > 0 {
+		groupID := page.ID
 		existingPages, err = s.pages.List(ctx)
 		if err != nil {
 			logger.Error("page list for conflict check failed", "error", err)
@@ -576,6 +616,9 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 				ID:            s.id(),
 				PageID:        page.ID,
 				LocaleID:      locale.ID,
+				TranslationGroupID: func() *uuid.UUID {
+					return &groupID
+				}(),
 				Locale:        locale.Code,
 				Title:         tr.Title,
 				Path:          path,
@@ -971,6 +1014,9 @@ func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTrans
 	localeCode := strings.TrimSpace(req.Locale)
 	if localeCode == "" {
 		return ErrUnknownLocale
+	}
+	if s.requiresDefaultLocale() && s.isDefaultLocale(localeCode) {
+		return ErrDefaultLocaleRequired
 	}
 
 	logger := s.opLogger(ctx, "pages.translation.delete", map[string]any{
