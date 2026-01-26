@@ -92,3 +92,52 @@ type ContentTranslation struct {
 	Summary *string
 	Fields  map[string]any
 }
+
+// ContentTypeService abstracts content type management for adapters.
+type ContentTypeService interface {
+	Create(ctx context.Context, req ContentTypeCreateRequest) (*ContentTypeRecord, error)
+	Update(ctx context.Context, req ContentTypeUpdateRequest) (*ContentTypeRecord, error)
+	Delete(ctx context.Context, req ContentTypeDeleteRequest) error
+	Get(ctx context.Context, id uuid.UUID) (*ContentTypeRecord, error)
+	GetBySlug(ctx context.Context, slug string) (*ContentTypeRecord, error)
+	List(ctx context.Context) ([]*ContentTypeRecord, error)
+	Search(ctx context.Context, query string) ([]*ContentTypeRecord, error)
+}
+
+// ContentTypeCreateRequest captures fields required to create a content type.
+type ContentTypeCreateRequest struct {
+	Name         string
+	Slug         string
+	Description  *string
+	Schema       map[string]any
+	Capabilities map[string]any
+	Icon         *string
+}
+
+// ContentTypeUpdateRequest captures fields for updating a content type.
+type ContentTypeUpdateRequest struct {
+	ID           uuid.UUID
+	Name         *string
+	Slug         *string
+	Description  *string
+	Schema       map[string]any
+	Capabilities map[string]any
+	Icon         *string
+}
+
+// ContentTypeDeleteRequest captures data to delete a content type.
+type ContentTypeDeleteRequest struct {
+	ID         uuid.UUID
+	HardDelete bool
+}
+
+// ContentTypeRecord reflects a stored content type.
+type ContentTypeRecord struct {
+	ID           uuid.UUID
+	Name         string
+	Slug         string
+	Description  *string
+	Schema       map[string]any
+	Capabilities map[string]any
+	Icon         *string
+}
