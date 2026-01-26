@@ -43,6 +43,7 @@ import (
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/storage"
 	repocache "github.com/goliatone/go-repository-cache/cache"
+	"github.com/goliatone/go-slug"
 	urlkit "github.com/goliatone/go-urlkit"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
@@ -166,6 +167,8 @@ type Container struct {
 
 	workflowEngine          interfaces.WorkflowEngine
 	workflowDefinitionStore interfaces.WorkflowDefinitionStore
+
+	slugger slug.Normalizer
 }
 
 // Option mutates the container before it is finalised.
@@ -412,6 +415,13 @@ func WithActivityHooks(hooks activity.Hooks) Option {
 	}
 }
 
+// WithSlugNormalizer overrides the default slug normalizer used by services.
+func WithSlugNormalizer(normalizer slug.Normalizer) Option {
+	return func(c *Container) {
+		c.slugger = normalizer
+	}
+}
+
 // WithStorageRepository overrides the storage profile repository used for runtime configuration.
 func WithStorageRepository(repo storageconfig.Repository) Option {
 	return func(c *Container) {
@@ -597,6 +607,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
 			content.WithActivityEmitter(c.activityEmitter),
 		}
+		if c.slugger != nil {
+			contentOpts = append(contentOpts, content.WithSlugNormalizer(c.slugger))
+		}
 		contentOpts = append(contentOpts,
 			content.WithRequireTranslations(requireTranslations),
 			content.WithTranslationsEnabled(translationsEnabled),
@@ -606,7 +619,11 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	}
 
 	if c.contentTypeSvc == nil {
-		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo)
+		contentTypeOpts := []content.ContentTypeOption{}
+		if c.slugger != nil {
+			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeSlugNormalizer(c.slugger))
+		}
+		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
 	}
 
 	if c.blockSvc == nil {
