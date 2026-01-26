@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/identity"
+	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
@@ -173,6 +174,7 @@ type VisibilityContext struct {
 var (
 	ErrDefinitionNameRequired          = errors.New("widgets: definition name required")
 	ErrDefinitionSchemaRequired        = errors.New("widgets: definition schema required")
+	ErrDefinitionSchemaInvalid         = errors.New("widgets: definition schema invalid")
 	ErrDefinitionExists                = errors.New("widgets: definition already exists")
 	ErrDefinitionDefaultsInvalid       = errors.New("widgets: defaults contain unknown fields")
 	ErrDefinitionInUse                 = errors.New("widgets: definition has active instances")
@@ -333,6 +335,9 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	}
 	if len(input.Schema) == 0 {
 		return nil, ErrDefinitionSchemaRequired
+	}
+	if err := validation.ValidateSchema(input.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
 	}
 
 	if err := validateDefaultsAgainstSchema(input.Schema, input.Defaults); err != nil {
@@ -1221,17 +1226,8 @@ func (s *service) applyRegistry(ctx context.Context) {
 }
 
 func validateConfiguration(schema map[string]any, configuration map[string]any) error {
-	if configuration == nil {
-		return nil
-	}
-	allowed := allowedFields(schema)
-	if len(allowed) == 0 {
-		return nil
-	}
-	for key := range configuration {
-		if !allowed[key] {
-			return ErrInstanceConfigurationInvalid
-		}
+	if err := validation.ValidatePayload(schema, configuration); err != nil {
+		return fmt.Errorf("%w: %s", ErrInstanceConfigurationInvalid, err)
 	}
 	return nil
 }
@@ -1304,17 +1300,8 @@ func containsShortcodeSyntax(input string) bool {
 }
 
 func validateDefaultsAgainstSchema(schema map[string]any, defaults map[string]any) error {
-	if defaults == nil {
-		return nil
-	}
-	allowed := allowedFields(schema)
-	if len(allowed) == 0 {
-		return nil
-	}
-	for key := range defaults {
-		if !allowed[key] {
-			return ErrDefinitionDefaultsInvalid
-		}
+	if err := validation.ValidatePartialPayload(schema, defaults); err != nil {
+		return ErrDefinitionDefaultsInvalid
 	}
 	return nil
 }
@@ -1375,41 +1362,6 @@ func validateVisibilityRules(rules map[string]any) error {
 	}
 
 	return nil
-}
-
-func allowedFields(schema map[string]any) map[string]bool {
-	if len(schema) == 0 {
-		return map[string]bool{}
-	}
-	fields, ok := schema["fields"]
-	if !ok {
-		return map[string]bool{}
-	}
-
-	result := make(map[string]bool)
-	switch typed := fields.(type) {
-	case []any:
-		for _, entry := range typed {
-			if fieldMap, ok := entry.(map[string]any); ok {
-				if name, ok := fieldMap["name"].(string); ok {
-					name = strings.TrimSpace(name)
-					if name != "" {
-						result[name] = true
-					}
-				}
-			}
-		}
-	case []map[string]any:
-		for _, fieldMap := range typed {
-			if name, ok := fieldMap["name"].(string); ok {
-				name = strings.TrimSpace(name)
-				if name != "" {
-					result[name] = true
-				}
-			}
-		}
-	}
-	return result
 }
 
 func mergeConfiguration(base map[string]any, overlay map[string]any) map[string]any {
