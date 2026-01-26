@@ -21,8 +21,9 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 
 - **Composable services**: opt into content, page, widget, or menu modules independently.
 - **Storage flexibility**: switch between "in memory" or Bun backed SQL repositories without touching application code.
-- **Localization first**: every entity carries locale aware translations and fallbacks.
+- **Localization first**: locale aware translations, fallbacks, and translation grouping for content/pages.
 - **Authoring experience**: versioning, scheduling, visibility rules, and reusable blocks keep editors productive.
+- **Menu locations**: bind menus to theme-defined locations and resolve navigation by location.
 - **Static publishing**: generate locale aware static bundles or wire services into a dynamic site.
 - **Observability hooks**: structured logging inside commands; optional adapter wiring for telemetry callbacks.
 
@@ -236,8 +237,14 @@ Menus generate navigation trees with locale aware labels, translation keys, and 
 
 `cms.DefaultConfig()` enables order-independent menu upserts (`cfg.Menus.AllowOutOfOrderUpserts=true`), so modules can insert parents/children in any order and persist collapsible intent before children exist. Set it to `false` if you want strict validation (missing parents and `Collapsible` without children will error).
 
+Menus can also be bound to a location string (often a theme menu location code) so templates can resolve navigation without hardcoding menu codes. Theme manifests declare locations via `menu_locations` (or `ThemeConfig.MenuLocations`).
+
 ```go
 menuSvc := module.Menus()
+
+if _, err := menuSvc.UpsertMenuWithLocation(ctx, "primary", "site.primary", nil, authorID); err != nil {
+	log.Fatal(err)
+}
 
 pos0 := 0
 pos1 := 1
@@ -288,7 +295,7 @@ if err := cms.SeedMenu(ctx, cms.SeedMenuOptions{
 	log.Fatal(err)
 }
 
-navigation, _ := menuSvc.ResolveNavigation(ctx, "primary", "en")
+navigation, _ := menuSvc.ResolveNavigationByLocation(ctx, "site.primary", "en")
 _ = navigation
 ```
 
@@ -305,12 +312,17 @@ Migration note: menu features rely on migrations:
 - `data/sql/migrations/20250209000000_menu_navigation_enhancements.up.sql` (menu item/translation fields: type, collapsible flags, metadata, styling, translation keys, group titles)
 - `data/sql/migrations/20250301000000_menu_item_canonical_dedupe.up.sql` (canonical key + uniqueness)
 - `data/sql/migrations/20251213000000_menu_item_external_parent_refs.up.sql` (external_code + parent_ref for out-of-order upserts)
+- `data/sql/migrations/20260301000001_menu_locations.up.sql` (menus.location + index)
 
 When using BunDB, these migrations are embedded and registered via `cms.GetMigrationsFS()` (see "Database Migrations").
 
 ### Localization Helpers
 
 Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy "at least one translation" guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
+
+Translation grouping: content/page translations store `TranslationGroupID` (backed by `translation_group_id` in SQL). The services default it to the owning content/page ID and preserve it across updates so export pipelines or translation workflows can treat locales as a single group.
+
+Migration note: `data/sql/migrations/20260301000000_translation_grouping.up.sql` (content/page translation group columns + indexes).
 
 ## Static Site Generation
 
