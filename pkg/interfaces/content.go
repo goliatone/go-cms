@@ -75,13 +75,13 @@ type ContentTranslationInput struct {
 
 // ContentRecord reflects the persisted state returned by the content service.
 type ContentRecord struct {
-	ID           uuid.UUID
-	ContentType  uuid.UUID
+	ID              uuid.UUID
+	ContentType     uuid.UUID
 	ContentTypeSlug string
-	Slug         string
-	Status       string
-	Translations []ContentTranslation
-	Metadata     map[string]any
+	Slug            string
+	Status          string
+	Translations    []ContentTranslation
+	Metadata        map[string]any
 }
 
 // ContentTranslation mirrors stored translation fields.
