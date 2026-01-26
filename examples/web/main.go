@@ -161,6 +161,10 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 	if record == nil {
 		return nil
 	}
+	typeSlug := ""
+	if record.Type != nil {
+		typeSlug = record.Type.Slug
+	}
 
 	translations := make([]interfaces.ContentTranslation, 0, len(record.Translations))
 	for _, tr := range record.Translations {
@@ -181,12 +185,13 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 	}
 
 	return &interfaces.ContentRecord{
-		ID:           record.ID,
-		ContentType:  record.ContentTypeID,
-		Slug:         record.Slug,
-		Status:       record.Status,
-		Translations: translations,
-		Metadata:     nil,
+		ID:              record.ID,
+		ContentType:     record.ContentTypeID,
+		ContentTypeSlug: typeSlug,
+		Slug:            record.Slug,
+		Status:          record.Status,
+		Translations:    translations,
+		Metadata:        nil,
 	}
 }
 
@@ -1251,6 +1256,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	maybeSeedContentType(ctx, container, &content.ContentType{
 		ID:   pageTypeID,
 		Name: "page",
+		Slug: "page",
 		Schema: map[string]any{
 			"fields": []map[string]any{
 				{"name": "body", "type": "richtext", "required": true},
@@ -1263,6 +1269,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	maybeSeedContentType(ctx, container, &content.ContentType{
 		ID:   blogTypeID,
 		Name: "blog_post",
+		Slug: "blog_post",
 		Schema: map[string]any{
 			"fields": []map[string]any{
 				{"name": "body", "type": "richtext", "required": true},
@@ -1279,6 +1286,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	maybeSeedContentType(ctx, container, &content.ContentType{
 		ID:   productTypeID,
 		Name: "product",
+		Slug: "product",
 		Schema: map[string]any{
 			"fields": []map[string]any{
 				{"name": "description", "type": "richtext", "required": true},
@@ -2114,8 +2122,10 @@ func maybeSeedContentType(_ context.Context, container *di.Container, ct *conten
 		return
 	}
 
-	if seeder, ok := repo.(interface{ Put(*content.ContentType) }); ok {
-		seeder.Put(ct)
+	if seeder, ok := repo.(interface{ Put(*content.ContentType) error }); ok {
+		if err := seeder.Put(ct); err != nil {
+			log.Printf("seed content type %s: %v", ct.Slug, err)
+		}
 	}
 }
 
