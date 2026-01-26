@@ -10,9 +10,9 @@ import (
 )
 
 type memoryMenuRepository struct {
-	mu     sync.RWMutex
-	byID   map[uuid.UUID]*Menu
-	byCode map[string]uuid.UUID
+	mu         sync.RWMutex
+	byID       map[uuid.UUID]*Menu
+	byCode     map[string]uuid.UUID
 	byLocation map[string]uuid.UUID
 }
 
