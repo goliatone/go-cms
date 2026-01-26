@@ -110,11 +110,16 @@ func (p *contentTypeRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) 
 	return p.current().GetByID(ctx, id)
 }
 
-func (p *contentTypeRepositoryProxy) Put(ct *content.ContentType) {
+func (p *contentTypeRepositoryProxy) GetBySlug(ctx context.Context, slug string) (*content.ContentType, error) {
+	return p.current().GetBySlug(ctx, slug)
+}
+
+func (p *contentTypeRepositoryProxy) Put(ct *content.ContentType) error {
 	current := p.current()
-	if repo, ok := current.(interface{ Put(*content.ContentType) }); ok && repo != nil {
-		repo.Put(ct)
+	if repo, ok := current.(interface{ Put(*content.ContentType) error }); ok && repo != nil {
+		return repo.Put(ct)
 	}
+	return nil
 }
 
 // localeRepositoryProxy swaps locale repositories on demand.
