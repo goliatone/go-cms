@@ -116,7 +116,9 @@ func (p *contentTypeRepositoryProxy) GetBySlug(ctx context.Context, slug string)
 
 func (p *contentTypeRepositoryProxy) Put(ct *content.ContentType) error {
 	current := p.current()
-	if repo, ok := current.(interface{ Put(*content.ContentType) error }); ok && repo != nil {
+	if repo, ok := current.(interface {
+		Put(*content.ContentType) error
+	}); ok && repo != nil {
 		return repo.Put(ct)
 	}
 	return nil
