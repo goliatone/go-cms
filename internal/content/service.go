@@ -128,6 +128,7 @@ var (
 	ErrSlugInvalid                     = errors.New("content: slug contains invalid characters")
 	ErrSlugExists                      = errors.New("content: slug already exists")
 	ErrNoTranslations                  = errors.New("content: at least one translation is required")
+	ErrDefaultLocaleRequired           = errors.New("content: default locale translation is required")
 	ErrDuplicateLocale                 = errors.New("content: duplicate locale provided")
 	ErrUnknownLocale                   = errors.New("content: unknown locale")
 	ErrContentSchemaInvalid            = errors.New("content: schema validation failed")
@@ -284,6 +285,14 @@ func WithTranslationState(state *translationconfig.State) ServiceOption {
 	}
 }
 
+// WithDefaultLocale sets the locale required for default fallback handling.
+func WithDefaultLocale(locale string, required bool) ServiceOption {
+	return func(svc *service) {
+		svc.defaultLocale = strings.TrimSpace(locale)
+		svc.defaultLocaleRequired = required
+	}
+}
+
 // WithActivityEmitter wires the activity emitter used for activity records.
 func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	return func(svc *service) {
@@ -309,6 +318,8 @@ type service struct {
 	requireTranslations   bool
 	translationsEnabled   bool
 	translationState      *translationconfig.State
+	defaultLocale         string
+	defaultLocaleRequired bool
 	activity              *activity.Emitter
 }
 
@@ -367,6 +378,28 @@ func (s *service) translationsEnabledFlag() bool {
 	return s.translationsEnabled
 }
 
+func (s *service) defaultLocaleKey() string {
+	return strings.ToLower(strings.TrimSpace(s.defaultLocale))
+}
+
+func (s *service) requiresDefaultLocale() bool {
+	return s.defaultLocaleRequired && s.translationsRequired() && s.defaultLocaleKey() != ""
+}
+
+func (s *service) hasDefaultLocale(inputs []ContentTranslationInput) bool {
+	target := s.defaultLocaleKey()
+	for _, input := range inputs {
+		if strings.ToLower(strings.TrimSpace(input.Locale)) == target {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *service) isDefaultLocale(code string) bool {
+	return strings.ToLower(strings.TrimSpace(code)) == s.defaultLocaleKey()
+}
+
 func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
@@ -406,6 +439,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoTranslations
 	}
+	if s.requiresDefaultLocale() && !req.AllowMissingTranslations && len(req.Translations) > 0 && !s.hasDefaultLocale(req.Translations) {
+		return nil, ErrDefaultLocaleRequired
+	}
 
 	contentType, err := s.contentTypes.GetByID(ctx, req.ContentTypeID)
 	if err != nil {
@@ -442,6 +478,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	}
 
 	if len(req.Translations) > 0 {
+		groupID := record.ID
 		seenLocales := map[string]struct{}{}
 		for _, tr := range req.Translations {
 			code := strings.TrimSpace(tr.Locale)
@@ -465,6 +502,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 				ID:        s.id(),
 				ContentID: record.ID,
 				LocaleID:  loc.ID,
+				TranslationGroupID: func() *uuid.UUID {
+					return &groupID
+				}(),
 				Title:     tr.Title,
 				Summary:   tr.Summary,
 				Content:   cloneMap(tr.Content),
@@ -537,6 +577,9 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	}
 	if s.translationsRequired() && len(req.Translations) == 0 && !req.AllowMissingTranslations {
 		return nil, ErrNoTranslations
+	}
+	if s.requiresDefaultLocale() && !req.AllowMissingTranslations && len(req.Translations) > 0 && !s.hasDefaultLocale(req.Translations) {
+		return nil, ErrDefaultLocaleRequired
 	}
 
 	logger := s.opLogger(ctx, "content.update", map[string]any{
@@ -663,6 +706,9 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	localeCode := strings.TrimSpace(req.Locale)
 	if localeCode == "" {
 		return nil, ErrUnknownLocale
+	}
+	if s.requiresDefaultLocale() && s.isDefaultLocale(localeCode) {
+		return nil, ErrDefaultLocaleRequired
 	}
 
 	logger := s.opLogger(ctx, "content.translation.update", map[string]any{
