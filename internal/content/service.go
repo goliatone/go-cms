@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/internal/translationconfig"
+	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
@@ -129,6 +130,7 @@ var (
 	ErrNoTranslations                  = errors.New("content: at least one translation is required")
 	ErrDuplicateLocale                 = errors.New("content: duplicate locale provided")
 	ErrUnknownLocale                   = errors.New("content: unknown locale")
+	ErrContentSchemaInvalid            = errors.New("content: schema validation failed")
 	ErrContentSoftDeleteUnsupported    = errors.New("content: soft delete not supported")
 	ErrContentIDRequired               = errors.New("content: content id required")
 	ErrVersioningDisabled              = errors.New("content: versioning feature disabled")
@@ -398,6 +400,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		logger.Debug("content type lookup failed", "error", err)
 		return nil, ErrContentTypeRequired
 	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 
 	if existing, err := s.contents.GetBySlug(ctx, slug); err == nil && existing != nil {
 		return nil, ErrSlugExists
@@ -439,6 +444,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 			loc, err := s.locales.GetByCode(ctx, code)
 			if err != nil {
 				return nil, ErrUnknownLocale
+			}
+			if err := validation.ValidatePayload(contentType.Schema, tr.Content); err != nil {
+				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 			}
 
 			translation := &ContentTranslation{
@@ -529,6 +537,16 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		return nil, err
 	}
 	s.attachContentType(ctx, existing)
+	contentType := existing.Type
+	if contentType == nil {
+		contentType, err = s.contentTypes.GetByID(ctx, existing.ContentTypeID)
+		if err != nil {
+			return nil, ErrContentTypeRequired
+		}
+	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 
 	now := s.now()
 
@@ -538,7 +556,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		existingLocales := indexTranslationsByLocaleID(existing.Translations)
 
 		var err error
-		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now)
+		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now, contentType.Schema)
 		if err != nil {
 			logger.Error("content translations build failed", "error", err)
 			return nil, err
@@ -645,6 +663,14 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
+	contentType, err := s.contentTypes.GetByID(ctx, record.ContentTypeID)
+	if err != nil {
+		logger.Error("content type lookup failed", "error", err)
+		return nil, ErrContentTypeRequired
+	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 
 	loc, err := s.locales.GetByCode(ctx, localeCode)
 	if err != nil {
@@ -670,6 +696,9 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 
 	if req.Content == nil {
 		req.Content = map[string]any{}
+	}
+	if err := validation.ValidatePayload(contentType.Schema, req.Content); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 
 	now := s.now()
@@ -1213,7 +1242,7 @@ func effectiveContentStatus(record *Content, now time.Time) domain.Status {
 	return status
 }
 
-func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time) ([]*ContentTranslation, error) {
+func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time, schema map[string]any) ([]*ContentTranslation, error) {
 	seen := map[string]struct{}{}
 	result := make([]*ContentTranslation, 0, len(inputs))
 
@@ -1236,6 +1265,9 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 		if input.Summary != nil {
 			value := *input.Summary
 			summary = &value
+		}
+		if err := validation.ValidatePayload(schema, input.Content); err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 		}
 
 		translation := &ContentTranslation{
