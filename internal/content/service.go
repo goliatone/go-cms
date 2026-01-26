@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-slug"
 	"github.com/google/uuid"
 )
 
@@ -229,6 +229,15 @@ func WithVersionRetentionLimit(limit int) ServiceOption {
 	}
 }
 
+// WithSlugNormalizer overrides the slug normalizer used by the service.
+func WithSlugNormalizer(normalizer slug.Normalizer) ServiceOption {
+	return func(s *service) {
+		if normalizer != nil {
+			s.slugger = normalizer
+		}
+	}
+}
+
 // WithScheduler overrides the scheduler used to register publish/unpublish jobs.
 func WithScheduler(scheduler interfaces.Scheduler) ServiceOption {
 	return func(svc *service) {
@@ -291,6 +300,7 @@ type service struct {
 	locales               LocaleRepository
 	now                   func() time.Time
 	id                    IDGenerator
+	slugger               slug.Normalizer
 	versioningEnabled     bool
 	versionRetentionLimit int
 	scheduler             interfaces.Scheduler
@@ -310,6 +320,7 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 		locales:             locales,
 		now:                 time.Now,
 		id:                  uuid.New,
+		slugger:             slug.Default(),
 		scheduler:           cmsscheduler.NewNoOp(),
 		logger:              logging.ContentLogger(nil),
 		requireTranslations: true,
@@ -378,16 +389,17 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		return nil, ErrContentTypeRequired
 	}
 
-	slug := strings.TrimSpace(req.Slug)
+	rawSlug := strings.TrimSpace(req.Slug)
 	logger := s.opLogger(ctx, "content.create", map[string]any{
 		"content_type_id": req.ContentTypeID,
-		"slug":            slug,
+		"slug":            rawSlug,
 	})
 
-	if slug == "" {
+	if rawSlug == "" {
 		return nil, ErrSlugRequired
 	}
-	if !isValidSlug(slug) {
+	slugValue, err := s.slugger.Normalize(rawSlug)
+	if err != nil || !slug.IsValid(slugValue) {
 		return nil, ErrSlugInvalid
 	}
 
@@ -404,7 +416,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 
-	if existing, err := s.contents.GetBySlug(ctx, slug); err == nil && existing != nil {
+	if existing, err := s.contents.GetBySlug(ctx, slugValue); err == nil && existing != nil {
 		return nil, ErrSlugExists
 	} else if err != nil {
 		var notFound *NotFoundError
@@ -420,7 +432,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		ID:            s.id(),
 		ContentTypeID: req.ContentTypeID,
 		Status:        chooseStatus(req.Status),
-		Slug:          slug,
+		Slug:          slugValue,
 		CreatedBy:     req.CreatedBy,
 		UpdatedBy:     req.UpdatedBy,
 		CreatedAt:     now,
@@ -1182,12 +1194,6 @@ func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionR
 		UpdatedBy:   req.RestoredBy,
 		BaseVersion: nil,
 	})
-}
-
-func isValidSlug(slug string) bool {
-	const pattern = "^[a-z0-9\\-]+$"
-	matched, _ := regexp.MatchString(pattern, slug)
-	return matched
 }
 
 func chooseStatus(status string) string {
