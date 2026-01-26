@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/media"
+	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -164,6 +165,7 @@ var (
 	ErrTranslationSchemaInvalid         = errors.New("blocks: translation content invalid")
 	ErrTranslationNotFound              = errors.New("blocks: translation not found")
 	ErrTranslationMinimum               = errors.New("blocks: at least one translation is required")
+	ErrTranslationsDisabled             = errors.New("blocks: translations feature disabled")
 	ErrInstanceIDRequired               = errors.New("blocks: instance id required")
 	ErrVersioningDisabled               = errors.New("blocks: versioning feature disabled")
 	ErrInstanceVersionRequired          = errors.New("blocks: version identifier required")
@@ -258,6 +260,20 @@ func WithRequireTranslations(required bool) ServiceOption {
 	}
 }
 
+// WithTranslationsEnabled toggles translation handling entirely.
+func WithTranslationsEnabled(enabled bool) ServiceOption {
+	return func(s *service) {
+		s.translationsEnabled = enabled
+	}
+}
+
+// WithTranslationState wires a shared, runtime-configurable translation state.
+func WithTranslationState(state *translationconfig.State) ServiceOption {
+	return func(s *service) {
+		s.translationState = state
+	}
+}
+
 type service struct {
 	definitions           DefinitionRepository
 	instances             InstanceRepository
@@ -272,6 +288,8 @@ type service struct {
 	versionRetentionLimit int
 	shortcodes            interfaces.ShortcodeService
 	requireTranslations   bool
+	translationsEnabled   bool
+	translationState      *translationconfig.State
 	activity              *activity.Emitter
 }
 
@@ -283,6 +301,7 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 		now:          time.Now,
 		id:           uuid.New,
 		media:        media.NewNoOpService(),
+		translationsEnabled: true,
 		activity:     activity.NewEmitter(nil, activity.Config{}),
 	}
 
@@ -295,6 +314,23 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 	}
 
 	return s
+}
+
+func (s *service) translationsRequired() bool {
+	enabled := s.translationsEnabled
+	required := s.requireTranslations
+	if s.translationState != nil {
+		enabled = s.translationState.Enabled()
+		required = s.translationState.RequireTranslations()
+	}
+	return enabled && required
+}
+
+func (s *service) translationsEnabledFlag() bool {
+	if s.translationState != nil {
+		return s.translationState.Enabled()
+	}
+	return s.translationsEnabled
 }
 
 func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
@@ -617,6 +653,9 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 }
 
 func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput) (*Translation, error) {
+	if !s.translationsEnabledFlag() {
+		return nil, ErrTranslationsDisabled
+	}
 	if input.Content == nil {
 		return nil, ErrTranslationContentRequired
 	}
@@ -688,6 +727,9 @@ func (s *service) GetTranslation(ctx context.Context, instanceID uuid.UUID, loca
 }
 
 func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslationInput) (*Translation, error) {
+	if !s.translationsEnabledFlag() {
+		return nil, ErrTranslationsDisabled
+	}
 	if input.BlockInstanceID == uuid.Nil {
 		return nil, ErrInstanceIDRequired
 	}
@@ -765,6 +807,9 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 }
 
 func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRequest) error {
+	if !s.translationsEnabledFlag() {
+		return ErrTranslationsDisabled
+	}
 	if req.BlockInstanceID == uuid.Nil {
 		return ErrInstanceIDRequired
 	}
@@ -787,7 +832,7 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRe
 	if target == nil {
 		return ErrTranslationNotFound
 	}
-	if s.requireTranslations && !req.AllowMissingTranslations && len(translations) <= 1 {
+	if s.translationsRequired() && !req.AllowMissingTranslations && len(translations) <= 1 {
 		return ErrTranslationMinimum
 	}
 
