@@ -159,6 +159,10 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 	if record == nil {
 		return nil
 	}
+	typeSlug := ""
+	if record.Type != nil {
+		typeSlug = record.Type.Slug
+	}
 	translations := make([]interfaces.ContentTranslation, 0, len(record.Translations))
 	for _, tr := range record.Translations {
 		if tr == nil {
@@ -177,12 +181,13 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 		})
 	}
 	return &interfaces.ContentRecord{
-		ID:           record.ID,
-		ContentType:  record.ContentTypeID,
-		Slug:         record.Slug,
-		Status:       record.Status,
-		Translations: translations,
-		Metadata:     nil,
+		ID:              record.ID,
+		ContentType:     record.ContentTypeID,
+		ContentTypeSlug: typeSlug,
+		Slug:            record.Slug,
+		Status:          record.Status,
+		Translations:    translations,
+		Metadata:        nil,
 	}
 }
 
