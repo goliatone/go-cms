@@ -1,0 +1,2 @@
+DROP TABLE IF EXISTS i18n_settings;
+
