@@ -692,12 +692,13 @@ container := di.NewContainer(cfg,
 
 ### Database Migrations
 
-When using BunDB as the storage provider, the CMS provides embedded SQL migrations to create all required tables. The migrations follow Bun's naming convention and are embedded in the library binary.
+When using BunDB as the storage provider, the CMS provides embedded SQL migrations to create all required tables. The migrations follow Bun's naming convention and include dialect-specific overrides under `data/sql/migrations/sqlite`, so register them via the dialect-aware loader.
 
 ```go
 import (
 	"context"
 	"database/sql"
+	"io/fs"
 
 	"github.com/goliatone/go-cms"
 	persistence "github.com/goliatone/go-persistence-bun"
@@ -718,8 +719,19 @@ if err != nil {
 	panic(err)
 }
 
-// Register CMS migrations
-client.RegisterSQLMigrations(cms.GetMigrationsFS())
+// Register CMS migrations (dialect-aware)
+migrationsFS, err := fs.Sub(cms.GetMigrationsFS(), "data/sql/migrations")
+if err != nil {
+	panic(err)
+}
+client.RegisterDialectMigrations(
+	migrationsFS,
+	persistence.WithDialectSourceLabel("data/sql/migrations"),
+	persistence.WithValidationTargets("postgres", "sqlite"),
+)
+if err := client.ValidateDialects(context.Background()); err != nil {
+	panic(err)
+}
 
 // Run migrations
 if err := client.Migrate(context.Background()); err != nil {
