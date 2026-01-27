@@ -613,9 +613,9 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 			}
 
 			translation := &PageTranslation{
-				ID:            s.id(),
-				PageID:        page.ID,
-				LocaleID:      locale.ID,
+				ID:       s.id(),
+				PageID:   page.ID,
+				LocaleID: locale.ID,
 				TranslationGroupID: func() *uuid.UUID {
 					return &groupID
 				}(),
