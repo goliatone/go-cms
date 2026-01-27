@@ -38,6 +38,18 @@ func TestServiceRegisterDefinition(t *testing.T) {
 	}
 }
 
+func TestServiceRegisterDefinitionRejectsInvalidSchema(t *testing.T) {
+	svc := newBlockService()
+
+	_, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"type": 123},
+	})
+	if !errors.Is(err, blocks.ErrDefinitionSchemaInvalid) {
+		t.Fatalf("expected ErrDefinitionSchemaInvalid got %v", err)
+	}
+}
+
 func TestServiceCreateInstance(t *testing.T) {
 	svc := newBlockService()
 	def, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{

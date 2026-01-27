@@ -75,6 +75,23 @@ func TestServiceRegisterDefinitionValidation(t *testing.T) {
 	}
 }
 
+func TestServiceRegisterDefinitionRejectsInvalidSchema(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	_, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "promo",
+		Schema: map[string]any{"type": 123},
+	})
+	if !errors.Is(err, ErrDefinitionSchemaInvalid) {
+		t.Fatalf("expected ErrDefinitionSchemaInvalid, got %v", err)
+	}
+}
+
 func TestServiceCreateInstanceLifecycle(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 1, 2, 9, 0, 0, 0, time.UTC)

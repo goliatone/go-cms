@@ -113,6 +113,46 @@ func TestServiceCreateRejectsInvalidSchemaPayload(t *testing.T) {
 	}
 }
 
+func TestServiceCreateRejectsInvalidContentSchema(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Schema: map[string]any{
+			"type": 123,
+		},
+	})
+
+	localeStore.Put(&content.Locale{
+		ID:      uuid.New(),
+		Code:    "en",
+		Display: "English",
+	})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+
+	_, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "invalid-schema",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Invalid Schema",
+				Content: map[string]any{"body": "ok"},
+			},
+		},
+	})
+	if !errors.Is(err, content.ErrContentSchemaInvalid) {
+		t.Fatalf("expected ErrContentSchemaInvalid got %v", err)
+	}
+}
+
 func TestServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	typeStore := content.NewMemoryContentTypeRepository()
