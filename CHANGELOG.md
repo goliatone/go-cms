@@ -1,5 +1,59 @@
 # Changelog
 
+# [0.20.0](https://github.com/goliatone/go-cms/compare/v0.19.0...v0.20.0) - (2026-01-27)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.20.0 ([394438d](https://github.com/goliatone/go-cms/commit/394438de218747f0c4f514e949ee30d41195c6dc))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Slite migrations ([c5b5030](https://github.com/goliatone/go-cms/commit/c5b50305bad6bb3e1fc1159d88cff3b08412b35b))  - (goliatone)
+- Pages service support default locale ([227bf25](https://github.com/goliatone/go-cms/commit/227bf25e5d8368472f92808d8db4b49bca696ad8))  - (goliatone)
+- Wiring container with defaults ([2508a4b](https://github.com/goliatone/go-cms/commit/2508a4b3421b7b89bc10e32df2a82c2a1504be55))  - (goliatone)
+- Default locale to service ([4f3be84](https://github.com/goliatone/go-cms/commit/4f3be84fbde2acc0638043c714252a5c113639d4))  - (goliatone)
+- Locale and translation grouping ([77cdf08](https://github.com/goliatone/go-cms/commit/77cdf08f0599a72ac06e2b5385591d7380b1780c))  - (goliatone)
+- Normalize slug ([3d4daf5](https://github.com/goliatone/go-cms/commit/3d4daf53fa50a313fe4b92e76688bc46fb6456ec))  - (goliatone)
+- Slug container configuration ([edbed7b](https://github.com/goliatone/go-cms/commit/edbed7bd1642ba7a85bffbdee77a835f0c1dd01b))  - (goliatone)
+- Content slug ([5405a6f](https://github.com/goliatone/go-cms/commit/5405a6f28fb4b213914d62ee9ff648436a0f16d3))  - (goliatone)
+- Schema validation ([d74b2f2](https://github.com/goliatone/go-cms/commit/d74b2f24c69f9c04ee7aa194ee7da91cf0b6bc62))  - (goliatone)
+- Widget service with validation ([f143f48](https://github.com/goliatone/go-cms/commit/f143f487ef829fcbca44fa07cfc7ed288356d1a4))  - (goliatone)
+- Block service uses validation ([416100f](https://github.com/goliatone/go-cms/commit/416100f427c899bd648c7f7a7d4c1f10e9059a89))  - (goliatone)
+- Validation ([203829d](https://github.com/goliatone/go-cms/commit/203829d1d54b95ed9804600ee07e2795d6ec7b08))  - (goliatone)
+- Content type structs ([7acbfd2](https://github.com/goliatone/go-cms/commit/7acbfd2aed2159d960e2fcff726831c69810180f))  - (goliatone)
+- Updated repository interfaces ([b4505cf](https://github.com/goliatone/go-cms/commit/b4505cfe794bb86a52ea8cacbbfdec7945321f40))  - (goliatone)
+- Container content type set ([3b592d0](https://github.com/goliatone/go-cms/commit/3b592d0a70f129c610b784fe560cfcbb3ab8ae88))  - (goliatone)
+- DI content type adapters ([758aa3f](https://github.com/goliatone/go-cms/commit/758aa3f9171b6b96b05d0904c117a3f5ec518db7))  - (goliatone)
+- Content type service ([f18da60](https://github.com/goliatone/go-cms/commit/f18da60f463b052ed17bb3c14d5f82cbbb184903))  - (goliatone)
+- Content type slug to interfaces ([0b3f03d](https://github.com/goliatone/go-cms/commit/0b3f03d6337bb595bfb5abfd0996762380351e7e))  - (goliatone)
+- Put using slug ([008a6c3](https://github.com/goliatone/go-cms/commit/008a6c3819ffcfbfa5e85d1f480babc81ef28aba))  - (goliatone)
+- Slug implementation ([e1e15d1](https://github.com/goliatone/go-cms/commit/e1e15d11e5b8f9b326fd85c02611c241ef173e81))  - (goliatone)
+- Migrations for content type slug ([e586547](https://github.com/goliatone/go-cms/commit/e586547d11f40e5535ec9fb345eb7d8835aa62ce))  - (goliatone)
+- Content type slug ([8bcf85d](https://github.com/goliatone/go-cms/commit/8bcf85d725e6bfec2d3e5a88dca6042342a88fdd))  - (goliatone)
+- Slug to storage proxies ([d9714d3](https://github.com/goliatone/go-cms/commit/d9714d3ef0163a319ed3e9a8ab41e008ebc190d8))  - (goliatone)
+- Slug to markdown adapter ([6858d78](https://github.com/goliatone/go-cms/commit/6858d7857c3bceb38c5863a64f416bb9ec4bb745))  - (goliatone)
+- Get by slug service method ([29f576a](https://github.com/goliatone/go-cms/commit/29f576ae97414db3c0da22088f8afcf5235d3a23))  - (goliatone)
+- Get by slug repo method ([1e8b668](https://github.com/goliatone/go-cms/commit/1e8b6681ff29d6439ac9653fd1fcef17e3d49053))  - (goliatone)
+- Translation id gorup ([cbaaab2](https://github.com/goliatone/go-cms/commit/cbaaab2505ddab28b8a899bb40e9326d5ba386d8))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- Remove dead code ([6458eb5](https://github.com/goliatone/go-cms/commit/6458eb5d60fd9635d396bd424fcbc55fd1fd7162))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.19.0 ([fc7dc3d](https://github.com/goliatone/go-cms/commit/fc7dc3d554a5e06005da10aea8ec9961da81f5c6))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update depsc ([0ec3e79](https://github.com/goliatone/go-cms/commit/0ec3e794e342081c98a8e6e8c1abeb6d07f74458))  - (goliatone)
+- Update readme ([1ea39ae](https://github.com/goliatone/go-cms/commit/1ea39aed4bd23ab0842d5c4dc77b767e6e6665d5))  - (goliatone)
+- Update format ([57ba584](https://github.com/goliatone/go-cms/commit/57ba584d7db765c182728fdc27bf1961b67639be))  - (goliatone)
+- Update test ([ef466e7](https://github.com/goliatone/go-cms/commit/ef466e70b4abcd897ae256066b74418821c17e6c))  - (goliatone)
+- Include migrations for unique slug ([cc788e4](https://github.com/goliatone/go-cms/commit/cc788e4369116b46e0f436952487796888378615))  - (goliatone)
+- Update examples ([344b75e](https://github.com/goliatone/go-cms/commit/344b75e522131c64c66b3a2c0449a798a743dcaa))  - (goliatone)
+- Update tests ([f924bed](https://github.com/goliatone/go-cms/commit/f924bed60c8bc4cffc36b3eacd55b3604ba5aee8))  - (goliatone)
+
 # [0.19.0](https://github.com/goliatone/go-cms/compare/v0.18.0...v0.19.0) - (2026-01-24)
 
 ## <!-- 13 -->📦 Bumps
