@@ -12,6 +12,7 @@ require (
 	github.com/goliatone/go-logger v0.4.0
 	github.com/goliatone/go-repository-bun v0.9.0
 	github.com/goliatone/go-repository-cache v0.5.0
+	github.com/goliatone/go-slug v0.1.0
 	github.com/goliatone/go-theme v0.2.0
 	github.com/goliatone/go-urlkit v0.3.0
 	github.com/goliatone/go-users v0.4.0
