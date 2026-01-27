@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,9 +73,9 @@ func TestContentServiceContract_Phase1Fixture(t *testing.T) {
 	}
 
 	for _, ct := range fixture.ContentTypes {
-		slug := ct.Slug
+		slug := strings.TrimSpace(ct.Slug)
 		if slug == "" {
-			slug = ct.Name
+			t.Fatalf("fixture content type %s missing slug", ct.ID)
 		}
 		if err := typeRepo.Put(&content.ContentType{
 			ID:     mustParseUUID(t, ct.ID),

@@ -153,6 +153,64 @@ func TestServiceCreateRejectsInvalidContentSchema(t *testing.T) {
 	}
 }
 
+func TestServiceUpdateRejectsInvalidContentSchema(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "body"}},
+		},
+	})
+
+	localeStore.Put(&content.Locale{
+		ID:      uuid.New(),
+		Code:    "en",
+		Display: "English",
+	})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+
+	ctx := context.Background()
+	authorID := uuid.New()
+	created, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "valid",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Valid",
+				Content: map[string]any{"body": "ok"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	_, err = svc.Update(ctx, content.UpdateContentRequest{
+		ID:        created.ID,
+		UpdatedBy: authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Invalid",
+				Content: map[string]any{"body": "ok", "extra": "no"},
+			},
+		},
+	})
+	if !errors.Is(err, content.ErrContentSchemaInvalid) {
+		t.Fatalf("expected ErrContentSchemaInvalid got %v", err)
+	}
+}
+
 func TestServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	typeStore := content.NewMemoryContentTypeRepository()

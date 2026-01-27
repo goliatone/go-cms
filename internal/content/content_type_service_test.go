@@ -49,6 +49,22 @@ func TestContentTypeServiceCreateUsesSchemaSlug(t *testing.T) {
 	}
 }
 
+func TestContentTypeServiceCreateNormalizesSlugRules(t *testing.T) {
+	repo := content.NewMemoryContentTypeRepository()
+	svc := content.NewContentTypeService(repo)
+
+	ct, err := svc.Create(context.Background(), content.CreateContentTypeRequest{
+		Name:   "Blog_Post Draft",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+	if ct.Slug != "blog-post-draft" {
+		t.Fatalf("expected normalized slug blog-post-draft, got %q", ct.Slug)
+	}
+}
+
 func TestContentTypeServiceCreateRejectsDuplicateSlug(t *testing.T) {
 	repo := content.NewMemoryContentTypeRepository()
 	svc := content.NewContentTypeService(repo)

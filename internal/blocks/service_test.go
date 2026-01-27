@@ -124,6 +124,50 @@ func TestBlockTranslationSchemaValidation(t *testing.T) {
 	}
 }
 
+func TestBlockTranslationUpdateRejectsInvalidSchema(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "promo",
+		Schema: map[string]any{"fields": []any{map[string]any{"name": "headline"}}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	authorID := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "main",
+		Position:     0,
+		CreatedBy:    authorID,
+		UpdatedBy:    authorID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	localeID := uuid.New()
+	if _, err := svc.AddTranslation(ctx, blocks.AddTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		Content:         map[string]any{"headline": "Valid"},
+	}); err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	_, err = svc.UpdateTranslation(ctx, blocks.UpdateTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		UpdatedBy:       authorID,
+		Content:         map[string]any{"unknown": "nope"},
+	})
+	if !errors.Is(err, blocks.ErrTranslationSchemaInvalid) {
+		t.Fatalf("expected ErrTranslationSchemaInvalid got %v", err)
+	}
+}
+
 func TestAddTranslationResolvesMedia(t *testing.T) {
 	ctx := context.Background()
 	provider := &blockMediaProvider{
