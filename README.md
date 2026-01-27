@@ -8,10 +8,12 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
+- [Slug Rules & Schema Validation](#slug-rules--schema-validation)
 - [Static Site Generation](#static-site-generation)
 - [Markdown Import & Sync](#markdown-import--sync)
 - [Configuration](#configuration)
 - [Architecture & Extensibility](#architecture--extensibility)
+- [GraphQL Prerequisites](#graphql-prerequisites)
 - [CLI Reference](#cli-reference)
 - [Development](#development)
 - [Requirements & Dependencies](#requirements--dependencies)
@@ -323,6 +325,26 @@ Locales, translations, and fallbacks are available across services. `cfg.I18N.Lo
 Translation grouping: content/page translations store `TranslationGroupID` (backed by `translation_group_id` in SQL). The services default it to the owning content/page ID and preserve it across updates so export pipelines or translation workflows can treat locales as a single group.
 
 Migration note: `data/sql/migrations/20260301000000_translation_grouping.up.sql` (content/page translation group columns + indexes).
+
+## Slug Rules & Schema Validation
+
+Slugs for content and content types are normalized through `go-slug`:
+
+- Lowercase, convert spaces/underscores to dashes, strip non-alphanumerics, collapse repeated dashes, and trim edges.
+- Valid slugs match `^[a-z0-9]+(?:-[a-z0-9]+)*$` (no underscores).
+- Content type slugs must be unique; content slugs are treated as global identifiers by default.
+
+Override the normalizer when needed:
+
+- `di.WithSlugNormalizer(...)` for content services wired through the container.
+- `content.WithContentTypeSlugNormalizer(...)` for standalone content type services.
+
+Schema validation is enforced on write paths:
+
+- Content translations validate their payloads against the content type schema on create/update/translate.
+- Block/widget definitions validate schemas on registration; instance payloads validate against those schemas.
+- Schemas can be full JSON Schema documents or shorthand `{ "fields": [...] }` definitions, normalized by `internal/validation`.
+- Validation failures return typed errors (`ErrContentSchemaInvalid`, `blocks.ErrDefinitionSchemaInvalid`, `blocks.ErrTranslationSchemaInvalid`, `widgets.ErrDefinitionSchemaInvalid`, `widgets.ErrInstanceConfigurationInvalid`).
 
 ## Static Site Generation
 
@@ -753,6 +775,14 @@ The CMS includes migrations for all core tables:
 - Block definitions, instances, translations, and versions
 - Widget definitions, instances, translations, areas, and placements
 - Menus, menu items, and menu item translations
+
+## GraphQL Prerequisites
+
+go-cms does not ship GraphQL handlers. Delivery and management GraphQL APIs are generated via `go-crud/gql`, so hosts must wire the pieces together:
+
+- Register CMS schemas with the go-crud registry (go-admin exposes bootstrap helpers when used as the orchestration layer).
+- Run the `go-crud/gql` generator to emit gqlgen-compatible schemas/resolvers and configure JSON/UUID/time scalars in gqlgen.
+- Mount the generated GraphQL server and provide services that enforce published-only delivery or preview behavior.
 
 ## CLI Reference
 
