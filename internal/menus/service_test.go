@@ -977,6 +977,55 @@ func TestService_ResolveNavigation_PageIntegration(t *testing.T) {
 	}
 }
 
+func TestService_ResolveNavigationByLocation(t *testing.T) {
+	ctx := context.Background()
+	fixture := loadServiceFixture(t)
+	enLocale := uuid.MustParse("00000000-0000-0000-0000-000000000201")
+	pageID := uuid.MustParse("50000000-0000-0000-0000-000000000001")
+	repo := newStubPageRepository(&pages.Page{
+		ID:   pageID,
+		Slug: "company",
+		Translations: []*pages.PageTranslation{
+			{LocaleID: enLocale, Path: "/company"},
+		},
+	})
+
+	service := newServiceWithLocales(t, fixture.locales(), func(menus.AddMenuItemInput) uuid.UUID { return uuid.New() }, repo)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		Location:  "site.primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	if _, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Position: 0,
+		Target: map[string]any{
+			"type": "page",
+			"slug": "company",
+		},
+		Translations: fixture.translations("navigation_company"),
+	}); err != nil {
+		t.Fatalf("AddMenuItem: %v", err)
+	}
+
+	nav, err := service.ResolveNavigationByLocation(ctx, "site.primary", "en")
+	if err != nil {
+		t.Fatalf("ResolveNavigationByLocation: %v", err)
+	}
+	if len(nav) != 1 {
+		t.Fatalf("expected 1 nav item, got %d", len(nav))
+	}
+	if nav[0].URL != "/company" {
+		t.Fatalf("expected URL '/company', got %q", nav[0].URL)
+	}
+}
+
 func TestService_ResolveNavigation_URLKitResolver(t *testing.T) {
 	ctx := context.Background()
 	fixture := loadServiceFixture(t)
