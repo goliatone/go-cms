@@ -295,14 +295,14 @@ type service struct {
 
 func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRepo TranslationRepository, opts ...ServiceOption) Service {
 	s := &service{
-		definitions:  defRepo,
-		instances:    instRepo,
-		translations: trRepo,
-		now:          time.Now,
-		id:           uuid.New,
-		media:        media.NewNoOpService(),
+		definitions:         defRepo,
+		instances:           instRepo,
+		translations:        trRepo,
+		now:                 time.Now,
+		id:                  uuid.New,
+		media:               media.NewNoOpService(),
 		translationsEnabled: true,
-		activity:     activity.NewEmitter(nil, activity.Config{}),
+		activity:            activity.NewEmitter(nil, activity.Config{}),
 	}
 
 	for _, opt := range opts {
