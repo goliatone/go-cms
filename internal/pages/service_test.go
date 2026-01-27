@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
@@ -128,6 +129,39 @@ func (l *recordingLogger) entries() []logEntry {
 	return l.store.entries
 }
 
+type pageMediaProvider struct {
+	assets map[string]*interfaces.MediaAsset
+}
+
+func (p *pageMediaProvider) Resolve(_ context.Context, req interfaces.MediaResolveRequest) (*interfaces.MediaAsset, error) {
+	if p.assets == nil {
+		return nil, nil
+	}
+	if req.Reference.Locale != "" {
+		if asset, ok := p.assets[req.Reference.ID+":"+req.Reference.Locale]; ok {
+			return asset, nil
+		}
+	}
+	asset, ok := p.assets[req.Reference.ID]
+	if !ok {
+		return nil, nil
+	}
+	return asset, nil
+}
+
+func (p *pageMediaProvider) ResolveBatch(ctx context.Context, reqs []interfaces.MediaResolveRequest) (map[string]*interfaces.MediaAsset, error) {
+	result := make(map[string]*interfaces.MediaAsset, len(reqs))
+	for _, req := range reqs {
+		asset, _ := p.Resolve(ctx, req)
+		result[req.Reference.ID] = asset
+	}
+	return result, nil
+}
+
+func (p *pageMediaProvider) Invalidate(context.Context, ...interfaces.MediaReference) error {
+	return nil
+}
+
 func TestPageServiceCreateSuccess(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	contentTypeStore := content.NewMemoryContentTypeRepository()
@@ -187,6 +221,86 @@ func TestPageServiceCreateSuccess(t *testing.T) {
 
 	if result.Translations[0].Path != "/" {
 		t.Fatalf("expected path '/' got %q", result.Translations[0].Path)
+	}
+}
+
+func TestPageServiceResolvesMediaBindingsOnRead(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	typeID := uuid.New()
+	seedContentType(t, contentTypeStore, &content.ContentType{ID: typeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: typeID,
+		Slug:          "media-entry",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Media Entry"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	provider := &pageMediaProvider{
+		assets: map[string]*interfaces.MediaAsset{
+			"asset-1": {
+				Reference: interfaces.MediaReference{ID: "asset-1"},
+				Metadata:  interfaces.MediaMetadata{ID: "asset-1"},
+				Source:    &interfaces.MediaResource{URL: "https://cdn.local/hero.jpg"},
+			},
+		},
+	}
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithMediaService(media.NewService(provider)))
+
+	page, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "media-page",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Media Page",
+			Path:   "/media-page",
+			MediaBindings: media.BindingSet{
+				"hero": {{
+					Slot:      "hero",
+					Reference: interfaces.MediaReference{ID: "asset-1"},
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	fetched, err := pageSvc.Get(context.Background(), page.ID)
+	if err != nil {
+		t.Fatalf("get page: %v", err)
+	}
+	if len(fetched.Translations) == 0 {
+		t.Fatalf("expected page translation on get")
+	}
+	fetchedTranslation := fetched.Translations[0]
+	if fetchedTranslation.ResolvedMedia == nil || len(fetchedTranslation.ResolvedMedia["hero"]) == 0 || fetchedTranslation.ResolvedMedia["hero"][0].Metadata.ID != "asset-1" {
+		t.Fatalf("expected resolved media on get")
+	}
+
+	listed, err := pageSvc.List(context.Background())
+	if err != nil {
+		t.Fatalf("list pages: %v", err)
+	}
+	if len(listed) == 0 || len(listed[0].Translations) == 0 {
+		t.Fatalf("expected page translation on list")
+	}
+	listedTranslation := listed[0].Translations[0]
+	if listedTranslation.ResolvedMedia == nil || len(listedTranslation.ResolvedMedia["hero"]) == 0 || listedTranslation.ResolvedMedia["hero"][0].Metadata.ID != "asset-1" {
+		t.Fatalf("expected resolved media on list")
 	}
 }
 

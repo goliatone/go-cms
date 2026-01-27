@@ -62,7 +62,18 @@ func fetchContentTypeSlug(t *testing.T, db *sql.DB, id string) string {
 
 func applyMigrationFile(t *testing.T, db *sql.DB, name string) {
 	t.Helper()
-	raw, err := fs.ReadFile(cms.GetMigrationsFS(), "data/sql/migrations/"+name)
+	paths := []string{
+		"data/sql/migrations/sqlite/" + name,
+		"data/sql/migrations/" + name,
+	}
+	var raw []byte
+	var err error
+	for _, path := range paths {
+		raw, err = fs.ReadFile(cms.GetMigrationsFS(), path)
+		if err == nil {
+			break
+		}
+	}
 	if err != nil {
 		t.Fatalf("read migration %s: %v", name, err)
 	}
