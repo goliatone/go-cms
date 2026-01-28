@@ -113,7 +113,7 @@ func (h *ImportDirectoryHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for markdown import.
 func (h *ImportDirectoryHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "markdown-import",
+		Path:        []string{"markdown", "import"},
 		Group:       "markdown",
 		Description: "Import markdown content from a directory",
 	}
@@ -214,7 +214,7 @@ func (h *SyncDirectoryHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for markdown sync.
 func (h *SyncDirectoryHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "markdown-sync",
+		Path:        []string{"markdown", "sync"},
 		Group:       "markdown",
 		Description: "Synchronise markdown content from a directory",
 	}
