@@ -772,6 +772,7 @@ func TestBlockServiceInstanceVersionLifecycle(t *testing.T) {
 
 func newBlockService(opts ...blocks.ServiceOption) blocks.Service {
 	defRepo := blocks.NewMemoryDefinitionRepository()
+	defVersionRepo := blocks.NewMemoryDefinitionVersionRepository()
 	instRepo := blocks.NewMemoryInstanceRepository()
 	versionRepo := blocks.NewMemoryInstanceVersionRepository()
 	trRepo := blocks.NewMemoryTranslationRepository()
@@ -785,6 +786,7 @@ func newBlockService(opts ...blocks.ServiceOption) blocks.Service {
 	baseOpts := []blocks.ServiceOption{
 		blocks.WithClock(func() time.Time { return time.Unix(0, 0) }),
 		blocks.WithIDGenerator(idFn),
+		blocks.WithDefinitionVersionRepository(defVersionRepo),
 		blocks.WithInstanceVersionRepository(versionRepo),
 	}
 	baseOpts = append(baseOpts, opts...)

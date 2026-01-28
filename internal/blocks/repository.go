@@ -16,6 +16,17 @@ func NewDefinitionRepository(db *bun.DB) repository.Repository[*Definition] {
 	})
 }
 
+// NewDefinitionVersionRepository creates a repository for DefinitionVersion entities.
+func NewDefinitionVersionRepository(db *bun.DB) repository.Repository[*DefinitionVersion] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*DefinitionVersion]{
+		NewRecord:          func() *DefinitionVersion { return &DefinitionVersion{} },
+		GetID:              func(v *DefinitionVersion) uuid.UUID { return v.ID },
+		SetID:              func(v *DefinitionVersion, id uuid.UUID) { v.ID = id },
+		GetIdentifier:      func() string { return "schema_version" },
+		GetIdentifierValue: func(v *DefinitionVersion) string { return v.SchemaVersion },
+	})
+}
+
 // NewInstanceRepository creates a repository for Instance entities.
 func NewInstanceRepository(db *bun.DB) repository.Repository[*Instance] {
 	return repository.MustNewRepository(db, repository.ModelHandlers[*Instance]{
