@@ -97,15 +97,17 @@ type Container struct {
 	memoryPageRepo *pages.MemoryPageRepository
 	pageRepo       *pageRepositoryProxy
 
-	memoryBlockDefinitionRepo  blocks.DefinitionRepository
-	memoryBlockRepo            blocks.InstanceRepository
-	memoryBlockTranslationRepo blocks.TranslationRepository
-	memoryBlockVersionRepo     blocks.InstanceVersionRepository
+	memoryBlockDefinitionRepo        blocks.DefinitionRepository
+	memoryBlockDefinitionVersionRepo blocks.DefinitionVersionRepository
+	memoryBlockRepo                  blocks.InstanceRepository
+	memoryBlockTranslationRepo       blocks.TranslationRepository
+	memoryBlockVersionRepo           blocks.InstanceVersionRepository
 
-	blockRepo            *blockInstanceRepositoryProxy
-	blockDefinitionRepo  *blockDefinitionRepositoryProxy
-	blockTranslationRepo *blockTranslationRepositoryProxy
-	blockVersionRepo     *blockVersionRepositoryProxy
+	blockRepo                  *blockInstanceRepositoryProxy
+	blockDefinitionRepo        *blockDefinitionRepositoryProxy
+	blockDefinitionVersionRepo *blockDefinitionVersionRepositoryProxy
+	blockTranslationRepo       *blockTranslationRepositoryProxy
+	blockVersionRepo           *blockVersionRepositoryProxy
 
 	memoryMenuRepo              menus.MenuRepository
 	memoryMenuItemRepo          menus.MenuItemRepository
@@ -478,6 +480,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryPageRepo := pages.NewMemoryPageRepository()
 
 	memoryBlockDefRepo := blocks.NewMemoryDefinitionRepository()
+	memoryBlockDefVersionRepo := blocks.NewMemoryDefinitionVersionRepository()
 	memoryBlockRepo := blocks.NewMemoryInstanceRepository()
 	memoryBlockTranslationRepo := blocks.NewMemoryTranslationRepository()
 	memoryBlockVersionRepo := blocks.NewMemoryInstanceVersionRepository()
@@ -527,10 +530,11 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		localeRepo:      newLocaleRepositoryProxy(memoryLocaleRepo),
 		pageRepo:        newPageRepositoryProxy(memoryPageRepo),
 
-		memoryBlockDefinitionRepo:  memoryBlockDefRepo,
-		memoryBlockRepo:            memoryBlockRepo,
-		memoryBlockTranslationRepo: memoryBlockTranslationRepo,
-		memoryBlockVersionRepo:     memoryBlockVersionRepo,
+		memoryBlockDefinitionRepo:        memoryBlockDefRepo,
+		memoryBlockDefinitionVersionRepo: memoryBlockDefVersionRepo,
+		memoryBlockRepo:                  memoryBlockRepo,
+		memoryBlockTranslationRepo:       memoryBlockTranslationRepo,
+		memoryBlockVersionRepo:           memoryBlockVersionRepo,
 
 		memoryMenuRepo:              memoryMenuRepo,
 		memoryMenuItemRepo:          memoryMenuItemRepo,
@@ -543,10 +547,11 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		memoryThemeRepo:             memoryThemeRepo,
 		memoryTemplateRepo:          memoryTemplateRepo,
 
-		blockDefinitionRepo:  newBlockDefinitionRepositoryProxy(memoryBlockDefRepo),
-		blockRepo:            newBlockInstanceRepositoryProxy(memoryBlockRepo),
-		blockTranslationRepo: newBlockTranslationRepositoryProxy(memoryBlockTranslationRepo),
-		blockVersionRepo:     newBlockVersionRepositoryProxy(memoryBlockVersionRepo),
+		blockDefinitionRepo:        newBlockDefinitionRepositoryProxy(memoryBlockDefRepo),
+		blockDefinitionVersionRepo: newBlockDefinitionVersionRepositoryProxy(memoryBlockDefVersionRepo),
+		blockRepo:                  newBlockInstanceRepositoryProxy(memoryBlockRepo),
+		blockTranslationRepo:       newBlockTranslationRepositoryProxy(memoryBlockTranslationRepo),
+		blockVersionRepo:           newBlockVersionRepositoryProxy(memoryBlockVersionRepo),
 
 		menuRepo:              memoryMenuRepo,
 		menuItemRepo:          memoryMenuItemRepo,
@@ -636,6 +641,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			blocks.WithRequireTranslations(requireTranslations),
 			blocks.WithTranslationsEnabled(translationsEnabled),
 			blocks.WithTranslationState(c.translationState),
+		}
+		if c.blockDefinitionVersionRepo != nil {
+			blockOpts = append(blockOpts, blocks.WithDefinitionVersionRepository(c.blockDefinitionVersionRepo))
 		}
 		if c.blockVersionRepo != nil {
 			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
@@ -917,6 +925,9 @@ func (c *Container) configureRepositories() {
 		if c.blockDefinitionRepo != nil {
 			c.blockDefinitionRepo.swap(blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
 		}
+		if c.blockDefinitionVersionRepo != nil {
+			c.blockDefinitionVersionRepo.swap(blocks.NewBunDefinitionVersionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
 		if c.blockRepo != nil {
 			c.blockRepo.swap(blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
 		}
@@ -957,6 +968,9 @@ func (c *Container) configureRepositories() {
 	}
 	if c.blockDefinitionRepo != nil && c.memoryBlockDefinitionRepo != nil {
 		c.blockDefinitionRepo.swap(c.memoryBlockDefinitionRepo)
+	}
+	if c.blockDefinitionVersionRepo != nil && c.memoryBlockDefinitionVersionRepo != nil {
+		c.blockDefinitionVersionRepo.swap(c.memoryBlockDefinitionVersionRepo)
 	}
 	if c.blockRepo != nil && c.memoryBlockRepo != nil {
 		c.blockRepo.swap(c.memoryBlockRepo)
