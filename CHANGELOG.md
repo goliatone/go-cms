@@ -1,5 +1,63 @@
 # Changelog
 
+# [0.22.0](https://github.com/goliatone/go-cms/compare/v0.21.0...v0.22.0) - (2026-01-28)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.22.0 ([ee95aea](https://github.com/goliatone/go-cms/commit/ee95aeac5031800a31a4f5a7fe63a37ffcbc7d7a))  - (goliatone)
+
+## <!-- 30 -->📝 Other
+
+- PR [#3](https://github.com/goliatone/go-cms/pull/3): blocks ([deb97ed](https://github.com/goliatone/go-cms/commit/deb97ed07f922700e23660243112fc82d94d3cfb))  - (goliatone)
+
+# [0.21.0](https://github.com/goliatone/go-cms/compare/v0.20.0...v0.21.0) - (2026-01-28)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Schema validation ([04e92d2](https://github.com/goliatone/go-cms/commit/04e92d2db503e1d1183e056dda4a74f0c3f1e6ca))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.21.0 ([8ee022f](https://github.com/goliatone/go-cms/commit/8ee022f9198a3ff8d51f8f6eb52e22f6b290bc5c))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Expose blocks; ([5ccd096](https://github.com/goliatone/go-cms/commit/5ccd09625dde05c8053554b174f630601256cded))  - (goliatone)
+- Updated draft for blocks ([11fc6f0](https://github.com/goliatone/go-cms/commit/11fc6f09ce24d49da2aebcdb3d6ef1aa9a28b17c))  - (goliatone)
+- Block availability to meta ([a3fcced](https://github.com/goliatone/go-cms/commit/a3fccedee3353997b30a1f4dfcadfecc582ff69d))  - (goliatone)
+- Updated command setup ([17bac5d](https://github.com/goliatone/go-cms/commit/17bac5d607a9532fba22a902433c9edd5e38f91e))  - (goliatone)
+- Udpated static handlers ([522b427](https://github.com/goliatone/go-cms/commit/522b427de2c278907767029abfc371852f2c9732))  - (goliatone)
+- List translations to bun ([75c21d7](https://github.com/goliatone/go-cms/commit/75c21d71f543089aea4885b8107848f4ad57bd4a))  - (goliatone)
+- List translations to memory ([1a4b625](https://github.com/goliatone/go-cms/commit/1a4b6251e705dafdf37d677786dd8c69f448e69b))  - (goliatone)
+- Blocks to content structs ([d0e7b87](https://github.com/goliatone/go-cms/commit/d0e7b872ea0d910e05d0456c202a8d62f4da66c7))  - (goliatone)
+- Content embedded blocks ([1750f38](https://github.com/goliatone/go-cms/commit/1750f38dcd85c1e3f9b908a875572490c97cfea1))  - (goliatone)
+- Internal admin blocks ([e6a76da](https://github.com/goliatone/go-cms/commit/e6a76da574e70758825d7c5f03e3b46dab4bf4df))  - (goliatone)
+- Blocks embedded bridge ([cbe22d8](https://github.com/goliatone/go-cms/commit/cbe22d8c5077a36677e3a678936a2e0f40870c2e))  - (goliatone)
+- Schema validation and normalization ([98ac626](https://github.com/goliatone/go-cms/commit/98ac62642d0ac7a16420e72c84c7ead9a06a0dae))  - (goliatone)
+- Block definition storage ([980bb92](https://github.com/goliatone/go-cms/commit/980bb925aa2708f21c780dced9819cf2915bfc2e))  - (goliatone)
+- Schema versioning for content ([0b32784](https://github.com/goliatone/go-cms/commit/0b327841996d8a82e35a440dae885d2fd377d322))  - (goliatone)
+- Content normalization ([92c4833](https://github.com/goliatone/go-cms/commit/92c483344ed117008165e5a93b829450bb962220))  - (goliatone)
+- Block version types ([55e7cba](https://github.com/goliatone/go-cms/commit/55e7cba3ffbdcf65beb602d1b2abbfa9807cf40b))  - (goliatone)
+- Schema parser ([4692c53](https://github.com/goliatone/go-cms/commit/4692c53cc4d5cdd0a744984777579cfea1ea0d94))  - (goliatone)
+- Open api parser ([0339b39](https://github.com/goliatone/go-cms/commit/0339b3981046f529364a807d2dee0fd17d89c1ab))  - (goliatone)
+- New migrations for content schema and version ([d1e65dd](https://github.com/goliatone/go-cms/commit/d1e65dd7f8956f5e2266836804f49661d3ca6593))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- Blocks support versions, schema, arrays ([9f9c657](https://github.com/goliatone/go-cms/commit/9f9c6572ccf298dd89fc34b2a2e8cc3a5b4bcec3))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.20.0 ([b8fdf6f](https://github.com/goliatone/go-cms/commit/b8fdf6fda4c7a5b743b31391082685ee001b48a9))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tasks ([be18010](https://github.com/goliatone/go-cms/commit/be180108b3ffa3459c78f9839b4e800c5464d06b))  - (goliatone)
+- Update deps ([95427e9](https://github.com/goliatone/go-cms/commit/95427e9e56fc4d8ce455844d413e2c90c475de18))  - (goliatone)
+- Update readme ([eb1b7c2](https://github.com/goliatone/go-cms/commit/eb1b7c2cdefa1a008d07828019ef8c83dcc81c92))  - (goliatone)
+- Update test ([3426b3e](https://github.com/goliatone/go-cms/commit/3426b3e209699f84115a61ab37b37dbcf0a9389d))  - (goliatone)
+- Udpate readme ([0647707](https://github.com/goliatone/go-cms/commit/064770730823cfed9f062f0eb6ecbef854b41ce4))  - (goliatone)
+
 # [0.20.0](https://github.com/goliatone/go-cms/compare/v0.19.0...v0.20.0) - (2026-01-27)
 
 ## <!-- 13 -->📦 Bumps
