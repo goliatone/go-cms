@@ -182,6 +182,16 @@ instance, _ := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
 })
 ```
 
+### Embedded Blocks & Migration
+
+Embedded blocks are the canonical storage format for modular content. Each
+content/page translation can store a `blocks[]` array (with `_type` and optional `_schema` per block). go-cms keeps the legacy block instance tables in sync while you migrate:
+
+- **Dual-write**: when `blocks[]` is present, the `EmbeddedBlockBridge` syncs it into legacy block instances (region `blocks` by default) so older readers keep working.
+- **Read fallback**: read paths prefer embedded blocks and backfill from legacy instances when embedded data is missing.
+- **Conflicts + backfill**: use `EmbeddedBlockBridge.BackfillFromLegacy` to populate embedded blocks for existing content, and `EmbeddedBlockBridge.ListConflicts` (or the admin “Block Conflicts” panel) to detect divergences.
+- **Publish rules**: drafts allow partial block payloads; publish migrates blocks to the latest schema versions and enforces strict validation.
+
 ### Widgets
 
 Widgets add behavioral components with scheduling, visibility rules, and per-area placement.
@@ -345,6 +355,23 @@ Schema validation is enforced on write paths:
 - Block/widget definitions validate schemas on registration; instance payloads validate against those schemas.
 - Schemas can be full JSON Schema documents or shorthand `{ "fields": [...] }` definitions, normalized by `internal/validation`.
 - Validation failures return typed errors (`ErrContentSchemaInvalid`, `blocks.ErrDefinitionSchemaInvalid`, `blocks.ErrTranslationSchemaInvalid`, `widgets.ErrDefinitionSchemaInvalid`, `widgets.ErrInstanceConfigurationInvalid`).
+
+### JSON Schema Subset (Draft 2020-12)
+
+go-cms validates JSON Schema payloads using Draft 2020-12, but only accepts a
+focused subset of keywords (vendor `x-*` extensions are allowed):
+
+- `$schema`, `$id`, `$ref`, `$defs`, `$anchor`
+- `type`, `properties`, `required`, `items`, `oneOf`, `allOf`
+- `const`, `enum`, `default`
+- `title`, `description`, `format`
+- `additionalProperties`
+- `metadata` and `ui` (normalized into `x-formgen`/`x-admin` hints)
+
+`allOf` is limited to object-merging (properties/required/additionalProperties/title/description).
+If you rely on other Draft 2020-12 features (numeric/string constraints,
+`if/then/else`, `dependentSchemas`, etc.), keep them on the form-generation side
+or downlevel them before validation so go-cms accepts the schema.
 
 ## Static Site Generation
 
@@ -554,7 +581,6 @@ result, err := commands.RegisterContainerCommands(module.Container(), commands.R
 })
 _ = result // keep result.Subscriptions for shutdown
 ```
-
 
 ### Managing Storage Profiles at Runtime
 
