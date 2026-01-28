@@ -18,12 +18,26 @@ type Definition struct {
 	Description      *string        `bun:"description" json:"description,omitempty"`
 	Icon             *string        `bun:"icon" json:"icon,omitempty"`
 	Schema           map[string]any `bun:"schema,type:jsonb,notnull" json:"schema"`
+	SchemaVersion    string         `bun:"schema_version" json:"schema_version,omitempty"`
 	Defaults         map[string]any `bun:"defaults,type:jsonb" json:"defaults,omitempty"`
 	EditorStyleURL   *string        `bun:"editor_style_url" json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `bun:"frontend_style_url" json:"frontend_style_url,omitempty"`
 	DeletedAt        *time.Time     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
 	CreatedAt        time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
 	UpdatedAt        time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+}
+
+// DefinitionVersion tracks a specific schema revision for a block definition.
+type DefinitionVersion struct {
+	bun.BaseModel `bun:"table:block_definition_versions,alias:bdv"`
+
+	ID            uuid.UUID      `bun:",pk,type:uuid" json:"id"`
+	DefinitionID  uuid.UUID      `bun:"definition_id,notnull,type:uuid" json:"definition_id"`
+	SchemaVersion string         `bun:"schema_version,notnull" json:"schema_version"`
+	Schema        map[string]any `bun:"schema,type:jsonb,notnull" json:"schema"`
+	Defaults      map[string]any `bun:"defaults,type:jsonb" json:"defaults,omitempty"`
+	CreatedAt     time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt     time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
 
 // Instance captures a concrete usage of a block definition on a page or region.
