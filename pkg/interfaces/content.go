@@ -55,6 +55,7 @@ type ContentUpdateTranslationRequest struct {
 	Title     string
 	Summary   *string
 	Fields    map[string]any
+	Blocks    []map[string]any
 	UpdatedBy uuid.UUID
 }
 
@@ -71,6 +72,7 @@ type ContentTranslationInput struct {
 	Title   string
 	Summary *string
 	Fields  map[string]any
+	Blocks  []map[string]any
 }
 
 // ContentRecord reflects the persisted state returned by the content service.
