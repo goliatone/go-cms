@@ -467,6 +467,10 @@ func (s *stubContentService) PublishDraft(context.Context, content.PublishConten
 	return nil, errUnsupported
 }
 
+func (s *stubContentService) PreviewDraft(context.Context, content.PreviewContentDraftRequest) (*content.ContentPreview, error) {
+	return nil, errUnsupported
+}
+
 func (s *stubContentService) ListVersions(context.Context, uuid.UUID) ([]*content.ContentVersion, error) {
 	return nil, errUnsupported
 }
@@ -529,6 +533,10 @@ func (s *stubPagesService) CreateDraft(context.Context, pages.CreatePageDraftReq
 }
 
 func (s *stubPagesService) PublishDraft(context.Context, pages.PublishPagePublishRequest) (*pages.PageVersion, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubPagesService) PreviewDraft(context.Context, pages.PreviewPageDraftRequest) (*pages.PagePreview, error) {
 	return nil, errUnsupported
 }
 

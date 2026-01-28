@@ -31,6 +31,7 @@ type Service interface {
 	Schedule(ctx context.Context, req ScheduleContentRequest) (*Content, error)
 	CreateDraft(ctx context.Context, req CreateContentDraftRequest) (*ContentVersion, error)
 	PublishDraft(ctx context.Context, req PublishContentDraftRequest) (*ContentVersion, error)
+	PreviewDraft(ctx context.Context, req PreviewContentDraftRequest) (*ContentPreview, error)
 	ListVersions(ctx context.Context, contentID uuid.UUID) ([]*ContentVersion, error)
 	RestoreVersion(ctx context.Context, req RestoreContentVersionRequest) (*ContentVersion, error)
 }
@@ -52,6 +53,7 @@ type ContentTranslationInput struct {
 	Title   string
 	Summary *string
 	Content map[string]any
+	Blocks  []map[string]any
 }
 
 // UpdateContentRequest captures mutable fields for an existing content entry. Slug
@@ -81,6 +83,7 @@ type UpdateContentTranslationRequest struct {
 	Title     string
 	Summary   *string
 	Content   map[string]any
+	Blocks    []map[string]any
 	UpdatedBy uuid.UUID
 }
 
@@ -108,11 +111,23 @@ type PublishContentDraftRequest struct {
 	PublishedAt *time.Time
 }
 
+// PreviewContentDraftRequest captures the information required to preview a content draft.
+type PreviewContentDraftRequest struct {
+	ContentID uuid.UUID
+	Version   int
+}
+
 // RestoreContentVersionRequest captures the request to restore a prior content version.
 type RestoreContentVersionRequest struct {
 	ContentID  uuid.UUID
 	Version    int
 	RestoredBy uuid.UUID
+}
+
+// ContentPreview bundles a preview snapshot with the derived content record.
+type ContentPreview struct {
+	Content *Content
+	Version *ContentVersion
 }
 
 // ScheduleContentRequest captures details to schedule publish/unpublish events.
@@ -124,28 +139,30 @@ type ScheduleContentRequest struct {
 }
 
 var (
-	ErrContentTypeRequired             = errors.New("content: content type does not exist")
-	ErrSlugRequired                    = errors.New("content: slug is required")
-	ErrSlugInvalid                     = errors.New("content: slug contains invalid characters")
-	ErrSlugExists                      = errors.New("content: slug already exists")
-	ErrNoTranslations                  = errors.New("content: at least one translation is required")
-	ErrDefaultLocaleRequired           = errors.New("content: default locale translation is required")
-	ErrDuplicateLocale                 = errors.New("content: duplicate locale provided")
-	ErrUnknownLocale                   = errors.New("content: unknown locale")
-	ErrContentSchemaInvalid            = errors.New("content: schema validation failed")
-	ErrContentSoftDeleteUnsupported    = errors.New("content: soft delete not supported")
-	ErrContentIDRequired               = errors.New("content: content id required")
-	ErrVersioningDisabled              = errors.New("content: versioning feature disabled")
-	ErrContentVersionRequired          = errors.New("content: version identifier required")
-	ErrContentVersionConflict          = errors.New("content: base version mismatch")
-	ErrContentVersionAlreadyPublished  = errors.New("content: version already published")
-	ErrContentVersionRetentionExceeded = errors.New("content: version retention limit reached")
-	ErrSchedulingDisabled              = errors.New("content: scheduling feature disabled")
-	ErrScheduleWindowInvalid           = errors.New("content: publish_at must be before unpublish_at")
-	ErrScheduleTimestampInvalid        = errors.New("content: schedule timestamp is invalid")
-	ErrContentTranslationsDisabled     = errors.New("content: translations feature disabled")
-	ErrContentTranslationNotFound      = errors.New("content: translation not found")
-	ErrContentSchemaMigrationRequired  = errors.New("content: schema migration required")
+	ErrContentTypeRequired                 = errors.New("content: content type does not exist")
+	ErrSlugRequired                        = errors.New("content: slug is required")
+	ErrSlugInvalid                         = errors.New("content: slug contains invalid characters")
+	ErrSlugExists                          = errors.New("content: slug already exists")
+	ErrNoTranslations                      = errors.New("content: at least one translation is required")
+	ErrDefaultLocaleRequired               = errors.New("content: default locale translation is required")
+	ErrDuplicateLocale                     = errors.New("content: duplicate locale provided")
+	ErrUnknownLocale                       = errors.New("content: unknown locale")
+	ErrContentSchemaInvalid                = errors.New("content: schema validation failed")
+	ErrContentSoftDeleteUnsupported        = errors.New("content: soft delete not supported")
+	ErrContentIDRequired                   = errors.New("content: content id required")
+	ErrVersioningDisabled                  = errors.New("content: versioning feature disabled")
+	ErrContentVersionRequired              = errors.New("content: version identifier required")
+	ErrContentVersionConflict              = errors.New("content: base version mismatch")
+	ErrContentVersionAlreadyPublished      = errors.New("content: version already published")
+	ErrContentVersionRetentionExceeded     = errors.New("content: version retention limit reached")
+	ErrSchedulingDisabled                  = errors.New("content: scheduling feature disabled")
+	ErrScheduleWindowInvalid               = errors.New("content: publish_at must be before unpublish_at")
+	ErrScheduleTimestampInvalid            = errors.New("content: schedule timestamp is invalid")
+	ErrContentTranslationsDisabled         = errors.New("content: translations feature disabled")
+	ErrContentTranslationNotFound          = errors.New("content: translation not found")
+	ErrContentSchemaMigrationRequired      = errors.New("content: schema migration required")
+	ErrContentTranslationLookupUnsupported = errors.New("content: translation lookup unsupported")
+	ErrEmbeddedBlocksResolverMissing       = errors.New("content: embedded blocks resolver not configured")
 )
 
 // ContentRepository abstracts storage operations for content entities.
@@ -313,6 +330,15 @@ func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	}
 }
 
+// WithEmbeddedBlocksResolver wires the embedded blocks bridge (dual-write + fallback).
+func WithEmbeddedBlocksResolver(resolver EmbeddedBlocksResolver) ServiceOption {
+	return func(svc *service) {
+		if resolver != nil {
+			svc.embeddedBlocks = resolver
+		}
+	}
+}
+
 // service implements Service.
 type service struct {
 	contents              ContentRepository
@@ -333,6 +359,7 @@ type service struct {
 	defaultLocaleRequired bool
 	activity              *activity.Emitter
 	schemaMigrator        *cmsschema.Migrator
+	embeddedBlocks        EmbeddedBlocksResolver
 }
 
 // NewService constructs a content service with the required dependencies.
@@ -510,8 +537,17 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 			if err != nil {
 				return nil, ErrUnknownLocale
 			}
-			cleanContent := stripSchemaVersion(tr.Content)
-			if err := validation.ValidatePayload(contentType.Schema, cleanContent); err != nil {
+			payload := mergeBlocksContent(tr.Content, tr.Blocks)
+			cleanContent := stripSchemaVersion(payload)
+			if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
+				if err := s.validateBlockAvailability(ctx, contentType.Slug, contentType.Schema, blocks); err != nil {
+					return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+				}
+				if err := s.validateEmbeddedBlocks(ctx, code, blocks, EmbeddedBlockValidationStrict); err != nil {
+					return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+				}
+			}
+			if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
 				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 			}
 
@@ -553,6 +589,10 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		"locales":         collectContentLocalesFromInputs(req.Translations),
 		"content_type_id": created.ContentTypeID.String(),
 	})
+	if err := s.syncEmbeddedBlocks(ctx, created.ID, req.Translations, pickActor(req.CreatedBy, req.UpdatedBy)); err != nil {
+		logger.Error("embedded block sync failed", "error", err)
+		return nil, err
+	}
 
 	return s.decorateContent(created), nil
 }
@@ -568,6 +608,7 @@ func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
 		return nil, err
 	}
 	s.attachContentType(ctx, record)
+	s.mergeLegacyBlocks(ctx, record)
 	logger.Debug("content retrieved")
 	return s.decorateContent(record), nil
 }
@@ -582,6 +623,7 @@ func (s *service) List(ctx context.Context) ([]*Content, error) {
 	}
 	for _, record := range records {
 		s.attachContentType(ctx, record)
+		s.mergeLegacyBlocks(ctx, record)
 		s.decorateContent(record)
 	}
 	logger.Debug("content list returned records", "count", len(records))
@@ -632,7 +674,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		existingLocales := indexTranslationsByLocaleID(existing.Translations)
 
 		var err error
-		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now, contentType.Schema, version)
+		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now, contentType.Slug, contentType.Schema, version)
 		if err != nil {
 			logger.Error("content translations build failed", "error", err)
 			return nil, err
@@ -672,6 +714,12 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	}
 	s.emitActivity(ctx, req.UpdatedBy, "update", "content", existing.ID, meta)
 	s.attachContentType(ctx, updated)
+	if replaceTranslations {
+		if err := s.syncEmbeddedBlocks(ctx, updated.ID, req.Translations, req.UpdatedBy); err != nil {
+			logger.Error("embedded block sync failed", "error", err)
+			return nil, err
+		}
+	}
 	return s.decorateContent(updated), nil
 }
 
@@ -780,8 +828,17 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	if req.Content == nil {
 		req.Content = map[string]any{}
 	}
-	cleanContent := stripSchemaVersion(req.Content)
-	if err := validation.ValidatePayload(contentType.Schema, cleanContent); err != nil {
+	payload := mergeBlocksContent(req.Content, req.Blocks)
+	cleanContent := stripSchemaVersion(payload)
+	if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
+		if err := s.validateBlockAvailability(ctx, contentType.Slug, contentType.Schema, blocks); err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		}
+		if err := s.validateEmbeddedBlocks(ctx, localeCode, blocks, EmbeddedBlockValidationStrict); err != nil {
+			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		}
+	}
+	if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 
@@ -835,6 +892,16 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		"locale":     loc.Code,
 		"title":      req.Title,
 	})
+	if err := s.syncEmbeddedBlocks(ctx, req.ContentID, []ContentTranslationInput{{
+		Locale:  loc.Code,
+		Title:   req.Title,
+		Summary: req.Summary,
+		Content: req.Content,
+		Blocks:  req.Blocks,
+	}}, req.UpdatedBy); err != nil {
+		logger.Error("embedded block sync failed", "error", err)
+		return nil, err
+	}
 	return updatedTranslation, nil
 }
 
@@ -1062,6 +1129,20 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 		return nil, err
 	}
 
+	contentType, err := s.contentTypes.GetByID(ctx, contentRecord.ContentTypeID)
+	if err != nil {
+		logger.Error("content type lookup failed", "error", err)
+		return nil, ErrContentTypeRequired
+	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+
+	snapshot := cloneContentVersionSnapshot(req.Snapshot)
+	if err := s.validateSnapshot(ctx, contentType.Schema, snapshot, EmbeddedBlockValidationDraft); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+
 	versions, err := s.contents.ListVersions(ctx, req.ContentID)
 	if err != nil {
 		logger.Error("content version list failed", "error", err)
@@ -1086,7 +1167,7 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 		ContentID: req.ContentID,
 		Version:   next,
 		Status:    domain.StatusDraft,
-		Snapshot:  cloneContentVersionSnapshot(req.Snapshot),
+		Snapshot:  snapshot,
 		CreatedBy: req.CreatedBy,
 		CreatedAt: now,
 	}
@@ -1170,10 +1251,25 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		logger.Error("content type lookup failed", "error", err)
 		return nil, ErrContentTypeRequired
 	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 	migratedSnapshot, err := s.migrateContentSnapshot(contentType, version.Snapshot)
 	if err != nil {
 		logger.Error("content schema migration failed", "error", err)
 		return nil, err
+	}
+	migratedSnapshot, err = s.migrateEmbeddedBlocksSnapshot(ctx, migratedSnapshot)
+	if err != nil {
+		logger.Error("embedded block migration failed", "error", err)
+		var embeddedErr *EmbeddedBlockValidationError
+		if errors.As(err, &embeddedErr) {
+			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		}
+		return nil, err
+	}
+	if err := s.validateSnapshot(ctx, contentType.Schema, migratedSnapshot, EmbeddedBlockValidationStrict); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 	version.Snapshot = migratedSnapshot
 
@@ -1280,6 +1376,87 @@ func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionR
 	})
 }
 
+// PreviewDraft returns a migrated draft snapshot without persisting changes.
+func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftRequest) (*ContentPreview, error) {
+	if !s.versioningEnabled {
+		return nil, ErrVersioningDisabled
+	}
+	if req.ContentID == uuid.Nil {
+		return nil, ErrContentIDRequired
+	}
+	if req.Version <= 0 {
+		return nil, ErrContentVersionRequired
+	}
+
+	logger := s.opLogger(ctx, "content.version.preview", map[string]any{
+		"content_id": req.ContentID,
+		"version":    req.Version,
+	})
+
+	record, err := s.contents.GetByID(ctx, req.ContentID)
+	if err != nil {
+		logger.Error("content lookup failed", "error", err)
+		return nil, err
+	}
+
+	version, err := s.contents.GetVersion(ctx, req.ContentID, req.Version)
+	if err != nil {
+		logger.Error("content version lookup failed", "error", err)
+		return nil, err
+	}
+
+	contentType, err := s.contentTypes.GetByID(ctx, record.ContentTypeID)
+	if err != nil {
+		logger.Error("content type lookup failed", "error", err)
+		return nil, ErrContentTypeRequired
+	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+
+	previewVersion := cloneContentVersion(version)
+	migratedSnapshot, err := s.migrateContentSnapshot(contentType, previewVersion.Snapshot)
+	if err != nil {
+		logger.Error("content schema migration failed", "error", err)
+		return nil, err
+	}
+	migratedSnapshot, err = s.migrateEmbeddedBlocksSnapshot(ctx, migratedSnapshot)
+	if err != nil {
+		logger.Error("embedded block migration failed", "error", err)
+		var embeddedErr *EmbeddedBlockValidationError
+		if errors.As(err, &embeddedErr) {
+			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		}
+		return nil, err
+	}
+	if err := s.validateSnapshot(ctx, contentType.Schema, migratedSnapshot, EmbeddedBlockValidationDraft); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+	previewVersion.Snapshot = migratedSnapshot
+
+	previewRecord := cloneContent(record)
+	if previewRecord == nil {
+		return nil, ErrContentIDRequired
+	}
+	previewRecord.Status = string(previewVersion.Status)
+	previewRecord.CurrentVersion = previewVersion.Version
+	previewRecord.Type = contentType
+
+	translations, err := s.previewTranslations(ctx, previewRecord.ID, migratedSnapshot)
+	if err != nil {
+		logger.Error("content preview translations failed", "error", err)
+		return nil, err
+	}
+	previewRecord.Translations = translations
+	s.decorateContent(previewRecord)
+
+	logger.Info("content preview built")
+	return &ContentPreview{
+		Content: previewRecord,
+		Version: previewVersion,
+	}, nil
+}
+
 func chooseStatus(status string) string {
 	status = strings.TrimSpace(status)
 	if status == "" {
@@ -1373,7 +1550,7 @@ func effectiveContentStatus(record *Content, now time.Time) domain.Status {
 	return status
 }
 
-func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time, schema map[string]any, version cmsschema.Version) ([]*ContentTranslation, error) {
+func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time, contentType string, schema map[string]any, version cmsschema.Version) ([]*ContentTranslation, error) {
 	seen := map[string]struct{}{}
 	result := make([]*ContentTranslation, 0, len(inputs))
 
@@ -1397,8 +1574,17 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 			value := *input.Summary
 			summary = &value
 		}
-		cleanContent := stripSchemaVersion(input.Content)
-		if err := validation.ValidatePayload(schema, cleanContent); err != nil {
+		payload := mergeBlocksContent(input.Content, input.Blocks)
+		cleanContent := stripSchemaVersion(payload)
+		if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
+			if err := s.validateBlockAvailability(ctx, contentType, schema, blocks); err != nil {
+				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			}
+			if err := s.validateEmbeddedBlocks(ctx, code, blocks, EmbeddedBlockValidationStrict); err != nil {
+				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			}
+		}
+		if err := validation.ValidatePayload(schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 		}
 
@@ -1435,6 +1621,39 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 	}
 
 	return result, nil
+}
+
+func (s *service) previewTranslations(ctx context.Context, contentID uuid.UUID, snapshot ContentVersionSnapshot) ([]*ContentTranslation, error) {
+	if len(snapshot.Translations) == 0 {
+		return nil, nil
+	}
+	now := s.now()
+	groupID := contentID
+	out := make([]*ContentTranslation, 0, len(snapshot.Translations))
+	for _, tr := range snapshot.Translations {
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			return nil, ErrUnknownLocale
+		}
+		locale, err := s.locales.GetByCode(ctx, code)
+		if err != nil {
+			return nil, ErrUnknownLocale
+		}
+		entry := &ContentTranslation{
+			ID:                 s.id(),
+			ContentID:          contentID,
+			LocaleID:           locale.ID,
+			TranslationGroupID: &groupID,
+			Title:              tr.Title,
+			Summary:            cloneString(tr.Summary),
+			Content:            cloneMap(tr.Content),
+			Locale:             locale,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		}
+		out = append(out, entry)
+	}
+	return out, nil
 }
 
 func indexTranslationsByLocaleID(translations []*ContentTranslation) map[uuid.UUID]*ContentTranslation {
@@ -1511,6 +1730,122 @@ func stripSchemaVersion(payload map[string]any) map[string]any {
 	clean := cloneMap(payload)
 	delete(clean, cmsschema.RootSchemaKey)
 	return clean
+}
+
+func (s *service) validateBlockAvailability(ctx context.Context, contentType string, schema map[string]any, blocks []map[string]any) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	availability := cmsschema.ExtractMetadata(schema).BlockAvailability
+	if availability.Empty() {
+		return nil
+	}
+	if s == nil || s.embeddedBlocks == nil {
+		return ErrEmbeddedBlocksResolverMissing
+	}
+	return s.embeddedBlocks.ValidateBlockAvailability(ctx, contentType, availability, blocks)
+}
+
+func (s *service) validateEmbeddedBlocks(ctx context.Context, locale string, blocks []map[string]any, mode EmbeddedBlockValidationMode) error {
+	if len(blocks) == 0 {
+		return nil
+	}
+	if s == nil || s.embeddedBlocks == nil {
+		return ErrEmbeddedBlocksResolverMissing
+	}
+	return s.embeddedBlocks.ValidateEmbeddedBlocks(ctx, locale, blocks, mode)
+}
+
+func (s *service) migrateEmbeddedBlocks(ctx context.Context, locale string, blocks []map[string]any) ([]map[string]any, error) {
+	if len(blocks) == 0 {
+		return blocks, nil
+	}
+	if s == nil || s.embeddedBlocks == nil {
+		return nil, ErrEmbeddedBlocksResolverMissing
+	}
+	return s.embeddedBlocks.MigrateEmbeddedBlocks(ctx, locale, blocks)
+}
+
+func (s *service) migrateEmbeddedBlocksSnapshot(ctx context.Context, snapshot ContentVersionSnapshot) (ContentVersionSnapshot, error) {
+	if len(snapshot.Translations) == 0 {
+		return snapshot, nil
+	}
+	updated := cloneContentVersionSnapshot(snapshot)
+	for idx, tr := range updated.Translations {
+		if tr.Content == nil {
+			tr.Content = map[string]any{}
+		}
+		blocks, ok := ExtractEmbeddedBlocks(tr.Content)
+		if !ok || len(blocks) == 0 {
+			updated.Translations[idx].Content = tr.Content
+			continue
+		}
+		migrated, err := s.migrateEmbeddedBlocks(ctx, tr.Locale, blocks)
+		if err != nil {
+			return snapshot, err
+		}
+		updated.Translations[idx].Content = MergeEmbeddedBlocks(tr.Content, migrated)
+	}
+	return updated, nil
+}
+
+func (s *service) validateSnapshot(ctx context.Context, schema map[string]any, snapshot ContentVersionSnapshot, mode EmbeddedBlockValidationMode) error {
+	if len(snapshot.Translations) == 0 {
+		return nil
+	}
+	contentType := cmsschema.ExtractMetadata(schema).Slug
+	for _, tr := range snapshot.Translations {
+		contentPayload := tr.Content
+		if contentPayload == nil {
+			contentPayload = map[string]any{}
+		}
+		cleanContent := stripSchemaVersion(contentPayload)
+		if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
+			if err := s.validateBlockAvailability(ctx, contentType, schema, blocks); err != nil {
+				return err
+			}
+			if err := s.validateEmbeddedBlocks(ctx, tr.Locale, blocks, mode); err != nil {
+				return err
+			}
+		}
+		switch mode {
+		case EmbeddedBlockValidationDraft:
+			if err := validation.ValidatePartialPayload(schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
+				return err
+			}
+		default:
+			if err := validation.ValidatePayload(schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+func mergeBlocksContent(content map[string]any, blocks []map[string]any) map[string]any {
+	if len(blocks) == 0 {
+		return content
+	}
+	return MergeEmbeddedBlocks(content, blocks)
+}
+
+func (s *service) syncEmbeddedBlocks(ctx context.Context, contentID uuid.UUID, translations []ContentTranslationInput, actor uuid.UUID) error {
+	if s == nil || s.embeddedBlocks == nil {
+		return nil
+	}
+	if contentID == uuid.Nil {
+		return nil
+	}
+	return s.embeddedBlocks.SyncEmbeddedBlocks(ctx, contentID, translations, actor)
+}
+
+func (s *service) mergeLegacyBlocks(ctx context.Context, record *Content) {
+	if s == nil || s.embeddedBlocks == nil || record == nil {
+		return
+	}
+	if err := s.embeddedBlocks.MergeLegacyBlocks(ctx, record); err != nil {
+		s.log(ctx).Warn("content.embedded_blocks.merge_failed", "error", err, "content_id", record.ID)
+	}
 }
 
 func applySchemaVersion(payload map[string]any, version cmsschema.Version) map[string]any {
