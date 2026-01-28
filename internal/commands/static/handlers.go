@@ -132,7 +132,7 @@ func (h *BuildSiteHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for static build.
 func (h *BuildSiteHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "static-build",
+		Path:        []string{"static", "build"},
 		Group:       "static",
 		Description: "Build static site assets and pages",
 	}
@@ -227,7 +227,7 @@ func (h *DiffSiteHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for static diff.
 func (h *DiffSiteHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "static-diff",
+		Path:        []string{"static", "diff"},
 		Group:       "static",
 		Description: "Run a dry-run static build to produce a diff",
 	}
@@ -300,7 +300,7 @@ func (h *CleanSiteHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for static clean.
 func (h *CleanSiteHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "static-clean",
+		Path:        []string{"static", "clean"},
 		Group:       "static",
 		Description: "Clean generator output",
 	}
@@ -384,7 +384,7 @@ func (h *BuildSitemapHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for sitemap builds.
 func (h *BuildSitemapHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "static-sitemap",
+		Path:        []string{"static", "sitemap"},
 		Group:       "static",
 		Description: "Build static sitemaps",
 	}
