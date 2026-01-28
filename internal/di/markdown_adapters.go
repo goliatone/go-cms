@@ -36,6 +36,7 @@ func (a *markdownContentServiceAdapter) Create(ctx context.Context, req interfac
 			Title:   tr.Title,
 			Summary: tr.Summary,
 			Content: cloneFieldMap(tr.Fields),
+			Blocks:  cloneBlockSlice(tr.Blocks),
 		})
 	}
 
@@ -66,6 +67,7 @@ func (a *markdownContentServiceAdapter) Update(ctx context.Context, req interfac
 			Title:   tr.Title,
 			Summary: tr.Summary,
 			Content: cloneFieldMap(tr.Fields),
+			Blocks:  cloneBlockSlice(tr.Blocks),
 		})
 	}
 
@@ -136,6 +138,7 @@ func (a *markdownContentServiceAdapter) UpdateTranslation(ctx context.Context, r
 		Title:     req.Title,
 		Summary:   req.Summary,
 		Content:   cloneFieldMap(req.Fields),
+		Blocks:    cloneBlockSlice(req.Blocks),
 		UpdatedBy: req.UpdatedBy,
 	})
 	if err != nil {
@@ -602,6 +605,17 @@ func cloneFieldMap(fields map[string]any) map[string]any {
 	out := make(map[string]any, len(fields))
 	for k, v := range fields {
 		out[k] = v
+	}
+	return out
+}
+
+func cloneBlockSlice(blocks []map[string]any) []map[string]any {
+	if len(blocks) == 0 {
+		return nil
+	}
+	out := make([]map[string]any, len(blocks))
+	for i, block := range blocks {
+		out[i] = cloneFieldMap(block)
 	}
 	return out
 }

@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-slug"
 	"github.com/google/uuid"
 )
@@ -53,6 +54,7 @@ var (
 	ErrContentTypeSchemaRequired = errors.New("content type: schema is required")
 	ErrContentTypeIDRequired     = errors.New("content type: id required")
 	ErrContentTypeSlugInvalid    = errors.New("content type: slug contains invalid characters")
+	ErrContentTypeSchemaVersion  = errors.New("content type: schema version invalid")
 )
 
 // ContentTypeOption mutates the content type service.
@@ -143,6 +145,12 @@ func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRe
 		return nil, err
 	}
 
+	normalizedSchema, _, err := schema.EnsureSchemaVersion(record.Schema, record.Slug)
+	if err != nil {
+		return nil, ErrContentTypeSchemaVersion
+	}
+	record.Schema = normalizedSchema
+
 	created, err := s.repo.Create(ctx, record)
 	if err != nil {
 		return nil, err
@@ -198,6 +206,12 @@ func (s *contentTypeService) Update(ctx context.Context, req UpdateContentTypeRe
 	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID); err != nil {
 		return nil, err
 	}
+
+	normalizedSchema, _, err := schema.EnsureSchemaVersion(record.Schema, record.Slug)
+	if err != nil {
+		return nil, ErrContentTypeSchemaVersion
+	}
+	record.Schema = normalizedSchema
 
 	record.UpdatedAt = s.now()
 	updated, err := s.repo.Update(ctx, record)

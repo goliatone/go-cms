@@ -84,6 +84,10 @@ func (s *stubPageService) PublishDraft(ctx context.Context, req pages.PublishPag
 	return &pages.PageVersion{Version: req.Version}, nil
 }
 
+func (s *stubPageService) PreviewDraft(context.Context, pages.PreviewPageDraftRequest) (*pages.PagePreview, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (s *stubPageService) ListVersions(context.Context, uuid.UUID) ([]*pages.PageVersion, error) {
 	return nil, errors.New("not implemented")
 }

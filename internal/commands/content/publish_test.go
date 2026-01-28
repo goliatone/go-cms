@@ -70,6 +70,10 @@ func (s *stubContentService) PublishDraft(ctx context.Context, req content.Publi
 	return &content.ContentVersion{Version: req.Version}, nil
 }
 
+func (s *stubContentService) PreviewDraft(context.Context, content.PreviewContentDraftRequest) (*content.ContentPreview, error) {
+	return nil, errors.New("not implemented")
+}
+
 func (s *stubContentService) ListVersions(context.Context, uuid.UUID) ([]*content.ContentVersion, error) {
 	return nil, errors.New("not implemented")
 }

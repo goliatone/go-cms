@@ -38,10 +38,11 @@ func TestBlocksService_WithBunStorageAndCache(t *testing.T) {
 	keySerializer := repocache.NewDefaultKeySerializer()
 
 	defRepo := blocks.NewBunDefinitionRepositoryWithCache(bunDB, cacheService, keySerializer)
+	defVersionRepo := blocks.NewBunDefinitionVersionRepositoryWithCache(bunDB, cacheService, keySerializer)
 	instRepo := blocks.NewBunInstanceRepositoryWithCache(bunDB, cacheService, keySerializer)
 	trRepo := blocks.NewBunTranslationRepositoryWithCache(bunDB, cacheService, keySerializer)
 
-	svc := blocks.NewService(defRepo, instRepo, trRepo)
+	svc := blocks.NewService(defRepo, instRepo, trRepo, blocks.WithDefinitionVersionRepository(defVersionRepo))
 
 	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
 		Name:   "hero",
@@ -92,10 +93,20 @@ func registerBlockModels(t *testing.T, db *bun.DB) {
 			description TEXT,
 			icon TEXT,
 			schema TEXT,
+			schema_version TEXT,
 			defaults TEXT,
 			editor_style_url TEXT,
 			frontend_style_url TEXT,
 			deleted_at TEXT,
+			created_at TEXT,
+			updated_at TEXT
+		)`,
+		`CREATE TABLE IF NOT EXISTS block_definition_versions (
+			id TEXT PRIMARY KEY,
+			definition_id TEXT NOT NULL,
+			schema_version TEXT NOT NULL,
+			schema TEXT NOT NULL,
+			defaults TEXT,
 			created_at TEXT,
 			updated_at TEXT
 		)`,

@@ -3,6 +3,7 @@ package blocks
 import (
 	"context"
 	"maps"
+	"strings"
 	"sync"
 	"time"
 
@@ -18,10 +19,97 @@ func NewMemoryDefinitionRepository() DefinitionRepository {
 	}
 }
 
+// NewMemoryDefinitionVersionRepository constructs an "in memory" definition version repository.
+func NewMemoryDefinitionVersionRepository() DefinitionVersionRepository {
+	return &memoryDefinitionVersionRepository{
+		byID:         make(map[uuid.UUID]*DefinitionVersion),
+		byDefinition: make(map[uuid.UUID][]uuid.UUID),
+		byVersion:    make(map[string]uuid.UUID),
+	}
+}
+
 type memoryDefinitionRepository struct {
 	mu     sync.RWMutex
 	byID   map[uuid.UUID]*Definition
 	byName map[string]uuid.UUID
+}
+
+type memoryDefinitionVersionRepository struct {
+	mu           sync.RWMutex
+	byID         map[uuid.UUID]*DefinitionVersion
+	byDefinition map[uuid.UUID][]uuid.UUID
+	byVersion    map[string]uuid.UUID
+}
+
+func (m *memoryDefinitionVersionRepository) Create(_ context.Context, version *DefinitionVersion) (*DefinitionVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneDefinitionVersion(version)
+	m.byID[cloned.ID] = cloned
+	key := definitionVersionKey(cloned.DefinitionID, cloned.SchemaVersion)
+	m.byVersion[key] = cloned.ID
+	m.byDefinition[cloned.DefinitionID] = append(m.byDefinition[cloned.DefinitionID], cloned.ID)
+	return cloneDefinitionVersion(cloned), nil
+}
+
+func (m *memoryDefinitionVersionRepository) GetByID(_ context.Context, id uuid.UUID) (*DefinitionVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_definition_version", Key: id.String()}
+	}
+	return cloneDefinitionVersion(record), nil
+}
+
+func (m *memoryDefinitionVersionRepository) GetByDefinitionAndVersion(_ context.Context, definitionID uuid.UUID, version string) (*DefinitionVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	key := definitionVersionKey(definitionID, version)
+	id, ok := m.byVersion[key]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_definition_version", Key: key}
+	}
+	record, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "block_definition_version", Key: key}
+	}
+	return cloneDefinitionVersion(record), nil
+}
+
+func (m *memoryDefinitionVersionRepository) ListByDefinition(_ context.Context, definitionID uuid.UUID) ([]*DefinitionVersion, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	ids := m.byDefinition[definitionID]
+	records := make([]*DefinitionVersion, 0, len(ids))
+	for _, id := range ids {
+		if record, ok := m.byID[id]; ok {
+			records = append(records, cloneDefinitionVersion(record))
+		}
+	}
+	return records, nil
+}
+
+func (m *memoryDefinitionVersionRepository) Update(_ context.Context, version *DefinitionVersion) (*DefinitionVersion, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if _, ok := m.byID[version.ID]; !ok {
+		return nil, &NotFoundError{Resource: "block_definition_version", Key: version.ID.String()}
+	}
+
+	cloned := cloneDefinitionVersion(version)
+	m.byID[cloned.ID] = cloned
+	key := definitionVersionKey(cloned.DefinitionID, cloned.SchemaVersion)
+	m.byVersion[key] = cloned.ID
+	if _, ok := m.byDefinition[cloned.DefinitionID]; !ok {
+		m.byDefinition[cloned.DefinitionID] = []uuid.UUID{cloned.ID}
+	}
+	return cloneDefinitionVersion(cloned), nil
 }
 
 func (m *memoryDefinitionRepository) Create(_ context.Context, definition *Definition) (*Definition, error) {
@@ -417,6 +505,24 @@ func cloneDefinition(src *Definition) *Definition {
 		cloned.Defaults = maps.Clone(src.Defaults)
 	}
 	return &cloned
+}
+
+func cloneDefinitionVersion(src *DefinitionVersion) *DefinitionVersion {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.Schema != nil {
+		cloned.Schema = maps.Clone(src.Schema)
+	}
+	if src.Defaults != nil {
+		cloned.Defaults = maps.Clone(src.Defaults)
+	}
+	return &cloned
+}
+
+func definitionVersionKey(definitionID uuid.UUID, version string) string {
+	return definitionID.String() + ":" + strings.TrimSpace(version)
 }
 
 func cloneInstance(src *Instance) *Instance {

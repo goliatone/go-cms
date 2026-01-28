@@ -14,6 +14,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	storageadapter "github.com/goliatone/go-cms/internal/adapters/storage"
+	adminblocks "github.com/goliatone/go-cms/internal/admin/blocks"
 	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
 	admintranslations "github.com/goliatone/go-cms/internal/admin/translations"
 	"github.com/goliatone/go-cms/internal/blocks"
@@ -74,6 +75,7 @@ type Container struct {
 	translationState    *translationconfig.State
 	translationCancel   context.CancelFunc
 	translationAdminSvc *admintranslations.Service
+	blockAdminSvc       *adminblocks.Service
 
 	cache     interfaces.CacheProvider
 	template  interfaces.TemplateRenderer
@@ -97,15 +99,17 @@ type Container struct {
 	memoryPageRepo *pages.MemoryPageRepository
 	pageRepo       *pageRepositoryProxy
 
-	memoryBlockDefinitionRepo  blocks.DefinitionRepository
-	memoryBlockRepo            blocks.InstanceRepository
-	memoryBlockTranslationRepo blocks.TranslationRepository
-	memoryBlockVersionRepo     blocks.InstanceVersionRepository
+	memoryBlockDefinitionRepo        blocks.DefinitionRepository
+	memoryBlockDefinitionVersionRepo blocks.DefinitionVersionRepository
+	memoryBlockRepo                  blocks.InstanceRepository
+	memoryBlockTranslationRepo       blocks.TranslationRepository
+	memoryBlockVersionRepo           blocks.InstanceVersionRepository
 
-	blockRepo            *blockInstanceRepositoryProxy
-	blockDefinitionRepo  *blockDefinitionRepositoryProxy
-	blockTranslationRepo *blockTranslationRepositoryProxy
-	blockVersionRepo     *blockVersionRepositoryProxy
+	blockRepo                  *blockInstanceRepositoryProxy
+	blockDefinitionRepo        *blockDefinitionRepositoryProxy
+	blockDefinitionVersionRepo *blockDefinitionVersionRepositoryProxy
+	blockTranslationRepo       *blockTranslationRepositoryProxy
+	blockVersionRepo           *blockVersionRepositoryProxy
 
 	memoryMenuRepo              menus.MenuRepository
 	memoryMenuItemRepo          menus.MenuItemRepository
@@ -137,6 +141,7 @@ type Container struct {
 	contentTypeSvc         content.ContentTypeService
 	pageSvc                pages.Service
 	blockSvc               blocks.Service
+	embeddedBlockBridge    *blocks.EmbeddedBlockBridge
 	i18nSvc                i18n.Service
 	menuSvc                menus.Service
 	widgetSvc              widgets.Service
@@ -478,6 +483,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryPageRepo := pages.NewMemoryPageRepository()
 
 	memoryBlockDefRepo := blocks.NewMemoryDefinitionRepository()
+	memoryBlockDefVersionRepo := blocks.NewMemoryDefinitionVersionRepository()
 	memoryBlockRepo := blocks.NewMemoryInstanceRepository()
 	memoryBlockTranslationRepo := blocks.NewMemoryTranslationRepository()
 	memoryBlockVersionRepo := blocks.NewMemoryInstanceVersionRepository()
@@ -527,10 +533,11 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		localeRepo:      newLocaleRepositoryProxy(memoryLocaleRepo),
 		pageRepo:        newPageRepositoryProxy(memoryPageRepo),
 
-		memoryBlockDefinitionRepo:  memoryBlockDefRepo,
-		memoryBlockRepo:            memoryBlockRepo,
-		memoryBlockTranslationRepo: memoryBlockTranslationRepo,
-		memoryBlockVersionRepo:     memoryBlockVersionRepo,
+		memoryBlockDefinitionRepo:        memoryBlockDefRepo,
+		memoryBlockDefinitionVersionRepo: memoryBlockDefVersionRepo,
+		memoryBlockRepo:                  memoryBlockRepo,
+		memoryBlockTranslationRepo:       memoryBlockTranslationRepo,
+		memoryBlockVersionRepo:           memoryBlockVersionRepo,
 
 		memoryMenuRepo:              memoryMenuRepo,
 		memoryMenuItemRepo:          memoryMenuItemRepo,
@@ -543,10 +550,11 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		memoryThemeRepo:             memoryThemeRepo,
 		memoryTemplateRepo:          memoryTemplateRepo,
 
-		blockDefinitionRepo:  newBlockDefinitionRepositoryProxy(memoryBlockDefRepo),
-		blockRepo:            newBlockInstanceRepositoryProxy(memoryBlockRepo),
-		blockTranslationRepo: newBlockTranslationRepositoryProxy(memoryBlockTranslationRepo),
-		blockVersionRepo:     newBlockVersionRepositoryProxy(memoryBlockVersionRepo),
+		blockDefinitionRepo:        newBlockDefinitionRepositoryProxy(memoryBlockDefRepo),
+		blockDefinitionVersionRepo: newBlockDefinitionVersionRepositoryProxy(memoryBlockDefVersionRepo),
+		blockRepo:                  newBlockInstanceRepositoryProxy(memoryBlockRepo),
+		blockTranslationRepo:       newBlockTranslationRepositoryProxy(memoryBlockTranslationRepo),
+		blockVersionRepo:           newBlockVersionRepositoryProxy(memoryBlockVersionRepo),
 
 		menuRepo:              memoryMenuRepo,
 		menuItemRepo:          memoryMenuItemRepo,
@@ -598,6 +606,50 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		requireTranslations = false
 	}
 
+	if c.blockSvc == nil {
+		blockOpts := []blocks.ServiceOption{
+			blocks.WithMediaService(c.mediaSvc),
+			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
+			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
+			blocks.WithActivityEmitter(c.activityEmitter),
+			blocks.WithRequireTranslations(requireTranslations),
+			blocks.WithTranslationsEnabled(translationsEnabled),
+			blocks.WithTranslationState(c.translationState),
+		}
+		if c.blockDefinitionVersionRepo != nil {
+			blockOpts = append(blockOpts, blocks.WithDefinitionVersionRepository(c.blockDefinitionVersionRepo))
+		}
+		if c.blockVersionRepo != nil {
+			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
+		}
+		if c.Config.Features.Shortcodes {
+			blockOpts = append(blockOpts, blocks.WithShortcodeService(c.ShortcodeService()))
+		}
+		c.blockSvc = blocks.NewService(
+			c.blockDefinitionRepo,
+			c.blockRepo,
+			c.blockTranslationRepo,
+			blockOpts...,
+		)
+	}
+
+	if c.embeddedBlockBridge == nil && c.blockSvc != nil {
+		bridgeOpts := []blocks.EmbeddedBlockBridgeOption{
+			blocks.WithEmbeddedBlocksContentRepository(c.contentRepo),
+			blocks.WithEmbeddedBlocksDefaultLocale(c.Config.DefaultLocale),
+			blocks.WithEmbeddedBlocksLogger(logging.ModuleLogger(c.loggerProvider, "cms.blocks.embedded")),
+		}
+		c.embeddedBlockBridge = blocks.NewEmbeddedBlockBridge(
+			c.blockSvc,
+			c.localeRepo,
+			contentPageResolver{pages: c.pageRepo},
+			bridgeOpts...,
+		)
+	}
+	if c.blockAdminSvc == nil && c.embeddedBlockBridge != nil {
+		c.blockAdminSvc = adminblocks.NewService(c.embeddedBlockBridge)
+	}
+
 	if c.contentSvc == nil {
 		contentOpts := []content.ServiceOption{
 			content.WithVersioningEnabled(c.Config.Features.Versioning),
@@ -616,6 +668,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithTranslationState(c.translationState),
 			content.WithDefaultLocale(c.Config.DefaultLocale, c.Config.I18N.DefaultLocaleRequired),
 		)
+		if c.embeddedBlockBridge != nil {
+			contentOpts = append(contentOpts, content.WithEmbeddedBlocksResolver(c.embeddedBlockBridge))
+		}
 		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
 	}
 
@@ -625,30 +680,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeSlugNormalizer(c.slugger))
 		}
 		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
-	}
-
-	if c.blockSvc == nil {
-		blockOpts := []blocks.ServiceOption{
-			blocks.WithMediaService(c.mediaSvc),
-			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
-			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
-			blocks.WithActivityEmitter(c.activityEmitter),
-			blocks.WithRequireTranslations(requireTranslations),
-			blocks.WithTranslationsEnabled(translationsEnabled),
-			blocks.WithTranslationState(c.translationState),
-		}
-		if c.blockVersionRepo != nil {
-			blockOpts = append(blockOpts, blocks.WithInstanceVersionRepository(c.blockVersionRepo))
-		}
-		if c.Config.Features.Shortcodes {
-			blockOpts = append(blockOpts, blocks.WithShortcodeService(c.ShortcodeService()))
-		}
-		c.blockSvc = blocks.NewService(
-			c.blockDefinitionRepo,
-			c.blockRepo,
-			c.blockTranslationRepo,
-			blockOpts...,
-		)
 	}
 
 	if c.themeSvc == nil {
@@ -708,6 +739,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		)
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
+		}
+		if c.embeddedBlockBridge != nil {
+			pageOpts = append(pageOpts, pages.WithEmbeddedBlockBridge(c.embeddedBlockBridge))
 		}
 		if c.widgetSvc != nil {
 			pageOpts = append(pageOpts, pages.WithWidgetService(c.widgetSvc))
@@ -917,6 +951,9 @@ func (c *Container) configureRepositories() {
 		if c.blockDefinitionRepo != nil {
 			c.blockDefinitionRepo.swap(blocks.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
 		}
+		if c.blockDefinitionVersionRepo != nil {
+			c.blockDefinitionVersionRepo.swap(blocks.NewBunDefinitionVersionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
 		if c.blockRepo != nil {
 			c.blockRepo.swap(blocks.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
 		}
@@ -957,6 +994,9 @@ func (c *Container) configureRepositories() {
 	}
 	if c.blockDefinitionRepo != nil && c.memoryBlockDefinitionRepo != nil {
 		c.blockDefinitionRepo.swap(c.memoryBlockDefinitionRepo)
+	}
+	if c.blockDefinitionVersionRepo != nil && c.memoryBlockDefinitionVersionRepo != nil {
+		c.blockDefinitionVersionRepo.swap(c.memoryBlockDefinitionVersionRepo)
 	}
 	if c.blockRepo != nil && c.memoryBlockRepo != nil {
 		c.blockRepo.swap(c.memoryBlockRepo)
@@ -1819,6 +1859,11 @@ func (c *Container) StorageAdminService() *adminstorage.Service {
 // TranslationAdminService exposes the translation settings admin helper.
 func (c *Container) TranslationAdminService() *admintranslations.Service {
 	return c.translationAdminSvc
+}
+
+// BlockAdminService exposes the embedded blocks admin helper.
+func (c *Container) BlockAdminService() *adminblocks.Service {
+	return c.blockAdminSvc
 }
 
 // PageService returns the configured page service.

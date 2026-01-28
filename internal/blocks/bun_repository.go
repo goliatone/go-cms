@@ -68,6 +68,7 @@ func (r *BunDefinitionRepository) Update(ctx context.Context, definition *Defini
 			"description",
 			"icon",
 			"schema",
+			"schema_version",
 			"defaults",
 			"editor_style_url",
 			"frontend_style_url",
@@ -82,6 +83,85 @@ func (r *BunDefinitionRepository) Update(ctx context.Context, definition *Defini
 
 func (r *BunDefinitionRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.repo.Delete(ctx, &Definition{ID: id})
+}
+
+// BunDefinitionVersionRepository implements DefinitionVersionRepository with optional caching.
+type BunDefinitionVersionRepository struct {
+	repo repository.Repository[*DefinitionVersion]
+}
+
+// NewBunDefinitionVersionRepository creates a definition version repository without caching.
+func NewBunDefinitionVersionRepository(db *bun.DB) *BunDefinitionVersionRepository {
+	return NewBunDefinitionVersionRepositoryWithCache(db, nil, nil)
+}
+
+// NewBunDefinitionVersionRepositoryWithCache creates a definition version repository with caching services.
+func NewBunDefinitionVersionRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, serializer cache.KeySerializer) *BunDefinitionVersionRepository {
+	base := NewDefinitionVersionRepository(db)
+	if cacheService != nil && serializer != nil {
+		base = repositorycache.New(base, cacheService, serializer)
+	}
+	return &BunDefinitionVersionRepository{repo: base}
+}
+
+func (r *BunDefinitionVersionRepository) Create(ctx context.Context, version *DefinitionVersion) (*DefinitionVersion, error) {
+	record, err := r.repo.Create(ctx, version)
+	if err != nil {
+		return nil, err
+	}
+	return record, nil
+}
+
+func (r *BunDefinitionVersionRepository) GetByID(ctx context.Context, id uuid.UUID) (*DefinitionVersion, error) {
+	record, err := r.repo.GetByID(ctx, id.String())
+	if err != nil {
+		return nil, mapRepositoryError(err, "block_definition_version", id.String())
+	}
+	return record, nil
+}
+
+func (r *BunDefinitionVersionRepository) GetByDefinitionAndVersion(ctx context.Context, definitionID uuid.UUID, version string) (*DefinitionVersion, error) {
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.definition_id = ?", definitionID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.schema_version = ?", version)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "block_definition_version", Key: definitionVersionKey(definitionID, version)}
+	}
+	return records[0], nil
+}
+
+func (r *BunDefinitionVersionRepository) ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]*DefinitionVersion, error) {
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.Where("?TableAlias.definition_id = ?", definitionID)
+	}), repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.OrderExpr("?TableAlias.created_at ASC")
+	}))
+	return records, err
+}
+
+func (r *BunDefinitionVersionRepository) Update(ctx context.Context, version *DefinitionVersion) (*DefinitionVersion, error) {
+	updated, err := r.repo.Update(ctx, version,
+		repository.UpdateByID(version.ID.String()),
+		repository.UpdateColumns(
+			"schema_version",
+			"schema",
+			"defaults",
+			"updated_at",
+		),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
 }
 
 // BunInstanceRepository implements InstanceRepository with optional caching.

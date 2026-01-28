@@ -179,6 +179,22 @@ func (r *BunContentRepository) ReplaceTranslations(ctx context.Context, contentI
 	})
 }
 
+// ListTranslations returns translations for a content record.
+func (r *BunContentRepository) ListTranslations(ctx context.Context, contentID uuid.UUID) ([]*ContentTranslation, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("content repository: database not configured")
+	}
+	records, _, err := r.translations.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.content_id = ?", contentID)
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
+}
+
 func (r *BunContentRepository) Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error {
 	if !hardDelete {
 		return fmt.Errorf("content repository: soft delete not supported")

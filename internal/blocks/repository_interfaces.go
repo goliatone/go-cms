@@ -17,6 +17,15 @@ type DefinitionRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
+// DefinitionVersionRepository exposes persistence operations for block definition versions.
+type DefinitionVersionRepository interface {
+	Create(ctx context.Context, version *DefinitionVersion) (*DefinitionVersion, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*DefinitionVersion, error)
+	GetByDefinitionAndVersion(ctx context.Context, definitionID uuid.UUID, version string) (*DefinitionVersion, error)
+	ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]*DefinitionVersion, error)
+	Update(ctx context.Context, version *DefinitionVersion) (*DefinitionVersion, error)
+}
+
 // InstanceRepository exposes persistence operations for block instances.
 type InstanceRepository interface {
 	Create(ctx context.Context, instance *Instance) (*Instance, error)

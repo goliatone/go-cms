@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/media"
+	cmsschema "github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
@@ -25,6 +26,9 @@ type Service interface {
 	UpdateDefinition(ctx context.Context, input UpdateDefinitionInput) (*Definition, error)
 	DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error
 	SyncRegistry(ctx context.Context) error
+	CreateDefinitionVersion(ctx context.Context, input CreateDefinitionVersionInput) (*DefinitionVersion, error)
+	GetDefinitionVersion(ctx context.Context, definitionID uuid.UUID, version string) (*DefinitionVersion, error)
+	ListDefinitionVersions(ctx context.Context, definitionID uuid.UUID) ([]*DefinitionVersion, error)
 
 	CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error)
 	ListPageInstances(ctx context.Context, pageID uuid.UUID) ([]*Instance, error)
@@ -62,6 +66,13 @@ type UpdateDefinitionInput struct {
 	Defaults         map[string]any
 	EditorStyleURL   *string
 	FrontendStyleURL *string
+}
+
+// CreateDefinitionVersionInput captures schema version updates for a definition.
+type CreateDefinitionVersionInput struct {
+	DefinitionID uuid.UUID
+	Schema       map[string]any
+	Defaults     map[string]any
 }
 
 type DeleteDefinitionRequest struct {
@@ -148,10 +159,14 @@ var (
 	ErrDefinitionNameRequired          = errors.New("blocks: definition name required")
 	ErrDefinitionSchemaRequired        = errors.New("blocks: definition schema required")
 	ErrDefinitionSchemaInvalid         = errors.New("blocks: definition schema invalid")
+	ErrDefinitionSchemaVersionInvalid  = errors.New("blocks: definition schema version invalid")
 	ErrDefinitionExists                = errors.New("blocks: definition already exists")
 	ErrDefinitionIDRequired            = errors.New("blocks: definition id required")
 	ErrDefinitionInUse                 = errors.New("blocks: definition has active instances")
 	ErrDefinitionSoftDeleteUnsupported = errors.New("blocks: soft delete not supported for definitions")
+	ErrDefinitionVersionRequired       = errors.New("blocks: definition version required")
+	ErrDefinitionVersionExists         = errors.New("blocks: definition version already exists")
+	ErrDefinitionVersioningDisabled    = errors.New("blocks: definition versioning disabled")
 
 	ErrInstanceDefinitionRequired    = errors.New("blocks: definition id required")
 	ErrInstanceRegionRequired        = errors.New("blocks: region required")
@@ -173,6 +188,8 @@ var (
 	ErrInstanceVersionAlreadyPublished  = errors.New("blocks: version already published")
 	ErrInstanceVersionRetentionExceeded = errors.New("blocks: version retention limit reached")
 	ErrMediaReferenceRequired           = errors.New("blocks: media reference requires id or path")
+	ErrBlockSchemaMigrationRequired     = errors.New("blocks: schema migration required")
+	ErrBlockSchemaValidationFailed      = errors.New("blocks: schema validation failed")
 )
 
 type IDGenerator func() uuid.UUID
@@ -200,6 +217,24 @@ func WithRegistry(reg *Registry) ServiceOption {
 	return func(s *service) {
 		if reg != nil {
 			s.registry = reg
+		}
+	}
+}
+
+// WithDefinitionVersionRepository wires the repository used for block definition version persistence.
+func WithDefinitionVersionRepository(repo DefinitionVersionRepository) ServiceOption {
+	return func(s *service) {
+		if repo != nil {
+			s.definitionVersions = repo
+		}
+	}
+}
+
+// WithSchemaMigrator wires the migration runner used for block schema upgrades.
+func WithSchemaMigrator(migrator *Migrator) ServiceOption {
+	return func(s *service) {
+		if migrator != nil {
+			s.schemaMigrator = migrator
 		}
 	}
 }
@@ -276,6 +311,7 @@ func WithTranslationState(state *translationconfig.State) ServiceOption {
 
 type service struct {
 	definitions           DefinitionRepository
+	definitionVersions    DefinitionVersionRepository
 	instances             InstanceRepository
 	translations          TranslationRepository
 	versions              InstanceVersionRepository
@@ -283,6 +319,7 @@ type service struct {
 	id                    IDGenerator
 	idCustom              bool
 	registry              *Registry
+	schemaMigrator        *Migrator
 	media                 media.Service
 	versioningEnabled     bool
 	versionRetentionLimit int
@@ -307,6 +344,10 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 
 	for _, opt := range opts {
 		opt(s)
+	}
+
+	if s.schemaMigrator == nil && s.registry != nil {
+		s.schemaMigrator = s.registry.Migrator()
 	}
 
 	if s.registry != nil {
@@ -355,7 +396,11 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	if len(input.Schema) == 0 {
 		return nil, ErrDefinitionSchemaRequired
 	}
-	if err := validation.ValidateSchema(input.Schema); err != nil {
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, name)
+	if err != nil {
+		return nil, ErrDefinitionSchemaVersionInvalid
+	}
+	if err := validation.ValidateSchema(normalizedSchema); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
 	}
 
@@ -368,7 +413,8 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		Name:             name,
 		Description:      input.Description,
 		Icon:             input.Icon,
-		Schema:           maps.Clone(input.Schema),
+		Schema:           maps.Clone(normalizedSchema),
+		SchemaVersion:    version.String(),
 		Defaults:         maps.Clone(input.Defaults),
 		EditorStyleURL:   input.EditorStyleURL,
 		FrontendStyleURL: input.FrontendStyleURL,
@@ -378,7 +424,16 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		definition.ID = s.id()
 	}
 
-	return s.definitions.Create(ctx, definition)
+	created, err := s.definitions.Create(ctx, definition)
+	if err != nil {
+		return nil, err
+	}
+	if s.definitionVersions != nil {
+		if _, err := s.upsertDefinitionVersion(ctx, created, normalizedSchema, input.Defaults, version, true); err != nil {
+			return nil, err
+		}
+	}
+	return created, nil
 }
 
 func (s *service) GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error) {
@@ -397,6 +452,8 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 	if err != nil {
 		return nil, err
 	}
+	schemaUpdated := false
+	defaultsUpdated := false
 
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
@@ -425,13 +482,12 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 		if len(input.Schema) == 0 {
 			return nil, ErrDefinitionSchemaRequired
 		}
-		if err := validation.ValidateSchema(input.Schema); err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
-		}
 		definition.Schema = maps.Clone(input.Schema)
+		schemaUpdated = true
 	}
 	if input.Defaults != nil {
 		definition.Defaults = maps.Clone(input.Defaults)
+		defaultsUpdated = true
 	}
 	if input.EditorStyleURL != nil {
 		definition.EditorStyleURL = cloneStringValue(input.EditorStyleURL)
@@ -439,9 +495,30 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 	if input.FrontendStyleURL != nil {
 		definition.FrontendStyleURL = cloneStringValue(input.FrontendStyleURL)
 	}
+	if definition.Schema == nil {
+		return nil, ErrDefinitionSchemaRequired
+	}
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(definition.Schema, definition.Name)
+	if err != nil {
+		return nil, ErrDefinitionSchemaVersionInvalid
+	}
+	if err := validation.ValidateSchema(normalizedSchema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
+	}
+	definition.Schema = normalizedSchema
+	definition.SchemaVersion = version.String()
 	definition.UpdatedAt = s.now()
 
-	return s.definitions.Update(ctx, definition)
+	updated, err := s.definitions.Update(ctx, definition)
+	if err != nil {
+		return nil, err
+	}
+	if s.definitionVersions != nil && (schemaUpdated || defaultsUpdated) {
+		if _, err := s.upsertDefinitionVersion(ctx, updated, normalizedSchema, updated.Defaults, version, false); err != nil {
+			return nil, err
+		}
+	}
+	return updated, nil
 }
 
 func (s *service) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error {
@@ -460,6 +537,74 @@ func (s *service) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequ
 		return ErrDefinitionInUse
 	}
 	return s.definitions.Delete(ctx, req.ID)
+}
+
+func (s *service) CreateDefinitionVersion(ctx context.Context, input CreateDefinitionVersionInput) (*DefinitionVersion, error) {
+	if input.DefinitionID == uuid.Nil {
+		return nil, ErrDefinitionIDRequired
+	}
+	if input.Schema == nil {
+		return nil, ErrDefinitionSchemaRequired
+	}
+	definition, err := s.definitions.GetByID(ctx, input.DefinitionID)
+	if err != nil {
+		return nil, err
+	}
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, definition.Name)
+	if err != nil {
+		return nil, ErrDefinitionSchemaVersionInvalid
+	}
+	if err := validation.ValidateSchema(normalizedSchema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
+	}
+	if s.definitionVersions == nil {
+		return nil, ErrDefinitionVersioningDisabled
+	}
+	if _, err := s.definitionVersions.GetByDefinitionAndVersion(ctx, definition.ID, version.String()); err == nil {
+		return nil, ErrDefinitionVersionExists
+	} else {
+		var nf *NotFoundError
+		if !errors.As(err, &nf) {
+			return nil, err
+		}
+	}
+	created, err := s.upsertDefinitionVersion(ctx, definition, normalizedSchema, input.Defaults, version, true)
+	if err != nil {
+		return nil, err
+	}
+	if compareSchemaVersions(version.String(), definition.SchemaVersion) >= 0 {
+		definition.Schema = normalizedSchema
+		definition.Defaults = maps.Clone(input.Defaults)
+		definition.SchemaVersion = version.String()
+		definition.UpdatedAt = s.now()
+		if _, err := s.definitions.Update(ctx, definition); err != nil {
+			return nil, err
+		}
+	}
+	return created, nil
+}
+
+func (s *service) GetDefinitionVersion(ctx context.Context, definitionID uuid.UUID, version string) (*DefinitionVersion, error) {
+	if definitionID == uuid.Nil {
+		return nil, ErrDefinitionIDRequired
+	}
+	if strings.TrimSpace(version) == "" {
+		return nil, ErrDefinitionVersionRequired
+	}
+	if s.definitionVersions == nil {
+		return nil, ErrDefinitionVersioningDisabled
+	}
+	return s.definitionVersions.GetByDefinitionAndVersion(ctx, definitionID, strings.TrimSpace(version))
+}
+
+func (s *service) ListDefinitionVersions(ctx context.Context, definitionID uuid.UUID) ([]*DefinitionVersion, error) {
+	if definitionID == uuid.Nil {
+		return nil, ErrDefinitionIDRequired
+	}
+	if s.definitionVersions == nil {
+		return nil, ErrDefinitionVersioningDisabled
+	}
+	return s.definitionVersions.ListByDefinition(ctx, definitionID)
 }
 
 func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput) (*Instance, error) {
@@ -674,8 +819,9 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	if err != nil {
 		return nil, err
 	}
-	if err := validation.ValidatePayload(definition.Schema, input.Content); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrTranslationSchemaInvalid, err)
+	normalizedContent, err := s.prepareTranslationPayload(definition, input.Content)
+	if err != nil {
+		return nil, err
 	}
 
 	if existing, err := s.translations.GetByInstanceAndLocale(ctx, input.BlockInstanceID, input.LocaleID); err == nil && existing != nil {
@@ -691,7 +837,7 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 		ID:                s.id(),
 		BlockInstanceID:   input.BlockInstanceID,
 		LocaleID:          input.LocaleID,
-		Content:           maps.Clone(input.Content),
+		Content:           maps.Clone(normalizedContent),
 		AttributeOverride: maps.Clone(input.AttributeOverrides),
 		MediaBindings:     media.CloneBindingSet(input.MediaBindings),
 		CreatedAt:         s.now(),
@@ -756,8 +902,9 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 	if err != nil {
 		return nil, err
 	}
-	if err := validation.ValidatePayload(definition.Schema, input.Content); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrTranslationSchemaInvalid, err)
+	normalizedContent, err := s.prepareTranslationPayload(definition, input.Content)
+	if err != nil {
+		return nil, err
 	}
 
 	translation, err := s.translations.GetByInstanceAndLocale(ctx, input.BlockInstanceID, input.LocaleID)
@@ -771,7 +918,7 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 	if input.MediaBindings != nil {
 		translation.MediaBindings = media.CloneBindingSet(input.MediaBindings)
 	}
-	translation.Content = maps.Clone(input.Content)
+	translation.Content = maps.Clone(normalizedContent)
 	translation.UpdatedAt = s.now()
 
 	updated, err := s.translations.Update(ctx, translation)
@@ -948,6 +1095,21 @@ func (s *service) PublishDraft(ctx context.Context, req PublishInstanceDraftRequ
 	}
 	if version.Status == domain.StatusPublished {
 		return nil, ErrInstanceVersionAlreadyPublished
+	}
+
+	if definition, defErr := s.definitions.GetByID(ctx, instance.DefinitionID); defErr == nil {
+		migrated, migratedAny, err := s.migrateSnapshot(definition, version.Snapshot)
+		if err != nil {
+			return nil, err
+		}
+		if migratedAny {
+			if err := s.validateSnapshot(definition, migrated); err != nil {
+				return nil, err
+			}
+			version.Snapshot = migrated
+		}
+	} else if defErr != nil {
+		return nil, defErr
 	}
 
 	publishedAt := s.now()
@@ -1157,6 +1319,121 @@ func (s *service) buildInstanceSnapshot(ctx context.Context, instance *Instance)
 	return snapshot, nil
 }
 
+func (s *service) prepareTranslationPayload(definition *Definition, content map[string]any) (map[string]any, error) {
+	if definition == nil || definition.Schema == nil {
+		return nil, ErrDefinitionSchemaRequired
+	}
+	version, err := resolveDefinitionSchemaVersion(definition.Schema, definition.Name)
+	if err != nil {
+		return nil, ErrDefinitionSchemaVersionInvalid
+	}
+	clean := stripSchemaVersion(content)
+	if err := validation.ValidatePayload(definition.Schema, clean); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrTranslationSchemaInvalid, err)
+	}
+	return applySchemaVersion(clean, version), nil
+}
+
+func (s *service) migrateSnapshot(definition *Definition, snapshot BlockVersionSnapshot) (BlockVersionSnapshot, bool, error) {
+	if definition == nil {
+		return snapshot, false, nil
+	}
+	if len(snapshot.Translations) == 0 {
+		return snapshot, false, nil
+	}
+	target, err := resolveDefinitionSchemaVersion(definition.Schema, definition.Name)
+	if err != nil {
+		return snapshot, false, ErrDefinitionSchemaVersionInvalid
+	}
+	updated := cloneBlockVersionSnapshot(snapshot)
+	migratedAny := false
+	for idx, tr := range updated.Translations {
+		migrated, didMigrate, err := s.migratePayload(definition.Name, target, tr.Content)
+		if err != nil {
+			return snapshot, false, err
+		}
+		if didMigrate {
+			migratedAny = true
+		}
+		updated.Translations[idx].Content = migrated
+	}
+	return updated, migratedAny, nil
+}
+
+func (s *service) migratePayload(slug string, target cmsschema.Version, payload map[string]any) (map[string]any, bool, error) {
+	current, ok := cmsschema.RootSchemaVersion(payload)
+	if !ok || current.String() == target.String() {
+		return applySchemaVersion(stripSchemaVersion(payload), target), false, nil
+	}
+	if s.schemaMigrator == nil {
+		return nil, false, ErrBlockSchemaMigrationRequired
+	}
+	if current.Slug != "" && current.Slug != target.Slug {
+		return nil, false, ErrDefinitionSchemaVersionInvalid
+	}
+	trimmed := stripSchemaVersion(payload)
+	migrated, err := s.schemaMigrator.Migrate(strings.TrimSpace(slug), current.String(), target.String(), trimmed)
+	if err != nil {
+		return nil, false, fmt.Errorf("%w: %v", ErrBlockSchemaMigrationRequired, err)
+	}
+	return applySchemaVersion(migrated, target), true, nil
+}
+
+func (s *service) validateSnapshot(definition *Definition, snapshot BlockVersionSnapshot) error {
+	if definition == nil || definition.Schema == nil {
+		return nil
+	}
+	for _, tr := range snapshot.Translations {
+		if tr.Content == nil {
+			continue
+		}
+		clean := stripSchemaVersion(tr.Content)
+		if err := validation.ValidatePayload(definition.Schema, clean); err != nil {
+			return fmt.Errorf("%w: %s", ErrBlockSchemaValidationFailed, err)
+		}
+	}
+	return nil
+}
+
+func (s *service) upsertDefinitionVersion(ctx context.Context, definition *Definition, schema map[string]any, defaults map[string]any, version cmsschema.Version, createOnly bool) (*DefinitionVersion, error) {
+	if s.definitionVersions == nil {
+		return nil, ErrDefinitionVersioningDisabled
+	}
+	if definition == nil || definition.ID == uuid.Nil {
+		return nil, ErrDefinitionIDRequired
+	}
+	if strings.TrimSpace(version.String()) == "" {
+		return nil, ErrDefinitionVersionRequired
+	}
+
+	existing, err := s.definitionVersions.GetByDefinitionAndVersion(ctx, definition.ID, version.String())
+	if err == nil {
+		if createOnly {
+			return nil, ErrDefinitionVersionExists
+		}
+		existing.SchemaVersion = version.String()
+		existing.Schema = maps.Clone(schema)
+		existing.Defaults = maps.Clone(defaults)
+		existing.UpdatedAt = s.now()
+		return s.definitionVersions.Update(ctx, existing)
+	}
+	var nf *NotFoundError
+	if !errors.As(err, &nf) && err != nil {
+		return nil, err
+	}
+
+	record := &DefinitionVersion{
+		ID:            s.id(),
+		DefinitionID:  definition.ID,
+		SchemaVersion: version.String(),
+		Schema:        maps.Clone(schema),
+		Defaults:      maps.Clone(defaults),
+		CreatedAt:     s.now(),
+		UpdatedAt:     s.now(),
+	}
+	return s.definitionVersions.Create(ctx, record)
+}
+
 func validateMediaBindings(bindings media.BindingSet) error {
 	for slot, entries := range bindings {
 		for _, binding := range entries {
@@ -1290,37 +1567,47 @@ func (s *service) SyncRegistry(ctx context.Context) error {
 }
 
 func (s *service) applyRegistry(ctx context.Context) {
-	for _, def := range s.registry.List() {
-		if _, err := s.definitions.GetByName(ctx, def.Name); err == nil {
-			continue
-		}
-		_, _ = s.RegisterDefinition(ctx, def)
-	}
-}
-
-type Registry struct {
-	entries map[string]RegisterDefinitionInput
-}
-
-func NewRegistry() *Registry {
-	return &Registry{entries: make(map[string]RegisterDefinitionInput)}
-}
-
-func (r *Registry) Register(input RegisterDefinitionInput) {
-	if r.entries == nil {
-		r.entries = make(map[string]RegisterDefinitionInput)
-	}
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
+	if s.registry == nil {
 		return
 	}
-	r.entries[name] = input
-}
-
-func (r *Registry) List() []RegisterDefinitionInput {
-	out := make([]RegisterDefinitionInput, 0, len(r.entries))
-	for _, entry := range r.entries {
-		out = append(out, entry)
+	for _, def := range s.registry.List() {
+		existing, err := s.definitions.GetByName(ctx, def.Name)
+		if err != nil {
+			_, _ = s.RegisterDefinition(ctx, def)
+			continue
+		}
+		targetVersion, err := resolveDefinitionSchemaVersion(def.Schema, def.Name)
+		if err != nil {
+			continue
+		}
+		currentVersion, err := resolveDefinitionSchemaVersion(existing.Schema, existing.Name)
+		if err != nil {
+			currentVersion = cmsschema.DefaultVersion(existing.Name)
+		}
+		if compareSchemaVersions(targetVersion.String(), currentVersion.String()) > 0 {
+			_, _ = s.UpdateDefinition(ctx, UpdateDefinitionInput{
+				ID:               existing.ID,
+				Schema:           def.Schema,
+				Defaults:         def.Defaults,
+				Description:      def.Description,
+				Icon:             def.Icon,
+				EditorStyleURL:   def.EditorStyleURL,
+				FrontendStyleURL: def.FrontendStyleURL,
+			})
+		}
 	}
-	return out
+	if s.definitionVersions == nil {
+		return
+	}
+	for _, def := range s.registry.ListAllVersions() {
+		definition, err := s.definitions.GetByName(ctx, def.Name)
+		if err != nil {
+			continue
+		}
+		normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(def.Schema, def.Name)
+		if err != nil {
+			continue
+		}
+		_, _ = s.upsertDefinitionVersion(ctx, definition, normalizedSchema, def.Defaults, version, false)
+	}
 }

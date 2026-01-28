@@ -8,10 +8,12 @@ go-cms is a modular, headless CMS toolkit for Go. It bundles reusable services f
 - [Installation](#installation)
 - [Quick Start](#quick-start)
 - [Core Concepts](#core-concepts)
+- [Slug Rules & Schema Validation](#slug-rules--schema-validation)
 - [Static Site Generation](#static-site-generation)
 - [Markdown Import & Sync](#markdown-import--sync)
 - [Configuration](#configuration)
 - [Architecture & Extensibility](#architecture--extensibility)
+- [GraphQL Prerequisites](#graphql-prerequisites)
 - [CLI Reference](#cli-reference)
 - [Development](#development)
 - [Requirements & Dependencies](#requirements--dependencies)
@@ -180,6 +182,16 @@ instance, _ := blockSvc.CreateInstance(ctx, blocks.CreateInstanceInput{
 })
 ```
 
+### Embedded Blocks & Migration
+
+Embedded blocks are the canonical storage format for modular content. Each
+content/page translation can store a `blocks[]` array (with `_type` and optional `_schema` per block). go-cms keeps the legacy block instance tables in sync while you migrate:
+
+- **Dual-write**: when `blocks[]` is present, the `EmbeddedBlockBridge` syncs it into legacy block instances (region `blocks` by default) so older readers keep working.
+- **Read fallback**: read paths prefer embedded blocks and backfill from legacy instances when embedded data is missing.
+- **Conflicts + backfill**: use `EmbeddedBlockBridge.BackfillFromLegacy` to populate embedded blocks for existing content, and `EmbeddedBlockBridge.ListConflicts` (or the admin “Block Conflicts” panel) to detect divergences.
+- **Publish rules**: drafts allow partial block payloads; publish migrates blocks to the latest schema versions and enforces strict validation.
+
 ### Widgets
 
 Widgets add behavioral components with scheduling, visibility rules, and per-area placement.
@@ -323,6 +335,43 @@ Locales, translations, and fallbacks are available across services. `cfg.I18N.Lo
 Translation grouping: content/page translations store `TranslationGroupID` (backed by `translation_group_id` in SQL). The services default it to the owning content/page ID and preserve it across updates so export pipelines or translation workflows can treat locales as a single group.
 
 Migration note: `data/sql/migrations/20260301000000_translation_grouping.up.sql` (content/page translation group columns + indexes).
+
+## Slug Rules & Schema Validation
+
+Slugs for content and content types are normalized through `go-slug`:
+
+- Lowercase, convert spaces/underscores to dashes, strip non-alphanumerics, collapse repeated dashes, and trim edges.
+- Valid slugs match `^[a-z0-9]+(?:-[a-z0-9]+)*$` (no underscores).
+- Content type slugs must be unique; content slugs are treated as global identifiers by default.
+
+Override the normalizer when needed:
+
+- `di.WithSlugNormalizer(...)` for content services wired through the container.
+- `content.WithContentTypeSlugNormalizer(...)` for standalone content type services.
+
+Schema validation is enforced on write paths:
+
+- Content translations validate their payloads against the content type schema on create/update/translate.
+- Block/widget definitions validate schemas on registration; instance payloads validate against those schemas.
+- Schemas can be full JSON Schema documents or shorthand `{ "fields": [...] }` definitions, normalized by `internal/validation`.
+- Validation failures return typed errors (`ErrContentSchemaInvalid`, `blocks.ErrDefinitionSchemaInvalid`, `blocks.ErrTranslationSchemaInvalid`, `widgets.ErrDefinitionSchemaInvalid`, `widgets.ErrInstanceConfigurationInvalid`).
+
+### JSON Schema Subset (Draft 2020-12)
+
+go-cms validates JSON Schema payloads using Draft 2020-12, but only accepts a
+focused subset of keywords (vendor `x-*` extensions are allowed):
+
+- `$schema`, `$id`, `$ref`, `$defs`, `$anchor`
+- `type`, `properties`, `required`, `items`, `oneOf`, `allOf`
+- `const`, `enum`, `default`
+- `title`, `description`, `format`
+- `additionalProperties`
+- `metadata` and `ui` (normalized into `x-formgen`/`x-admin` hints)
+
+`allOf` is limited to object-merging (properties/required/additionalProperties/title/description).
+If you rely on other Draft 2020-12 features (numeric/string constraints,
+`if/then/else`, `dependentSchemas`, etc.), keep them on the form-generation side
+or downlevel them before validation so go-cms accepts the schema.
 
 ## Static Site Generation
 
@@ -532,7 +581,6 @@ result, err := commands.RegisterContainerCommands(module.Container(), commands.R
 })
 _ = result // keep result.Subscriptions for shutdown
 ```
-
 
 ### Managing Storage Profiles at Runtime
 
@@ -753,6 +801,14 @@ The CMS includes migrations for all core tables:
 - Block definitions, instances, translations, and versions
 - Widget definitions, instances, translations, areas, and placements
 - Menus, menu items, and menu item translations
+
+## GraphQL Prerequisites
+
+go-cms does not ship GraphQL handlers. Delivery and management GraphQL APIs are generated via `go-crud/gql`, so hosts must wire the pieces together:
+
+- Register CMS schemas with the go-crud registry (go-admin exposes bootstrap helpers when used as the orchestration layer).
+- Run the `go-crud/gql` generator to emit gqlgen-compatible schemas/resolvers and configure JSON/UUID/time scalars in gqlgen.
+- Mount the generated GraphQL server and provide services that enforce published-only delivery or preview behavior.
 
 ## CLI Reference
 

@@ -39,6 +39,7 @@ type Service interface {
 	Schedule(ctx context.Context, req SchedulePageRequest) (*Page, error)
 	CreateDraft(ctx context.Context, req CreatePageDraftRequest) (*PageVersion, error)
 	PublishDraft(ctx context.Context, req PublishPagePublishRequest) (*PageVersion, error)
+	PreviewDraft(ctx context.Context, req PreviewPageDraftRequest) (*PagePreview, error)
 	ListVersions(ctx context.Context, pageID uuid.UUID) ([]*PageVersion, error)
 	RestoreVersion(ctx context.Context, req RestorePageVersionRequest) (*PageVersion, error)
 }
@@ -134,11 +135,24 @@ type PublishPagePublishRequest struct {
 	PublishedAt *time.Time
 }
 
+// PreviewPageDraftRequest captures the inputs required to preview a draft version.
+type PreviewPageDraftRequest struct {
+	PageID          uuid.UUID
+	Version         int
+	ContentSnapshot *content.ContentVersionSnapshot
+}
+
 // RestorePageVersionRequest captures the request to restore a historical version as a draft.
 type RestorePageVersionRequest struct {
 	PageID     uuid.UUID
 	Version    int
 	RestoredBy uuid.UUID
+}
+
+// PagePreview bundles a preview record with the requested version snapshot.
+type PagePreview struct {
+	Page    *Page
+	Version *PageVersion
 }
 
 // SchedulePageRequest captures scheduling input for page publish/unpublish windows.
@@ -255,6 +269,7 @@ type pageService struct {
 	content               ContentRepository
 	locales               LocaleRepository
 	blocks                blocks.Service
+	embeddedBlocks        *blocks.EmbeddedBlockBridge
 	widgets               widgets.Service
 	themes                themes.Service
 	media                 media.Service
@@ -277,6 +292,15 @@ type pageService struct {
 func WithBlockService(service blocks.Service) ServiceOption {
 	return func(ps *pageService) {
 		ps.blocks = service
+	}
+}
+
+// WithEmbeddedBlockBridge wires an embedded block bridge for read-path fallback.
+func WithEmbeddedBlockBridge(bridge *blocks.EmbeddedBlockBridge) ServiceOption {
+	return func(ps *pageService) {
+		if bridge != nil {
+			ps.embeddedBlocks = bridge
+		}
 	}
 }
 
@@ -1698,6 +1722,78 @@ func (s *pageService) RestoreVersion(ctx context.Context, req RestorePageVersion
 	})
 }
 
+// PreviewDraft resolves the requested draft version without persisting changes.
+func (s *pageService) PreviewDraft(ctx context.Context, req PreviewPageDraftRequest) (*PagePreview, error) {
+	if !s.versioningEnabled {
+		return nil, ErrVersioningDisabled
+	}
+	if req.PageID == uuid.Nil {
+		return nil, ErrPageRequired
+	}
+	if req.Version <= 0 {
+		return nil, ErrPageVersionRequired
+	}
+
+	logger := s.opLogger(ctx, "pages.version.preview", map[string]any{
+		"page_id": req.PageID,
+		"version": req.Version,
+	})
+
+	page, err := s.pages.GetByID(ctx, req.PageID)
+	if err != nil {
+		logger.Error("page lookup failed", "error", err)
+		return nil, err
+	}
+
+	version, err := s.pages.GetVersion(ctx, req.PageID, req.Version)
+	if err != nil {
+		logger.Error("page version lookup failed", "error", err)
+		return nil, err
+	}
+
+	var translations []*content.ContentTranslation
+	if req.ContentSnapshot != nil {
+		translations, err = s.previewContentTranslations(ctx, page.ContentID, *req.ContentSnapshot)
+		if err != nil {
+			logger.Error("content snapshot translation build failed", "error", err)
+			return nil, err
+		}
+	} else {
+		translations, err = s.loadContentTranslations(ctx, page.ContentID)
+		if err != nil {
+			logger.Error("content translation lookup failed", "error", err)
+			return nil, err
+		}
+	}
+
+	previewPage, err := s.attachPreviewBlocks(ctx, page, translations)
+	if err != nil {
+		logger.Error("page preview block resolution failed", "error", err)
+		return nil, err
+	}
+
+	pagesWithWidgets, err := s.attachWidgets(ctx, []*Page{previewPage})
+	if err != nil {
+		logger.Error("page preview widget resolution failed", "error", err)
+		return nil, err
+	}
+	pagesWithMedia, err := s.attachMedia(ctx, pagesWithWidgets)
+	if err != nil {
+		logger.Error("page preview media resolution failed", "error", err)
+		return nil, err
+	}
+	if len(pagesWithMedia) > 0 && pagesWithMedia[0] != nil {
+		s.decoratePage(pagesWithMedia[0])
+		previewPage = pagesWithMedia[0]
+	}
+
+	logger.Info("page preview built")
+	return &PagePreview{
+		Page:    previewPage,
+		Version: clonePageVersion(version),
+	}, nil
+}
+
 func (s *pageService) enrichPages(ctx context.Context, pages []*Page) ([]*Page, error) {
 	withBlocks, err := s.attachBlocks(ctx, pages)
 	if err != nil {
@@ -1718,17 +1814,22 @@ func (s *pageService) enrichPages(ctx context.Context, pages []*Page) ([]*Page, 
 }
 
 func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page, error) {
-	if s.blocks == nil || len(pages) == 0 {
+	if len(pages) == 0 {
+		return pages, nil
+	}
+	if s.blocks == nil && s.embeddedBlocks == nil {
 		return pages, nil
 	}
 
 	global := []*blocks.Instance{}
-	if inst, err := s.blocks.ListGlobalInstances(ctx); err == nil {
-		global = inst
-	} else {
-		var nf *blocks.NotFoundError
-		if !errors.As(err, &nf) {
-			return nil, err
+	if s.blocks != nil {
+		if inst, err := s.blocks.ListGlobalInstances(ctx); err == nil {
+			global = inst
+		} else {
+			var nf *blocks.NotFoundError
+			if !errors.As(err, &nf) {
+				return nil, err
+			}
 		}
 	}
 
@@ -1739,13 +1840,37 @@ func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page,
 			continue
 		}
 		clone := *page
-		pageBlocks, err := s.blocks.ListPageInstances(ctx, page.ID)
-		if err != nil {
-			var nf *blocks.NotFoundError
-			if !errors.As(err, &nf) {
+
+		if s.embeddedBlocks != nil && page.ContentID != uuid.Nil {
+			translations, err := s.loadContentTranslations(ctx, page.ContentID)
+			if err != nil {
 				return nil, err
 			}
-			pageBlocks = nil
+			if len(translations) > 0 {
+				embedded, err := s.embeddedBlocks.InstancesFromEmbeddedContent(ctx, page.ContentID, translations)
+				if err != nil {
+					return nil, err
+				}
+				if len(embedded) > 0 {
+					combined := append(cloneBlockInstances(embedded), cloneBlockInstances(global)...)
+					clone.Blocks = combined
+					enriched = append(enriched, &clone)
+					continue
+				}
+			}
+		}
+
+		pageBlocks := []*blocks.Instance{}
+		if s.blocks != nil {
+			var err error
+			pageBlocks, err = s.blocks.ListPageInstances(ctx, page.ID)
+			if err != nil {
+				var nf *blocks.NotFoundError
+				if !errors.As(err, &nf) {
+					return nil, err
+				}
+				pageBlocks = nil
+			}
 		}
 
 		combined := append(cloneBlockInstances(pageBlocks), cloneBlockInstances(global)...)
@@ -1754,6 +1879,123 @@ func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page,
 	}
 
 	return enriched, nil
+}
+
+func (s *pageService) attachPreviewBlocks(ctx context.Context, page *Page, translations []*content.ContentTranslation) (*Page, error) {
+	if page == nil {
+		return nil, nil
+	}
+	if s.blocks == nil && s.embeddedBlocks == nil {
+		return page, nil
+	}
+
+	global := []*blocks.Instance{}
+	if s.blocks != nil {
+		if inst, err := s.blocks.ListGlobalInstances(ctx); err == nil {
+			global = inst
+		} else {
+			var nf *blocks.NotFoundError
+			if !errors.As(err, &nf) {
+				return nil, err
+			}
+		}
+	}
+
+	clone := *page
+	if s.embeddedBlocks != nil && page.ContentID != uuid.Nil {
+		if translations == nil {
+			var err error
+			translations, err = s.loadContentTranslations(ctx, page.ContentID)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if len(translations) > 0 {
+			embedded, err := s.embeddedBlocks.PreviewInstancesFromEmbeddedContent(ctx, page.ContentID, translations)
+			if err != nil {
+				return nil, err
+			}
+			if len(embedded) > 0 {
+				combined := append(cloneBlockInstances(embedded), cloneBlockInstances(global)...)
+				clone.Blocks = combined
+				return &clone, nil
+			}
+		}
+	}
+
+	pageBlocks := []*blocks.Instance{}
+	if s.blocks != nil {
+		var err error
+		pageBlocks, err = s.blocks.ListPageInstances(ctx, page.ID)
+		if err != nil {
+			var nf *blocks.NotFoundError
+			if !errors.As(err, &nf) {
+				return nil, err
+			}
+			pageBlocks = nil
+		}
+	}
+
+	combined := append(cloneBlockInstances(pageBlocks), cloneBlockInstances(global)...)
+	clone.Blocks = combined
+	return &clone, nil
+}
+
+func (s *pageService) loadContentTranslations(ctx context.Context, contentID uuid.UUID) ([]*content.ContentTranslation, error) {
+	if s.content == nil || contentID == uuid.Nil {
+		return nil, nil
+	}
+	record, err := s.content.GetByID(ctx, contentID)
+	if err != nil {
+		var notFound *content.NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	if record != nil && len(record.Translations) > 0 {
+		return record.Translations, nil
+	}
+	if reader, ok := s.content.(content.ContentTranslationReader); ok {
+		translations, err := reader.ListTranslations(ctx, contentID)
+		if err != nil && !errors.Is(err, content.ErrContentTranslationLookupUnsupported) {
+			return nil, err
+		}
+		return translations, nil
+	}
+	return nil, nil
+}
+
+func (s *pageService) previewContentTranslations(ctx context.Context, contentID uuid.UUID, snapshot content.ContentVersionSnapshot) ([]*content.ContentTranslation, error) {
+	if len(snapshot.Translations) == 0 {
+		return nil, nil
+	}
+	now := s.now()
+	groupID := contentID
+	preview := make([]*content.ContentTranslation, 0, len(snapshot.Translations))
+	for _, tr := range snapshot.Translations {
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			return nil, ErrUnknownLocale
+		}
+		locale, err := s.locales.GetByCode(ctx, code)
+		if err != nil {
+			return nil, ErrUnknownLocale
+		}
+		preview = append(preview, &content.ContentTranslation{
+			ID:                 s.id(),
+			ContentID:          contentID,
+			LocaleID:           locale.ID,
+			TranslationGroupID: &groupID,
+			Title:              tr.Title,
+			Summary:            cloneStringPtr(tr.Summary),
+			Content:            cloneMap(tr.Content),
+			Locale:             locale,
+			CreatedAt:          now,
+			UpdatedAt:          now,
+		})
+	}
+	return preview, nil
 }
 
 func (s *pageService) attachWidgets(ctx context.Context, pages []*Page) ([]*Page, error) {

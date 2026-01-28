@@ -91,7 +91,7 @@ func (h *ReplayAuditHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for audit replay.
 func (h *ReplayAuditHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "audit-replay",
+		Path:        []string{"audit", "replay"},
 		Group:       "audit",
 		Description: "Replay scheduled audit jobs through the worker pipeline",
 	}

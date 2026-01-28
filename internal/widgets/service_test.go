@@ -75,6 +75,23 @@ func TestServiceRegisterDefinitionValidation(t *testing.T) {
 	}
 }
 
+func TestServiceRegisterDefinitionRejectsInvalidSchema(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	_, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name:   "promo",
+		Schema: map[string]any{"type": 123},
+	})
+	if !errors.Is(err, ErrDefinitionSchemaInvalid) {
+		t.Fatalf("expected ErrDefinitionSchemaInvalid, got %v", err)
+	}
+}
+
 func TestServiceCreateInstanceLifecycle(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2024, 1, 2, 9, 0, 0, 0, time.UTC)
@@ -380,6 +397,46 @@ func TestServiceUpdateInstance(t *testing.T) {
 
 	if updated.Position != newPosition {
 		t.Fatalf("expected position %d, got %d", newPosition, updated.Position)
+	}
+}
+
+func TestServiceUpdateInstanceRejectsInvalidConfiguration(t *testing.T) {
+	ctx := context.Background()
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name: "promo",
+		Schema: map[string]any{
+			"fields": []any{
+				map[string]any{"name": "headline"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	userID := uuid.MustParse("00000000-0000-0000-0000-000000000667")
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		CreatedBy:    userID,
+		UpdatedBy:    userID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	_, err = svc.UpdateInstance(ctx, UpdateInstanceInput{
+		InstanceID:    instance.ID,
+		UpdatedBy:     userID,
+		Configuration: map[string]any{"unknown": "value"},
+	})
+	if !errors.Is(err, ErrInstanceConfigurationInvalid) {
+		t.Fatalf("expected ErrInstanceConfigurationInvalid, got %v", err)
 	}
 }
 

@@ -127,7 +127,7 @@ func (h *ExportAuditHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for audit export.
 func (h *ExportAuditHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "audit-export",
+		Path:        []string{"audit", "export"},
 		Group:       "audit",
 		Description: "Export audit events to the configured logger",
 	}

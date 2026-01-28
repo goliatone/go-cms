@@ -51,6 +51,28 @@ func TestContentTypeSlugMigrationBackfill(t *testing.T) {
 	}
 }
 
+func TestContentTypeSlugMigrationBackfillUsesIDFallback(t *testing.T) {
+	db, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	applyMigrationFile(t, db, "20250102000000_initial_schema.up.sql")
+
+	id := uuid.NewString()
+	if _, err := db.Exec(`INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id, "", `{"fields":[]}`); err != nil {
+		t.Fatalf("insert content type: %v", err)
+	}
+
+	applyMigrationFile(t, db, "20260126000000_content_type_slug.up.sql")
+
+	slug := fetchContentTypeSlug(t, db, id)
+	if wantPrefix := id[:8]; !strings.HasPrefix(slug, wantPrefix) {
+		t.Fatalf("expected slug to start with %q, got %q", wantPrefix, slug)
+	}
+}
+
 func fetchContentTypeSlug(t *testing.T, db *sql.DB, id string) string {
 	t.Helper()
 	var slug string

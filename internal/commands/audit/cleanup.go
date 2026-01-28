@@ -154,7 +154,7 @@ func (h *CleanupAuditHandler) CLIHandler() any {
 // CLIOptions describes the CLI metadata for audit cleanup.
 func (h *CleanupAuditHandler) CLIOptions() command.CLIConfig {
 	return command.CLIConfig{
-		Name:        "audit-cleanup",
+		Path:        []string{"audit", "cleanup"},
 		Group:       "audit",
 		Description: "Remove recorded audit events; supports dry-run",
 	}

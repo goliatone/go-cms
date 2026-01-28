@@ -126,6 +126,18 @@ func (m *MemoryContentRepository) ReplaceTranslations(_ context.Context, content
 	return nil
 }
 
+// ListTranslations returns stored translations for a content entry.
+func (m *MemoryContentRepository) ListTranslations(_ context.Context, contentID uuid.UUID) ([]*ContentTranslation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.contents[contentID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "content", Key: contentID.String()}
+	}
+	return cloneContentTranslations(record.Translations), nil
+}
+
 // Delete removes the content record and its associated versions when hard delete is requested.
 func (m *MemoryContentRepository) Delete(_ context.Context, id uuid.UUID, hardDelete bool) error {
 	m.mu.Lock()

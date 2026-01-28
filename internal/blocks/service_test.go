@@ -38,6 +38,18 @@ func TestServiceRegisterDefinition(t *testing.T) {
 	}
 }
 
+func TestServiceRegisterDefinitionRejectsInvalidSchema(t *testing.T) {
+	svc := newBlockService()
+
+	_, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"type": 123},
+	})
+	if !errors.Is(err, blocks.ErrDefinitionSchemaInvalid) {
+		t.Fatalf("expected ErrDefinitionSchemaInvalid got %v", err)
+	}
+}
+
 func TestServiceCreateInstance(t *testing.T) {
 	svc := newBlockService()
 	def, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
@@ -108,6 +120,50 @@ func TestBlockTranslationSchemaValidation(t *testing.T) {
 		LocaleID:        uuid.New(),
 		Content:         map[string]any{"unknown": "nope"},
 	}); !errors.Is(err, blocks.ErrTranslationSchemaInvalid) {
+		t.Fatalf("expected ErrTranslationSchemaInvalid got %v", err)
+	}
+}
+
+func TestBlockTranslationUpdateRejectsInvalidSchema(t *testing.T) {
+	ctx := context.Background()
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		Name:   "promo",
+		Schema: map[string]any{"fields": []any{map[string]any{"name": "headline"}}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	authorID := uuid.New()
+	instance, err := svc.CreateInstance(ctx, blocks.CreateInstanceInput{
+		DefinitionID: def.ID,
+		Region:       "main",
+		Position:     0,
+		CreatedBy:    authorID,
+		UpdatedBy:    authorID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	localeID := uuid.New()
+	if _, err := svc.AddTranslation(ctx, blocks.AddTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		Content:         map[string]any{"headline": "Valid"},
+	}); err != nil {
+		t.Fatalf("add translation: %v", err)
+	}
+
+	_, err = svc.UpdateTranslation(ctx, blocks.UpdateTranslationInput{
+		BlockInstanceID: instance.ID,
+		LocaleID:        localeID,
+		UpdatedBy:       authorID,
+		Content:         map[string]any{"unknown": "nope"},
+	})
+	if !errors.Is(err, blocks.ErrTranslationSchemaInvalid) {
 		t.Fatalf("expected ErrTranslationSchemaInvalid got %v", err)
 	}
 }
@@ -716,6 +772,7 @@ func TestBlockServiceInstanceVersionLifecycle(t *testing.T) {
 
 func newBlockService(opts ...blocks.ServiceOption) blocks.Service {
 	defRepo := blocks.NewMemoryDefinitionRepository()
+	defVersionRepo := blocks.NewMemoryDefinitionVersionRepository()
 	instRepo := blocks.NewMemoryInstanceRepository()
 	versionRepo := blocks.NewMemoryInstanceVersionRepository()
 	trRepo := blocks.NewMemoryTranslationRepository()
@@ -729,6 +786,7 @@ func newBlockService(opts ...blocks.ServiceOption) blocks.Service {
 	baseOpts := []blocks.ServiceOption{
 		blocks.WithClock(func() time.Time { return time.Unix(0, 0) }),
 		blocks.WithIDGenerator(idFn),
+		blocks.WithDefinitionVersionRepository(defVersionRepo),
 		blocks.WithInstanceVersionRepository(versionRepo),
 	}
 	baseOpts = append(baseOpts, opts...)
