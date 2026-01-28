@@ -10,6 +10,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
+	cmsschema "github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
@@ -144,6 +145,7 @@ var (
 	ErrScheduleTimestampInvalid        = errors.New("content: schedule timestamp is invalid")
 	ErrContentTranslationsDisabled     = errors.New("content: translations feature disabled")
 	ErrContentTranslationNotFound      = errors.New("content: translation not found")
+	ErrContentSchemaMigrationRequired  = errors.New("content: schema migration required")
 )
 
 // ContentRepository abstracts storage operations for content entities.
@@ -239,6 +241,15 @@ func WithSlugNormalizer(normalizer slug.Normalizer) ServiceOption {
 	}
 }
 
+// WithSchemaMigrator configures schema migrations for publish-time upgrades.
+func WithSchemaMigrator(migrator *cmsschema.Migrator) ServiceOption {
+	return func(s *service) {
+		if migrator != nil {
+			s.schemaMigrator = migrator
+		}
+	}
+}
+
 // WithScheduler overrides the scheduler used to register publish/unpublish jobs.
 func WithScheduler(scheduler interfaces.Scheduler) ServiceOption {
 	return func(svc *service) {
@@ -321,6 +332,7 @@ type service struct {
 	defaultLocale         string
 	defaultLocaleRequired bool
 	activity              *activity.Emitter
+	schemaMigrator        *cmsschema.Migrator
 }
 
 // NewService constructs a content service with the required dependencies.
@@ -451,6 +463,10 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
+	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 
 	if existing, err := s.contents.GetBySlug(ctx, slugValue); err == nil && existing != nil {
 		return nil, ErrSlugExists
@@ -494,7 +510,8 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 			if err != nil {
 				return nil, ErrUnknownLocale
 			}
-			if err := validation.ValidatePayload(contentType.Schema, tr.Content); err != nil {
+			cleanContent := stripSchemaVersion(tr.Content)
+			if err := validation.ValidatePayload(contentType.Schema, cleanContent); err != nil {
 				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 			}
 
@@ -507,7 +524,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 				}(),
 				Title:     tr.Title,
 				Summary:   tr.Summary,
-				Content:   cloneMap(tr.Content),
+				Content:   applySchemaVersion(cleanContent, version),
 				CreatedAt: now,
 				UpdatedAt: now,
 			}
@@ -602,6 +619,10 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
+	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 
 	now := s.now()
 
@@ -611,7 +632,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		existingLocales := indexTranslationsByLocaleID(existing.Translations)
 
 		var err error
-		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now, contentType.Schema)
+		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now, contentType.Schema, version)
 		if err != nil {
 			logger.Error("content translations build failed", "error", err)
 			return nil, err
@@ -729,6 +750,10 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
+	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
 
 	loc, err := s.locales.GetByCode(ctx, localeCode)
 	if err != nil {
@@ -755,7 +780,8 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	if req.Content == nil {
 		req.Content = map[string]any{}
 	}
-	if err := validation.ValidatePayload(contentType.Schema, req.Content); err != nil {
+	cleanContent := stripSchemaVersion(req.Content)
+	if err := validation.ValidatePayload(contentType.Schema, cleanContent); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 
@@ -773,7 +799,7 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		}(),
 		Title:     req.Title,
 		Summary:   cloneString(req.Summary),
-		Content:   cloneMap(req.Content),
+		Content:   applySchemaVersion(cleanContent, version),
 		CreatedAt: target.CreatedAt,
 		UpdatedAt: now,
 		Locale:    target.Locale,
@@ -1139,6 +1165,18 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		version.PublishedBy = &req.PublishedBy
 	}
 
+	contentType, err := s.contentTypes.GetByID(ctx, contentRecord.ContentTypeID)
+	if err != nil {
+		logger.Error("content type lookup failed", "error", err)
+		return nil, ErrContentTypeRequired
+	}
+	migratedSnapshot, err := s.migrateContentSnapshot(contentType, version.Snapshot)
+	if err != nil {
+		logger.Error("content schema migration failed", "error", err)
+		return nil, err
+	}
+	version.Snapshot = migratedSnapshot
+
 	updatedVersion, err := s.contents.UpdateVersion(ctx, version)
 	if err != nil {
 		logger.Error("content version update failed", "error", err)
@@ -1271,6 +1309,47 @@ func (s *service) attachContentType(ctx context.Context, record *Content) {
 	record.Type = ct
 }
 
+func (s *service) migrateContentSnapshot(contentType *ContentType, snapshot ContentVersionSnapshot) (ContentVersionSnapshot, error) {
+	if contentType == nil {
+		return snapshot, ErrContentTypeRequired
+	}
+	targetVersion, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
+	if err != nil {
+		return snapshot, err
+	}
+	if len(snapshot.Translations) == 0 {
+		return snapshot, nil
+	}
+	updated := cloneContentVersionSnapshot(snapshot)
+	for idx, tr := range updated.Translations {
+		if tr.Content == nil {
+			tr.Content = map[string]any{}
+		}
+		migrated, err := s.migratePayload(contentType.Slug, targetVersion, tr.Content)
+		if err != nil {
+			return snapshot, err
+		}
+		updated.Translations[idx].Content = migrated
+	}
+	return updated, nil
+}
+
+func (s *service) migratePayload(slug string, target cmsschema.Version, payload map[string]any) (map[string]any, error) {
+	current, ok := cmsschema.RootSchemaVersion(payload)
+	if !ok || current.String() == target.String() {
+		return applySchemaVersion(stripSchemaVersion(payload), target), nil
+	}
+	if s.schemaMigrator == nil {
+		return nil, ErrContentSchemaMigrationRequired
+	}
+	trimmed := stripSchemaVersion(payload)
+	migrated, err := s.schemaMigrator.Migrate(slug, current.String(), target.String(), trimmed)
+	if err != nil {
+		return nil, ErrContentSchemaMigrationRequired
+	}
+	return applySchemaVersion(migrated, target), nil
+}
+
 func effectiveContentStatus(record *Content, now time.Time) domain.Status {
 	if record == nil {
 		return domain.StatusDraft
@@ -1294,7 +1373,7 @@ func effectiveContentStatus(record *Content, now time.Time) domain.Status {
 	return status
 }
 
-func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time, schema map[string]any) ([]*ContentTranslation, error) {
+func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time, schema map[string]any, version cmsschema.Version) ([]*ContentTranslation, error) {
 	seen := map[string]struct{}{}
 	result := make([]*ContentTranslation, 0, len(inputs))
 
@@ -1318,7 +1397,8 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 			value := *input.Summary
 			summary = &value
 		}
-		if err := validation.ValidatePayload(schema, input.Content); err != nil {
+		cleanContent := stripSchemaVersion(input.Content)
+		if err := validation.ValidatePayload(schema, cleanContent); err != nil {
 			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 		}
 
@@ -1334,7 +1414,7 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 			}(),
 			Title:     input.Title,
 			Summary:   summary,
-			Content:   cloneMap(input.Content),
+			Content:   applySchemaVersion(cleanContent, version),
 			UpdatedAt: now,
 		}
 
@@ -1411,6 +1491,35 @@ func collectContentLocalesFromTranslations(translations []*ContentTranslation) [
 		locales = append(locales, tr.LocaleID.String())
 	}
 	return locales
+}
+
+func resolveContentSchemaVersion(schema map[string]any, slug string) (cmsschema.Version, error) {
+	if len(schema) == 0 {
+		if strings.TrimSpace(slug) == "" {
+			return cmsschema.Version{}, cmsschema.ErrInvalidSchemaVersion
+		}
+		return cmsschema.DefaultVersion(slug), nil
+	}
+	_, version, err := cmsschema.EnsureSchemaVersion(schema, slug)
+	return version, err
+}
+
+func stripSchemaVersion(payload map[string]any) map[string]any {
+	if payload == nil {
+		return map[string]any{}
+	}
+	clean := cloneMap(payload)
+	delete(clean, cmsschema.RootSchemaKey)
+	return clean
+}
+
+func applySchemaVersion(payload map[string]any, version cmsschema.Version) map[string]any {
+	result := cloneMap(payload)
+	if result == nil {
+		result = map[string]any{}
+	}
+	result[cmsschema.RootSchemaKey] = version.String()
+	return result
 }
 
 func cloneTimePtr(value *time.Time) *time.Time {
