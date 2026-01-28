@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	cmsschema "github.com/goliatone/go-cms/internal/schema"
 	"github.com/xeipuuv/gojsonschema"
 )
 
@@ -68,7 +69,8 @@ func NormalizeSchema(schema map[string]any) map[string]any {
 		return nil
 	}
 	if isJSONSchema(schema) {
-		return cloneMap(schema)
+		normalized := cloneMap(schema)
+		return cmsschema.DownlevelForValidation(normalized)
 	}
 	fields, ok := schema["fields"]
 	if !ok {
