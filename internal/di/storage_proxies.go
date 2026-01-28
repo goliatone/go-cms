@@ -299,6 +299,50 @@ func (p *blockDefinitionRepositoryProxy) Delete(ctx context.Context, id uuid.UUI
 	return p.current().Delete(ctx, id)
 }
 
+// blockDefinitionVersionRepositoryProxy routes calls to the current block definition version repository.
+type blockDefinitionVersionRepositoryProxy struct {
+	mu   sync.RWMutex
+	repo blocks.DefinitionVersionRepository
+}
+
+func newBlockDefinitionVersionRepositoryProxy(repo blocks.DefinitionVersionRepository) *blockDefinitionVersionRepositoryProxy {
+	return &blockDefinitionVersionRepositoryProxy{repo: repo}
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) swap(repo blocks.DefinitionVersionRepository) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if repo != nil {
+		p.repo = repo
+	}
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) current() blocks.DefinitionVersionRepository {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.repo
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) Create(ctx context.Context, version *blocks.DefinitionVersion) (*blocks.DefinitionVersion, error) {
+	return p.current().Create(ctx, version)
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) (*blocks.DefinitionVersion, error) {
+	return p.current().GetByID(ctx, id)
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) GetByDefinitionAndVersion(ctx context.Context, definitionID uuid.UUID, version string) (*blocks.DefinitionVersion, error) {
+	return p.current().GetByDefinitionAndVersion(ctx, definitionID, version)
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) ListByDefinition(ctx context.Context, definitionID uuid.UUID) ([]*blocks.DefinitionVersion, error) {
+	return p.current().ListByDefinition(ctx, definitionID)
+}
+
+func (p *blockDefinitionVersionRepositoryProxy) Update(ctx context.Context, version *blocks.DefinitionVersion) (*blocks.DefinitionVersion, error) {
+	return p.current().Update(ctx, version)
+}
+
 // blockInstanceRepositoryProxy routes calls to the current block instance repository.
 type blockInstanceRepositoryProxy struct {
 	mu   sync.RWMutex
