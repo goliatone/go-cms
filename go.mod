@@ -10,14 +10,14 @@ require (
 	github.com/goliatone/go-command v0.13.0
 	github.com/goliatone/go-crud v0.18.0
 	github.com/goliatone/go-errors v0.10.0
-	github.com/goliatone/go-logger v0.4.0
+	github.com/goliatone/go-logger v0.7.0
 	github.com/goliatone/go-repository-bun v0.12.0
 	github.com/goliatone/go-repository-cache v0.6.0
 	github.com/goliatone/go-slug v0.1.0
 	github.com/goliatone/go-theme v0.2.0
 	github.com/goliatone/go-urlkit v0.3.0
 	github.com/goliatone/go-users v0.15.0
-	github.com/goliatone/hashid v0.1.1
+	github.com/goliatone/hashid v0.2.0
 	github.com/google/uuid v1.6.0
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
