@@ -58,6 +58,15 @@ func (p *contentRepositoryProxy) ReplaceTranslations(ctx context.Context, conten
 	return p.current().ReplaceTranslations(ctx, contentID, translations)
 }
 
+func (p *contentRepositoryProxy) ListTranslations(ctx context.Context, contentID uuid.UUID) ([]*content.ContentTranslation, error) {
+	current := p.current()
+	reader, ok := current.(content.ContentTranslationReader)
+	if !ok {
+		return nil, content.ErrContentTranslationLookupUnsupported
+	}
+	return reader.ListTranslations(ctx, contentID)
+}
+
 func (p *contentRepositoryProxy) Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error {
 	return p.current().Delete(ctx, id, hardDelete)
 }

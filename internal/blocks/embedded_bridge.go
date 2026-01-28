@@ -485,6 +485,48 @@ func (b *EmbeddedBlockBridge) InstancesFromEmbeddedContent(ctx context.Context, 
 	return instances, nil
 }
 
+// PreviewInstancesFromEmbeddedContent resolves embedded blocks with in-memory migrations.
+func (b *EmbeddedBlockBridge) PreviewInstancesFromEmbeddedContent(ctx context.Context, contentID uuid.UUID, translations []*content.ContentTranslation) ([]*Instance, error) {
+	if b == nil {
+		return nil, nil
+	}
+	previewTranslations, err := b.previewEmbeddedTranslations(ctx, translations)
+	if err != nil {
+		return nil, err
+	}
+	return b.InstancesFromEmbeddedContent(ctx, contentID, previewTranslations)
+}
+
+func (b *EmbeddedBlockBridge) previewEmbeddedTranslations(ctx context.Context, translations []*content.ContentTranslation) ([]*content.ContentTranslation, error) {
+	if b == nil || len(translations) == 0 {
+		return translations, nil
+	}
+	migrated := make([]*content.ContentTranslation, 0, len(translations))
+	for _, tr := range translations {
+		if tr == nil {
+			migrated = append(migrated, nil)
+			continue
+		}
+		blocks, ok := content.ExtractEmbeddedBlocks(tr.Content)
+		if !ok || len(blocks) == 0 {
+			migrated = append(migrated, tr)
+			continue
+		}
+		localeCode := ""
+		if tr.Locale != nil {
+			localeCode = tr.Locale.Code
+		}
+		previewBlocks, err := b.MigrateEmbeddedBlocks(ctx, localeCode, blocks)
+		if err != nil {
+			return nil, err
+		}
+		cloned := *tr
+		cloned.Content = content.MergeEmbeddedBlocks(tr.Content, previewBlocks)
+		migrated = append(migrated, &cloned)
+	}
+	return migrated, nil
+}
+
 // BackfillFromLegacy writes embedded blocks into stored content translations.
 func (b *EmbeddedBlockBridge) BackfillFromLegacy(ctx context.Context, opts BackfillOptions) (BackfillReport, error) {
 	if b == nil || b.blocks == nil || b.pageResolver == nil || b.contentRepo == nil {

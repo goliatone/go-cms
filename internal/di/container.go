@@ -14,6 +14,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/adapters/noop"
 	storageadapter "github.com/goliatone/go-cms/internal/adapters/storage"
+	adminblocks "github.com/goliatone/go-cms/internal/admin/blocks"
 	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
 	admintranslations "github.com/goliatone/go-cms/internal/admin/translations"
 	"github.com/goliatone/go-cms/internal/blocks"
@@ -74,6 +75,7 @@ type Container struct {
 	translationState    *translationconfig.State
 	translationCancel   context.CancelFunc
 	translationAdminSvc *admintranslations.Service
+	blockAdminSvc       *adminblocks.Service
 
 	cache     interfaces.CacheProvider
 	template  interfaces.TemplateRenderer
@@ -139,6 +141,7 @@ type Container struct {
 	contentTypeSvc         content.ContentTypeService
 	pageSvc                pages.Service
 	blockSvc               blocks.Service
+	embeddedBlockBridge    *blocks.EmbeddedBlockBridge
 	i18nSvc                i18n.Service
 	menuSvc                menus.Service
 	widgetSvc              widgets.Service
@@ -603,35 +606,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		requireTranslations = false
 	}
 
-	if c.contentSvc == nil {
-		contentOpts := []content.ServiceOption{
-			content.WithVersioningEnabled(c.Config.Features.Versioning),
-			content.WithVersionRetentionLimit(c.Config.Retention.Content),
-			content.WithScheduler(c.scheduler),
-			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
-			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
-			content.WithActivityEmitter(c.activityEmitter),
-		}
-		if c.slugger != nil {
-			contentOpts = append(contentOpts, content.WithSlugNormalizer(c.slugger))
-		}
-		contentOpts = append(contentOpts,
-			content.WithRequireTranslations(requireTranslations),
-			content.WithTranslationsEnabled(translationsEnabled),
-			content.WithTranslationState(c.translationState),
-			content.WithDefaultLocale(c.Config.DefaultLocale, c.Config.I18N.DefaultLocaleRequired),
-		)
-		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
-	}
-
-	if c.contentTypeSvc == nil {
-		contentTypeOpts := []content.ContentTypeOption{}
-		if c.slugger != nil {
-			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeSlugNormalizer(c.slugger))
-		}
-		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
-	}
-
 	if c.blockSvc == nil {
 		blockOpts := []blocks.ServiceOption{
 			blocks.WithMediaService(c.mediaSvc),
@@ -657,6 +631,55 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			c.blockTranslationRepo,
 			blockOpts...,
 		)
+	}
+
+	if c.embeddedBlockBridge == nil && c.blockSvc != nil {
+		bridgeOpts := []blocks.EmbeddedBlockBridgeOption{
+			blocks.WithEmbeddedBlocksContentRepository(c.contentRepo),
+			blocks.WithEmbeddedBlocksDefaultLocale(c.Config.DefaultLocale),
+			blocks.WithEmbeddedBlocksLogger(logging.ModuleLogger(c.loggerProvider, "cms.blocks.embedded")),
+		}
+		c.embeddedBlockBridge = blocks.NewEmbeddedBlockBridge(
+			c.blockSvc,
+			c.localeRepo,
+			contentPageResolver{pages: c.pageRepo},
+			bridgeOpts...,
+		)
+	}
+	if c.blockAdminSvc == nil && c.embeddedBlockBridge != nil {
+		c.blockAdminSvc = adminblocks.NewService(c.embeddedBlockBridge)
+	}
+
+	if c.contentSvc == nil {
+		contentOpts := []content.ServiceOption{
+			content.WithVersioningEnabled(c.Config.Features.Versioning),
+			content.WithVersionRetentionLimit(c.Config.Retention.Content),
+			content.WithScheduler(c.scheduler),
+			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
+			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
+			content.WithActivityEmitter(c.activityEmitter),
+		}
+		if c.slugger != nil {
+			contentOpts = append(contentOpts, content.WithSlugNormalizer(c.slugger))
+		}
+		contentOpts = append(contentOpts,
+			content.WithRequireTranslations(requireTranslations),
+			content.WithTranslationsEnabled(translationsEnabled),
+			content.WithTranslationState(c.translationState),
+			content.WithDefaultLocale(c.Config.DefaultLocale, c.Config.I18N.DefaultLocaleRequired),
+		)
+		if c.embeddedBlockBridge != nil {
+			contentOpts = append(contentOpts, content.WithEmbeddedBlocksResolver(c.embeddedBlockBridge))
+		}
+		c.contentSvc = content.NewService(c.contentRepo, c.contentTypeRepo, c.localeRepo, contentOpts...)
+	}
+
+	if c.contentTypeSvc == nil {
+		contentTypeOpts := []content.ContentTypeOption{}
+		if c.slugger != nil {
+			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeSlugNormalizer(c.slugger))
+		}
+		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
 	}
 
 	if c.themeSvc == nil {
@@ -716,6 +739,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		)
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
+		}
+		if c.embeddedBlockBridge != nil {
+			pageOpts = append(pageOpts, pages.WithEmbeddedBlockBridge(c.embeddedBlockBridge))
 		}
 		if c.widgetSvc != nil {
 			pageOpts = append(pageOpts, pages.WithWidgetService(c.widgetSvc))
@@ -1833,6 +1859,11 @@ func (c *Container) StorageAdminService() *adminstorage.Service {
 // TranslationAdminService exposes the translation settings admin helper.
 func (c *Container) TranslationAdminService() *admintranslations.Service {
 	return c.translationAdminSvc
+}
+
+// BlockAdminService exposes the embedded blocks admin helper.
+func (c *Container) BlockAdminService() *adminblocks.Service {
+	return c.blockAdminSvc
 }
 
 // PageService returns the configured page service.
