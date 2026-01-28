@@ -2,7 +2,11 @@ package schema
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
+
+	crud "github.com/goliatone/go-crud"
 )
 
 func TestNormalizeContentSchemaAppliesOverlay(t *testing.T) {
@@ -159,6 +163,39 @@ func TestNormalizeContentSchemaResolvesOverlayRefs(t *testing.T) {
 	}
 }
 
+func TestNormalizeContentSchemaReadsBlockAvailability(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"metadata": map[string]any{
+			"schema_version": "article@v1.0.0",
+			"block_availability": map[string]any{
+				"allow": []any{"Hero", "gallery"},
+				"deny":  []any{"promo"},
+			},
+		},
+	}
+
+	normalized, err := NormalizeContentSchema(context.Background(), schema, NormalizeOptions{
+		Slug: "article",
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+	availability := normalized.Metadata.BlockAvailability
+	if len(availability.Allow) != 2 || availability.Allow[0] != "Hero" || availability.Allow[1] != "gallery" {
+		t.Fatalf("unexpected allow list: %#v", availability.Allow)
+	}
+	if len(availability.Deny) != 1 || availability.Deny[0] != "promo" {
+		t.Fatalf("unexpected deny list: %#v", availability.Deny)
+	}
+	if !availability.Allows("hero") {
+		t.Fatalf("expected hero to be allowed")
+	}
+	if availability.Allows("promo") {
+		t.Fatalf("expected promo to be denied")
+	}
+}
+
 type captureRegistry struct {
 	entries map[string]map[string]any
 }
@@ -179,4 +216,87 @@ type stubOverlayResolver struct {
 func (s *stubOverlayResolver) Resolve(_ context.Context, _ string) (OverlayDocument, error) {
 	s.calls++
 	return s.doc, nil
+}
+
+func TestNormalizeProjectRegistersWithCRUDRegistry(t *testing.T) {
+	resource := fmt.Sprintf("article_%d", time.Now().UnixNano())
+	contentSchema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"body": map[string]any{"type": "string"},
+		},
+		"metadata": map[string]any{
+			"schema_version": resource + "@v1.0.0",
+		},
+	}
+
+	normalized, err := NormalizeContentSchema(context.Background(), contentSchema, NormalizeOptions{
+		Slug:              resource,
+		FailOnUnsupported: true,
+	})
+	if err != nil {
+		t.Fatalf("normalize: %v", err)
+	}
+
+	projection, err := ProjectToOpenAPI(resource, "Article", normalized.Schema, normalized.Version, []BlockSchema{
+		{
+			Name: "Hero Banner",
+			Schema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"headline": map[string]any{"type": "string"},
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("project: %v", err)
+	}
+
+	adapter := crudRegistryAdapter{resource: resource}
+	if err := RegisterProjections(context.Background(), adapter, []*Projection{projection}); err != nil {
+		t.Fatalf("register: %v", err)
+	}
+
+	entry, ok := crud.GetSchema(resource)
+	if !ok {
+		t.Fatalf("expected schema %s registered", resource)
+	}
+	if entry.Document["openapi"] == nil {
+		t.Fatalf("expected openapi document in registry")
+	}
+	components, ok := entry.Document["components"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected components in document")
+	}
+	schemas, ok := components["schemas"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected schemas in document")
+	}
+	if _, ok := schemas[componentName(resource)]; !ok {
+		t.Fatalf("expected %s schema component", componentName(resource))
+	}
+	if _, ok := schemas[componentName("Hero Banner")]; !ok {
+		t.Fatalf("expected hero banner schema component")
+	}
+	if cmsMeta, ok := entry.Document["x-cms"].(map[string]any); !ok || cmsMeta["content_type"] != resource {
+		t.Fatalf("expected x-cms metadata for %s", resource)
+	}
+}
+
+// crudRegistryAdapter bridges schema projections into the go-crud registry.
+type crudRegistryAdapter struct {
+	resource string
+}
+
+func (a crudRegistryAdapter) Register(_ context.Context, name string, doc map[string]any) error {
+	resource := name
+	if a.resource != "" {
+		resource = a.resource
+	}
+	plural := resource + "s"
+	if ok := crud.RegisterSchemaDocument(resource, plural, doc); !ok {
+		return fmt.Errorf("crud registry rejected document")
+	}
+	return nil
 }

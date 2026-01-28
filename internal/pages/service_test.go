@@ -1395,6 +1395,121 @@ func TestPageServiceListIncludesBlocks(t *testing.T) {
 	}
 }
 
+func TestPageServiceListPrefersEmbeddedBlocks(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	pageStore := pages.NewMemoryPageRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, contentTypeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeID := uuid.New()
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	blockDefRepo := blocks.NewMemoryDefinitionRepository()
+	blockInstRepo := blocks.NewMemoryInstanceRepository()
+	blockTransRepo := blocks.NewMemoryTranslationRepository()
+	blockSvc := blocks.NewService(blockDefRepo, blockInstRepo, blockTransRepo)
+
+	definition, err := blockSvc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "hero",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	embeddedBridge := blocks.NewEmbeddedBlockBridge(blockSvc, localeStore, nil)
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore, content.WithEmbeddedBlocksResolver(embeddedBridge))
+	embeddedTitle := "Embedded Title"
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "embedded",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Embedded",
+			Content: map[string]any{
+				content.EmbeddedBlocksKey: []map[string]any{{
+					content.EmbeddedBlockTypeKey: "hero",
+					"title":                      embeddedTitle,
+				}},
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore,
+		pages.WithBlockService(blockSvc),
+		pages.WithEmbeddedBlockBridge(embeddedBridge),
+		pages.WithPageClock(func() time.Time {
+			return time.Unix(0, 0)
+		}),
+	)
+
+	page, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "embedded",
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Embedded",
+			Path:   "/embedded",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	legacyInstance, err := blockSvc.CreateInstance(context.Background(), blocks.CreateInstanceInput{
+		DefinitionID: definition.ID,
+		PageID:       &page.ID,
+		Region:       "blocks",
+		Position:     0,
+		CreatedBy:    uuid.New(),
+		UpdatedBy:    uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("create legacy instance: %v", err)
+	}
+	if _, err := blockSvc.AddTranslation(context.Background(), blocks.AddTranslationInput{
+		BlockInstanceID: legacyInstance.ID,
+		LocaleID:        localeID,
+		Content: map[string]any{
+			"title": "Legacy Title",
+		},
+	}); err != nil {
+		t.Fatalf("add legacy translation: %v", err)
+	}
+
+	pagesList, err := pageSvc.List(context.Background())
+	if err != nil {
+		t.Fatalf("list pages: %v", err)
+	}
+	if len(pagesList) != 1 {
+		t.Fatalf("expected one page got %d", len(pagesList))
+	}
+	if len(pagesList[0].Blocks) != 1 {
+		t.Fatalf("expected one embedded block")
+	}
+	block := pagesList[0].Blocks[0]
+	if block.DefinitionID != definition.ID {
+		t.Fatalf("expected definition %s got %s", definition.ID, block.DefinitionID)
+	}
+	if len(block.Translations) != 1 {
+		t.Fatalf("expected block translation")
+	}
+	if title, ok := block.Translations[0].Content["title"].(string); !ok || title != embeddedTitle {
+		t.Fatalf("expected embedded title %s got %v", embeddedTitle, block.Translations[0].Content["title"])
+	}
+}
+
 func TestPageServiceListIncludesWidgets(t *testing.T) {
 	ctx := context.Background()
 
