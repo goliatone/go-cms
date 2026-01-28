@@ -1,12 +1,14 @@
 package validation
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
 
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
-	"github.com/xeipuuv/gojsonschema"
+	jsonschema "github.com/santhosh-tekuri/jsonschema/v5"
 )
 
 var (
@@ -14,13 +16,72 @@ var (
 	ErrSchemaValidation = errors.New("schema validation failed")
 )
 
+// ValidationIssue captures a single validation failure.
+type ValidationIssue struct {
+	Location string
+	Message  string
+}
+
+// PayloadValidationError surfaces validation issues with schema-aware context.
+type PayloadValidationError struct {
+	Issues []ValidationIssue
+	Cause  error
+}
+
+func (e *PayloadValidationError) Error() string {
+	if len(e.Issues) == 0 {
+		if e.Cause != nil {
+			return e.Cause.Error()
+		}
+		return ErrSchemaValidation.Error()
+	}
+	parts := make([]string, 0, len(e.Issues))
+	for _, issue := range e.Issues {
+		location := strings.TrimSpace(issue.Location)
+		if location == "" {
+			location = "#"
+		} else if !strings.HasPrefix(location, "#") {
+			location = "#" + location
+		}
+		if issue.Message == "" {
+			parts = append(parts, location)
+			continue
+		}
+		parts = append(parts, fmt.Sprintf("%s: %s", location, issue.Message))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (e *PayloadValidationError) Unwrap() error {
+	return ErrSchemaValidation
+}
+
+// Issues extracts validation issues from an error.
+func Issues(err error) []ValidationIssue {
+	if err == nil {
+		return nil
+	}
+	var payloadErr *PayloadValidationError
+	if errors.As(err, &payloadErr) && payloadErr != nil {
+		return payloadErr.Issues
+	}
+	var validationErr *jsonschema.ValidationError
+	if errors.As(err, &validationErr) && validationErr != nil {
+		return collectValidationIssues(validationErr)
+	}
+	return []ValidationIssue{{Message: err.Error()}}
+}
+
 // ValidateSchema ensures the schema can be compiled.
 func ValidateSchema(schema map[string]any) error {
 	normalized := NormalizeSchema(schema)
 	if normalized == nil {
 		return nil
 	}
-	if _, err := gojsonschema.NewSchema(gojsonschema.NewGoLoader(normalized)); err != nil {
+	if err := validateSchemaSubset(normalized); err != nil {
+		return fmt.Errorf("%w: %v", ErrSchemaInvalid, err)
+	}
+	if _, err := compileSchema(normalized); err != nil {
 		return fmt.Errorf("%w: %v", ErrSchemaInvalid, err)
 	}
 	return nil
@@ -46,21 +107,24 @@ func validatePayloadWithSchema(schema map[string]any, payload map[string]any) er
 	if schema == nil {
 		return nil
 	}
+	if err := validateSchemaSubset(schema); err != nil {
+		return fmt.Errorf("%w: %v", ErrSchemaValidation, err)
+	}
 	if payload == nil {
 		payload = map[string]any{}
 	}
-	result, err := gojsonschema.Validate(gojsonschema.NewGoLoader(schema), gojsonschema.NewGoLoader(payload))
+	compiled, err := compileSchema(schema)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrSchemaValidation, err)
 	}
-	if result.Valid() {
-		return nil
+	if err := compiled.Validate(payload); err != nil {
+		issues := Issues(err)
+		return &PayloadValidationError{
+			Issues: issues,
+			Cause:  err,
+		}
 	}
-	var parts []string
-	for _, err := range result.Errors() {
-		parts = append(parts, err.String())
-	}
-	return fmt.Errorf("%w: %s", ErrSchemaValidation, strings.Join(parts, "; "))
+	return nil
 }
 
 // NormalizeSchema converts a schema definition into a JSON schema.
@@ -69,8 +133,7 @@ func NormalizeSchema(schema map[string]any) map[string]any {
 		return nil
 	}
 	if isJSONSchema(schema) {
-		normalized := cloneMap(schema)
-		return cmsschema.DownlevelForValidation(normalized)
+		return cloneMap(schema)
 	}
 	fields, ok := schema["fields"]
 	if !ok {
@@ -212,4 +275,49 @@ func cloneSlice(input []any) []any {
 		}
 	}
 	return out
+}
+
+func validateSchemaSubset(schema map[string]any) error {
+	if schema == nil || !isJSONSchema(schema) {
+		return nil
+	}
+	return cmsschema.ValidateSchemaSubset(schema)
+}
+
+func compileSchema(schema map[string]any) (*jsonschema.Schema, error) {
+	encoded, err := json.Marshal(schema)
+	if err != nil {
+		return nil, err
+	}
+	compiler := jsonschema.NewCompiler()
+	compiler.Draft = jsonschema.Draft2020
+	if err := compiler.AddResource("schema.json", bytes.NewReader(encoded)); err != nil {
+		return nil, err
+	}
+	return compiler.Compile("schema.json")
+}
+
+func collectValidationIssues(err *jsonschema.ValidationError) []ValidationIssue {
+	if err == nil {
+		return nil
+	}
+	issues := []ValidationIssue{}
+	var walk func(*jsonschema.ValidationError)
+	walk = func(node *jsonschema.ValidationError) {
+		if node == nil {
+			return
+		}
+		if len(node.Causes) == 0 {
+			issues = append(issues, ValidationIssue{
+				Location: strings.TrimSpace(node.InstanceLocation),
+				Message:  strings.TrimSpace(node.Message),
+			})
+			return
+		}
+		for _, cause := range node.Causes {
+			walk(cause)
+		}
+	}
+	walk(err)
+	return issues
 }
