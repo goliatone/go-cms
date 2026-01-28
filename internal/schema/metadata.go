@@ -7,13 +7,46 @@ const (
 	metadataSlugKey       = "slug"
 	metadataVersionKey    = "schema_version"
 	metadataUIOverlaysKey = "ui_overlays"
+	metadataBlockAvailKey = "block_availability"
 )
 
 // Metadata captures schema-level metadata persisted alongside JSON Schema docs.
 type Metadata struct {
-	Slug          string
-	SchemaVersion string
-	UIOverlays    []string
+	Slug              string
+	SchemaVersion     string
+	UIOverlays        []string
+	BlockAvailability BlockAvailability
+}
+
+// BlockAvailability defines allow/deny rules for block types.
+type BlockAvailability struct {
+	Allow []string
+	Deny  []string
+}
+
+func (b BlockAvailability) Empty() bool {
+	return len(b.Allow) == 0 && len(b.Deny) == 0
+}
+
+func (b BlockAvailability) Allows(value string) bool {
+	candidate := normalizeAvailabilityToken(value)
+	if candidate == "" {
+		return false
+	}
+	for _, entry := range b.Deny {
+		if normalizeAvailabilityToken(entry) == candidate {
+			return false
+		}
+	}
+	if len(b.Allow) == 0 {
+		return true
+	}
+	for _, entry := range b.Allow {
+		if normalizeAvailabilityToken(entry) == candidate {
+			return true
+		}
+	}
+	return false
 }
 
 // ExtractMetadata reads the schema metadata object when present.
@@ -33,6 +66,7 @@ func ExtractMetadata(schema map[string]any) Metadata {
 		meta.SchemaVersion = strings.TrimSpace(version)
 	}
 	meta.UIOverlays = readStringList(raw[metadataUIOverlaysKey])
+	meta.BlockAvailability = readBlockAvailability(raw[metadataBlockAvailKey])
 	return meta
 }
 
@@ -54,6 +88,18 @@ func ApplyMetadata(schema map[string]any, meta Metadata) map[string]any {
 	}
 	if len(meta.UIOverlays) > 0 {
 		target[metadataUIOverlaysKey] = append([]string(nil), meta.UIOverlays...)
+	}
+	if !meta.BlockAvailability.Empty() {
+		availability := map[string]any{}
+		if len(meta.BlockAvailability.Allow) > 0 {
+			availability["allow"] = append([]string(nil), meta.BlockAvailability.Allow...)
+		}
+		if len(meta.BlockAvailability.Deny) > 0 {
+			availability["deny"] = append([]string(nil), meta.BlockAvailability.Deny...)
+		}
+		if len(availability) > 0 {
+			target[metadataBlockAvailKey] = availability
+		}
 	}
 	out[metadataKey] = target
 	return out
@@ -99,4 +145,55 @@ func readStringList(value any) []string {
 	default:
 		return nil
 	}
+}
+
+func readBlockAvailability(value any) BlockAvailability {
+	availability := BlockAvailability{}
+	if value == nil {
+		return availability
+	}
+	if list := readStringList(value); len(list) > 0 {
+		availability.Allow = normalizeAvailabilityList(list)
+		return availability
+	}
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return availability
+	}
+	allow := readStringList(raw["allow"])
+	if len(allow) == 0 {
+		allow = readStringList(raw["allowed"])
+	}
+	deny := readStringList(raw["deny"])
+	if len(deny) == 0 {
+		deny = readStringList(raw["denied"])
+	}
+	availability.Allow = normalizeAvailabilityList(allow)
+	availability.Deny = normalizeAvailabilityList(deny)
+	return availability
+}
+
+func normalizeAvailabilityList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		key := strings.ToLower(trimmed)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func normalizeAvailabilityToken(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
 }
