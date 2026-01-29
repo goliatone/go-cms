@@ -405,8 +405,11 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 	record.DeletedAt = &now
 	record.Status = ContentTypeStatusDeprecated
 	record.UpdatedAt = now
-	if _, err := s.repo.Update(ctx, record); err != nil {
-		return err
+	if err := s.repo.Delete(ctx, req.ID, false); err != nil {
+		var notFound *NotFoundError
+		if !errors.As(err, &notFound) {
+			return err
+		}
 	}
 	s.emitActivity(ctx, pickActor(req.DeletedBy), "delete", record)
 	return nil
