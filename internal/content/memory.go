@@ -378,6 +378,11 @@ func (m *MemoryContentTypeRepository) Put(ct *ContentType) error {
 
 	copied := *ct
 	copied.Slug = slug
+	copied.Schema = cloneMap(ct.Schema)
+	copied.UISchema = cloneMap(ct.UISchema)
+	copied.Capabilities = cloneMap(ct.Capabilities)
+	copied.SchemaHistory = cloneSchemaHistory(ct.SchemaHistory)
+	copied.DeletedAt = cloneTimePointer(ct.DeletedAt)
 	m.types[ct.ID] = &copied
 	m.slugIndex[slug] = ct.ID
 	return nil
@@ -391,13 +396,15 @@ func (m *MemoryContentTypeRepository) GetByID(_ context.Context, id uuid.UUID) (
 	if !ok {
 		return nil, &NotFoundError{Resource: "content_type", Key: id.String()}
 	}
+	if ct == nil || ct.DeletedAt != nil {
+		return nil, &NotFoundError{Resource: "content_type", Key: id.String()}
+	}
 	copied := *ct
-	if ct.Capabilities != nil {
-		copied.Capabilities = cloneMap(ct.Capabilities)
-	}
-	if ct.Schema != nil {
-		copied.Schema = cloneMap(ct.Schema)
-	}
+	copied.Schema = cloneMap(ct.Schema)
+	copied.UISchema = cloneMap(ct.UISchema)
+	copied.Capabilities = cloneMap(ct.Capabilities)
+	copied.SchemaHistory = cloneSchemaHistory(ct.SchemaHistory)
+	copied.DeletedAt = cloneTimePointer(ct.DeletedAt)
 	return &copied, nil
 }
 
@@ -420,14 +427,16 @@ func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string) 
 	if !ok {
 		return nil, &NotFoundError{Resource: "content_type", Key: slug}
 	}
+	if ct == nil || ct.DeletedAt != nil {
+		return nil, &NotFoundError{Resource: "content_type", Key: slug}
+	}
 
 	copied := *ct
-	if ct.Capabilities != nil {
-		copied.Capabilities = cloneMap(ct.Capabilities)
-	}
-	if ct.Schema != nil {
-		copied.Schema = cloneMap(ct.Schema)
-	}
+	copied.Schema = cloneMap(ct.Schema)
+	copied.UISchema = cloneMap(ct.UISchema)
+	copied.Capabilities = cloneMap(ct.Capabilities)
+	copied.SchemaHistory = cloneSchemaHistory(ct.SchemaHistory)
+	copied.DeletedAt = cloneTimePointer(ct.DeletedAt)
 	return &copied, nil
 }
 
@@ -441,13 +450,15 @@ func (m *MemoryContentTypeRepository) List(_ context.Context) ([]*ContentType, e
 		if ct == nil {
 			continue
 		}
+		if ct.DeletedAt != nil {
+			continue
+		}
 		copied := *ct
-		if ct.Capabilities != nil {
-			copied.Capabilities = cloneMap(ct.Capabilities)
-		}
-		if ct.Schema != nil {
-			copied.Schema = cloneMap(ct.Schema)
-		}
+		copied.Schema = cloneMap(ct.Schema)
+		copied.UISchema = cloneMap(ct.UISchema)
+		copied.Capabilities = cloneMap(ct.Capabilities)
+		copied.SchemaHistory = cloneSchemaHistory(ct.SchemaHistory)
+		copied.DeletedAt = cloneTimePointer(ct.DeletedAt)
 		records = append(records, &copied)
 	}
 
@@ -472,16 +483,18 @@ func (m *MemoryContentTypeRepository) Search(ctx context.Context, query string) 
 		if ct == nil {
 			continue
 		}
+		if ct.DeletedAt != nil {
+			continue
+		}
 		name := strings.ToLower(ct.Name)
 		slug := strings.ToLower(ct.Slug)
 		if strings.Contains(name, query) || strings.Contains(slug, query) {
 			copied := *ct
-			if ct.Capabilities != nil {
-				copied.Capabilities = cloneMap(ct.Capabilities)
-			}
-			if ct.Schema != nil {
-				copied.Schema = cloneMap(ct.Schema)
-			}
+			copied.Schema = cloneMap(ct.Schema)
+			copied.UISchema = cloneMap(ct.UISchema)
+			copied.Capabilities = cloneMap(ct.Capabilities)
+			copied.SchemaHistory = cloneSchemaHistory(ct.SchemaHistory)
+			copied.DeletedAt = cloneTimePointer(ct.DeletedAt)
 			records = append(records, &copied)
 		}
 	}
@@ -507,13 +520,27 @@ func (m *MemoryContentTypeRepository) Update(ctx context.Context, ct *ContentTyp
 }
 
 // Delete removes a content type.
-func (m *MemoryContentTypeRepository) Delete(_ context.Context, id uuid.UUID, _ bool) error {
+func (m *MemoryContentTypeRepository) Delete(_ context.Context, id uuid.UUID, hardDelete bool) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	ct, ok := m.types[id]
 	if !ok {
 		return &NotFoundError{Resource: "content_type", Key: id.String()}
+	}
+	if ct == nil {
+		return &NotFoundError{Resource: "content_type", Key: id.String()}
+	}
+	if !hardDelete {
+		now := time.Now().UTC()
+		ct.DeletedAt = &now
+		ct.Status = ContentTypeStatusDeprecated
+		ct.UpdatedAt = now
+		if slug := strings.TrimSpace(ct.Slug); slug != "" {
+			delete(m.slugIndex, slug)
+		}
+		m.types[id] = ct
+		return nil
 	}
 	if ct != nil {
 		slug := strings.TrimSpace(ct.Slug)

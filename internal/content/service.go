@@ -1254,7 +1254,7 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
-	migratedSnapshot, err := s.migrateContentSnapshot(contentType, version.Snapshot)
+	migratedSnapshot, err := s.migrateContentSnapshot(contentType, version.Snapshot, true)
 	if err != nil {
 		logger.Error("content schema migration failed", "error", err)
 		return nil, err
@@ -1415,7 +1415,7 @@ func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftReque
 	}
 
 	previewVersion := cloneContentVersion(version)
-	migratedSnapshot, err := s.migrateContentSnapshot(contentType, previewVersion.Snapshot)
+	migratedSnapshot, err := s.migrateContentSnapshot(contentType, previewVersion.Snapshot, false)
 	if err != nil {
 		logger.Error("content schema migration failed", "error", err)
 		return nil, err
@@ -1486,7 +1486,7 @@ func (s *service) attachContentType(ctx context.Context, record *Content) {
 	record.Type = ct
 }
 
-func (s *service) migrateContentSnapshot(contentType *ContentType, snapshot ContentVersionSnapshot) (ContentVersionSnapshot, error) {
+func (s *service) migrateContentSnapshot(contentType *ContentType, snapshot ContentVersionSnapshot, strict bool) (ContentVersionSnapshot, error) {
 	if contentType == nil {
 		return snapshot, ErrContentTypeRequired
 	}
@@ -1502,7 +1502,7 @@ func (s *service) migrateContentSnapshot(contentType *ContentType, snapshot Cont
 		if tr.Content == nil {
 			tr.Content = map[string]any{}
 		}
-		migrated, err := s.migratePayload(contentType.Slug, targetVersion, tr.Content)
+		migrated, _, err := s.migratePayload(contentType.Slug, contentType.Schema, targetVersion, tr.Content, strict)
 		if err != nil {
 			return snapshot, err
 		}
@@ -1511,20 +1511,29 @@ func (s *service) migrateContentSnapshot(contentType *ContentType, snapshot Cont
 	return updated, nil
 }
 
-func (s *service) migratePayload(slug string, target cmsschema.Version, payload map[string]any) (map[string]any, error) {
+func (s *service) migratePayload(slug string, schema map[string]any, target cmsschema.Version, payload map[string]any, strict bool) (map[string]any, bool, error) {
 	current, ok := cmsschema.RootSchemaVersion(payload)
 	if !ok || current.String() == target.String() {
-		return applySchemaVersion(stripSchemaVersion(payload), target), nil
+		return applySchemaVersion(stripSchemaVersion(payload), target), false, nil
 	}
 	if s.schemaMigrator == nil {
-		return nil, ErrContentSchemaMigrationRequired
+		return nil, false, ErrContentSchemaMigrationRequired
+	}
+	if current.Slug != "" && target.Slug != "" && current.Slug != target.Slug {
+		return nil, false, fmt.Errorf("%w: schema slug mismatch", ErrContentSchemaMigrationRequired)
 	}
 	trimmed := stripSchemaVersion(payload)
 	migrated, err := s.schemaMigrator.Migrate(slug, current.String(), target.String(), trimmed)
 	if err != nil {
-		return nil, ErrContentSchemaMigrationRequired
+		return nil, false, fmt.Errorf("%w: %v", ErrContentSchemaMigrationRequired, err)
 	}
-	return applySchemaVersion(migrated, target), nil
+	clean := stripSchemaVersion(migrated)
+	if strict && schema != nil {
+		if err := validation.ValidateMigrationPayload(schema, SanitizeEmbeddedBlocks(clean)); err != nil {
+			return nil, false, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		}
+	}
+	return applySchemaVersion(clean, target), true, nil
 }
 
 func effectiveContentStatus(record *Content, now time.Time) domain.Status {

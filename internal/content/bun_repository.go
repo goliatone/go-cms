@@ -342,6 +342,9 @@ func (r *BunContentTypeRepository) GetByID(ctx context.Context, id uuid.UUID) (*
 	if err != nil {
 		return nil, mapRepositoryError(err, "content_type", id.String())
 	}
+	if result == nil || result.DeletedAt != nil {
+		return nil, &NotFoundError{Resource: "content_type", Key: id.String()}
+	}
 	return result, nil
 }
 
@@ -350,12 +353,18 @@ func (r *BunContentTypeRepository) GetBySlug(ctx context.Context, slug string) (
 	if err != nil {
 		return nil, mapRepositoryError(err, "content_type", slug)
 	}
+	if result == nil || result.DeletedAt != nil {
+		return nil, &NotFoundError{Resource: "content_type", Key: slug}
+	}
 	return result, nil
 }
 
 func (r *BunContentTypeRepository) List(ctx context.Context) ([]*ContentType, error) {
 	records, _, err := r.repo.List(ctx)
-	return records, err
+	if err != nil {
+		return nil, err
+	}
+	return filterActiveContentTypes(records), nil
 }
 
 func (r *BunContentTypeRepository) Search(ctx context.Context, query string) ([]*ContentType, error) {
@@ -368,7 +377,10 @@ func (r *BunContentTypeRepository) Search(ctx context.Context, query string) ([]
 		return q.Where("LOWER(?TableAlias.name) LIKE ?", like).
 			WhereOr("LOWER(?TableAlias.slug) LIKE ?", like)
 	}))
-	return records, err
+	if err != nil {
+		return nil, err
+	}
+	return filterActiveContentTypes(records), nil
 }
 
 func (r *BunContentTypeRepository) Update(ctx context.Context, record *ContentType) (*ContentType, error) {
@@ -379,8 +391,12 @@ func (r *BunContentTypeRepository) Update(ctx context.Context, record *ContentTy
 			"slug",
 			"description",
 			"schema",
+			"ui_schema",
 			"capabilities",
 			"icon",
+			"schema_version",
+			"status",
+			"deleted_at",
 			"updated_at",
 		),
 	)
@@ -390,8 +406,33 @@ func (r *BunContentTypeRepository) Update(ctx context.Context, record *ContentTy
 	return updated, nil
 }
 
-func (r *BunContentTypeRepository) Delete(ctx context.Context, id uuid.UUID, _ bool) error {
-	return r.repo.Delete(ctx, &ContentType{ID: id})
+func (r *BunContentTypeRepository) Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error {
+	if hardDelete {
+		return r.repo.Delete(ctx, &ContentType{ID: id})
+	}
+	now := time.Now().UTC()
+	_, err := r.repo.Update(ctx, &ContentType{ID: id, DeletedAt: &now, UpdatedAt: now},
+		repository.UpdateByID(id.String()),
+		repository.UpdateColumns("deleted_at", "updated_at"),
+	)
+	if err != nil {
+		return mapRepositoryError(err, "content_type", id.String())
+	}
+	return nil
+}
+
+func filterActiveContentTypes(records []*ContentType) []*ContentType {
+	if len(records) == 0 {
+		return records
+	}
+	filtered := make([]*ContentType, 0, len(records))
+	for _, record := range records {
+		if record == nil || record.DeletedAt != nil {
+			continue
+		}
+		filtered = append(filtered, record)
+	}
+	return filtered
 }
 
 type BunLocaleRepository struct {
