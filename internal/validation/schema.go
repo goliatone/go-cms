@@ -14,6 +14,7 @@ import (
 var (
 	ErrSchemaInvalid    = errors.New("schema invalid")
 	ErrSchemaValidation = errors.New("schema validation failed")
+	ErrSchemaMigration  = errors.New("schema migration invalid")
 )
 
 // ValidationIssue captures a single validation failure.
@@ -90,6 +91,14 @@ func ValidateSchema(schema map[string]any) error {
 // ValidatePayload validates payload against the provided schema.
 func ValidatePayload(schema map[string]any, payload map[string]any) error {
 	return validatePayloadWithSchema(NormalizeSchema(schema), payload)
+}
+
+// ValidateMigrationPayload validates migrated payloads against the target schema.
+func ValidateMigrationPayload(schema map[string]any, payload map[string]any) error {
+	if err := ValidatePayload(schema, payload); err != nil {
+		return fmt.Errorf("%w: %s", ErrSchemaMigration, err)
+	}
+	return nil
 }
 
 // ValidatePartialPayload validates payload without enforcing required fields.
