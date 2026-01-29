@@ -411,9 +411,9 @@ func (r *BunContentTypeRepository) Delete(ctx context.Context, id uuid.UUID, har
 		return r.repo.Delete(ctx, &ContentType{ID: id})
 	}
 	now := time.Now().UTC()
-	_, err := r.repo.Update(ctx, &ContentType{ID: id, DeletedAt: &now, UpdatedAt: now},
+	_, err := r.repo.Update(ctx, &ContentType{ID: id, DeletedAt: &now, UpdatedAt: now, Status: ContentTypeStatusDeprecated},
 		repository.UpdateByID(id.String()),
-		repository.UpdateColumns("deleted_at", "updated_at"),
+		repository.UpdateColumns("deleted_at", "updated_at", "status"),
 	)
 	if err != nil {
 		return mapRepositoryError(err, "content_type", id.String())
