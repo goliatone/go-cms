@@ -1,5 +1,30 @@
 # Changelog
 
+# [0.23.0](https://github.com/goliatone/go-cms/compare/v0.22.0...v0.23.0) - (2026-01-29)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Content type status ([f4a3695](https://github.com/goliatone/go-cms/commit/f4a36957520c072bb369bd5c6e4dee490274f8fe))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.23.0 ([5658d17](https://github.com/goliatone/go-cms/commit/5658d17e34e617f24df06b9b484dccf07974706a))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Validation migration playload ([50638a8](https://github.com/goliatone/go-cms/commit/50638a8e603944287fffd625f5e4d026eeee8372))  - (goliatone)
+- Activity emiter for container ([bcc2e15](https://github.com/goliatone/go-cms/commit/bcc2e1512140babb3754a57c63f9a652f31a9ae9))  - (goliatone)
+- Content http blocks ([2d797e1](https://github.com/goliatone/go-cms/commit/2d797e1ed134819ecd1d6be481cccb565815dbce))  - (goliatone)
+- Content schema ([6efef38](https://github.com/goliatone/go-cms/commit/6efef3891c18410c0987741a0299c2690e92c98a))  - (goliatone)
+- Content permissions ([b5fb47f](https://github.com/goliatone/go-cms/commit/b5fb47f5201160f8448dc2dc63d475618ce90847))  - (goliatone)
+- Content blocks migrations ([31c4f07](https://github.com/goliatone/go-cms/commit/31c4f0745fb41687495aa5c208dc6662a3cd38f9))  - (goliatone)
+- Content type for defining builder ([94a2853](https://github.com/goliatone/go-cms/commit/94a285349aee971092a105b5bace4dd1289c5d07))  - (goliatone)
+- Migrations for content type ([defb927](https://github.com/goliatone/go-cms/commit/defb9273771ab50c321befde23a4d6bfbacd51a3))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.22.0 ([9fc8a06](https://github.com/goliatone/go-cms/commit/9fc8a06b1f2e178d01a17316edc8cf59cd920799))  - (goliatone)
+
 # [0.22.0](https://github.com/goliatone/go-cms/compare/v0.21.0...v0.22.0) - (2026-01-28)
 
 ## <!-- 13 -->📦 Bumps
