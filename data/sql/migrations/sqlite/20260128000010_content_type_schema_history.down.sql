@@ -1,0 +1,1 @@
+-- No-op for schema_history removal in sqlite.
