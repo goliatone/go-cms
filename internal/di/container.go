@@ -679,6 +679,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		if c.slugger != nil {
 			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeSlugNormalizer(c.slugger))
 		}
+		if c.activityEmitter != nil {
+			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeActivityEmitter(c.activityEmitter))
+		}
 		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
 	}
 

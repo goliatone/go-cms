@@ -27,15 +27,31 @@ type Locale struct {
 type ContentType struct {
 	bun.BaseModel `bun:"table:content_types,alias:ct"`
 
-	ID           uuid.UUID      `bun:",pk,type:uuid"                json:"id"`
-	Name         string         `bun:"name,notnull"                 json:"name"`
-	Slug         string         `bun:"slug,notnull"                 json:"slug"`
-	Description  *string        `bun:"description"                  json:"description,omitempty"`
-	Schema       map[string]any `bun:"schema,type:jsonb,notnull"    json:"schema"`
-	Capabilities map[string]any `bun:"capabilities,type:jsonb"      json:"capabilities,omitempty"`
-	Icon         *string        `bun:"icon"                         json:"icon,omitempty"`
-	CreatedAt    time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt    time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	ID            uuid.UUID                   `bun:",pk,type:uuid"                json:"id"`
+	Name          string                      `bun:"name,notnull"                 json:"name"`
+	Slug          string                      `bun:"slug,notnull"                 json:"slug"`
+	Description   *string                     `bun:"description"                  json:"description,omitempty"`
+	Schema        map[string]any              `bun:"schema,type:jsonb,notnull"    json:"schema"`
+	UISchema      map[string]any              `bun:"ui_schema,type:jsonb"         json:"ui_schema,omitempty"`
+	Capabilities  map[string]any              `bun:"capabilities,type:jsonb"      json:"capabilities,omitempty"`
+	Icon          *string                     `bun:"icon"                         json:"icon,omitempty"`
+	SchemaVersion string                      `bun:"schema_version"               json:"schema_version,omitempty"`
+	SchemaHistory []ContentTypeSchemaSnapshot `bun:"schema_history,type:jsonb" json:"schema_history,omitempty"`
+	Status        string                      `bun:"status"                       json:"status,omitempty"`
+	DeletedAt     *time.Time                  `bun:"deleted_at,nullzero"          json:"deleted_at,omitempty"`
+	CreatedAt     time.Time                   `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt     time.Time                   `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+}
+
+// ContentTypeSchemaSnapshot captures schema metadata for version history.
+type ContentTypeSchemaSnapshot struct {
+	Version      string         `json:"version"`
+	Schema       map[string]any `json:"schema"`
+	UISchema     map[string]any `json:"ui_schema,omitempty"`
+	Capabilities map[string]any `json:"capabilities,omitempty"`
+	Status       string         `json:"status,omitempty"`
+	UpdatedAt    time.Time      `json:"updated_at"`
+	UpdatedBy    *uuid.UUID     `json:"updated_by,omitempty"`
 }
 
 // Content is the canonical record for translatable entries.
