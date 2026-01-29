@@ -68,6 +68,33 @@ func isSemVer(value string) bool {
 	return true
 }
 
+// BumpVersion increments a semantic version by the provided change level.
+func BumpVersion(base Version, level ChangeLevel) (Version, error) {
+	if strings.TrimSpace(base.SemVer) == "" {
+		return Version{}, ErrInvalidSchemaVersion
+	}
+	major, minor, patch, err := parseSemVer(base.SemVer)
+	if err != nil {
+		return Version{}, err
+	}
+	switch level {
+	case ChangeMajor:
+		major++
+		minor = 0
+		patch = 0
+	case ChangeMinor:
+		minor++
+		patch = 0
+	case ChangePatch:
+		patch++
+	case ChangeNone:
+		return base, nil
+	default:
+		return base, nil
+	}
+	return Version{Slug: base.Slug, SemVer: fmt.Sprintf("v%d.%d.%d", major, minor, patch)}, nil
+}
+
 // EnsureSchemaVersion ensures the schema metadata contains a valid schema_version.
 func EnsureSchemaVersion(schema map[string]any, slug string) (map[string]any, Version, error) {
 	if schema == nil {
@@ -98,4 +125,27 @@ func EnsureSchemaVersion(schema map[string]any, slug string) (map[string]any, Ve
 	version := DefaultVersion(normalizedSlug)
 	meta.SchemaVersion = version.String()
 	return ApplyMetadata(schema, meta), version, nil
+}
+
+func parseSemVer(value string) (int, int, int, error) {
+	if !strings.HasPrefix(value, "v") {
+		return 0, 0, 0, ErrInvalidSchemaVersion
+	}
+	parts := strings.Split(value[1:], ".")
+	if len(parts) != 3 {
+		return 0, 0, 0, ErrInvalidSchemaVersion
+	}
+	major, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return 0, 0, 0, ErrInvalidSchemaVersion
+	}
+	minor, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, 0, ErrInvalidSchemaVersion
+	}
+	patch, err := strconv.Atoi(parts[2])
+	if err != nil {
+		return 0, 0, 0, ErrInvalidSchemaVersion
+	}
+	return major, minor, patch, nil
 }
