@@ -434,10 +434,10 @@ func WithRecordIDGenerator(generator func() uuid.UUID) ServiceOption {
 }
 
 // WithEnvironmentService wires the environment service for env resolution.
-func WithEnvironmentService(service cmsenv.Service) ServiceOption {
+func WithEnvironmentService(envSvc cmsenv.Service) ServiceOption {
 	return func(s *service) {
-		if service != nil {
-			s.envSvc = service
+		if envSvc != nil {
+			s.envSvc = envSvc
 		}
 	}
 }
