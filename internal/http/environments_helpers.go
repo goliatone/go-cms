@@ -3,6 +3,7 @@ package http
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 
@@ -35,7 +36,7 @@ func (api *AdminAPI) resolveEnvironmentKey(r *http.Request, payloadKey string, p
 	if idRaw := strings.TrimSpace(query.Get("environment_id")); idRaw != "" {
 		parsed, err := parseUUID(idRaw)
 		if err != nil {
-			return "", err
+			return "", fmt.Errorf("%w: invalid environment_id", errBadRequest)
 		}
 		return api.environmentKeyForID(requestContext(r), parsed)
 	}
