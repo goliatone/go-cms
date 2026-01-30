@@ -668,7 +668,6 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	var (
 		existingPages []*Page
-		err           error
 	)
 	if len(req.Translations) > 0 {
 		groupID := page.ID
