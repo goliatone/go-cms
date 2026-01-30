@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/content"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/pages"
@@ -25,10 +26,10 @@ type Service interface {
 	GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
 	UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu, error)
 	GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error)
-	GetMenuByCode(ctx context.Context, code string) (*Menu, error)
-	GetMenuByLocation(ctx context.Context, location string) (*Menu, error)
+	GetMenuByCode(ctx context.Context, code string, env ...string) (*Menu, error)
+	GetMenuByLocation(ctx context.Context, location string, env ...string) (*Menu, error)
 	DeleteMenu(ctx context.Context, req DeleteMenuRequest) error
-	ResetMenuByCode(ctx context.Context, code string, actor uuid.UUID, force bool) error
+	ResetMenuByCode(ctx context.Context, code string, actor uuid.UUID, force bool, env ...string) error
 
 	AddMenuItem(ctx context.Context, input AddMenuItemInput) (*MenuItem, error)
 	UpsertMenuItem(ctx context.Context, input UpsertMenuItemInput) (*MenuItem, error)
@@ -39,27 +40,29 @@ type Service interface {
 
 	AddMenuItemTranslation(ctx context.Context, input AddMenuItemTranslationInput) (*MenuItemTranslation, error)
 	UpsertMenuItemTranslation(ctx context.Context, input UpsertMenuItemTranslationInput) (*MenuItemTranslation, error)
-	GetMenuItemByExternalCode(ctx context.Context, menuCode string, externalCode string) (*MenuItem, error)
-	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
-	ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error)
+	GetMenuItemByExternalCode(ctx context.Context, menuCode string, externalCode string, env ...string) (*MenuItem, error)
+	ResolveNavigation(ctx context.Context, menuCode string, locale string, env ...string) ([]NavigationNode, error)
+	ResolveNavigationByLocation(ctx context.Context, location string, locale string, env ...string) ([]NavigationNode, error)
 	InvalidateCache(ctx context.Context) error
 }
 
 // CreateMenuInput captures the information required to register a menu.
 type CreateMenuInput struct {
-	Code        string
-	Location    string
-	Description *string
-	CreatedBy   uuid.UUID
-	UpdatedBy   uuid.UUID
+	Code           string
+	Location       string
+	Description    *string
+	CreatedBy      uuid.UUID
+	UpdatedBy      uuid.UUID
+	EnvironmentKey string
 }
 
 // UpsertMenuInput captures the information required to create or update a menu by code.
 type UpsertMenuInput struct {
-	Code        string
-	Location    string
-	Description *string
-	Actor       uuid.UUID
+	Code           string
+	Location       string
+	Description    *string
+	Actor          uuid.UUID
+	EnvironmentKey string
 }
 
 // AddMenuItemInput captures the data required to register a new menu item.
@@ -97,6 +100,7 @@ type UpsertMenuItemInput struct {
 	MenuID          *uuid.UUID
 	MenuCode        string
 	MenuDescription *string
+	EnvironmentKey  string
 
 	// ExternalCode is a stable human-friendly identifier used for both dedupe and parent linking.
 	ExternalCode string
@@ -260,7 +264,7 @@ type LocaleRepository interface {
 // PageRepository looks up pages for menu target validation and navigation resolution.
 type PageRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*pages.Page, error)
-	GetBySlug(ctx context.Context, slug string) (*pages.Page, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*pages.Page, error)
 }
 
 // NavigationNode represents a localized menu item ready for presentation.
@@ -429,6 +433,24 @@ func WithRecordIDGenerator(generator func() uuid.UUID) ServiceOption {
 	}
 }
 
+// WithEnvironmentService wires the environment service for env resolution.
+func WithEnvironmentService(service cmsenv.Service) ServiceOption {
+	return func(s *service) {
+		if service != nil {
+			s.envSvc = service
+		}
+	}
+}
+
+// WithDefaultEnvironmentKey overrides the default environment key.
+func WithDefaultEnvironmentKey(key string) ServiceOption {
+	return func(s *service) {
+		if strings.TrimSpace(key) != "" {
+			s.defaultEnvKey = key
+		}
+	}
+}
+
 // WithMenuIDDeriver overrides menu ID derivation so callers can generate stable UUIDs from menu codes.
 func WithMenuIDDeriver(deriver MenuIDDeriver) ServiceOption {
 	return func(s *service) {
@@ -477,6 +499,8 @@ type service struct {
 	forgivingBootstrap  bool
 	reconcileOnResolve  bool
 	menuIDDeriver       MenuIDDeriver
+	envSvc              cmsenv.Service
+	defaultEnvKey       string
 }
 
 type cacheInvalidator interface {
@@ -496,6 +520,7 @@ func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo Men
 		requireTranslations: true,
 		translationsEnabled: true,
 		activity:            activity.NewEmitter(nil, activity.Config{}),
+		defaultEnvKey:       cmsenv.DefaultKey,
 	}
 
 	s.urlResolver = &defaultURLResolver{service: s}
@@ -521,6 +546,81 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 	_ = s.activity.Emit(ctx, event)
 }
 
+func (s *service) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed != "" {
+		if parsed, err := uuid.Parse(trimmed); err == nil {
+			return parsed, trimmed, nil
+		}
+	}
+	normalized := cmsenv.NormalizeKey(trimmed)
+	if normalized == "" {
+		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
+	}
+	if s.envSvc == nil {
+		if normalized == "" {
+			normalized = cmsenv.DefaultKey
+		}
+		return cmsenv.IDForKey(normalized), normalized, nil
+	}
+	if normalized == "" {
+		env, err := s.envSvc.GetDefaultEnvironment(ctx)
+		if err != nil {
+			return uuid.Nil, "", err
+		}
+		return env.ID, env.Key, nil
+	}
+	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	return env.ID, env.Key, nil
+}
+
+func (s *service) isDefaultEnvironmentKey(key string) bool {
+	normalized := cmsenv.NormalizeKey(key)
+	if normalized == "" {
+		return true
+	}
+	defaultKey := cmsenv.NormalizeKey(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	return normalized == defaultKey
+}
+
+func (s *service) menuIdentityKey(code, envKey string) string {
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return ""
+	}
+	if s.isDefaultEnvironmentKey(envKey) {
+		return trimmed
+	}
+	return cmsenv.NormalizeKey(envKey) + ":" + trimmed
+}
+
+func (s *service) menuIDForCode(code, envKey string) uuid.UUID {
+	key := s.menuIdentityKey(code, envKey)
+	if key == "" {
+		return s.nextID()
+	}
+	if s.menuIDDeriver != nil {
+		return s.menuIDDeriver(key)
+	}
+	if s.forgivingBootstrap {
+		return s.deterministicUUID("go-cms:menu:" + key)
+	}
+	return s.nextID()
+}
+
+func pickEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(env[0])
+}
+
 func (s *service) translationsRequired() bool {
 	enabled := s.translationsEnabled
 	required := s.requireTranslations
@@ -541,7 +641,12 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 		return nil, ErrMenuCodeInvalid
 	}
 
-	if _, err := s.menus.GetByCode(ctx, code); err == nil {
+	envID, envKey, err := s.resolveEnvironment(ctx, input.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := s.menus.GetByCode(ctx, code, envID.String()); err == nil {
 		return nil, ErrMenuCodeExists
 	} else if err != nil {
 		var notFound *NotFoundError
@@ -551,30 +656,30 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 	}
 
 	now := s.now()
-	menuID := s.nextID()
-	if s.menuIDDeriver != nil {
-		menuID = s.menuIDDeriver(code)
-	} else if s.forgivingBootstrap {
-		menuID = s.deterministicUUID("go-cms:menu:" + code)
-	}
+	menuID := s.menuIDForCode(code, envKey)
 	menu := &Menu{
-		ID:          menuID,
-		Code:        code,
-		Location:    strings.TrimSpace(input.Location),
-		Description: input.Description,
-		CreatedBy:   input.CreatedBy,
-		UpdatedBy:   input.UpdatedBy,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            menuID,
+		Code:          code,
+		Location:      strings.TrimSpace(input.Location),
+		Description:   input.Description,
+		CreatedBy:     input.CreatedBy,
+		UpdatedBy:     input.UpdatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		EnvironmentID: envID,
 	}
 
 	created, err := s.menus.Create(ctx, menu)
 	if err != nil {
 		return nil, err
 	}
-	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu", created.ID, map[string]any{
+	meta := map[string]any{
 		"code": created.Code,
-	})
+	}
+	if created.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = created.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu", created.ID, meta)
 	return created, nil
 }
 
@@ -588,7 +693,12 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 		return nil, ErrMenuCodeInvalid
 	}
 
-	existing, err := s.menus.GetByCode(ctx, code)
+	envID, envKey, err := s.resolveEnvironment(ctx, input.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+
+	existing, err := s.menus.GetByCode(ctx, code, envID.String())
 	if err == nil {
 		location := strings.TrimSpace(input.Location)
 		if location != "" && existing.Location != location {
@@ -608,33 +718,33 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 	}
 
 	now := s.now()
-	menuID := s.nextID()
-	if s.menuIDDeriver != nil {
-		menuID = s.menuIDDeriver(code)
-	} else if s.forgivingBootstrap {
-		menuID = s.deterministicUUID("go-cms:menu:" + code)
-	}
+	menuID := s.menuIDForCode(code, envKey)
 	menu := &Menu{
-		ID:          menuID,
-		Code:        code,
-		Location:    strings.TrimSpace(input.Location),
-		Description: input.Description,
-		CreatedBy:   input.CreatedBy,
-		UpdatedBy:   input.UpdatedBy,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            menuID,
+		Code:          code,
+		Location:      strings.TrimSpace(input.Location),
+		Description:   input.Description,
+		CreatedBy:     input.CreatedBy,
+		UpdatedBy:     input.UpdatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		EnvironmentID: envID,
 	}
 
 	created, err := s.menus.Create(ctx, menu)
 	if err == nil {
-		s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu", created.ID, map[string]any{
+		meta := map[string]any{
 			"code": created.Code,
-		})
+		}
+		if created.EnvironmentID != uuid.Nil {
+			meta["environment_id"] = created.EnvironmentID.String()
+		}
+		s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu", created.ID, meta)
 		return created, nil
 	}
 
 	// If the create failed because another caller created the menu concurrently, return the winner.
-	existing, getErr := s.menus.GetByCode(ctx, code)
+	existing, getErr := s.menus.GetByCode(ctx, code, envID.String())
 	if getErr == nil {
 		return existing, nil
 	}
@@ -652,18 +762,24 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 		return nil, ErrMenuCodeInvalid
 	}
 
-	existing, err := s.menus.GetByCode(ctx, code)
+	envID, _, err := s.resolveEnvironment(ctx, input.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+
+	existing, err := s.menus.GetByCode(ctx, code, envID.String())
 	if err != nil {
 		var notFound *NotFoundError
 		if !errors.As(err, &notFound) {
 			return nil, err
 		}
 		created, err := s.CreateMenu(ctx, CreateMenuInput{
-			Code:        code,
-			Location:    input.Location,
-			Description: input.Description,
-			CreatedBy:   input.Actor,
-			UpdatedBy:   input.Actor,
+			Code:           code,
+			Location:       input.Location,
+			Description:    input.Description,
+			CreatedBy:      input.Actor,
+			UpdatedBy:      input.Actor,
+			EnvironmentKey: input.EnvironmentKey,
 		})
 		if err != nil {
 			return nil, err
@@ -682,9 +798,13 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 	if err != nil {
 		return nil, err
 	}
-	s.emitActivity(ctx, input.Actor, "update", "menu", updated.ID, map[string]any{
+	meta := map[string]any{
 		"code": updated.Code,
-	})
+	}
+	if updated.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = updated.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, input.Actor, "update", "menu", updated.ID, meta)
 	return updated, nil
 }
 
@@ -705,8 +825,12 @@ func (s *service) GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error) {
 }
 
 // GetMenuByCode retrieves a menu using its code.
-func (s *service) GetMenuByCode(ctx context.Context, code string) (*Menu, error) {
-	menu, err := s.menus.GetByCode(ctx, strings.TrimSpace(code))
+func (s *service) GetMenuByCode(ctx context.Context, code string, env ...string) (*Menu, error) {
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	menu, err := s.menus.GetByCode(ctx, strings.TrimSpace(code), envID.String())
 	if err != nil {
 		var notFound *NotFoundError
 		if errors.As(err, &notFound) {
@@ -718,8 +842,12 @@ func (s *service) GetMenuByCode(ctx context.Context, code string) (*Menu, error)
 }
 
 // GetMenuByLocation retrieves a menu using its assigned location.
-func (s *service) GetMenuByLocation(ctx context.Context, location string) (*Menu, error) {
-	menu, err := s.menus.GetByLocation(ctx, strings.TrimSpace(location))
+func (s *service) GetMenuByLocation(ctx context.Context, location string, env ...string) (*Menu, error) {
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	menu, err := s.menus.GetByLocation(ctx, strings.TrimSpace(location), envID.String())
 	if err != nil {
 		var notFound *NotFoundError
 		if errors.As(err, &notFound) {
@@ -783,19 +911,27 @@ func (s *service) DeleteMenu(ctx context.Context, req DeleteMenuRequest) error {
 	if err := s.InvalidateCache(ctx); err != nil {
 		return err
 	}
-	s.emitActivity(ctx, req.DeletedBy, "delete", "menu", menu.ID, map[string]any{
+	meta := map[string]any{
 		"code": menu.Code,
-	})
+	}
+	if menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "menu", menu.ID, meta)
 	return nil
 }
 
-func (s *service) ResetMenuByCode(ctx context.Context, code string, actor uuid.UUID, force bool) error {
+func (s *service) ResetMenuByCode(ctx context.Context, code string, actor uuid.UUID, force bool, env ...string) error {
 	menuCode := strings.TrimSpace(code)
 	if menuCode == "" {
 		return ErrMenuCodeRequired
 	}
 
-	menu, err := s.menus.GetByCode(ctx, menuCode)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return err
+	}
+	menu, err := s.menus.GetByCode(ctx, menuCode, envID.String())
 	if err != nil {
 		var notFound *NotFoundError
 		if errors.As(err, &notFound) {
@@ -819,13 +955,17 @@ func (s *service) ResetMenuByCode(ctx context.Context, code string, actor uuid.U
 		return err
 	}
 
-	s.emitActivity(ctx, actor, "reset", "menu", menu.ID, map[string]any{
+	meta := map[string]any{
 		"code":                 menu.Code,
 		"force":                force,
 		"strategy":             "contents_only",
 		"items_deleted":        counts.ItemsDeleted,
 		"translations_deleted": counts.TranslationsDeleted,
-	})
+	}
+	if menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, actor, "reset", "menu", menu.ID, meta)
 	s.emitMenuResetAudit(ctx, actor, menu, force, &counts, nil)
 
 	return nil
@@ -840,6 +980,14 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
+	}
+	envID := menu.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		envID = resolvedID
 	}
 
 	itemType, err := normalizeMenuItemTypeValue(input.Type)
@@ -858,7 +1006,7 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		return nil, ErrMenuItemPosition
 	}
 
-	target, err := s.normalizeTargetForType(ctx, itemType, input.Target)
+	target, err := s.normalizeTargetForType(ctx, itemType, input.Target, envID)
 	if err != nil {
 		return nil, err
 	}
@@ -985,13 +1133,17 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		}
 	}
 	created.Translations = trs
-	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu_item", created.ID, map[string]any{
+	meta := map[string]any{
 		"menu_id":   created.MenuID.String(),
 		"menu_code": menu.Code,
 		"position":  created.Position,
 		"parent_id": created.ParentID,
 		"locales":   collectMenuLocalesFromInputs(input.Translations),
-	})
+	}
+	if menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "menu_item", created.ID, meta)
 
 	if s.forgivingBootstrap {
 		actor := pickActor(input.UpdatedBy, input.CreatedBy)
@@ -1028,10 +1180,11 @@ func (s *service) UpsertMenuItem(ctx context.Context, input UpsertMenuItemInput)
 			return nil, ErrMenuCodeRequired
 		}
 		record, err := s.GetOrCreateMenu(ctx, CreateMenuInput{
-			Code:        code,
-			Description: input.MenuDescription,
-			CreatedBy:   actor,
-			UpdatedBy:   actor,
+			Code:           code,
+			Description:    input.MenuDescription,
+			CreatedBy:      actor,
+			UpdatedBy:      actor,
+			EnvironmentKey: input.EnvironmentKey,
 		})
 		if err != nil {
 			return nil, err
@@ -1169,6 +1322,22 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		}
 		return nil, err
 	}
+	menu, err := s.menus.GetByID(ctx, item.MenuID)
+	if err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrMenuNotFound
+		}
+		return nil, err
+	}
+	envID := menu.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		envID = resolvedID
+	}
 
 	originalPosition := item.Position
 	var originalParent *uuid.UUID
@@ -1201,7 +1370,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 	}
 
 	if input.Target != nil {
-		target, err := s.normalizeTargetForType(ctx, targetType, input.Target)
+		target, err := s.normalizeTargetForType(ctx, targetType, input.Target, envID)
 		if err != nil {
 			return nil, err
 		}
@@ -1332,12 +1501,16 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		verb = "reorder"
 	}
 
-	s.emitActivity(ctx, input.UpdatedBy, verb, "menu_item", updated.ID, map[string]any{
+	meta := map[string]any{
 		"menu_id":   updated.MenuID.String(),
 		"position":  updated.Position,
 		"parent_id": updated.ParentID,
 		"locales":   collectMenuLocalesFromTranslations(updated.Translations),
-	})
+	}
+	if menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, input.UpdatedBy, verb, "menu_item", updated.ID, meta)
 
 	return updated, nil
 }
@@ -1465,12 +1638,15 @@ func (s *service) DeleteMenuItem(ctx context.Context, req DeleteMenuItemRequest)
 	if err := s.deleteMenuItemRecursive(ctx, item, req.DeletedBy, req.CascadeChildren); err != nil {
 		return err
 	}
-
-	s.emitActivity(ctx, req.DeletedBy, "delete", "menu_item", item.ID, map[string]any{
+	meta := map[string]any{
 		"menu_id":   item.MenuID.String(),
 		"parent_id": item.ParentID,
 		"position":  item.Position,
-	})
+	}
+	if menu, err := s.menus.GetByID(ctx, item.MenuID); err == nil && menu != nil && menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "menu_item", item.ID, meta)
 
 	return s.InvalidateCache(ctx)
 }
@@ -1583,10 +1759,14 @@ func (s *service) BulkReorderMenuItems(ctx context.Context, input BulkReorderMen
 		return strings.Compare(parentKey(a.ParentID), parentKey(b.ParentID))
 	})
 
-	s.emitActivity(ctx, input.UpdatedBy, "reorder", "menu", input.MenuID, map[string]any{
+	meta := map[string]any{
 		"menu_id": input.MenuID.String(),
 		"count":   len(result),
-	})
+	}
+	if menu, err := s.menus.GetByID(ctx, input.MenuID); err == nil && menu != nil && menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, input.UpdatedBy, "reorder", "menu", input.MenuID, meta)
 
 	return result, nil
 }
@@ -1672,6 +1852,9 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 	}
 	if normalizedInput.GroupTitleKey != "" {
 		meta["group_title_key"] = normalizedInput.GroupTitleKey
+	}
+	if menu != nil && menu.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = menu.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, pickActor(item.UpdatedBy, item.CreatedBy), "create", "menu_item_translation", created.ID, meta)
 
@@ -1760,12 +1943,16 @@ func (s *service) UpsertMenuItemTranslation(ctx context.Context, input UpsertMen
 }
 
 // GetMenuItemByExternalCode resolves a menu item by menu code and external code (stable path identifier).
-func (s *service) GetMenuItemByExternalCode(ctx context.Context, menuCode string, externalCode string) (*MenuItem, error) {
+func (s *service) GetMenuItemByExternalCode(ctx context.Context, menuCode string, externalCode string, env ...string) (*MenuItem, error) {
 	code := strings.TrimSpace(menuCode)
 	if code == "" {
 		return nil, ErrMenuCodeRequired
 	}
-	menu, err := s.menus.GetByCode(ctx, code)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	menu, err := s.menus.GetByCode(ctx, code, envID.String())
 	if err != nil {
 		var notFound *NotFoundError
 		if errors.As(err, &notFound) {
@@ -1791,22 +1978,29 @@ func (s *service) GetMenuItemByExternalCode(ctx context.Context, menuCode string
 }
 
 // ResolveNavigation builds a localized navigation tree for the requested menu.
-func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error) {
+func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale string, env ...string) ([]NavigationNode, error) {
 	code := strings.TrimSpace(menuCode)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
 	if s.forgivingBootstrap && s.reconcileOnResolve && code != "" {
-		if record, err := s.menus.GetByCode(ctx, code); err == nil && record != nil {
+		if record, err := s.menus.GetByCode(ctx, code, envID.String()); err == nil && record != nil {
 			if _, err := s.ReconcileMenu(ctx, ReconcileMenuRequest{MenuID: record.ID, UpdatedBy: uuid.Nil}); err != nil {
 				return nil, err
 			}
 		}
 	}
 
-	menu, err := s.GetMenuByCode(ctx, code)
+	menu, err := s.GetMenuByCode(ctx, code, env...)
 	if err != nil {
 		return nil, err
 	}
 	if menu == nil || len(menu.Items) == 0 {
 		return nil, nil
+	}
+	if menu.EnvironmentID != uuid.Nil {
+		envID = menu.EnvironmentID
 	}
 
 	var localeID uuid.UUID
@@ -1818,7 +2012,7 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 
 	nodes := make([]NavigationNode, 0, len(menu.Items))
 	for _, item := range menu.Items {
-		node, err := s.buildNavigationNode(ctx, menu.Code, item, localeID, locale)
+		node, err := s.buildNavigationNode(ctx, menu.Code, item, envID, localeID, locale)
 		if err != nil {
 			return nil, err
 		}
@@ -1828,12 +2022,12 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 }
 
 // ResolveNavigationByLocation resolves navigation for a menu location.
-func (s *service) ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error) {
-	menu, err := s.GetMenuByLocation(ctx, location)
+func (s *service) ResolveNavigationByLocation(ctx context.Context, location string, locale string, env ...string) ([]NavigationNode, error) {
+	menu, err := s.GetMenuByLocation(ctx, location, env...)
 	if err != nil {
 		return nil, err
 	}
-	return s.ResolveNavigation(ctx, menu.Code, locale)
+	return s.ResolveNavigation(ctx, menu.Code, locale, env...)
 }
 
 func (s *service) InvalidateCache(ctx context.Context) error {
@@ -1857,7 +2051,7 @@ func (s *service) InvalidateCache(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
-func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) (NavigationNode, error) {
+func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item *MenuItem, envID uuid.UUID, localeID uuid.UUID, locale string) (NavigationNode, error) {
 	node := NavigationNode{
 		ID:          item.ID,
 		Position:    item.Position,
@@ -1903,7 +2097,7 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 	}
 
 	if node.URL == "" {
-		node.URL = s.resolveNodeURL(ctx, menuCode, item, localeID, locale)
+		node.URL = s.resolveNodeURL(ctx, menuCode, item, envID, localeID, locale)
 	}
 
 	if node.Type == MenuItemTypeGroup {
@@ -1941,7 +2135,7 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 	if len(item.Children) > 0 {
 		children := make([]NavigationNode, 0, len(item.Children))
 		for _, child := range item.Children {
-			childNode, err := s.buildNavigationNode(ctx, menuCode, child, localeID, locale)
+			childNode, err := s.buildNavigationNode(ctx, menuCode, child, envID, localeID, locale)
 			if err != nil {
 				return NavigationNode{}, err
 			}
@@ -1982,7 +2176,7 @@ func (s *service) hydrateMenu(ctx context.Context, menu *Menu) (*Menu, error) {
 	return menu, nil
 }
 
-func (s *service) resolveNodeURL(ctx context.Context, menuCode string, item *MenuItem, localeID uuid.UUID, locale string) string {
+func (s *service) resolveNodeURL(ctx context.Context, menuCode string, item *MenuItem, envID uuid.UUID, localeID uuid.UUID, locale string) string {
 	if item == nil {
 		return ""
 	}
@@ -2002,7 +2196,7 @@ func (s *service) resolveNodeURL(ctx context.Context, menuCode string, item *Men
 			}
 		}
 	}
-	url, err := s.resolveURLForTarget(ctx, item.Target, localeID)
+	url, err := s.resolveURLForTarget(ctx, item.Target, envID, localeID)
 	if err != nil {
 		return ""
 	}
@@ -2154,10 +2348,10 @@ func normalizeMenuItemTypeValueOrDefault(raw string) string {
 	return typ
 }
 
-func (s *service) normalizeTargetForType(ctx context.Context, itemType string, raw map[string]any) (map[string]any, error) {
+func (s *service) normalizeTargetForType(ctx context.Context, itemType string, raw map[string]any, envID uuid.UUID) (map[string]any, error) {
 	switch itemType {
 	case MenuItemTypeItem:
-		return s.sanitizeTarget(ctx, raw)
+		return s.sanitizeTarget(ctx, raw, envID)
 	case MenuItemTypeGroup:
 		if len(raw) > 0 {
 			return nil, ErrMenuItemGroupFields
@@ -2882,7 +3076,7 @@ func findMenuItem(items []*MenuItem, id uuid.UUID) *MenuItem {
 	return nil
 }
 
-func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any) (map[string]any, error) {
+func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any, envID uuid.UUID) (map[string]any, error) {
 	if len(raw) == 0 {
 		return nil, ErrMenuItemTargetMissing
 	}
@@ -2901,7 +3095,7 @@ func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any) (map[s
 
 	switch typ {
 	case "page":
-		return s.sanitizePageTarget(ctx, normalized)
+		return s.sanitizePageTarget(ctx, normalized, envID)
 	default:
 		if urlVal, ok := normalized["url"]; ok {
 			if url := strings.TrimSpace(fmt.Sprint(urlVal)); url != "" {
@@ -2914,7 +3108,7 @@ func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any) (map[s
 	}
 }
 
-func (s *service) sanitizePageTarget(ctx context.Context, target map[string]any) (map[string]any, error) {
+func (s *service) sanitizePageTarget(ctx context.Context, target map[string]any, envID uuid.UUID) (map[string]any, error) {
 	cloned := maps.Clone(target)
 
 	slug, _ := extractSlug(cloned)
@@ -2955,7 +3149,7 @@ func (s *service) sanitizePageTarget(ctx context.Context, target map[string]any)
 		if hasID {
 			page, err = s.pageRepo.GetByID(ctx, pageID)
 		} else {
-			page, err = s.pageRepo.GetBySlug(ctx, slug)
+			page, err = s.pageRepo.GetBySlug(ctx, slug, envID.String())
 		}
 		if err != nil {
 			var notFound *pages.PageNotFoundError
@@ -2983,7 +3177,7 @@ func (s *service) sanitizePageTarget(ctx context.Context, target map[string]any)
 	return cloned, nil
 }
 
-func (s *service) resolveURLForTarget(ctx context.Context, target map[string]any, localeID uuid.UUID) (string, error) {
+func (s *service) resolveURLForTarget(ctx context.Context, target map[string]any, envID uuid.UUID, localeID uuid.UUID) (string, error) {
 	if len(target) == 0 {
 		return "", nil
 	}
@@ -2994,7 +3188,7 @@ func (s *service) resolveURLForTarget(ctx context.Context, target map[string]any
 	typ := strings.ToLower(strings.TrimSpace(fmt.Sprint(typVal)))
 	switch typ {
 	case "page":
-		return s.resolvePageURL(ctx, target, localeID)
+		return s.resolvePageURL(ctx, target, envID, localeID)
 	default:
 		if raw, ok := target["url"]; ok {
 			return strings.TrimSpace(fmt.Sprint(raw)), nil
@@ -3003,7 +3197,7 @@ func (s *service) resolveURLForTarget(ctx context.Context, target map[string]any
 	return "", nil
 }
 
-func (s *service) resolvePageURL(ctx context.Context, target map[string]any, localeID uuid.UUID) (string, error) {
+func (s *service) resolvePageURL(ctx context.Context, target map[string]any, envID uuid.UUID, localeID uuid.UUID) (string, error) {
 	slug, _ := extractSlug(target)
 
 	var pageID uuid.UUID
@@ -3027,7 +3221,7 @@ func (s *service) resolvePageURL(ctx context.Context, target map[string]any, loc
 	if pageID != uuid.Nil {
 		page, err = s.pageRepo.GetByID(ctx, pageID)
 	} else if slug != "" {
-		page, err = s.pageRepo.GetBySlug(ctx, slug)
+		page, err = s.pageRepo.GetBySlug(ctx, slug, envID.String())
 	} else {
 		return "", ErrMenuItemPageSlugRequired
 	}
