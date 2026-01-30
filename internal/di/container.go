@@ -1009,9 +1009,12 @@ func (c *Container) ensureDefaultEnvironment(ctx context.Context) {
 	if ctx == nil {
 		ctx = context.Background()
 	}
-	if _, err := c.environmentSvc.GetDefaultEnvironment(ctx); err == nil {
+	logger := logging.ModuleLogger(c.loggerProvider, "cms.environments")
+	if env, err := c.environmentSvc.GetDefaultEnvironment(ctx); err == nil {
+		logger.Debug("environments.default.exists", "key", env.Key, "id", env.ID)
 		return
 	} else if !errors.Is(err, environments.ErrEnvironmentNotFound) {
+		logger.Warn("environments.default.lookup_failed", "error", err)
 		return
 	}
 	key := strings.TrimSpace(c.Config.Environments.DefaultKey)
@@ -1019,11 +1022,18 @@ func (c *Container) ensureDefaultEnvironment(ctx context.Context) {
 		key = environments.DefaultKey
 	}
 	active := true
-	_, _ = c.environmentSvc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{
+	created, err := c.environmentSvc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{
 		Key:       key,
 		IsActive:  &active,
 		IsDefault: true,
 	})
+	if err != nil {
+		logger.Warn("environments.default.create_failed", "key", key, "error", err)
+		return
+	}
+	if created != nil {
+		logger.Info("environments.default.created", "key", created.Key, "id", created.ID)
+	}
 }
 
 func parseConsoleLevel(level string) (console.Level, bool) {
