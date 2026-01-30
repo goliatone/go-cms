@@ -586,6 +586,9 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	if err := c.initializeStorage(context.Background()); err != nil {
 		return nil, err
 	}
+	if err := c.initializeEnvironments(context.Background()); err != nil {
+		return nil, err
+	}
 	c.seedLocales(context.Background())
 	c.configureNavigation()
 	c.configureScheduler()
