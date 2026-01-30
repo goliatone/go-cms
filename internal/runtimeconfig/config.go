@@ -50,6 +50,14 @@ var ErrStorageProfileAliasTargetRequired = errors.New("cms config: storage profi
 var ErrStorageProfileAliasTargetUnknown = errors.New("cms config: storage profile alias target is unknown")
 var ErrStorageProfileAliasDuplicate = errors.New("cms config: storage profile alias must be unique")
 var ErrStorageProfileAliasCollides = errors.New("cms config: storage profile alias collides with existing profile")
+var ErrEnvironmentsFeatureRequired = errors.New("cms config: environments feature must be enabled to configure environments")
+var ErrEnvironmentKeyRequired = errors.New("cms config: environment key is required")
+var ErrEnvironmentKeyInvalid = errors.New("cms config: environment key is invalid")
+var ErrEnvironmentKeyDuplicate = errors.New("cms config: environment key must be unique")
+var ErrEnvironmentDefaultRequired = errors.New("cms config: environment default is required")
+var ErrEnvironmentDefaultMultiple = errors.New("cms config: environment default must be unique")
+var ErrEnvironmentDefaultUnknown = errors.New("cms config: environment default key is unknown")
+var ErrEnvironmentPermissionStrategyInvalid = errors.New("cms config: environment permission strategy is invalid")
 
 // Config aggregates feature flags and adapter bindings for the CMS module.
 // Fields intentionally use simple types so host applications can extend them later.
@@ -66,6 +74,7 @@ type Config struct {
 	Widgets       WidgetConfig
 	Retention     RetentionConfig
 	Features      Features
+	Environments  EnvironmentsConfig
 	Shortcodes    ShortcodeConfig
 	Markdown      MarkdownConfig
 	Generator     GeneratorConfig
@@ -148,6 +157,25 @@ type Features struct {
 	Logger        bool
 	Shortcodes    bool
 	Activity      bool
+	Environments  bool
+}
+
+// EnvironmentsConfig captures environment-specific configuration and defaults.
+type EnvironmentsConfig struct {
+	DefaultKey         string
+	RequireExplicit    bool
+	PermissionScoped   bool
+	PermissionStrategy string
+	Definitions        []EnvironmentConfig
+}
+
+// EnvironmentConfig describes a single environment definition.
+type EnvironmentConfig struct {
+	Key         string
+	Name        string
+	Description string
+	Default     bool
+	Disabled    bool
 }
 
 // LoggingConfig captures provider-specific options for runtime logging.
@@ -484,6 +512,9 @@ func (cfg Config) Validate() error {
 			return fmt.Errorf("%w: %s", ErrWorkflowProviderUnknown, provider)
 		}
 	}
+	if err := validateEnvironmentsConfig(cfg.Features.Environments, cfg.Environments); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -532,6 +563,88 @@ func isSupportedWorkflowProvider(provider string) bool {
 }
 
 var storageProfileNamePattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+var environmentKeyPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
+
+func validateEnvironmentsConfig(featureEnabled bool, cfg EnvironmentsConfig) error {
+	hasConfig := strings.TrimSpace(cfg.DefaultKey) != "" ||
+		cfg.RequireExplicit ||
+		cfg.PermissionScoped ||
+		strings.TrimSpace(cfg.PermissionStrategy) != "" ||
+		len(cfg.Definitions) > 0
+	if !featureEnabled {
+		if hasConfig {
+			return ErrEnvironmentsFeatureRequired
+		}
+		return nil
+	}
+	strategy := normalizeEnvironmentPermissionStrategy(cfg.PermissionStrategy)
+	if cfg.PermissionScoped || strings.TrimSpace(cfg.PermissionStrategy) != "" {
+		if !isSupportedEnvironmentPermissionStrategy(strategy) {
+			if strategy == "" {
+				return ErrEnvironmentPermissionStrategyInvalid
+			}
+			return fmt.Errorf("%w: %s", ErrEnvironmentPermissionStrategyInvalid, strategy)
+		}
+	}
+
+	defaultKey := strings.ToLower(strings.TrimSpace(cfg.DefaultKey))
+	if defaultKey != "" && !environmentKeyPattern.MatchString(defaultKey) {
+		return fmt.Errorf("%w: %s", ErrEnvironmentKeyInvalid, defaultKey)
+	}
+
+	seen := make(map[string]struct{}, len(cfg.Definitions))
+	defaultFound := ""
+	for _, def := range cfg.Definitions {
+		key := strings.ToLower(strings.TrimSpace(def.Key))
+		if key == "" {
+			return ErrEnvironmentKeyRequired
+		}
+		if !environmentKeyPattern.MatchString(key) {
+			return fmt.Errorf("%w: %s", ErrEnvironmentKeyInvalid, key)
+		}
+		if _, ok := seen[key]; ok {
+			return fmt.Errorf("%w: %s", ErrEnvironmentKeyDuplicate, key)
+		}
+		seen[key] = struct{}{}
+		if def.Default {
+			if defaultFound != "" && defaultFound != key {
+				return ErrEnvironmentDefaultMultiple
+			}
+			defaultFound = key
+		}
+	}
+
+	if defaultKey != "" && len(cfg.Definitions) > 0 {
+		if _, ok := seen[defaultKey]; !ok {
+			return fmt.Errorf("%w: %s", ErrEnvironmentDefaultUnknown, defaultKey)
+		}
+		if defaultFound != "" && defaultFound != defaultKey {
+			return ErrEnvironmentDefaultMultiple
+		}
+	}
+
+	if len(cfg.Definitions) > 0 && defaultFound == "" && defaultKey == "" {
+		if len(cfg.Definitions) > 1 {
+			return ErrEnvironmentDefaultRequired
+		}
+	}
+
+	return nil
+}
+
+func normalizeEnvironmentPermissionStrategy(strategy string) string {
+	return strings.ToLower(strings.TrimSpace(strategy))
+}
+
+func isSupportedEnvironmentPermissionStrategy(strategy string) bool {
+	switch strategy {
+	case "", "env_first", "global_first", "custom":
+		return true
+	default:
+		return false
+	}
+}
 
 // ValidateProfiles ensures storage profiles and their aliases are well-formed.
 func (cfg StorageConfig) ValidateProfiles() error {
