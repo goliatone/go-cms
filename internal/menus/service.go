@@ -451,6 +451,20 @@ func WithDefaultEnvironmentKey(key string) ServiceOption {
 	}
 }
 
+// WithRequireExplicitEnvironment enforces explicit environment selection.
+func WithRequireExplicitEnvironment(required bool) ServiceOption {
+	return func(s *service) {
+		s.requireExplicitEnv = required
+	}
+}
+
+// WithRequireActiveEnvironment blocks operations on inactive environments.
+func WithRequireActiveEnvironment(required bool) ServiceOption {
+	return func(s *service) {
+		s.requireActiveEnv = required
+	}
+}
+
 // WithMenuIDDeriver overrides menu ID derivation so callers can generate stable UUIDs from menu codes.
 func WithMenuIDDeriver(deriver MenuIDDeriver) ServiceOption {
 	return func(s *service) {
@@ -501,6 +515,8 @@ type service struct {
 	menuIDDeriver       MenuIDDeriver
 	envSvc              cmsenv.Service
 	defaultEnvKey       string
+	requireExplicitEnv  bool
+	requireActiveEnv    bool
 }
 
 type cacheInvalidator interface {
@@ -536,6 +552,17 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
 	}
+	if meta != nil {
+		if _, ok := meta["environment_key"]; !ok {
+			if raw, ok := meta["environment_id"].(string); ok && strings.TrimSpace(raw) != "" {
+				if parsed, err := uuid.Parse(raw); err == nil {
+					if key := s.environmentKeyForID(ctx, parsed); key != "" {
+						meta["environment_key"] = key
+					}
+				}
+			}
+		}
+	}
 	event := activity.Event{
 		Verb:       verb,
 		ActorID:    actor.String(),
@@ -548,33 +575,66 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 
 func (s *service) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
 	trimmed := strings.TrimSpace(key)
+	if trimmed == "" && s.requireExplicitEnv {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentKeyRequired
+	}
 	if trimmed != "" {
 		if parsed, err := uuid.Parse(trimmed); err == nil {
 			return parsed, trimmed, nil
 		}
 	}
-	normalized := cmsenv.NormalizeKey(trimmed)
-	if normalized == "" {
-		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
+	normalized, err := cmsenv.ResolveKey(trimmed, s.defaultEnvKey, s.requireExplicitEnv)
+	if err != nil {
+		return uuid.Nil, "", err
 	}
 	if s.envSvc == nil {
-		if normalized == "" {
-			normalized = cmsenv.DefaultKey
-		}
 		return cmsenv.IDForKey(normalized), normalized, nil
-	}
-	if normalized == "" {
-		env, err := s.envSvc.GetDefaultEnvironment(ctx)
-		if err != nil {
-			return uuid.Nil, "", err
-		}
-		return env.ID, env.Key, nil
 	}
 	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
 	if err != nil {
 		return uuid.Nil, "", err
 	}
+	if s.requireActiveEnv && !env.IsActive {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentNotFound
+	}
 	return env.ID, env.Key, nil
+}
+
+func (s *service) ensureEnvironmentActive(ctx context.Context, envID uuid.UUID) error {
+	if !s.requireActiveEnv || s.envSvc == nil || envID == uuid.Nil {
+		return nil
+	}
+	env, err := s.envSvc.GetEnvironment(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if !env.IsActive {
+		return cmsenv.ErrEnvironmentNotFound
+	}
+	return nil
+}
+
+func (s *service) environmentKeyForID(ctx context.Context, envID uuid.UUID) string {
+	if envID == uuid.Nil {
+		return ""
+	}
+	if s.envSvc != nil {
+		env, err := s.envSvc.GetEnvironment(ctx, envID)
+		if err == nil && env != nil {
+			return env.Key
+		}
+	}
+	defaultKey := strings.TrimSpace(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	if envID == cmsenv.IDForKey(defaultKey) {
+		return cmsenv.NormalizeKey(defaultKey)
+	}
+	if envID == cmsenv.IDForKey(cmsenv.DefaultKey) {
+		return cmsenv.DefaultKey
+	}
+	return ""
 }
 
 func (s *service) isDefaultEnvironmentKey(key string) bool {
@@ -821,6 +881,9 @@ func (s *service) GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error) {
 		}
 		return nil, err
 	}
+	if err := s.ensureEnvironmentActive(ctx, menu.EnvironmentID); err != nil {
+		return nil, err
+	}
 	return s.hydrateMenu(ctx, menu)
 }
 
@@ -981,6 +1044,9 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 		}
 		return nil, err
 	}
+	if err := s.ensureEnvironmentActive(ctx, menu.EnvironmentID); err != nil {
+		return nil, err
+	}
 	envID := menu.EnvironmentID
 	if envID == uuid.Nil {
 		resolvedID, _, err := s.resolveEnvironment(ctx, "")
@@ -1097,27 +1163,28 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 
 	now := s.now()
 	item := &MenuItem{
-		ID:           itemID,
-		MenuID:       menu.ID,
-		ParentID:     parentID,
-		ParentRef:    normalizeParentRefPointer(parentRef),
-		ExternalCode: normalizedInput.ExternalCode,
-		Position:     insertAt,
-		Type:         itemType,
-		Target:       ensureNonNilTarget(target),
-		Icon:         strings.TrimSpace(input.Icon),
-		Badge:        cloneMapAny(input.Badge),
-		Permissions:  cloneStringSlice(input.Permissions),
-		Classes:      cloneStringSlice(input.Classes),
-		Styles:       cloneMapString(input.Styles),
-		Collapsible:  itemType != MenuItemTypeSeparator && input.Collapsible,
-		Collapsed:    itemType != MenuItemTypeSeparator && input.Collapsible && input.Collapsed,
-		Metadata:     ensureMapAny(input.Metadata),
-		CreatedBy:    input.CreatedBy,
-		UpdatedBy:    input.UpdatedBy,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		CanonicalKey: canonicalKey,
+		ID:            itemID,
+		MenuID:        menu.ID,
+		ParentID:      parentID,
+		ParentRef:     normalizeParentRefPointer(parentRef),
+		ExternalCode:  normalizedInput.ExternalCode,
+		Position:      insertAt,
+		Type:          itemType,
+		Target:        ensureNonNilTarget(target),
+		Icon:          strings.TrimSpace(input.Icon),
+		Badge:         cloneMapAny(input.Badge),
+		Permissions:   cloneStringSlice(input.Permissions),
+		Classes:       cloneStringSlice(input.Classes),
+		Styles:        cloneMapString(input.Styles),
+		Collapsible:   itemType != MenuItemTypeSeparator && input.Collapsible,
+		Collapsed:     itemType != MenuItemTypeSeparator && input.Collapsible && input.Collapsed,
+		Metadata:      ensureMapAny(input.Metadata),
+		EnvironmentID: envID,
+		CreatedBy:     input.CreatedBy,
+		UpdatedBy:     input.UpdatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		CanonicalKey:  canonicalKey,
 	}
 
 	created, err := s.items.Create(ctx, item)
