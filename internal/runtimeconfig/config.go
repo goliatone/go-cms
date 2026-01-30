@@ -164,6 +164,7 @@ type Features struct {
 type EnvironmentsConfig struct {
 	DefaultKey         string
 	RequireExplicit    bool
+	RequireActive      bool
 	PermissionScoped   bool
 	PermissionStrategy string
 	Definitions        []EnvironmentConfig
@@ -569,6 +570,7 @@ var environmentKeyPattern = regexp.MustCompile(`^[a-z0-9_-]+$`)
 func validateEnvironmentsConfig(featureEnabled bool, cfg EnvironmentsConfig) error {
 	hasConfig := strings.TrimSpace(cfg.DefaultKey) != "" ||
 		cfg.RequireExplicit ||
+		cfg.RequireActive ||
 		cfg.PermissionScoped ||
 		strings.TrimSpace(cfg.PermissionStrategy) != "" ||
 		len(cfg.Definitions) > 0
