@@ -14,6 +14,14 @@ var (
 	ErrActivityFeatureRequired                = runtimeconfig.ErrActivityFeatureRequired
 	ErrWorkflowProviderUnknown                = runtimeconfig.ErrWorkflowProviderUnknown
 	ErrWorkflowProviderConfiguredWhenDisabled = runtimeconfig.ErrWorkflowProviderConfiguredWhenDisabled
+	ErrEnvironmentsFeatureRequired            = runtimeconfig.ErrEnvironmentsFeatureRequired
+	ErrEnvironmentKeyRequired                 = runtimeconfig.ErrEnvironmentKeyRequired
+	ErrEnvironmentKeyInvalid                  = runtimeconfig.ErrEnvironmentKeyInvalid
+	ErrEnvironmentKeyDuplicate                = runtimeconfig.ErrEnvironmentKeyDuplicate
+	ErrEnvironmentDefaultRequired             = runtimeconfig.ErrEnvironmentDefaultRequired
+	ErrEnvironmentDefaultMultiple             = runtimeconfig.ErrEnvironmentDefaultMultiple
+	ErrEnvironmentDefaultUnknown              = runtimeconfig.ErrEnvironmentDefaultUnknown
+	ErrEnvironmentPermissionStrategyInvalid   = runtimeconfig.ErrEnvironmentPermissionStrategyInvalid
 )
 
 type (
@@ -34,6 +42,8 @@ type (
 	ShortcodeSecurityConfig   = runtimeconfig.ShortcodeSecurityConfig
 	ShortcodeCacheConfig      = runtimeconfig.ShortcodeCacheConfig
 	Features                  = runtimeconfig.Features
+	EnvironmentsConfig        = runtimeconfig.EnvironmentsConfig
+	EnvironmentConfig         = runtimeconfig.EnvironmentConfig
 	MarkdownConfig            = runtimeconfig.MarkdownConfig
 	MarkdownParserConfig      = runtimeconfig.MarkdownParserConfig
 	GeneratorConfig           = runtimeconfig.GeneratorConfig
