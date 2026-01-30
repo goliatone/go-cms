@@ -129,7 +129,7 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 		})
 	}
 
-	existing, err := i.content.GetBySlug(ctx, slug)
+	existing, err := i.content.GetBySlug(ctx, slug, opts.EnvironmentKey)
 	if err != nil && existing != nil {
 		return fmt.Errorf("markdown importer: content lookup %s: %w", slug, err)
 	}
@@ -212,7 +212,7 @@ func (i *Importer) ensurePage(ctx context.Context, content *interfaces.ContentRe
 	}
 
 	slug := content.Slug
-	existing, err := i.pages.GetBySlug(ctx, slug)
+	existing, err := i.pages.GetBySlug(ctx, slug, opts.EnvironmentKey)
 	if err != nil && existing != nil {
 		return fmt.Errorf("markdown importer: page lookup %s: %w", slug, err)
 	}
@@ -292,7 +292,7 @@ func (i *Importer) ensurePage(ctx context.Context, content *interfaces.ContentRe
 }
 
 func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interfaces.Document, opts interfaces.SyncOptions, acc *syncAccumulator) error {
-	existing, err := i.content.List(ctx)
+	existing, err := i.content.List(ctx, opts.EnvironmentKey)
 	if err != nil {
 		return fmt.Errorf("markdown importer: list content: %w", err)
 	}
@@ -325,7 +325,7 @@ func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interf
 		return nil
 	}
 
-	pages, err := i.pages.List(ctx)
+	pages, err := i.pages.List(ctx, opts.EnvironmentKey)
 	if err != nil {
 		return fmt.Errorf("markdown importer: list pages: %w", err)
 	}
