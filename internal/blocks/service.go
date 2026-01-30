@@ -16,6 +16,7 @@ import (
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-slug"
 	"github.com/google/uuid"
 )
 
@@ -49,9 +50,13 @@ type Service interface {
 
 type RegisterDefinitionInput struct {
 	Name             string
+	Slug             string
 	Description      *string
 	Icon             *string
+	Category         *string
+	Status           string
 	Schema           map[string]any
+	UISchema         map[string]any
 	Defaults         map[string]any
 	EditorStyleURL   *string
 	FrontendStyleURL *string
@@ -60,9 +65,13 @@ type RegisterDefinitionInput struct {
 type UpdateDefinitionInput struct {
 	ID               uuid.UUID
 	Name             *string
+	Slug             *string
 	Description      *string
 	Icon             *string
+	Category         *string
+	Status           *string
 	Schema           map[string]any
+	UISchema         map[string]any
 	Defaults         map[string]any
 	EditorStyleURL   *string
 	FrontendStyleURL *string
@@ -157,6 +166,9 @@ type RestoreInstanceVersionRequest struct {
 
 var (
 	ErrDefinitionNameRequired          = errors.New("blocks: definition name required")
+	ErrDefinitionSlugRequired          = errors.New("blocks: definition slug required")
+	ErrDefinitionSlugInvalid           = errors.New("blocks: definition slug invalid")
+	ErrDefinitionSlugExists            = errors.New("blocks: definition slug already exists")
 	ErrDefinitionSchemaRequired        = errors.New("blocks: definition schema required")
 	ErrDefinitionSchemaInvalid         = errors.New("blocks: definition schema invalid")
 	ErrDefinitionSchemaVersionInvalid  = errors.New("blocks: definition schema version invalid")
@@ -309,6 +321,15 @@ func WithTranslationState(state *translationconfig.State) ServiceOption {
 	}
 }
 
+// WithDefinitionSlugNormalizer overrides the slug normalizer used by block definitions.
+func WithDefinitionSlugNormalizer(normalizer slug.Normalizer) ServiceOption {
+	return func(s *service) {
+		if normalizer != nil {
+			s.slugger = normalizer
+		}
+	}
+}
+
 type service struct {
 	definitions           DefinitionRepository
 	definitionVersions    DefinitionVersionRepository
@@ -327,6 +348,7 @@ type service struct {
 	requireTranslations   bool
 	translationsEnabled   bool
 	translationState      *translationconfig.State
+	slugger               slug.Normalizer
 	activity              *activity.Emitter
 }
 
@@ -339,6 +361,7 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 		id:                  uuid.New,
 		media:               media.NewNoOpService(),
 		translationsEnabled: true,
+		slugger:             slug.Default(),
 		activity:            activity.NewEmitter(nil, activity.Config{}),
 	}
 
@@ -396,7 +419,14 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	if len(input.Schema) == 0 {
 		return nil, ErrDefinitionSchemaRequired
 	}
-	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, name)
+	slugValue, err := s.normalizeDefinitionSlug(name, input.Slug)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureDefinitionSlugAvailable(ctx, slugValue, uuid.Nil); err != nil {
+		return nil, err
+	}
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, slugValue)
 	if err != nil {
 		return nil, ErrDefinitionSchemaVersionInvalid
 	}
@@ -404,16 +434,21 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
 	}
 
-	if _, err := s.definitions.GetByName(ctx, name); err == nil {
-		return nil, ErrDefinitionExists
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "draft"
 	}
 
 	definition := &Definition{
-		ID:               identity.BlockDefinitionUUID(name),
+		ID:               identity.BlockDefinitionUUID(slugValue),
 		Name:             name,
+		Slug:             slugValue,
 		Description:      input.Description,
 		Icon:             input.Icon,
+		Category:         cloneStringValue(input.Category),
+		Status:           status,
 		Schema:           maps.Clone(normalizedSchema),
+		UISchema:         maps.Clone(input.UISchema),
 		SchemaVersion:    version.String(),
 		Defaults:         maps.Clone(input.Defaults),
 		EditorStyleURL:   input.EditorStyleURL,
@@ -460,17 +495,29 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 		if name == "" {
 			return nil, ErrDefinitionNameRequired
 		}
-		if !strings.EqualFold(name, definition.Name) {
-			if _, err := s.definitions.GetByName(ctx, name); err == nil {
-				return nil, ErrDefinitionExists
-			} else {
-				var nf *NotFoundError
-				if !errors.As(err, &nf) {
-					return nil, err
-				}
+		definition.Name = name
+	}
+
+	if input.Slug != nil {
+		slugValue, err := s.normalizeDefinitionSlug(definition.Name, *input.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.EqualFold(slugValue, definition.Slug) {
+			if err := s.ensureDefinitionSlugAvailable(ctx, slugValue, definition.ID); err != nil {
+				return nil, err
 			}
 		}
-		definition.Name = name
+		definition.Slug = slugValue
+	} else if strings.TrimSpace(definition.Slug) == "" {
+		slugValue, err := s.normalizeDefinitionSlug(definition.Name, definition.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.ensureDefinitionSlugAvailable(ctx, slugValue, definition.ID); err != nil {
+			return nil, err
+		}
+		definition.Slug = slugValue
 	}
 	if input.Description != nil {
 		definition.Description = cloneStringValue(input.Description)
@@ -1556,6 +1603,55 @@ func cloneStringValue(value *string) *string {
 	}
 	cloned := strings.Clone(*value)
 	return &cloned
+}
+
+func definitionSlug(definition *Definition) string {
+	if definition == nil {
+		return ""
+	}
+	if trimmed := strings.TrimSpace(definition.Slug); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(definition.Name)
+}
+
+func (s *service) normalizeDefinitionSlug(name, rawSlug string) (string, error) {
+	candidate := strings.TrimSpace(rawSlug)
+	if candidate == "" {
+		candidate = strings.TrimSpace(name)
+	}
+	if candidate == "" {
+		return "", ErrDefinitionSlugRequired
+	}
+	if s.slugger == nil {
+		s.slugger = slug.Default()
+	}
+	normalized, err := s.slugger.Normalize(candidate)
+	if err != nil || normalized == "" {
+		return "", ErrDefinitionSlugInvalid
+	}
+	return normalized, nil
+}
+
+func (s *service) ensureDefinitionSlugAvailable(ctx context.Context, slug string, currentID uuid.UUID) error {
+	if slug == "" {
+		return ErrDefinitionSlugRequired
+	}
+	existing, err := s.definitions.GetBySlug(ctx, slug)
+	if err != nil {
+		var nf *NotFoundError
+		if errors.As(err, &nf) {
+			return nil
+		}
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	if currentID != uuid.Nil && existing.ID == currentID {
+		return nil
+	}
+	return ErrDefinitionSlugExists
 }
 
 func (s *service) SyncRegistry(ctx context.Context) error {
