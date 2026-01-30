@@ -932,7 +932,12 @@ func (b *EmbeddedBlockBridge) definitionIndex(ctx context.Context) (map[string]*
 		if def == nil {
 			continue
 		}
-		index[strings.ToLower(def.Name)] = def
+		if slug := strings.ToLower(strings.TrimSpace(def.Slug)); slug != "" {
+			index[slug] = def
+		}
+		if name := strings.ToLower(strings.TrimSpace(def.Name)); name != "" {
+			index[name] = def
+		}
 	}
 	return index, nil
 }
@@ -1193,7 +1198,12 @@ func (b *EmbeddedBlockBridge) definitionLookups(ctx context.Context) (map[string
 		if def == nil {
 			continue
 		}
-		byName[strings.ToLower(strings.TrimSpace(def.Name))] = def
+		if slug := strings.ToLower(strings.TrimSpace(def.Slug)); slug != "" {
+			byName[slug] = def
+		}
+		if name := strings.ToLower(strings.TrimSpace(def.Name)); name != "" {
+			byName[name] = def
+		}
 		byID[def.ID] = def
 	}
 	return byName, byID, nil
@@ -1203,7 +1213,7 @@ func (b *EmbeddedBlockBridge) schemaForEmbeddedBlock(ctx context.Context, def *D
 	if def == nil {
 		return nil, "", ErrEmbeddedBlockDefinitionMissing
 	}
-	target, err := resolveDefinitionSchemaVersion(def.Schema, def.Name)
+	target, err := resolveDefinitionSchemaVersion(def.Schema, definitionSlug(def))
 	if err != nil {
 		return nil, "", err
 	}
@@ -1248,7 +1258,7 @@ func (b *EmbeddedBlockBridge) migrateEmbeddedBlock(def *Definition, block map[st
 	if def == nil {
 		return nil, ErrEmbeddedBlockDefinitionMissing
 	}
-	target, err := resolveDefinitionSchemaVersion(def.Schema, def.Name)
+	target, err := resolveDefinitionSchemaVersion(def.Schema, definitionSlug(def))
 	if err != nil {
 		return nil, err
 	}
@@ -1336,7 +1346,7 @@ func (b *EmbeddedBlockBridge) expectedTypeForMeta(ctx context.Context, meta embe
 			return "", err
 		}
 		if def != nil {
-			return def.Name, nil
+			return definitionSlug(def), nil
 		}
 	}
 	if meta.instanceID != nil {
@@ -1352,7 +1362,7 @@ func (b *EmbeddedBlockBridge) expectedTypeForMeta(ctx context.Context, meta embe
 			return "", err
 		}
 		if def != nil {
-			return def.Name, nil
+			return definitionSlug(def), nil
 		}
 	}
 	return "", nil
@@ -1483,7 +1493,7 @@ func (b *EmbeddedBlockBridge) comparePageBlocks(
 			if def == nil {
 				continue
 			}
-			nameByID[def.ID] = def.Name
+			nameByID[def.ID] = definitionSlug(def)
 		}
 	}
 	legacy, err := b.blocks.ListPageInstances(ctx, pageID)
@@ -1709,7 +1719,7 @@ func findTranslation(instance *Instance, localeID uuid.UUID) *Translation {
 func definitionName(definitions map[string]*Definition, id uuid.UUID) string {
 	for _, def := range definitions {
 		if def != nil && def.ID == id {
-			return def.Name
+			return definitionSlug(def)
 		}
 	}
 	return ""
@@ -1720,7 +1730,7 @@ func legacyDefinitionName(instance *Instance, nameByID map[uuid.UUID]string) str
 		return ""
 	}
 	if instance.Definition != nil && strings.TrimSpace(instance.Definition.Name) != "" {
-		return instance.Definition.Name
+		return definitionSlug(instance.Definition)
 	}
 	if nameByID != nil {
 		if name, ok := nameByID[instance.DefinitionID]; ok {
