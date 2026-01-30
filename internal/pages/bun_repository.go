@@ -3,8 +3,10 @@ package pages
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	goerrors "github.com/goliatone/go-errors"
 	repository "github.com/goliatone/go-repository-bun"
 	"github.com/goliatone/go-repository-cache/cache"
@@ -50,16 +52,31 @@ func (r *BunPageRepository) GetByID(ctx context.Context, id uuid.UUID) (*Page, e
 	return result, nil
 }
 
-func (r *BunPageRepository) GetBySlug(ctx context.Context, slug string) (*Page, error) {
-	result, err := r.repo.GetByIdentifier(ctx, slug)
+func (r *BunPageRepository) GetBySlug(ctx context.Context, slug string, env ...string) (*Page, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.slug = ?", slug)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyEnvironmentFilter(q, normalizedEnv)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
 	if err != nil {
 		return nil, mapRepositoryError(err, "page", slug)
 	}
-	return result, nil
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "page", Key: slug}
+	}
+	return records[0], nil
 }
 
-func (r *BunPageRepository) List(ctx context.Context) ([]*Page, error) {
-	records, _, err := r.repo.List(ctx)
+func (r *BunPageRepository) List(ctx context.Context, env ...string) ([]*Page, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return applyEnvironmentFilter(q, normalizedEnv)
+	}))
 	return records, err
 }
 
@@ -246,6 +263,26 @@ func (r *BunPageRepository) Delete(ctx context.Context, id uuid.UUID, hardDelete
 		}
 		return nil
 	})
+}
+
+func normalizeEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func applyEnvironmentFilter(q *bun.SelectQuery, envKey string) *bun.SelectQuery {
+	if q == nil {
+		return q
+	}
+	if strings.TrimSpace(envKey) == "" {
+		return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE is_default = TRUE LIMIT 1)")
+	}
+	if envID, err := uuid.Parse(envKey); err == nil {
+		return q.Where("?TableAlias.environment_id = ?", envID)
+	}
+	return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE key = ? LIMIT 1)", envKey)
 }
 
 func mapRepositoryError(err error, resource, key string) error {
