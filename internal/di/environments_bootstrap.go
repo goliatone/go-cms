@@ -9,6 +9,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/identity"
+	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
@@ -41,7 +42,9 @@ type environmentDefinition struct {
 }
 
 func (c *Container) initializeEnvironments(ctx context.Context) error {
+	logger := logging.ModuleLogger(c.loggerProvider, "cms.environments")
 	if !c.Config.Features.Environments {
+		logger.Debug("environments.bootstrap.skip", "reason", "feature_disabled")
 		return nil
 	}
 	if ctx == nil {
@@ -50,11 +53,19 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 
 	definitions, defaultKey := resolveEnvironmentDefinitions(c.Config.Environments)
 	if len(definitions) == 0 {
+		logger.Debug("environments.bootstrap.skip", "reason", "no_definitions")
 		return nil
 	}
 
+	backend := "memory"
+	if c.bunDB != nil {
+		backend = "bun"
+	}
+	logger.Info("environments.bootstrap.start", "count", len(definitions), "default_key", defaultKey, "backend", backend)
+
 	if c.bunDB == nil {
 		if c.environmentRepo == nil {
+			logger.Debug("environments.bootstrap.skip", "reason", "repository_unavailable")
 			return nil
 		}
 		svc := environments.NewService(c.environmentRepo)
@@ -66,7 +77,7 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 				}
 				active := def.IsActive
 				desc := strings.TrimSpace(def.Description)
-				_, err := svc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{
+				created, err := svc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{
 					Key:         def.Key,
 					Name:        def.Name,
 					Description: &desc,
@@ -75,6 +86,9 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 				})
 				if err != nil {
 					return err
+				}
+				if created != nil {
+					logger.Info("environments.bootstrap.create", "key", created.Key, "id", created.ID, "default", created.IsDefault, "active", created.IsActive)
 				}
 				continue
 			}
@@ -93,11 +107,14 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 			if _, err := svc.UpdateEnvironment(ctx, update); err != nil {
 				return err
 			}
+			logger.Info("environments.bootstrap.update", "key", def.Key, "default", def.IsDefault, "active", def.IsActive)
 		}
+		logger.Info("environments.bootstrap.complete", "count", len(definitions), "default_key", defaultKey, "backend", backend)
 		return nil
 	}
 
 	if defaultKey != "" {
+		logger.Debug("environments.bootstrap.clear_default", "default_key", defaultKey)
 		if _, err := c.bunDB.NewUpdate().Table("environments").
 			Set("is_default = ?", false).
 			Where("key <> ?", defaultKey).
@@ -146,6 +163,7 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 				Exec(ctx); err != nil {
 				return fmt.Errorf("di: update environment %s: %w", def.Key, err)
 			}
+			logger.Info("environments.bootstrap.update", "key", def.Key, "default", def.IsDefault, "active", def.IsActive)
 			continue
 		}
 
@@ -162,9 +180,11 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 		if _, err := c.bunDB.NewInsert().Model(&record).Exec(ctx); err != nil {
 			return fmt.Errorf("di: insert environment %s: %w", def.Key, err)
 		}
+		logger.Info("environments.bootstrap.create", "key", def.Key, "id", record.ID, "default", def.IsDefault, "active", def.IsActive)
 	}
 
 	if defaultKey != "" {
+		logger.Info("environments.bootstrap.set_default", "default_key", defaultKey)
 		if _, err := c.bunDB.NewUpdate().Table("environments").
 			Set("is_default = ?", true).
 			Where("key = ?", defaultKey).
@@ -173,6 +193,7 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 		}
 	}
 
+	logger.Info("environments.bootstrap.complete", "count", len(definitions), "default_key", defaultKey, "backend", backend)
 	return nil
 }
 
