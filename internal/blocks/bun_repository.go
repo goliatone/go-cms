@@ -47,10 +47,10 @@ func (r *BunDefinitionRepository) GetByID(ctx context.Context, id uuid.UUID) (*D
 	return record, nil
 }
 
-func (r *BunDefinitionRepository) GetByName(ctx context.Context, name string) (*Definition, error) {
-	record, err := r.repo.GetByIdentifier(ctx, name)
+func (r *BunDefinitionRepository) GetBySlug(ctx context.Context, slug string) (*Definition, error) {
+	record, err := r.repo.GetByIdentifier(ctx, slug)
 	if err != nil {
-		return nil, mapRepositoryError(err, "block_definition", name)
+		return nil, mapRepositoryError(err, "block_definition", slug)
 	}
 	return record, nil
 }
@@ -65,8 +65,12 @@ func (r *BunDefinitionRepository) Update(ctx context.Context, definition *Defini
 		repository.UpdateByID(definition.ID.String()),
 		repository.UpdateColumns(
 			"name",
+			"slug",
 			"description",
 			"icon",
+			"category",
+			"status",
+			"ui_schema",
 			"schema",
 			"schema_version",
 			"defaults",
