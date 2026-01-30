@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	goerrors "github.com/goliatone/go-errors"
 	"github.com/goliatone/go-repository-bun"
 	"github.com/goliatone/go-repository-cache/cache"
@@ -99,16 +100,32 @@ func (r *BunContentRepository) GetByID(ctx context.Context, id uuid.UUID) (*Cont
 	return result, nil
 }
 
-func (r *BunContentRepository) GetBySlug(ctx context.Context, slug string) (*Content, error) {
-	result, err := r.repo.GetByIdentifier(ctx, slug)
+func (r *BunContentRepository) GetBySlug(ctx context.Context, slug string, contentTypeID uuid.UUID, env ...string) (*Content, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.slug = ?", slug).
+				Where("?TableAlias.content_type_id = ?", contentTypeID)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyEnvironmentFilter(q, normalizedEnv)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
 	if err != nil {
 		return nil, mapRepositoryError(err, "content", slug)
 	}
-	return result, nil
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "content", Key: slug}
+	}
+	return records[0], nil
 }
 
-func (r *BunContentRepository) List(ctx context.Context) ([]*Content, error) {
-	records, _, err := r.repo.List(ctx)
+func (r *BunContentRepository) List(ctx context.Context, env ...string) ([]*Content, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return applyEnvironmentFilter(q, normalizedEnv)
+	}))
 	return records, err
 }
 
@@ -348,34 +365,54 @@ func (r *BunContentTypeRepository) GetByID(ctx context.Context, id uuid.UUID) (*
 	return result, nil
 }
 
-func (r *BunContentTypeRepository) GetBySlug(ctx context.Context, slug string) (*ContentType, error) {
-	result, err := r.repo.GetByIdentifier(ctx, slug)
+func (r *BunContentTypeRepository) GetBySlug(ctx context.Context, slug string, env ...string) (*ContentType, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.slug = ?", slug)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyEnvironmentFilter(q, normalizedEnv)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
 	if err != nil {
 		return nil, mapRepositoryError(err, "content_type", slug)
 	}
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "content_type", Key: slug}
+	}
+	result := records[0]
 	if result == nil || result.DeletedAt != nil {
 		return nil, &NotFoundError{Resource: "content_type", Key: slug}
 	}
 	return result, nil
 }
 
-func (r *BunContentTypeRepository) List(ctx context.Context) ([]*ContentType, error) {
-	records, _, err := r.repo.List(ctx)
+func (r *BunContentTypeRepository) List(ctx context.Context, env ...string) ([]*ContentType, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return applyEnvironmentFilter(q, normalizedEnv)
+	}))
 	if err != nil {
 		return nil, err
 	}
 	return filterActiveContentTypes(records), nil
 }
 
-func (r *BunContentTypeRepository) Search(ctx context.Context, query string) ([]*ContentType, error) {
+func (r *BunContentTypeRepository) Search(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return r.List(ctx)
+		return r.List(ctx, env...)
 	}
 	like := "%" + strings.ToLower(query) + "%"
+	normalizedEnv := normalizeEnvironmentKey(env...)
 	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
-		return q.Where("LOWER(?TableAlias.name) LIKE ?", like).
-			WhereOr("LOWER(?TableAlias.slug) LIKE ?", like)
+		return applyEnvironmentFilter(
+			q.Where("LOWER(?TableAlias.name) LIKE ?", like).
+				WhereOr("LOWER(?TableAlias.slug) LIKE ?", like),
+			normalizedEnv,
+		)
 	}))
 	if err != nil {
 		return nil, err
@@ -456,6 +493,26 @@ func (r *BunLocaleRepository) GetByCode(ctx context.Context, code string) (*Loca
 		return nil, mapRepositoryError(err, "locale", code)
 	}
 	return result, nil
+}
+
+func normalizeEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func applyEnvironmentFilter(q *bun.SelectQuery, envKey string) *bun.SelectQuery {
+	if q == nil {
+		return q
+	}
+	if strings.TrimSpace(envKey) == "" {
+		return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE is_default = TRUE LIMIT 1)")
+	}
+	if envID, err := uuid.Parse(envKey); err == nil {
+		return q.Where("?TableAlias.environment_id = ?", envID)
+	}
+	return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE key = ? LIMIT 1)", envKey)
 }
 
 func mapRepositoryError(err error, resource, key string) error {
