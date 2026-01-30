@@ -54,6 +54,7 @@ type UpdateContentTypeRequest struct {
 	Capabilities         map[string]any
 	Icon                 *string
 	Status               *string
+	EnvironmentKey       string
 	UpdatedBy            uuid.UUID
 	AllowBreakingChanges bool
 }
@@ -137,6 +138,20 @@ func WithContentTypeDefaultEnvironmentKey(key string) ContentTypeOption {
 	}
 }
 
+// WithContentTypeRequireExplicitEnvironment enforces explicit environment selection.
+func WithContentTypeRequireExplicitEnvironment(required bool) ContentTypeOption {
+	return func(s *contentTypeService) {
+		s.requireExplicitEnv = required
+	}
+}
+
+// WithContentTypeRequireActiveEnvironment blocks operations on inactive environments.
+func WithContentTypeRequireActiveEnvironment(required bool) ContentTypeOption {
+	return func(s *contentTypeService) {
+		s.requireActiveEnv = required
+	}
+}
+
 // WithContentTypeValidators appends validators applied on create/update.
 func WithContentTypeValidators(validators ...ContentTypeValidator) ContentTypeOption {
 	return func(s *contentTypeService) {
@@ -177,6 +192,8 @@ type contentTypeService struct {
 	activity      *activity.Emitter
 	validators    []ContentTypeValidator
 	defaultEnvKey string
+	requireExplicitEnv bool
+	requireActiveEnv   bool
 }
 
 func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRequest) (*ContentType, error) {
@@ -263,6 +280,18 @@ func (s *contentTypeService) Update(ctx context.Context, req UpdateContentTypeRe
 	record, err := s.repo.GetByID(ctx, req.ID)
 	if err != nil {
 		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.EnvironmentKey) != "" || s.requireExplicitEnv {
+		envID, _, err := s.resolveEnvironment(ctx, req.EnvironmentKey)
+		if err != nil {
+			return nil, err
+		}
+		if record.EnvironmentID != uuid.Nil && record.EnvironmentID != envID {
+			return nil, cmsenv.ErrEnvironmentNotFound
+		}
 	}
 	previousSchema := cloneMap(record.Schema)
 	previousUISchema := cloneMap(record.UISchema)
@@ -428,6 +457,9 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 			}
 			return err
 		}
+		if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+			return err
+		}
 		if err := s.repo.Delete(ctx, req.ID, true); err != nil {
 			return err
 		}
@@ -437,6 +469,9 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 
 	record, err := s.repo.GetByID(ctx, req.ID)
 	if err != nil {
+		return err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
 		return err
 	}
 
@@ -464,7 +499,14 @@ func (s *contentTypeService) Get(ctx context.Context, id uuid.UUID) (*ContentTyp
 	if id == uuid.Nil {
 		return nil, ErrContentTypeIDRequired
 	}
-	return s.repo.GetByID(ctx, id)
+	record, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
 func (s *contentTypeService) GetBySlug(ctx context.Context, rawSlug string, env ...string) (*ContentType, error) {
@@ -537,6 +579,9 @@ func (s *contentTypeService) emitActivity(ctx context.Context, actor uuid.UUID, 
 	}
 	if record.EnvironmentID != uuid.Nil {
 		meta["environment_id"] = record.EnvironmentID.String()
+		if key := s.environmentKeyForID(ctx, record.EnvironmentID); key != "" {
+			meta["environment_key"] = key
+		}
 	}
 	_ = s.activity.Emit(ctx, activity.Event{
 		Verb:       verb,
@@ -605,28 +650,58 @@ func (s *contentTypeService) ensureSlugAvailable(ctx context.Context, slug strin
 }
 
 func (s *contentTypeService) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
-	normalized := cmsenv.NormalizeKey(key)
-	if normalized == "" {
-		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
+	normalized, err := cmsenv.ResolveKey(key, s.defaultEnvKey, s.requireExplicitEnv)
+	if err != nil {
+		return uuid.Nil, "", err
 	}
 	if s.envSvc == nil {
-		if normalized == "" {
-			normalized = cmsenv.DefaultKey
-		}
 		return cmsenv.IDForKey(normalized), normalized, nil
-	}
-	if normalized == "" {
-		env, err := s.envSvc.GetDefaultEnvironment(ctx)
-		if err != nil {
-			return uuid.Nil, "", err
-		}
-		return env.ID, env.Key, nil
 	}
 	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
 	if err != nil {
 		return uuid.Nil, "", err
 	}
+	if s.requireActiveEnv && !env.IsActive {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentNotFound
+	}
 	return env.ID, env.Key, nil
+}
+
+func (s *contentTypeService) ensureEnvironmentActive(ctx context.Context, envID uuid.UUID) error {
+	if !s.requireActiveEnv || s.envSvc == nil || envID == uuid.Nil {
+		return nil
+	}
+	env, err := s.envSvc.GetEnvironment(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if !env.IsActive {
+		return cmsenv.ErrEnvironmentNotFound
+	}
+	return nil
+}
+
+func (s *contentTypeService) environmentKeyForID(ctx context.Context, envID uuid.UUID) string {
+	if envID == uuid.Nil {
+		return ""
+	}
+	if s.envSvc != nil {
+		env, err := s.envSvc.GetEnvironment(ctx, envID)
+		if err == nil && env != nil {
+			return env.Key
+		}
+	}
+	defaultKey := strings.TrimSpace(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	if envID == cmsenv.IDForKey(defaultKey) {
+		return cmsenv.NormalizeKey(defaultKey)
+	}
+	if envID == cmsenv.IDForKey(cmsenv.DefaultKey) {
+		return cmsenv.DefaultKey
+	}
+	return ""
 }
 
 func pickEnvironmentKey(env ...string) string {
