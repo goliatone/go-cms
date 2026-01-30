@@ -265,3 +265,46 @@ func TestConfigValidate_StorageProfileRequiresConfigFields(t *testing.T) {
 		t.Fatalf("expected config field error, got %v", err)
 	}
 }
+
+func TestConfigValidate_RejectsEnvironmentConfigWithoutFeature(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.Environments = runtimeconfig.EnvironmentsConfig{
+		DefaultKey: "dev",
+		Definitions: []runtimeconfig.EnvironmentConfig{
+			{Key: "dev", Name: "Development"},
+		},
+	}
+
+	err := cfg.Validate()
+	if !errors.Is(err, runtimeconfig.ErrEnvironmentsFeatureRequired) {
+		t.Fatalf("expected ErrEnvironmentsFeatureRequired, got %v", err)
+	}
+}
+
+func TestConfigValidate_AllowsEnvironmentDefaultsWhenEnabled(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.Features.Environments = true
+	cfg.Environments = runtimeconfig.EnvironmentsConfig{
+		DefaultKey: "dev",
+	}
+
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() returned unexpected error: %v", err)
+	}
+}
+
+func TestConfigValidate_RequiresEnvironmentDefaultWhenMultipleDefinitions(t *testing.T) {
+	cfg := runtimeconfig.DefaultConfig()
+	cfg.Features.Environments = true
+	cfg.Environments = runtimeconfig.EnvironmentsConfig{
+		Definitions: []runtimeconfig.EnvironmentConfig{
+			{Key: "dev", Name: "Development"},
+			{Key: "prod", Name: "Production"},
+		},
+	}
+
+	err := cfg.Validate()
+	if !errors.Is(err, runtimeconfig.ErrEnvironmentDefaultRequired) {
+		t.Fatalf("expected ErrEnvironmentDefaultRequired, got %v", err)
+	}
+}
