@@ -15,7 +15,7 @@ import (
 func NewMemoryDefinitionRepository() DefinitionRepository {
 	return &memoryDefinitionRepository{
 		byID:   make(map[uuid.UUID]*Definition),
-		byName: make(map[string]uuid.UUID),
+		bySlug: make(map[string]uuid.UUID),
 	}
 }
 
@@ -31,7 +31,7 @@ func NewMemoryDefinitionVersionRepository() DefinitionVersionRepository {
 type memoryDefinitionRepository struct {
 	mu     sync.RWMutex
 	byID   map[uuid.UUID]*Definition
-	byName map[string]uuid.UUID
+	bySlug map[string]uuid.UUID
 }
 
 type memoryDefinitionVersionRepository struct {
@@ -118,8 +118,8 @@ func (m *memoryDefinitionRepository) Create(_ context.Context, definition *Defin
 
 	cloned := cloneDefinition(definition)
 	m.byID[cloned.ID] = cloned
-	if cloned.Name != "" {
-		m.byName[cloned.Name] = cloned.ID
+	if cloned.Slug != "" {
+		m.bySlug[cloned.Slug] = cloned.ID
 	}
 
 	return cloneDefinition(cloned), nil
@@ -136,13 +136,13 @@ func (m *memoryDefinitionRepository) GetByID(_ context.Context, id uuid.UUID) (*
 	return cloneDefinition(record), nil
 }
 
-func (m *memoryDefinitionRepository) GetByName(_ context.Context, name string) (*Definition, error) {
+func (m *memoryDefinitionRepository) GetBySlug(_ context.Context, slug string) (*Definition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	id, ok := m.byName[name]
+	id, ok := m.bySlug[slug]
 	if !ok {
-		return nil, &NotFoundError{Resource: "block_definition", Key: name}
+		return nil, &NotFoundError{Resource: "block_definition", Key: slug}
 	}
 	return cloneDefinition(m.byID[id]), nil
 }
@@ -168,8 +168,8 @@ func (m *memoryDefinitionRepository) Update(_ context.Context, definition *Defin
 
 	cloned := cloneDefinition(definition)
 	m.byID[cloned.ID] = cloned
-	if cloned.Name != "" {
-		m.byName[cloned.Name] = cloned.ID
+	if cloned.Slug != "" {
+		m.bySlug[cloned.Slug] = cloned.ID
 	}
 	return cloneDefinition(cloned), nil
 }
@@ -183,8 +183,8 @@ func (m *memoryDefinitionRepository) Delete(_ context.Context, id uuid.UUID) err
 		return &NotFoundError{Resource: "block_definition", Key: id.String()}
 	}
 	delete(m.byID, id)
-	if record.Name != "" {
-		delete(m.byName, record.Name)
+	if record.Slug != "" {
+		delete(m.bySlug, record.Slug)
 	}
 	return nil
 }
@@ -501,6 +501,9 @@ func cloneDefinition(src *Definition) *Definition {
 	if src.Schema != nil {
 		cloned.Schema = maps.Clone(src.Schema)
 	}
+	if src.UISchema != nil {
+		cloned.UISchema = maps.Clone(src.UISchema)
+	}
 	if src.Defaults != nil {
 		cloned.Defaults = maps.Clone(src.Defaults)
 	}
@@ -514,6 +517,9 @@ func cloneDefinitionVersion(src *DefinitionVersion) *DefinitionVersion {
 	cloned := *src
 	if src.Schema != nil {
 		cloned.Schema = maps.Clone(src.Schema)
+	}
+	if src.UISchema != nil {
+		cloned.UISchema = maps.Clone(src.UISchema)
 	}
 	if src.Defaults != nil {
 		cloned.Defaults = maps.Clone(src.Defaults)
