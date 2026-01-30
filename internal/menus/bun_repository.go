@@ -5,7 +5,9 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	goerrors "github.com/goliatone/go-errors"
 	repository "github.com/goliatone/go-repository-bun"
 	cache "github.com/goliatone/go-repository-cache/cache"
@@ -65,24 +67,34 @@ func (r *BunMenuRepository) GetByID(ctx context.Context, id uuid.UUID) (*Menu, e
 	return record, nil
 }
 
-func (r *BunMenuRepository) GetByCode(ctx context.Context, code string) (*Menu, error) {
-	record, err := r.repo.GetByIdentifier(ctx, code)
+func (r *BunMenuRepository) GetByCode(ctx context.Context, code string, env ...string) (*Menu, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.code = ?", code)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyEnvironmentFilter(q, normalizedEnv)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
 	if err != nil {
 		return nil, mapRepositoryError(err, "menu", code)
 	}
-	return record, nil
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "menu", Key: code}
+	}
+	return records[0], nil
 }
 
-func (r *BunMenuRepository) GetByLocation(ctx context.Context, location string) (*Menu, error) {
+func (r *BunMenuRepository) GetByLocation(ctx context.Context, location string, env ...string) (*Menu, error) {
 	if r == nil || r.db == nil {
 		return nil, &NotFoundError{Resource: "menu", Key: location}
 	}
 	record := new(Menu)
-	err := r.db.NewSelect().
-		Model(record).
-		Where("location = ?", location).
-		Limit(1).
-		Scan(ctx)
+	q := r.db.NewSelect().Model(record).Where("location = ?", location).Limit(1)
+	q = applyEnvironmentFilter(q, normalizeEnvironmentKey(env...))
+	err := q.Scan(ctx)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, &NotFoundError{Resource: "menu", Key: location}
@@ -92,8 +104,11 @@ func (r *BunMenuRepository) GetByLocation(ctx context.Context, location string) 
 	return record, nil
 }
 
-func (r *BunMenuRepository) List(ctx context.Context) ([]*Menu, error) {
-	records, _, err := r.repo.List(ctx)
+func (r *BunMenuRepository) List(ctx context.Context, env ...string) ([]*Menu, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return applyEnvironmentFilter(q, normalizedEnv)
+	}))
 	return records, err
 }
 
@@ -385,6 +400,26 @@ func (r *BunMenuItemTranslationRepository) InvalidateCache(ctx context.Context) 
 		return nil
 	}
 	return r.cacheService.DeleteByPrefix(ctx, r.cachePrefix)
+}
+
+func normalizeEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func applyEnvironmentFilter(q *bun.SelectQuery, envKey string) *bun.SelectQuery {
+	if q == nil {
+		return q
+	}
+	if strings.TrimSpace(envKey) == "" {
+		return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE is_default = TRUE LIMIT 1)")
+	}
+	if envID, err := uuid.Parse(envKey); err == nil {
+		return q.Where("?TableAlias.environment_id = ?", envID)
+	}
+	return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE key = ? LIMIT 1)", envKey)
 }
 
 func mapRepositoryError(err error, resource, key string) error {
