@@ -10,11 +10,11 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/domain"
 	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
-	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -75,6 +75,15 @@ func WithIDGenerator(generator func() uuid.UUID) ServiceOption {
 	}
 }
 
+// WithDefaultEnvironmentKey overrides the default environment key.
+func WithDefaultEnvironmentKey(key string) ServiceOption {
+	return func(s *service) {
+		if strings.TrimSpace(key) != "" {
+			s.defaultEnvKey = key
+		}
+	}
+}
+
 // NewService constructs the promotion service.
 func NewService(envSvc cmsenv.Service, contentTypes content.ContentTypeRepository, contents content.ContentRepository, locales content.LocaleRepository, opts ...ServiceOption) Service {
 	if envSvc == nil {
@@ -91,7 +100,6 @@ func NewService(envSvc cmsenv.Service, contentTypes content.ContentTypeRepositor
 		now:            func() time.Time { return time.Now().UTC() },
 		id:             uuid.New,
 		activity:       activity.NewEmitter(nil, activity.Config{}),
-		blockLogger:    interfaces.NewNoOpLogger(),
 		defaultEnvKey:  cmsenv.DefaultKey,
 		schemaMigrator: nil,
 	}
@@ -114,7 +122,6 @@ type service struct {
 	activity       *activity.Emitter
 	now            func() time.Time
 	id             func() uuid.UUID
-	blockLogger    interfaces.Logger
 	defaultEnvKey  string
 }
 
@@ -305,9 +312,6 @@ func (s *service) PromoteContentEntry(ctx context.Context, req PromoteContentEnt
 		return nil, content.ErrContentIDRequired
 	}
 	opts := normalizeOptions(req.Options)
-	if opts.Mode == "" {
-		opts.Mode = ModeStrict
-	}
 
 	sourceContent, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
@@ -384,63 +388,76 @@ func (s *service) PromoteContentEntry(ctx context.Context, req PromoteContentEnt
 		return nil, content.ErrSlugExists
 	}
 
+	actor := pickActor(sourceContent.UpdatedBy, sourceContent.CreatedBy)
 	now := s.now()
+	created := false
 	if targetContent == nil {
+		created = true
 		targetContent = &content.Content{
 			ID:            s.id(),
 			ContentTypeID: targetType.ID,
 			EnvironmentID: targetEnv.ID,
-			Status:        string(domainStatusDraft()),
+			Status:        string(domain.StatusDraft),
 			Slug:          sourceContent.Slug,
+			CreatedBy:     actor,
+			UpdatedBy:     actor,
 			CreatedAt:     now,
 			UpdatedAt:     now,
 		}
-		translations, err := s.buildTranslations(ctx, targetContent.ID, snapshot)
-		if err != nil {
-			return nil, err
-		}
+	}
+
+	translations, err := s.buildTranslations(ctx, targetContent.ID, snapshot)
+	if err != nil {
+		return nil, err
+	}
+
+	if opts.DryRun {
+		return s.finalizeContentPromotion(ctx, sourceContent, targetContent, sourceVersion, snapshot, opts, created, sourceEnv, targetEnv, true)
+	}
+
+	if created {
 		targetContent.Translations = translations
-		if opts.DryRun {
-			return s.finalizeContentPromotion(ctx, sourceContent, targetContent, sourceVersion, snapshot, opts, true)
-		}
-		created, err := s.contents.Create(ctx, targetContent)
+		createdRecord, err := s.contents.Create(ctx, targetContent)
 		if err != nil {
 			return nil, err
 		}
-		targetContent = created
+		targetContent = createdRecord
 	} else {
-		translations, err := s.buildTranslations(ctx, targetContent.ID, snapshot)
-		if err != nil {
-			return nil, err
-		}
-		if opts.DryRun {
-			return s.finalizeContentPromotion(ctx, sourceContent, targetContent, sourceVersion, snapshot, opts, true)
-		}
 		if err := s.contents.ReplaceTranslations(ctx, targetContent.ID, translations); err != nil {
 			return nil, err
 		}
 		targetContent.Translations = translations
 		targetContent.UpdatedAt = now
+		if actor != uuid.Nil {
+			targetContent.UpdatedBy = actor
+		}
 		if _, err := s.contents.Update(ctx, targetContent); err != nil {
 			return nil, err
 		}
 	}
 
-	return s.finalizeContentPromotion(ctx, sourceContent, targetContent, sourceVersion, snapshot, opts, false)
+	return s.finalizeContentPromotion(ctx, sourceContent, targetContent, sourceVersion, snapshot, opts, created, sourceEnv, targetEnv, false)
 }
 
-func (s *service) finalizeContentPromotion(ctx context.Context, source *content.Content, target *content.Content, sourceVersion *content.ContentVersion, snapshot content.ContentVersionSnapshot, opts PromoteOptions, dryRun bool) (*PromoteItem, error) {
+func (s *service) finalizeContentPromotion(ctx context.Context, source *content.Content, target *content.Content, sourceVersion *content.ContentVersion, snapshot content.ContentVersionSnapshot, opts PromoteOptions, created bool, sourceEnv *cmsenv.Environment, targetEnv *cmsenv.Environment, dryRun bool) (*PromoteItem, error) {
 	if target == nil {
 		return nil, errors.New("promotions: target content missing")
 	}
-	versions, _ := s.contents.ListVersions(ctx, target.ID)
+	versions, err := s.contents.ListVersions(ctx, target.ID)
+	if err != nil && !dryRun {
+		return nil, err
+	}
 	next := nextContentVersionNumber(versions)
+	actor := pickActor(source.UpdatedBy, source.CreatedBy)
+
 	if opts.IncludeVersions {
 		sourceVersions, err := s.contents.ListVersions(ctx, source.ID)
 		if err != nil {
 			return nil, err
 		}
-		sort.Slice(sourceVersions, func(i, j int) bool { return sourceVersions[i].Version < sourceVersions[j].Version })
+		sort.Slice(sourceVersions, func(i, j int) bool {
+			return sourceVersions[i].Version < sourceVersions[j].Version
+		})
 		for _, src := range sourceVersions {
 			if src == nil {
 				continue
@@ -452,8 +469,9 @@ func (s *service) finalizeContentPromotion(ctx context.Context, source *content.
 				ID:        s.id(),
 				ContentID: target.ID,
 				Version:   next,
-				Status:    domainStatusDraft(),
+				Status:    domain.StatusDraft,
 				Snapshot:  cloneContentVersionSnapshot(src.Snapshot),
+				CreatedBy: actor,
 				CreatedAt: s.now(),
 			}
 			next++
@@ -470,68 +488,61 @@ func (s *service) finalizeContentPromotion(ctx context.Context, source *content.
 		ID:        s.id(),
 		ContentID: target.ID,
 		Version:   next,
-		Status:    domainStatusDraft(),
+		Status:    domain.StatusDraft,
 		Snapshot:  cloneContentVersionSnapshot(snapshot),
+		CreatedBy: actor,
 		CreatedAt: s.now(),
 	}
 	if opts.PromoteAsPublished {
-		promoted.Status = domainStatusPublished()
+		promoted.Status = domain.StatusPublished
 		publishedAt := s.now()
 		promoted.PublishedAt = &publishedAt
+		if actor != uuid.Nil {
+			promoted.PublishedBy = &actor
+		}
 	}
 	if !dryRun {
 		if _, err := s.contents.CreateVersion(ctx, promoted); err != nil {
 			return nil, err
 		}
-	}
-
-	if !dryRun {
-		updated, err := s.updateContentRecord(ctx, target, promoted, opts)
+		updated, err := s.updateContentRecord(ctx, target, promoted, opts, actor)
 		if err != nil {
 			return nil, err
 		}
 		target = updated
+		s.emitPromotionActivity(ctx, "content_entry", "promote", source.ID, target.ID, sourceEnv, targetEnv, opts)
 	}
 
-	targetID := target.ID
 	status := "updated"
-	if target.CreatedAt.Equal(target.UpdatedAt) && target.CreatedAt == promoted.CreatedAt {
+	if created {
 		status = "created"
 	}
-	if dryRun {
-		if targetID == uuid.Nil {
-			targetID = s.id()
-		}
-	}
-	if opts.PromoteAsPublished {
-		s.emitPromotionActivity(ctx, "content_entry", "promote", source.ID, targetID, environmentRef(source.EnvironmentID, ""), environmentRef(target.EnvironmentID, ""), opts)
-	}
-	return buildContentEntryItem(status, source.ID, targetID, snapshotSchemaVersion(snapshot), dryRun), nil
+	return buildContentEntryItem(status, source.ID, target.ID, targetSchemaVersion(snapshot), dryRun), nil
 }
 
-func (s *service) updateContentRecord(ctx context.Context, record *content.Content, version *content.ContentVersion, opts PromoteOptions) (*content.Content, error) {
+func (s *service) updateContentRecord(ctx context.Context, record *content.Content, version *content.ContentVersion, opts PromoteOptions, actor uuid.UUID) (*content.Content, error) {
 	if record == nil || version == nil {
 		return record, nil
 	}
 	updated := *record
 	updated.CurrentVersion = maxInt(updated.CurrentVersion, version.Version)
-	now := s.now()
-	updated.UpdatedAt = now
+	updated.UpdatedAt = s.now()
+	if actor != uuid.Nil {
+		updated.UpdatedBy = actor
+	}
 	if opts.PromoteAsPublished {
-		updated.Status = string(domainStatusPublished())
+		updated.Status = string(domain.StatusPublished)
 		updated.PublishedVersion = &version.Version
 		updated.PublishedAt = cloneTimePtr(version.PublishedAt)
-		if updated.PublishedBy != nil && version.PublishedBy == nil {
-			updated.PublishedBy = updated.PublishedBy
-		}
-		if updated.PublishedVersion != nil && record.PublishedVersion != nil && *record.PublishedVersion != version.Version {
+		updated.PublishedBy = cloneUUIDPtr(version.PublishedBy)
+		if record.PublishedVersion != nil && *record.PublishedVersion != version.Version {
 			if previous, err := s.contents.GetVersion(ctx, record.ID, *record.PublishedVersion); err == nil && previous != nil {
-				previous.Status = domainStatusArchived()
+				previous.Status = domain.StatusArchived
 				_, _ = s.contents.UpdateVersion(ctx, previous)
 			}
 		}
 	} else if updated.PublishedVersion == nil {
-		updated.Status = string(domainStatusDraft())
+		updated.Status = string(domain.StatusDraft)
 	}
 	saved, err := s.contents.Update(ctx, &updated)
 	if err != nil {
@@ -544,13 +555,14 @@ func (s *service) selectSourceVersion(ctx context.Context, contentRecord *conten
 	if contentRecord == nil {
 		return nil, content.ErrContentIDRequired
 	}
-	if contentRecord.PublishedVersion != nil && (opts.PreferPublished || !opts.AllowDraft) {
+	preferPublished := boolValue(opts.PreferPublished, true)
+	if contentRecord.PublishedVersion != nil && (preferPublished || !opts.AllowDraft) {
 		return s.contents.GetVersion(ctx, contentRecord.ID, *contentRecord.PublishedVersion)
 	}
 	if !opts.AllowDraft {
 		return nil, content.ErrContentVersionRequired
 	}
-	if !opts.PreferPublished {
+	if !preferPublished {
 		return s.contents.GetLatestVersion(ctx, contentRecord.ID)
 	}
 	if contentRecord.PublishedVersion != nil {
@@ -562,7 +574,7 @@ func (s *service) selectSourceVersion(ctx context.Context, contentRecord *conten
 func (s *service) migrateSnapshot(ctx context.Context, snapshot content.ContentVersionSnapshot, sourceType *content.ContentType, targetSchema map[string]any, targetVersion schema.Version, opts PromoteOptions) (content.ContentVersionSnapshot, error) {
 	current, ok := snapshotSchemaVersion(snapshot)
 	if !ok {
-		version, err := normalizeSchemaVersion(sourceType)
+		_, version, err := normalizeSchemaVersion(sourceType)
 		if err == nil {
 			current = version
 			ok = true
@@ -571,7 +583,7 @@ func (s *service) migrateSnapshot(ctx context.Context, snapshot content.ContentV
 	if ok && current.String() == targetVersion.String() {
 		return applySnapshotSchemaVersion(snapshot, targetVersion), nil
 	}
-	if !opts.MigrateOnPromote {
+	if !boolValue(opts.MigrateOnPromote, true) {
 		return snapshot, content.ErrContentSchemaMigrationRequired
 	}
 	if s.schemaMigrator == nil {
@@ -738,7 +750,7 @@ func (s *service) promoteBlockDefinitions(ctx context.Context, schemaPayload map
 		if dryRun {
 			continue
 		}
-		_, err := s.blocks.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
+		_, err = s.blocks.RegisterDefinition(ctx, blocks.RegisterDefinitionInput{
 			Name:             sourceDef.Name,
 			Slug:             sourceDef.Slug,
 			Description:      cloneString(sourceDef.Description),
@@ -773,7 +785,13 @@ func (s *service) resolveEnvironment(ctx context.Context, key string, id *uuid.U
 		}
 		return env, nil
 	}
-	normalized := cmsenv.NormalizeKey(key)
+	trimmed := strings.TrimSpace(key)
+	if trimmed != "" {
+		if parsed, err := uuid.Parse(trimmed); err == nil {
+			return s.resolveEnvironment(ctx, "", &parsed)
+		}
+	}
+	normalized := cmsenv.NormalizeKey(trimmed)
 	if normalized == "" {
 		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
 	}
@@ -882,6 +900,12 @@ func (s *service) collectContentEntryIDs(ctx context.Context, envID string, ids 
 func normalizeOptions(opts PromoteOptions) PromoteOptions {
 	if opts.Mode == "" {
 		opts.Mode = ModeStrict
+	}
+	if opts.PreferPublished == nil {
+		opts.PreferPublished = boolPtr(true)
+	}
+	if opts.MigrateOnPromote == nil {
+		opts.MigrateOnPromote = boolPtr(true)
 	}
 	return opts
 }
@@ -1241,6 +1265,34 @@ func maxInt(a, b int) int {
 	return b
 }
 
+func pickActor(ids ...uuid.UUID) uuid.UUID {
+	for _, id := range ids {
+		if id != uuid.Nil {
+			return id
+		}
+	}
+	return uuid.Nil
+}
+
+func boolPtr(value bool) *bool {
+	v := value
+	return &v
+}
+
+func boolValue(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func targetSchemaVersion(snapshot content.ContentVersionSnapshot) string {
+	if version, ok := snapshotSchemaVersion(snapshot); ok {
+		return version.String()
+	}
+	return ""
+}
+
 func cloneString(value *string) *string {
 	if value == nil {
 		return nil
@@ -1257,6 +1309,14 @@ func cloneTimePtr(value *time.Time) *time.Time {
 	return &copied
 }
 
+func cloneUUIDPtr(value *uuid.UUID) *uuid.UUID {
+	if value == nil {
+		return nil
+	}
+	copied := *value
+	return &copied
+}
+
 func cloneMap(src map[string]any) map[string]any {
 	if src == nil {
 		return nil
@@ -1266,24 +1326,6 @@ func cloneMap(src map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
-}
-
-func domainStatusDraft() contentStatus {
-	return contentStatus("draft")
-}
-
-func domainStatusPublished() contentStatus {
-	return contentStatus("published")
-}
-
-func domainStatusArchived() contentStatus {
-	return contentStatus("archived")
-}
-
-type contentStatus string
-
-func environmentRef(id uuid.UUID, key string) *cmsenv.Environment {
-	return &cmsenv.Environment{ID: id, Key: key}
 }
 
 func (s *service) emitPromotionActivity(ctx context.Context, objectType, verb string, sourceID, targetID uuid.UUID, sourceEnv *cmsenv.Environment, targetEnv *cmsenv.Environment, opts PromoteOptions) {
