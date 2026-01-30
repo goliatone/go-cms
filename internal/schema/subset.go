@@ -25,6 +25,15 @@ var allowedKeywords = map[string]struct{}{
 	"title":                {},
 	"description":          {},
 	"format":               {},
+	"minLength":            {},
+	"maxLength":            {},
+	"minimum":              {},
+	"maximum":              {},
+	"exclusiveMinimum":     {},
+	"exclusiveMaximum":     {},
+	"pattern":              {},
+	"minItems":             {},
+	"maxItems":             {},
 	"additionalProperties": {},
 }
 
