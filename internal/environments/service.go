@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/google/uuid"
 )
 
