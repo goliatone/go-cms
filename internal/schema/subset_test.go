@@ -43,7 +43,7 @@ func TestValidateSchemaSubsetRejectsUnsupportedKeyword(t *testing.T) {
 		"type": "object",
 		"properties": map[string]any{
 			"title": map[string]any{
-				"type":         "string",
+				"type":          "string",
 				"minProperties": 1,
 			},
 		},
