@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/logging"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
@@ -23,7 +24,7 @@ import (
 type Service interface {
 	Create(ctx context.Context, req CreateContentRequest) (*Content, error)
 	Get(ctx context.Context, id uuid.UUID) (*Content, error)
-	List(ctx context.Context) ([]*Content, error)
+	List(ctx context.Context, env ...string) ([]*Content, error)
 	Update(ctx context.Context, req UpdateContentRequest) (*Content, error)
 	Delete(ctx context.Context, req DeleteContentRequest) error
 	UpdateTranslation(ctx context.Context, req UpdateContentTranslationRequest) (*ContentTranslation, error)
@@ -169,8 +170,8 @@ var (
 type ContentRepository interface {
 	Create(ctx context.Context, record *Content) (*Content, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Content, error)
-	GetBySlug(ctx context.Context, slug string) (*Content, error)
-	List(ctx context.Context) ([]*Content, error)
+	GetBySlug(ctx context.Context, slug string, contentTypeID uuid.UUID, env ...string) (*Content, error)
+	List(ctx context.Context, env ...string) ([]*Content, error)
 	Update(ctx context.Context, record *Content) (*Content, error)
 	ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error
 	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
@@ -185,9 +186,9 @@ type ContentRepository interface {
 type ContentTypeRepository interface {
 	Create(ctx context.Context, record *ContentType) (*ContentType, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*ContentType, error)
-	GetBySlug(ctx context.Context, slug string) (*ContentType, error)
-	List(ctx context.Context) ([]*ContentType, error)
-	Search(ctx context.Context, query string) ([]*ContentType, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentType, error)
+	List(ctx context.Context, env ...string) ([]*ContentType, error)
+	Search(ctx context.Context, query string, env ...string) ([]*ContentType, error)
 	Update(ctx context.Context, record *ContentType) (*ContentType, error)
 	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
 }
@@ -330,6 +331,24 @@ func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	}
 }
 
+// WithEnvironmentService wires the environment service for env resolution.
+func WithEnvironmentService(envSvc cmsenv.Service) ServiceOption {
+	return func(svc *service) {
+		if envSvc != nil {
+			svc.envSvc = envSvc
+		}
+	}
+}
+
+// WithDefaultEnvironmentKey overrides the default environment key.
+func WithDefaultEnvironmentKey(key string) ServiceOption {
+	return func(svc *service) {
+		if strings.TrimSpace(key) != "" {
+			svc.defaultEnvKey = key
+		}
+	}
+}
+
 // WithEmbeddedBlocksResolver wires the embedded blocks bridge (dual-write + fallback).
 func WithEmbeddedBlocksResolver(resolver EmbeddedBlocksResolver) ServiceOption {
 	return func(svc *service) {
@@ -360,6 +379,8 @@ type service struct {
 	activity              *activity.Emitter
 	schemaMigrator        *cmsschema.Migrator
 	embeddedBlocks        EmbeddedBlocksResolver
+	envSvc                cmsenv.Service
+	defaultEnvKey         string
 }
 
 // NewService constructs a content service with the required dependencies.
@@ -376,6 +397,7 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 		requireTranslations: true,
 		translationsEnabled: true,
 		activity:            activity.NewEmitter(nil, activity.Config{}),
+		defaultEnvKey:       cmsenv.DefaultKey,
 	}
 
 	for _, opt := range opts {
@@ -439,6 +461,37 @@ func (s *service) isDefaultLocale(code string) bool {
 	return strings.ToLower(strings.TrimSpace(code)) == s.defaultLocaleKey()
 }
 
+func (s *service) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed != "" {
+		if parsed, err := uuid.Parse(trimmed); err == nil {
+			return parsed, trimmed, nil
+		}
+	}
+	normalized := cmsenv.NormalizeKey(trimmed)
+	if normalized == "" {
+		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
+	}
+	if s.envSvc == nil {
+		if normalized == "" {
+			normalized = cmsenv.DefaultKey
+		}
+		return cmsenv.IDForKey(normalized), normalized, nil
+	}
+	if normalized == "" {
+		env, err := s.envSvc.GetDefaultEnvironment(ctx)
+		if err != nil {
+			return uuid.Nil, "", err
+		}
+		return env.ID, env.Key, nil
+	}
+	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	return env.ID, env.Key, nil
+}
+
 func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
@@ -487,6 +540,15 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		logger.Debug("content type lookup failed", "error", err)
 		return nil, ErrContentTypeRequired
 	}
+	envID := contentType.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			logger.Error("environment lookup failed", "error", err)
+			return nil, err
+		}
+		envID = resolvedID
+	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
@@ -495,7 +557,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 
-	if existing, err := s.contents.GetBySlug(ctx, slugValue); err == nil && existing != nil {
+	if existing, err := s.contents.GetBySlug(ctx, slugValue, req.ContentTypeID, envID.String()); err == nil && existing != nil {
 		return nil, ErrSlugExists
 	} else if err != nil {
 		var notFound *NotFoundError
@@ -510,6 +572,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	record := &Content{
 		ID:            s.id(),
 		ContentTypeID: req.ContentTypeID,
+		EnvironmentID: envID,
 		Status:        chooseStatus(req.Status),
 		Slug:          slugValue,
 		CreatedBy:     req.CreatedBy,
@@ -583,12 +646,16 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		"content_id": created.ID,
 	})
 	logger.Info("content created")
-	s.emitActivity(ctx, pickActor(req.CreatedBy, req.UpdatedBy), "create", "content", created.ID, map[string]any{
+	meta := map[string]any{
 		"slug":            created.Slug,
 		"status":          created.Status,
 		"locales":         collectContentLocalesFromInputs(req.Translations),
 		"content_type_id": created.ContentTypeID.String(),
-	})
+	}
+	if created.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = created.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(req.CreatedBy, req.UpdatedBy), "create", "content", created.ID, meta)
 	if err := s.syncEmbeddedBlocks(ctx, created.ID, req.Translations, pickActor(req.CreatedBy, req.UpdatedBy)); err != nil {
 		logger.Error("embedded block sync failed", "error", err)
 		return nil, err
@@ -614,9 +681,14 @@ func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
 }
 
 // List returns all content entries.
-func (s *service) List(ctx context.Context) ([]*Content, error) {
+func (s *service) List(ctx context.Context, env ...string) ([]*Content, error) {
 	logger := s.opLogger(ctx, "content.list", nil)
-	records, err := s.contents.List(ctx)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		logger.Error("content list environment lookup failed", "error", err)
+		return nil, err
+	}
+	records, err := s.contents.List(ctx, envID.String())
 	if err != nil {
 		logger.Error("content list failed", "error", err)
 		return nil, err
@@ -709,6 +781,9 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		"status":  existing.Status,
 		"locales": collectContentLocalesFromTranslations(existing.Translations),
 	}
+	if existing.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = existing.EnvironmentID.String()
+	}
 	if replaceTranslations {
 		meta["locales"] = collectContentLocalesFromInputs(req.Translations)
 	}
@@ -756,11 +831,15 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 	}
 
 	logger.Info("content deleted")
-	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "content", record.ID, map[string]any{
+	meta := map[string]any{
 		"slug":    record.Slug,
 		"status":  record.Status,
 		"locales": collectContentLocalesFromTranslations(record.Translations),
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "content", record.ID, meta)
 	return nil
 }
 
@@ -887,11 +966,15 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	}
 
 	logger.Info("content translation updated")
-	s.emitActivity(ctx, req.UpdatedBy, "update", "content_translation", updatedTranslation.ID, map[string]any{
+	meta := map[string]any{
 		"content_id": req.ContentID.String(),
 		"locale":     loc.Code,
 		"title":      req.Title,
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.UpdatedBy, "update", "content_translation", updatedTranslation.ID, meta)
 	if err := s.syncEmbeddedBlocks(ctx, req.ContentID, []ContentTranslationInput{{
 		Locale:  loc.Code,
 		Title:   req.Title,
@@ -981,10 +1064,14 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	if targetID == uuid.Nil {
 		targetID = req.ContentID
 	}
-	s.emitActivity(ctx, req.DeletedBy, "delete", "content_translation", targetID, map[string]any{
+	meta := map[string]any{
 		"content_id": req.ContentID.String(),
 		"locale":     loc.Code,
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "content_translation", targetID, meta)
 	return nil
 }
 
@@ -1098,11 +1185,15 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 		"unpublish_at", record.UnpublishAt,
 		"status", record.Status,
 	)
-	s.emitActivity(ctx, req.ScheduledBy, "schedule", "content", record.ID, map[string]any{
+	meta := map[string]any{
 		"status":       record.Status,
 		"publish_at":   record.PublishAt,
 		"unpublish_at": record.UnpublishAt,
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.ScheduledBy, "schedule", "content", record.ID, meta)
 
 	return s.decorateContent(updated), nil
 }
@@ -1314,11 +1405,15 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	}
 
 	logger.Info("content version published", "published_at", publishedAt)
-	s.emitActivity(ctx, req.PublishedBy, "publish", "content", contentRecord.ID, map[string]any{
+	meta := map[string]any{
 		"version":      updatedVersion.Version,
 		"status":       contentRecord.Status,
 		"published_at": publishedAt,
-	})
+	}
+	if contentRecord.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = contentRecord.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.PublishedBy, "publish", "content", contentRecord.ID, meta)
 
 	return cloneContentVersion(updatedVersion), nil
 }
