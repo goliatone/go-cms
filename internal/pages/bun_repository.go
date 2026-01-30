@@ -67,7 +67,7 @@ func (r *BunPageRepository) GetBySlug(ctx context.Context, slug string, env ...s
 		return nil, mapRepositoryError(err, "page", slug)
 	}
 	if len(records) == 0 {
-		return nil, &NotFoundError{Resource: "page", Key: slug}
+		return nil, &PageNotFoundError{Key: slug}
 	}
 	return records[0], nil
 }
