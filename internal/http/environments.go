@@ -7,7 +7,6 @@ import (
 
 	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/permissions"
-	"github.com/google/uuid"
 )
 
 type environmentCreatePayload struct {
@@ -166,11 +165,4 @@ func (api *AdminAPI) handleEnvironmentDelete(w http.ResponseWriter, r *http.Requ
 		return
 	}
 	writeJSON(w, http.StatusNoContent, nil)
-}
-
-func envIDPtr(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
-		return nil
-	}
-	return &id
 }
