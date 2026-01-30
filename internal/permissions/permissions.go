@@ -21,6 +21,10 @@ const (
 const (
 	ResourceContentTypes = "content_types"
 	ResourceBlocks       = "blocks"
+	ResourceEnvironments = "environments"
+	ResourceContent      = "content"
+	ResourcePages        = "pages"
+	ResourceMenus        = "menus"
 )
 
 const (
@@ -34,6 +38,11 @@ const (
 	BlocksCreate = "blocks:create"
 	BlocksUpdate = "blocks:update"
 	BlocksDelete = "blocks:delete"
+
+	EnvironmentsRead   = "environments:read"
+	EnvironmentsCreate = "environments:create"
+	EnvironmentsUpdate = "environments:update"
+	EnvironmentsDelete = "environments:delete"
 )
 
 var ErrPermissionDenied = errors.New("permissions: denied")
