@@ -35,11 +35,11 @@ type PromoteOptions struct {
 	AllowBreakingChanges bool        `json:"allow_breaking_changes,omitempty"`
 	AllowDraft           bool        `json:"allow_draft,omitempty"`
 	PromoteAsActive      bool        `json:"promote_as_active,omitempty"`
-	PreferPublished      bool        `json:"prefer_published,omitempty"`
+	PreferPublished      *bool       `json:"prefer_published,omitempty"`
 	PromoteAsPublished   bool        `json:"promote_as_published,omitempty"`
 	Mode                 PromoteMode `json:"mode,omitempty"`
 	IncludeVersions      bool        `json:"include_versions,omitempty"`
-	MigrateOnPromote     bool        `json:"migrate_on_promote,omitempty"`
+	MigrateOnPromote     *bool       `json:"migrate_on_promote,omitempty"`
 	AutoPromoteType      bool        `json:"auto_promote_type,omitempty"`
 	Force                bool        `json:"force,omitempty"`
 	DryRun               bool        `json:"dry_run,omitempty"`
