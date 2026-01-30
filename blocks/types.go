@@ -23,6 +23,7 @@ type Definition struct {
 	Schema           map[string]any `bun:"schema,type:jsonb,notnull" json:"schema"`
 	UISchema         map[string]any `bun:"ui_schema,type:jsonb" json:"ui_schema,omitempty"`
 	SchemaVersion    string         `bun:"schema_version" json:"schema_version,omitempty"`
+	MigrationStatus  string         `bun:"migration_status" json:"migration_status,omitempty"`
 	Defaults         map[string]any `bun:"defaults,type:jsonb" json:"defaults,omitempty"`
 	EditorStyleURL   *string        `bun:"editor_style_url" json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `bun:"frontend_style_url" json:"frontend_style_url,omitempty"`
