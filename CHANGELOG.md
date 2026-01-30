@@ -1,5 +1,15 @@
 # Changelog
 
+# [0.24.0](https://github.com/goliatone/go-cms/compare/v0.23.1...v0.24.0) - (2026-01-30)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.24.0 ([4abac44](https://github.com/goliatone/go-cms/commit/4abac44d7214b338b4a00da653df26234b9f449e))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.23.1 ([74975b8](https://github.com/goliatone/go-cms/commit/74975b82bf81aa802d0152b0f1a0265e600d5712))  - (goliatone)
+
 # [0.23.1](https://github.com/goliatone/go-cms/compare/v0.23.0...v0.23.1) - (2026-01-30)
 
 ## <!-- 1 -->🐛 Bug Fixes
