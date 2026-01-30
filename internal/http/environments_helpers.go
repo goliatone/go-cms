@@ -43,6 +43,18 @@ func (api *AdminAPI) resolveEnvironmentKey(r *http.Request, payloadKey string, p
 	return "", nil
 }
 
+func (api *AdminAPI) resolveEnvironmentKeyWithDefault(r *http.Request, payloadKey string, payloadID *uuid.UUID, requireExplicit bool) (string, error) {
+	key, err := api.resolveEnvironmentKey(r, payloadKey, payloadID)
+	if err != nil {
+		return "", err
+	}
+	defaultKey := ""
+	if api != nil {
+		defaultKey = api.defaultEnvKey
+	}
+	return cmsenv.ResolveKey(key, defaultKey, requireExplicit)
+}
+
 func (api *AdminAPI) environmentKeyForID(ctx context.Context, id uuid.UUID) (string, error) {
 	if id == uuid.Nil {
 		return "", nil

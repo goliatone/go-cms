@@ -104,20 +104,16 @@ func (api *AdminAPI) handleBlockList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksRead) {
-		return
-	}
-	envKey, err := api.resolveEnvironmentKey(r, "", nil)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, "", nil, false)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	var list []*blocks.Definition
-	if strings.TrimSpace(envKey) == "" {
-		list, err = api.blocks.ListDefinitions(r.Context())
-	} else {
-		list, err = api.blocks.ListDefinitions(r.Context(), envKey)
+	if !requirePermissionWithEnv(w, r, permissions.BlocksRead, envKey) {
+		return
 	}
+	var list []*blocks.Definition
+	list, err = api.blocks.ListDefinitions(r.Context(), envKey)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -130,7 +126,30 @@ func (api *AdminAPI) handleBlockGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksRead) {
+	id, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
+		return
+	}
+	record, err := api.blocks.GetDefinition(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksRead, envKey) {
+		return
+	}
+	writeJSON(w, http.StatusOK, buildBlockDefinitionResponse(record))
+}
+
+func (api *AdminAPI) handleBlockDefinitionVersions(w http.ResponseWriter, r *http.Request) {
+	if api == nil || api.blocks == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
 	id, err := parseUUID(r.PathValue("id"))
@@ -143,20 +162,12 @@ func (api *AdminAPI) handleBlockGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, buildBlockDefinitionResponse(record))
-}
-
-func (api *AdminAPI) handleBlockDefinitionVersions(w http.ResponseWriter, r *http.Request) {
-	if api == nil || api.blocks == nil {
-		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
-		return
-	}
-	if !requirePermission(w, r, permissions.BlocksRead) {
-		return
-	}
-	id, err := parseUUID(r.PathValue("id"))
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
 	if err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksRead, envKey) {
 		return
 	}
 	versions, err := api.blocks.ListDefinitionVersions(r.Context(), id)
@@ -197,17 +208,17 @@ func (api *AdminAPI) handleBlockCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksCreate) {
-		return
-	}
 	var payload blockCreatePayload
 	if err := decodeJSON(r, &payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
-	envKey, err := api.resolveEnvironmentKey(r, payload.Environment, payload.EnvironmentID)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksCreate, envKey) {
 		return
 	}
 	status := ""
@@ -241,9 +252,6 @@ func (api *AdminAPI) handleBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksUpdate) {
-		return
-	}
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
@@ -255,12 +263,12 @@ func (api *AdminAPI) handleBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var envKey *string
-	if payload.Environment != nil || payload.EnvironmentID != nil {
+	if payload.Environment != nil || payload.EnvironmentID != nil || api.requireExplicit {
 		keyVal := ""
 		if payload.Environment != nil {
 			keyVal = *payload.Environment
 		}
-		resolved, err := api.resolveEnvironmentKey(r, keyVal, payload.EnvironmentID)
+		resolved, err := api.resolveEnvironmentKeyWithDefault(r, keyVal, payload.EnvironmentID, api.requireExplicit)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -268,6 +276,13 @@ func (api *AdminAPI) handleBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		if strings.TrimSpace(resolved) != "" {
 			envKey = &resolved
 		}
+	}
+	envKeyValue := ""
+	if envKey != nil {
+		envKeyValue = *envKey
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksUpdate, envKeyValue) {
+		return
 	}
 	req := blocks.UpdateDefinitionInput{
 		ID:               id,

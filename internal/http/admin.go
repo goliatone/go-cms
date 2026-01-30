@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/promotions"
+	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/internal/schema"
 )
 
@@ -25,6 +26,8 @@ type AdminAPI struct {
 	environments    cmsenv.Service
 	promotions      promotions.Service
 	overlayResolver schema.OverlayResolver
+	defaultEnvKey   string
+	requireExplicit bool
 }
 
 // AdminOption mutates the AdminAPI configuration.
@@ -51,6 +54,20 @@ func WithBasePath(path string) AdminOption {
 		}
 		if trimmed := strings.TrimSpace(path); trimmed != "" {
 			api.basePath = trimmed
+		}
+	}
+}
+
+// WithEnvironmentConfig wires environment defaults and requirements for the admin API.
+func WithEnvironmentConfig(cfg runtimeconfig.EnvironmentsConfig) AdminOption {
+	return func(api *AdminAPI) {
+		if api == nil {
+			return
+		}
+		api.requireExplicit = cfg.RequireExplicit
+		api.defaultEnvKey = strings.TrimSpace(cfg.DefaultKey)
+		if api.defaultEnvKey == "" {
+			api.defaultEnvKey = cmsenv.DefaultKey
 		}
 	}
 }

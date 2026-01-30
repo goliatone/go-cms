@@ -118,7 +118,7 @@ func (api *AdminAPI) handleMenuCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
-	envKey, err := api.resolveEnvironmentKey(r, payload.Environment, payload.EnvironmentID)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -173,12 +173,12 @@ func (api *AdminAPI) handleMenuUpdate(w http.ResponseWriter, r *http.Request) {
 		description = payload.Description
 	}
 	var envKey string
-	if payload.Environment != nil || payload.EnvironmentID != nil {
+	if payload.Environment != nil || payload.EnvironmentID != nil || api.requireExplicit {
 		keyVal := ""
 		if payload.Environment != nil {
 			keyVal = *payload.Environment
 		}
-		envKey, err = api.resolveEnvironmentKey(r, keyVal, payload.EnvironmentID)
+		envKey, err = api.resolveEnvironmentKeyWithDefault(r, keyVal, payload.EnvironmentID, api.requireExplicit)
 		if err != nil {
 			writeError(w, err)
 			return

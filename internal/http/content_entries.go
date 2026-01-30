@@ -22,6 +22,8 @@ type contentCreatePayload struct {
 	ContentTypeID            uuid.UUID                   `json:"content_type_id"`
 	Slug                     string                      `json:"slug,omitempty"`
 	Status                   string                      `json:"status,omitempty"`
+	Environment              string                      `json:"environment,omitempty"`
+	EnvironmentID            *uuid.UUID                  `json:"environment_id,omitempty"`
 	Translations             []contentTranslationPayload `json:"translations"`
 	AllowMissingTranslations bool                        `json:"allow_missing_translations,omitempty"`
 	CreatedBy                *uuid.UUID                  `json:"created_by,omitempty"`
@@ -31,6 +33,8 @@ type contentCreatePayload struct {
 
 type contentUpdatePayload struct {
 	Status                   string                      `json:"status,omitempty"`
+	Environment              *string                     `json:"environment,omitempty"`
+	EnvironmentID            *uuid.UUID                  `json:"environment_id,omitempty"`
 	Translations             []contentTranslationPayload `json:"translations"`
 	Metadata                 map[string]any              `json:"metadata,omitempty"`
 	AllowMissingTranslations bool                        `json:"allow_missing_translations,omitempty"`
@@ -109,6 +113,15 @@ func (api *AdminAPI) handleContentCreate(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	envKey := ""
+	if strings.TrimSpace(payload.Environment) != "" || payload.EnvironmentID != nil || api.requireExplicit {
+		resolved, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		envKey = resolved
+	}
 	translations := make([]content.ContentTranslationInput, 0, len(payload.Translations))
 	for _, tr := range payload.Translations {
 		translations = append(translations, content.ContentTranslationInput{
@@ -128,6 +141,7 @@ func (api *AdminAPI) handleContentCreate(w http.ResponseWriter, r *http.Request)
 		ContentTypeID:            payload.ContentTypeID,
 		Slug:                     payload.Slug,
 		Status:                   payload.Status,
+		EnvironmentKey:           envKey,
 		CreatedBy:                actor,
 		UpdatedBy:                updatedBy,
 		Translations:             translations,
@@ -156,6 +170,19 @@ func (api *AdminAPI) handleContentUpdate(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	envKey := ""
+	if payload.Environment != nil || payload.EnvironmentID != nil || api.requireExplicit {
+		keyVal := ""
+		if payload.Environment != nil {
+			keyVal = *payload.Environment
+		}
+		resolved, err := api.resolveEnvironmentKeyWithDefault(r, keyVal, payload.EnvironmentID, api.requireExplicit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		envKey = resolved
+	}
 	translations := make([]content.ContentTranslationInput, 0, len(payload.Translations))
 	for _, tr := range payload.Translations {
 		translations = append(translations, content.ContentTranslationInput{
@@ -170,6 +197,7 @@ func (api *AdminAPI) handleContentUpdate(w http.ResponseWriter, r *http.Request)
 	req := content.UpdateContentRequest{
 		ID:                       id,
 		Status:                   payload.Status,
+		EnvironmentKey:           envKey,
 		UpdatedBy:                actor,
 		Translations:             translations,
 		Metadata:                 payload.Metadata,

@@ -24,6 +24,36 @@ func NormalizeKey(key string) string {
 	return normalizeEnvironmentKey(key)
 }
 
+// ResolveKey normalizes an environment key and applies defaults or explicit requirements.
+func ResolveKey(key, defaultKey string, requireExplicit bool) (string, error) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" {
+		if requireExplicit {
+			return "", ErrEnvironmentKeyRequired
+		}
+		fallback := normalizeEnvironmentKey(defaultKey)
+		if fallback == "" {
+			fallback = defaultEnvironmentKey
+		}
+		return fallback, nil
+	}
+	normalized := normalizeEnvironmentKey(trimmed)
+	if normalized == "" {
+		if requireExplicit {
+			return "", ErrEnvironmentKeyRequired
+		}
+		fallback := normalizeEnvironmentKey(defaultKey)
+		if fallback == "" {
+			fallback = defaultEnvironmentKey
+		}
+		return fallback, nil
+	}
+	if !environmentKeyPattern.MatchString(normalized) {
+		return "", ErrEnvironmentKeyInvalid
+	}
+	return normalized, nil
+}
+
 func normalizeEnvironmentKey(key string) string {
 	return strings.ToLower(strings.TrimSpace(key))
 }

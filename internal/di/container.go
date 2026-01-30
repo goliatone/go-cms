@@ -654,6 +654,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
 			blocks.WithActivityEmitter(c.activityEmitter),
 			blocks.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			blocks.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			blocks.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
 			blocks.WithRequireTranslations(requireTranslations),
 			blocks.WithTranslationsEnabled(translationsEnabled),
 			blocks.WithTranslationState(c.translationState),
@@ -707,6 +709,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
 			content.WithActivityEmitter(c.activityEmitter),
 			content.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			content.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			content.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
 		}
 		if c.environmentSvc != nil {
 			contentOpts = append(contentOpts, content.WithEnvironmentService(c.environmentSvc))
@@ -737,7 +741,11 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		if c.environmentSvc != nil {
 			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeEnvironmentService(c.environmentSvc))
 		}
-		contentTypeOpts = append(contentTypeOpts, content.WithContentTypeDefaultEnvironmentKey(c.Config.Environments.DefaultKey))
+		contentTypeOpts = append(contentTypeOpts,
+			content.WithContentTypeDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			content.WithContentTypeRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			content.WithContentTypeRequireActiveEnvironment(c.Config.Environments.RequireActive),
+		)
 		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
 	}
 
@@ -790,6 +798,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithWorkflowEngine(c.workflowEngine),
 			pages.WithActivityEmitter(c.activityEmitter),
 			pages.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			pages.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			pages.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
 		}
 		if c.environmentSvc != nil {
 			pageOpts = append(pageOpts, pages.WithEnvironmentService(c.environmentSvc))
@@ -824,6 +834,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			menus.WithActivityEmitter(c.activityEmitter),
 			menus.WithAuditRecorder(c.auditRecorder),
 			menus.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			menus.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			menus.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
 			menus.WithMenuIDDeriver(identity.MenuUUID),
 			menus.WithIDGenerator(func(input menus.AddMenuItemInput) uuid.UUID {
 				if canonicalKey := strings.TrimSpace(input.CanonicalKey); canonicalKey != "" {

@@ -31,7 +31,10 @@ func (NoOpAssetResolver) ResolvePath(*themes.Theme, string) (string, error) {
 
 func collectThemeAssets(theme *themes.Theme, selection *gotheme.Selection) []string {
 	if selection != nil && selection.Manifest != nil {
-		return collectManifestAssets(selection)
+		assets := collectManifestAssets(selection)
+		if len(assets) > 0 {
+			return assets
+		}
 	}
 	if theme == nil || theme.Config.Assets == nil {
 		return nil

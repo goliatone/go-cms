@@ -2,10 +2,12 @@ package di
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	"github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/google/uuid"
@@ -42,15 +44,56 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 	if !c.Config.Features.Environments {
 		return nil
 	}
-	if c.bunDB == nil {
-		return nil
-	}
 	if ctx == nil {
 		ctx = context.Background()
 	}
 
 	definitions, defaultKey := resolveEnvironmentDefinitions(c.Config.Environments)
 	if len(definitions) == 0 {
+		return nil
+	}
+
+	if c.bunDB == nil {
+		if c.environmentRepo == nil {
+			return nil
+		}
+		svc := environments.NewService(c.environmentRepo)
+		for _, def := range definitions {
+			record, err := svc.GetEnvironmentByKey(ctx, def.Key)
+			if err != nil {
+				if !errors.Is(err, environments.ErrEnvironmentNotFound) {
+					return err
+				}
+				active := def.IsActive
+				desc := strings.TrimSpace(def.Description)
+				_, err := svc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{
+					Key:         def.Key,
+					Name:        def.Name,
+					Description: &desc,
+					IsActive:    &active,
+					IsDefault:   def.IsDefault,
+				})
+				if err != nil {
+					return err
+				}
+				continue
+			}
+			name := def.Name
+			desc := strings.TrimSpace(def.Description)
+			active := def.IsActive
+			update := environments.UpdateEnvironmentInput{
+				ID:          record.ID,
+				Name:        &name,
+				Description: &desc,
+				IsActive:    &active,
+			}
+			if def.IsDefault {
+				update.IsDefault = boolPtr(true)
+			}
+			if _, err := svc.UpdateEnvironment(ctx, update); err != nil {
+				return err
+			}
+		}
 		return nil
 	}
 
@@ -131,6 +174,10 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 	}
 
 	return nil
+}
+
+func boolPtr(value bool) *bool {
+	return &value
 }
 
 func resolveEnvironmentDefinitions(cfg runtimeconfig.EnvironmentsConfig) ([]environmentDefinition, string) {

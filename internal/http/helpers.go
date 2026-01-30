@@ -305,3 +305,22 @@ func requirePermission(w http.ResponseWriter, r *http.Request, permission string
 	}
 	return true
 }
+
+func requirePermissionWithEnv(w http.ResponseWriter, r *http.Request, permission, envKey string) bool {
+	if strings.TrimSpace(permission) == "" {
+		return true
+	}
+	if r == nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "request missing"})
+		return false
+	}
+	ctx := r.Context()
+	if strings.TrimSpace(envKey) != "" {
+		ctx = permissions.WithEnvironmentKey(ctx, envKey)
+	}
+	if err := permissions.Require(ctx, permission); err != nil {
+		writeError(w, err)
+		return false
+	}
+	return true
+}

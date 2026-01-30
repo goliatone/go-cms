@@ -184,14 +184,14 @@ func NewContentTypeService(repo ContentTypeRepository, opts ...ContentTypeOption
 }
 
 type contentTypeService struct {
-	repo          ContentTypeRepository
-	envSvc        cmsenv.Service
-	now           func() time.Time
-	id            IDGenerator
-	slugger       slug.Normalizer
-	activity      *activity.Emitter
-	validators    []ContentTypeValidator
-	defaultEnvKey string
+	repo               ContentTypeRepository
+	envSvc             cmsenv.Service
+	now                func() time.Time
+	id                 IDGenerator
+	slugger            slug.Normalizer
+	activity           *activity.Emitter
+	validators         []ContentTypeValidator
+	defaultEnvKey      string
 	requireExplicitEnv bool
 	requireActiveEnv   bool
 }
