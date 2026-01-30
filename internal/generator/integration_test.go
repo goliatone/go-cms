@@ -509,13 +509,18 @@ func registerBlockTables(t *testing.T, db *bun.DB) {
 		`CREATE TABLE IF NOT EXISTS block_definitions (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
+			slug TEXT,
 			description TEXT,
 			icon TEXT,
+			category TEXT,
+			status TEXT,
 			schema TEXT,
+			ui_schema TEXT,
 			schema_version TEXT,
 			defaults TEXT,
 			editor_style_url TEXT,
 			frontend_style_url TEXT,
+			environment_id TEXT,
 			deleted_at TEXT,
 			created_at TEXT,
 			updated_at TEXT
@@ -766,8 +771,8 @@ func newHydratingPageService(delegate pages.Service, db *bun.DB) pages.Service {
 	return &hydratingPageService{Service: delegate, db: db}
 }
 
-func (s *hydratingPageService) List(ctx context.Context) ([]*pages.Page, error) {
-	records, err := s.Service.List(ctx)
+func (s *hydratingPageService) List(ctx context.Context, env ...string) ([]*pages.Page, error) {
+	records, err := s.Service.List(ctx, env...)
 	if err != nil || len(records) == 0 {
 		return records, err
 	}

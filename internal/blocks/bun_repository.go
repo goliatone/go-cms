@@ -3,7 +3,9 @@ package blocks
 import (
 	"context"
 	"fmt"
+	"strings"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-errors"
 	"github.com/goliatone/go-repository-bun"
 	"github.com/goliatone/go-repository-cache/cache"
@@ -47,16 +49,31 @@ func (r *BunDefinitionRepository) GetByID(ctx context.Context, id uuid.UUID) (*D
 	return record, nil
 }
 
-func (r *BunDefinitionRepository) GetByName(ctx context.Context, name string) (*Definition, error) {
-	record, err := r.repo.GetByIdentifier(ctx, name)
+func (r *BunDefinitionRepository) GetBySlug(ctx context.Context, slug string, env ...string) (*Definition, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.slug = ?", slug)
+		}),
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyEnvironmentFilter(q, normalizedEnv)
+		}),
+		repository.SelectPaginate(1, 0),
+	)
 	if err != nil {
-		return nil, mapRepositoryError(err, "block_definition", name)
+		return nil, mapRepositoryError(err, "block_definition", slug)
 	}
-	return record, nil
+	if len(records) == 0 {
+		return nil, &NotFoundError{Resource: "block_definition", Key: slug}
+	}
+	return records[0], nil
 }
 
-func (r *BunDefinitionRepository) List(ctx context.Context) ([]*Definition, error) {
-	records, _, err := r.repo.List(ctx)
+func (r *BunDefinitionRepository) List(ctx context.Context, env ...string) ([]*Definition, error) {
+	normalizedEnv := normalizeEnvironmentKey(env...)
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return applyEnvironmentFilter(q, normalizedEnv)
+	}))
 	return records, err
 }
 
@@ -65,10 +82,15 @@ func (r *BunDefinitionRepository) Update(ctx context.Context, definition *Defini
 		repository.UpdateByID(definition.ID.String()),
 		repository.UpdateColumns(
 			"name",
+			"slug",
 			"description",
 			"icon",
+			"category",
+			"status",
+			"ui_schema",
 			"schema",
 			"schema_version",
+			"migration_status",
 			"defaults",
 			"editor_style_url",
 			"frontend_style_url",
@@ -407,6 +429,26 @@ func (r *BunTranslationRepository) Update(ctx context.Context, translation *Tran
 
 func (r *BunTranslationRepository) Delete(ctx context.Context, id uuid.UUID) error {
 	return r.repo.Delete(ctx, &Translation{ID: id})
+}
+
+func normalizeEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func applyEnvironmentFilter(q *bun.SelectQuery, envKey string) *bun.SelectQuery {
+	if q == nil {
+		return q
+	}
+	if strings.TrimSpace(envKey) == "" {
+		return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE is_default = TRUE LIMIT 1)")
+	}
+	if envID, err := uuid.Parse(envKey); err == nil {
+		return q.Where("?TableAlias.environment_id = ?", envID)
+	}
+	return q.Where("?TableAlias.environment_id = (SELECT id FROM environments WHERE key = ? LIMIT 1)", envKey)
 }
 
 func mapRepositoryError(err error, resource, key string) error {

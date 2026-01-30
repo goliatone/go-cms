@@ -11,9 +11,9 @@ import (
 type MenuRepository interface {
 	Create(ctx context.Context, menu *Menu) (*Menu, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Menu, error)
-	GetByCode(ctx context.Context, code string) (*Menu, error)
-	GetByLocation(ctx context.Context, location string) (*Menu, error)
-	List(ctx context.Context) ([]*Menu, error)
+	GetByCode(ctx context.Context, code string, env ...string) (*Menu, error)
+	GetByLocation(ctx context.Context, location string, env ...string) (*Menu, error)
+	List(ctx context.Context, env ...string) ([]*Menu, error)
 	Update(ctx context.Context, menu *Menu) (*Menu, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }

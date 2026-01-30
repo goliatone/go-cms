@@ -21,6 +21,10 @@ const (
 const (
 	ResourceContentTypes = "content_types"
 	ResourceBlocks       = "blocks"
+	ResourceEnvironments = "environments"
+	ResourceContent      = "content"
+	ResourcePages        = "pages"
+	ResourceMenus        = "menus"
 )
 
 const (
@@ -34,6 +38,11 @@ const (
 	BlocksCreate = "blocks:create"
 	BlocksUpdate = "blocks:update"
 	BlocksDelete = "blocks:delete"
+
+	EnvironmentsRead   = "environments:read"
+	EnvironmentsCreate = "environments:create"
+	EnvironmentsUpdate = "environments:update"
+	EnvironmentsDelete = "environments:delete"
 )
 
 var ErrPermissionDenied = errors.New("permissions: denied")
@@ -258,7 +267,7 @@ func Allowed(ctx context.Context, permission string) bool {
 	if normalized == "" {
 		return true
 	}
-	return checker.Allowed(normalized)
+	return allowedWithScope(ctx, checker, normalized)
 }
 
 // Require enforces a permission requirement when a checker is available on the context.
@@ -271,7 +280,7 @@ func Require(ctx context.Context, permission string) error {
 	if checker == nil {
 		return nil
 	}
-	if checker.Allowed(normalized) {
+	if allowedWithScope(ctx, checker, normalized) {
 		return nil
 	}
 	return Error{Permission: normalized}

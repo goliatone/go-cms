@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/google/uuid"
 )
@@ -15,7 +16,7 @@ import (
 func NewMemoryDefinitionRepository() DefinitionRepository {
 	return &memoryDefinitionRepository{
 		byID:   make(map[uuid.UUID]*Definition),
-		byName: make(map[string]uuid.UUID),
+		bySlug: make(map[string]uuid.UUID),
 	}
 }
 
@@ -31,7 +32,7 @@ func NewMemoryDefinitionVersionRepository() DefinitionVersionRepository {
 type memoryDefinitionRepository struct {
 	mu     sync.RWMutex
 	byID   map[uuid.UUID]*Definition
-	byName map[string]uuid.UUID
+	bySlug map[string]uuid.UUID
 }
 
 type memoryDefinitionVersionRepository struct {
@@ -117,9 +118,10 @@ func (m *memoryDefinitionRepository) Create(_ context.Context, definition *Defin
 	defer m.mu.Unlock()
 
 	cloned := cloneDefinition(definition)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
 	m.byID[cloned.ID] = cloned
-	if cloned.Name != "" {
-		m.byName[cloned.Name] = cloned.ID
+	if cloned.Slug != "" {
+		m.bySlug[definitionSlugKey(cloned.EnvironmentID, cloned.Slug)] = cloned.ID
 	}
 
 	return cloneDefinition(cloned), nil
@@ -136,23 +138,31 @@ func (m *memoryDefinitionRepository) GetByID(_ context.Context, id uuid.UUID) (*
 	return cloneDefinition(record), nil
 }
 
-func (m *memoryDefinitionRepository) GetByName(_ context.Context, name string) (*Definition, error) {
+func (m *memoryDefinitionRepository) GetBySlug(_ context.Context, slug string, env ...string) (*Definition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	id, ok := m.byName[name]
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.bySlug[definitionSlugKey(envID, slug)]
 	if !ok {
-		return nil, &NotFoundError{Resource: "block_definition", Key: name}
+		return nil, &NotFoundError{Resource: "block_definition", Key: slug}
 	}
 	return cloneDefinition(m.byID[id]), nil
 }
 
-func (m *memoryDefinitionRepository) List(_ context.Context) ([]*Definition, error) {
+func (m *memoryDefinitionRepository) List(_ context.Context, env ...string) ([]*Definition, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
 	defs := make([]*Definition, 0, len(m.byID))
 	for _, def := range m.byID {
+		if def == nil {
+			continue
+		}
+		if !matchesEnvironment(def.EnvironmentID, envID) {
+			continue
+		}
 		defs = append(defs, cloneDefinition(def))
 	}
 	return defs, nil
@@ -166,10 +176,15 @@ func (m *memoryDefinitionRepository) Update(_ context.Context, definition *Defin
 		return nil, &NotFoundError{Resource: "block_definition", Key: definition.ID.String()}
 	}
 
+	existing := m.byID[definition.ID]
 	cloned := cloneDefinition(definition)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
 	m.byID[cloned.ID] = cloned
-	if cloned.Name != "" {
-		m.byName[cloned.Name] = cloned.ID
+	if existing != nil && existing.Slug != "" && existing.Slug != cloned.Slug {
+		delete(m.bySlug, definitionSlugKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.Slug))
+	}
+	if cloned.Slug != "" {
+		m.bySlug[definitionSlugKey(cloned.EnvironmentID, cloned.Slug)] = cloned.ID
 	}
 	return cloneDefinition(cloned), nil
 }
@@ -183,10 +198,49 @@ func (m *memoryDefinitionRepository) Delete(_ context.Context, id uuid.UUID) err
 		return &NotFoundError{Resource: "block_definition", Key: id.String()}
 	}
 	delete(m.byID, id)
-	if record.Name != "" {
-		delete(m.byName, record.Name)
+	if record.Slug != "" {
+		delete(m.bySlug, definitionSlugKey(resolveEnvironmentID(record.EnvironmentID, ""), record.Slug))
 	}
 	return nil
+}
+
+func resolveEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func resolveEnvironmentID(id uuid.UUID, envKey string) uuid.UUID {
+	if id != uuid.Nil {
+		return id
+	}
+	key := strings.TrimSpace(envKey)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	if parsed, err := uuid.Parse(key); err == nil {
+		return parsed
+	}
+	key = cmsenv.NormalizeKey(key)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	return cmsenv.IDForKey(key)
+}
+
+func matchesEnvironment(recordID, targetID uuid.UUID) bool {
+	if targetID == uuid.Nil {
+		targetID = resolveEnvironmentID(uuid.Nil, "")
+	}
+	if recordID == uuid.Nil {
+		return targetID == resolveEnvironmentID(uuid.Nil, "")
+	}
+	return recordID == targetID
+}
+
+func definitionSlugKey(envID uuid.UUID, slug string) string {
+	return envID.String() + "|" + strings.TrimSpace(slug)
 }
 
 // NewMemoryInstanceRepository constructs an "in memory" instance repository.
@@ -500,6 +554,9 @@ func cloneDefinition(src *Definition) *Definition {
 	cloned := *src
 	if src.Schema != nil {
 		cloned.Schema = maps.Clone(src.Schema)
+	}
+	if src.UISchema != nil {
+		cloned.UISchema = maps.Clone(src.UISchema)
 	}
 	if src.Defaults != nil {
 		cloned.Defaults = maps.Clone(src.Defaults)

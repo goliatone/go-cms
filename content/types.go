@@ -27,18 +27,19 @@ type Locale struct {
 type ContentType struct {
 	bun.BaseModel `bun:"table:content_types,alias:ct"`
 
-	ID            uuid.UUID                   `bun:",pk,type:uuid"                json:"id"`
-	Name          string                      `bun:"name,notnull"                 json:"name"`
-	Slug          string                      `bun:"slug,notnull"                 json:"slug"`
-	Description   *string                     `bun:"description"                  json:"description,omitempty"`
-	Schema        map[string]any              `bun:"schema,type:jsonb,notnull"    json:"schema"`
-	UISchema      map[string]any              `bun:"ui_schema,type:jsonb"         json:"ui_schema,omitempty"`
-	Capabilities  map[string]any              `bun:"capabilities,type:jsonb"      json:"capabilities,omitempty"`
-	Icon          *string                     `bun:"icon"                         json:"icon,omitempty"`
-	SchemaVersion string                      `bun:"schema_version"               json:"schema_version,omitempty"`
-	SchemaHistory []ContentTypeSchemaSnapshot `bun:"schema_history,type:jsonb" json:"schema_history,omitempty"`
-	Status        string                      `bun:"status"                       json:"status,omitempty"`
-	DeletedAt     *time.Time                  `bun:"deleted_at,nullzero"          json:"deleted_at,omitempty"`
+	ID            uuid.UUID                   `bun:",pk,type:uuid"                                json:"id"`
+	Name          string                      `bun:"name,notnull"                                 json:"name"`
+	Slug          string                      `bun:"slug,notnull"                                 json:"slug"`
+	Description   *string                     `bun:"description"                                  json:"description,omitempty"`
+	Schema        map[string]any              `bun:"schema,type:jsonb,notnull"                    json:"schema"`
+	UISchema      map[string]any              `bun:"ui_schema,type:jsonb"                         json:"ui_schema,omitempty"`
+	Capabilities  map[string]any              `bun:"capabilities,type:jsonb"                      json:"capabilities,omitempty"`
+	Icon          *string                     `bun:"icon"                                         json:"icon,omitempty"`
+	SchemaVersion string                      `bun:"schema_version"                               json:"schema_version,omitempty"`
+	SchemaHistory []ContentTypeSchemaSnapshot `bun:"schema_history,type:jsonb"                    json:"schema_history,omitempty"`
+	Status        string                      `bun:"status"                                       json:"status,omitempty"`
+	EnvironmentID uuid.UUID                   `bun:"environment_id,type:uuid"                     json:"environment_id,omitempty"`
+	DeletedAt     *time.Time                  `bun:"deleted_at,nullzero"                          json:"deleted_at,omitempty"`
 	CreatedAt     time.Time                   `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
 	UpdatedAt     time.Time                   `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
@@ -68,6 +69,7 @@ type Content struct {
 	UnpublishAt      *time.Time            `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`
 	PublishedAt      *time.Time            `bun:"published_at,nullzero" json:"published_at,omitempty"`
 	PublishedBy      *uuid.UUID            `bun:"published_by,type:uuid" json:"published_by,omitempty"`
+	EnvironmentID    uuid.UUID             `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
 	CreatedBy        uuid.UUID             `bun:"created_by,notnull,type:uuid" json:"created_by"`
 	UpdatedBy        uuid.UUID             `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
 	DeletedAt        *time.Time            `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`

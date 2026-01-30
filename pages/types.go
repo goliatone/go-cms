@@ -28,6 +28,7 @@ type Page struct {
 	UnpublishAt      *time.Time                           `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`
 	PublishedAt      *time.Time                           `bun:"published_at,nullzero" json:"published_at,omitempty"`
 	PublishedBy      *uuid.UUID                           `bun:"published_by,type:uuid" json:"published_by,omitempty"`
+	EnvironmentID    uuid.UUID                            `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
 	CreatedBy        uuid.UUID                            `bun:"created_by,notnull,type:uuid" json:"created_by"`
 	UpdatedBy        uuid.UUID                            `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
 	DeletedAt        *time.Time                           `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`

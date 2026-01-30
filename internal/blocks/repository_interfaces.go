@@ -11,8 +11,8 @@ import (
 type DefinitionRepository interface {
 	Create(ctx context.Context, definition *Definition) (*Definition, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Definition, error)
-	GetByName(ctx context.Context, name string) (*Definition, error)
-	List(ctx context.Context) ([]*Definition, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*Definition, error)
+	List(ctx context.Context, env ...string) ([]*Definition, error)
 	Update(ctx context.Context, definition *Definition) (*Definition, error)
 	Delete(ctx context.Context, id uuid.UUID) error
 }

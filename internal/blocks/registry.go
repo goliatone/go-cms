@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
+	"github.com/goliatone/go-slug"
 )
 
 // Registry stores versioned block schema definitions and migrations.
@@ -35,16 +36,24 @@ func (r *Registry) Register(input RegisterDefinitionInput) {
 	if name == "" {
 		return
 	}
+	input.Name = name
+	slugValue := registrySlug(input)
+	if slugValue != "" {
+		input.Slug = slugValue
+	}
 
 	normalized := input.Schema
 	version := ""
 	if input.Schema != nil {
-		if updated, parsed, err := cmsschema.EnsureSchemaVersion(input.Schema, name); err == nil {
+		key := slugValue
+		if key == "" {
+			key = name
+		}
+		if updated, parsed, err := cmsschema.EnsureSchemaVersion(input.Schema, key); err == nil {
 			normalized = updated
 			version = parsed.String()
 		}
 	}
-	input.Name = name
 	input.Schema = normalized
 
 	r.mu.Lock()
@@ -69,7 +78,11 @@ func (r *Registry) Register(input RegisterDefinitionInput) {
 		return
 	}
 
-	latestVersion := extractVersion(latest.Schema, name)
+	latestKey := registrySlug(latest)
+	if latestKey == "" {
+		latestKey = name
+	}
+	latestVersion := extractVersion(latest.Schema, latestKey)
 	if latestVersion == "" || compareSchemaVersions(version, latestVersion) > 0 {
 		r.entries[name] = input
 	}
@@ -145,8 +158,16 @@ func (r *Registry) ListVersions(name string) []RegisterDefinitionInput {
 		out = append(out, entry)
 	}
 	sort.Slice(out, func(i, j int) bool {
-		ai := extractVersion(out[i].Schema, key)
-		aj := extractVersion(out[j].Schema, key)
+		aiKey := registrySlug(out[i])
+		if aiKey == "" {
+			aiKey = key
+		}
+		ajKey := registrySlug(out[j])
+		if ajKey == "" {
+			ajKey = key
+		}
+		ai := extractVersion(out[i].Schema, aiKey)
+		aj := extractVersion(out[j].Schema, ajKey)
 		return compareSchemaVersions(ai, aj) < 0
 	})
 	return out
@@ -170,13 +191,37 @@ func (r *Registry) ListAllVersions() []RegisterDefinitionInput {
 		ni := strings.TrimSpace(out[i].Name)
 		nj := strings.TrimSpace(out[j].Name)
 		if ni == nj {
-			vi := extractVersion(out[i].Schema, ni)
-			vj := extractVersion(out[j].Schema, nj)
+			viKey := registrySlug(out[i])
+			if viKey == "" {
+				viKey = ni
+			}
+			vjKey := registrySlug(out[j])
+			if vjKey == "" {
+				vjKey = nj
+			}
+			vi := extractVersion(out[i].Schema, viKey)
+			vj := extractVersion(out[j].Schema, vjKey)
 			return compareSchemaVersions(vi, vj) < 0
 		}
 		return ni < nj
 	})
 	return out
+}
+
+func registrySlug(input RegisterDefinitionInput) string {
+	candidate := strings.TrimSpace(input.Slug)
+	if candidate == "" {
+		candidate = strings.TrimSpace(input.Name)
+	}
+	if candidate == "" {
+		return ""
+	}
+	normalizer := slug.Default()
+	normalized, err := normalizer.Normalize(candidate)
+	if err != nil || normalized == "" {
+		return candidate
+	}
+	return normalized
 }
 
 func extractVersion(schema map[string]any, slug string) string {

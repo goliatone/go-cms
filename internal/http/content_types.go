@@ -15,17 +15,19 @@ import (
 )
 
 type contentTypeCreatePayload struct {
-	Name         string         `json:"name"`
-	Slug         string         `json:"slug,omitempty"`
-	Description  *string        `json:"description,omitempty"`
-	Schema       map[string]any `json:"schema"`
-	UISchema     map[string]any `json:"ui_schema,omitempty"`
-	Capabilities map[string]any `json:"capabilities,omitempty"`
-	Icon         *string        `json:"icon,omitempty"`
-	Status       string         `json:"status,omitempty"`
-	CreatedBy    *uuid.UUID     `json:"created_by,omitempty"`
-	UpdatedBy    *uuid.UUID     `json:"updated_by,omitempty"`
-	ActorID      *uuid.UUID     `json:"actor_id,omitempty"`
+	Name          string         `json:"name"`
+	Slug          string         `json:"slug,omitempty"`
+	Description   *string        `json:"description,omitempty"`
+	Schema        map[string]any `json:"schema"`
+	UISchema      map[string]any `json:"ui_schema,omitempty"`
+	Capabilities  map[string]any `json:"capabilities,omitempty"`
+	Icon          *string        `json:"icon,omitempty"`
+	Status        string         `json:"status,omitempty"`
+	Environment   string         `json:"environment,omitempty"`
+	EnvironmentID *uuid.UUID     `json:"environment_id,omitempty"`
+	CreatedBy     *uuid.UUID     `json:"created_by,omitempty"`
+	UpdatedBy     *uuid.UUID     `json:"updated_by,omitempty"`
+	ActorID       *uuid.UUID     `json:"actor_id,omitempty"`
 }
 
 type contentTypeUpdatePayload struct {
@@ -38,6 +40,8 @@ type contentTypeUpdatePayload struct {
 	Icon                 *string        `json:"icon,omitempty"`
 	Status               *string        `json:"status,omitempty"`
 	AllowBreakingChanges bool           `json:"allow_breaking_changes,omitempty"`
+	Environment          *string        `json:"environment,omitempty"`
+	EnvironmentID        *uuid.UUID     `json:"environment_id,omitempty"`
 	UpdatedBy            *uuid.UUID     `json:"updated_by,omitempty"`
 	ActorID              *uuid.UUID     `json:"actor_id,omitempty"`
 }
@@ -49,17 +53,19 @@ type contentTypePublishPayload struct {
 }
 
 type contentTypeClonePayload struct {
-	Name         *string        `json:"name,omitempty"`
-	Slug         *string        `json:"slug,omitempty"`
-	Description  *string        `json:"description,omitempty"`
-	Schema       map[string]any `json:"schema,omitempty"`
-	UISchema     map[string]any `json:"ui_schema,omitempty"`
-	Capabilities map[string]any `json:"capabilities,omitempty"`
-	Icon         *string        `json:"icon,omitempty"`
-	Status       *string        `json:"status,omitempty"`
-	CreatedBy    *uuid.UUID     `json:"created_by,omitempty"`
-	UpdatedBy    *uuid.UUID     `json:"updated_by,omitempty"`
-	ActorID      *uuid.UUID     `json:"actor_id,omitempty"`
+	Name          *string        `json:"name,omitempty"`
+	Slug          *string        `json:"slug,omitempty"`
+	Description   *string        `json:"description,omitempty"`
+	Schema        map[string]any `json:"schema,omitempty"`
+	UISchema      map[string]any `json:"ui_schema,omitempty"`
+	Capabilities  map[string]any `json:"capabilities,omitempty"`
+	Icon          *string        `json:"icon,omitempty"`
+	Status        *string        `json:"status,omitempty"`
+	Environment   string         `json:"environment,omitempty"`
+	EnvironmentID *uuid.UUID     `json:"environment_id,omitempty"`
+	CreatedBy     *uuid.UUID     `json:"created_by,omitempty"`
+	UpdatedBy     *uuid.UUID     `json:"updated_by,omitempty"`
+	ActorID       *uuid.UUID     `json:"actor_id,omitempty"`
 }
 
 type contentTypeDeletePayload struct {
@@ -153,9 +159,6 @@ func (api *AdminAPI) handleContentTypeList(w http.ResponseWriter, r *http.Reques
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.ContentTypesRead) {
-		return
-	}
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if query == "" {
 		query = strings.TrimSpace(r.URL.Query().Get("search"))
@@ -164,10 +167,18 @@ func (api *AdminAPI) handleContentTypeList(w http.ResponseWriter, r *http.Reques
 		list []*content.ContentType
 		err  error
 	)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, "", nil, false)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentTypesRead, envKey) {
+		return
+	}
 	if query == "" {
-		list, err = api.contentTypes.List(r.Context())
+		list, err = api.contentTypes.List(r.Context(), envKey)
 	} else {
-		list, err = api.contentTypes.Search(r.Context(), query)
+		list, err = api.contentTypes.Search(r.Context(), query, envKey)
 	}
 	if err != nil {
 		writeError(w, err)
@@ -181,9 +192,6 @@ func (api *AdminAPI) handleContentTypeGet(w http.ResponseWriter, r *http.Request
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.ContentTypesRead) {
-		return
-	}
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
@@ -194,6 +202,14 @@ func (api *AdminAPI) handleContentTypeGet(w http.ResponseWriter, r *http.Request
 		writeError(w, err)
 		return
 	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentTypesRead, envKey) {
+		return
+	}
 	writeJSON(w, http.StatusOK, buildContentTypeResponse(record))
 }
 
@@ -202,12 +218,17 @@ func (api *AdminAPI) handleContentTypeCreate(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.ContentTypesCreate) {
-		return
-	}
 	var payload contentTypeCreatePayload
 	if err := decodeJSON(r, &payload); err != nil && !errors.Is(err, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
+		return
+	}
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentTypesCreate, envKey) {
 		return
 	}
 	if strings.TrimSpace(payload.Slug) == "" {
@@ -233,16 +254,17 @@ func (api *AdminAPI) handleContentTypeCreate(w http.ResponseWriter, r *http.Requ
 		updatedBy = actor
 	}
 	req := content.CreateContentTypeRequest{
-		Name:         payload.Name,
-		Slug:         payload.Slug,
-		Description:  payload.Description,
-		Schema:       payload.Schema,
-		UISchema:     payload.UISchema,
-		Capabilities: payload.Capabilities,
-		Icon:         payload.Icon,
-		Status:       payload.Status,
-		CreatedBy:    actor,
-		UpdatedBy:    updatedBy,
+		Name:           payload.Name,
+		Slug:           payload.Slug,
+		Description:    payload.Description,
+		Schema:         payload.Schema,
+		UISchema:       payload.UISchema,
+		Capabilities:   payload.Capabilities,
+		Icon:           payload.Icon,
+		Status:         payload.Status,
+		EnvironmentKey: envKey,
+		CreatedBy:      actor,
+		UpdatedBy:      updatedBy,
 	}
 	created, err := api.contentTypes.Create(r.Context(), req)
 	if err != nil {
@@ -257,9 +279,6 @@ func (api *AdminAPI) handleContentTypeUpdate(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.ContentTypesUpdate) {
-		return
-	}
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
@@ -268,6 +287,21 @@ func (api *AdminAPI) handleContentTypeUpdate(w http.ResponseWriter, r *http.Requ
 	var payload contentTypeUpdatePayload
 	if err := decodeJSON(r, &payload); err != nil && !errors.Is(err, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
+		return
+	}
+	var envKey string
+	if payload.Environment != nil || payload.EnvironmentID != nil || api.requireExplicit {
+		keyVal := ""
+		if payload.Environment != nil {
+			keyVal = *payload.Environment
+		}
+		envKey, err = api.resolveEnvironmentKeyWithDefault(r, keyVal, payload.EnvironmentID, api.requireExplicit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentTypesUpdate, envKey) {
 		return
 	}
 	actor := resolveActorID(payload.UpdatedBy, payload.ActorID)
@@ -281,6 +315,7 @@ func (api *AdminAPI) handleContentTypeUpdate(w http.ResponseWriter, r *http.Requ
 		Capabilities:         payload.Capabilities,
 		Icon:                 payload.Icon,
 		Status:               payload.Status,
+		EnvironmentKey:       envKey,
 		UpdatedBy:            actor,
 		AllowBreakingChanges: payload.AllowBreakingChanges,
 	}
@@ -333,12 +368,22 @@ func (api *AdminAPI) handleContentTypePublish(w http.ResponseWriter, r *http.Req
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.ContentTypesPublish) {
-		return
-	}
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
+		return
+	}
+	record, err := api.contentTypes.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentTypesPublish, envKey) {
 		return
 	}
 	var payload contentTypePublishPayload
@@ -351,6 +396,7 @@ func (api *AdminAPI) handleContentTypePublish(w http.ResponseWriter, r *http.Req
 	req := content.UpdateContentTypeRequest{
 		ID:                   id,
 		Status:               &status,
+		EnvironmentKey:       envKey,
 		UpdatedBy:            actor,
 		AllowBreakingChanges: payload.AllowBreakingChanges,
 	}
@@ -367,9 +413,6 @@ func (api *AdminAPI) handleContentTypeClone(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.ContentTypesCreate) {
-		return
-	}
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
@@ -384,6 +427,14 @@ func (api *AdminAPI) handleContentTypeClone(w http.ResponseWriter, r *http.Reque
 	var payload contentTypeClonePayload
 	if err := decodeJSON(r, &payload); err != nil && !errors.Is(err, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
+		return
+	}
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentTypesCreate, envKey) {
 		return
 	}
 
@@ -443,18 +494,26 @@ func (api *AdminAPI) handleContentTypeClone(w http.ResponseWriter, r *http.Reque
 	if actor != uuid.Nil && updatedBy == uuid.Nil {
 		updatedBy = actor
 	}
+	if strings.TrimSpace(envKey) == "" {
+		envKey, err = api.environmentKeyForID(r.Context(), source.EnvironmentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 
 	req := content.CreateContentTypeRequest{
-		Name:         name,
-		Slug:         slugValue,
-		Description:  description,
-		Schema:       schemaPayload,
-		UISchema:     uiSchema,
-		Capabilities: capabilities,
-		Icon:         icon,
-		Status:       status,
-		CreatedBy:    actor,
-		UpdatedBy:    updatedBy,
+		Name:           name,
+		Slug:           slugValue,
+		Description:    description,
+		Schema:         schemaPayload,
+		UISchema:       uiSchema,
+		Capabilities:   capabilities,
+		Icon:           icon,
+		Status:         status,
+		EnvironmentKey: envKey,
+		CreatedBy:      actor,
+		UpdatedBy:      updatedBy,
 	}
 	created, err := api.contentTypes.Create(r.Context(), req)
 	if err != nil {

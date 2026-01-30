@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-cms/internal/validation"
@@ -22,23 +23,24 @@ type ContentTypeService interface {
 	Update(ctx context.Context, req UpdateContentTypeRequest) (*ContentType, error)
 	Delete(ctx context.Context, req DeleteContentTypeRequest) error
 	Get(ctx context.Context, id uuid.UUID) (*ContentType, error)
-	GetBySlug(ctx context.Context, slug string) (*ContentType, error)
-	List(ctx context.Context) ([]*ContentType, error)
-	Search(ctx context.Context, query string) ([]*ContentType, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentType, error)
+	List(ctx context.Context, env ...string) ([]*ContentType, error)
+	Search(ctx context.Context, query string, env ...string) ([]*ContentType, error)
 }
 
 // CreateContentTypeRequest captures required fields to create a content type.
 type CreateContentTypeRequest struct {
-	Name         string
-	Slug         string
-	Description  *string
-	Schema       map[string]any
-	UISchema     map[string]any
-	Capabilities map[string]any
-	Icon         *string
-	Status       string
-	CreatedBy    uuid.UUID
-	UpdatedBy    uuid.UUID
+	Name           string
+	Slug           string
+	Description    *string
+	Schema         map[string]any
+	UISchema       map[string]any
+	Capabilities   map[string]any
+	Icon           *string
+	Status         string
+	EnvironmentKey string
+	CreatedBy      uuid.UUID
+	UpdatedBy      uuid.UUID
 }
 
 // UpdateContentTypeRequest captures mutable fields for a content type.
@@ -52,6 +54,7 @@ type UpdateContentTypeRequest struct {
 	Capabilities         map[string]any
 	Icon                 *string
 	Status               *string
+	EnvironmentKey       string
 	UpdatedBy            uuid.UUID
 	AllowBreakingChanges bool
 }
@@ -117,6 +120,38 @@ func WithContentTypeActivityEmitter(emitter *activity.Emitter) ContentTypeOption
 	}
 }
 
+// WithContentTypeEnvironmentService wires the environment service for env resolution.
+func WithContentTypeEnvironmentService(service cmsenv.Service) ContentTypeOption {
+	return func(s *contentTypeService) {
+		if service != nil {
+			s.envSvc = service
+		}
+	}
+}
+
+// WithContentTypeDefaultEnvironmentKey overrides the default environment key.
+func WithContentTypeDefaultEnvironmentKey(key string) ContentTypeOption {
+	return func(s *contentTypeService) {
+		if strings.TrimSpace(key) != "" {
+			s.defaultEnvKey = key
+		}
+	}
+}
+
+// WithContentTypeRequireExplicitEnvironment enforces explicit environment selection.
+func WithContentTypeRequireExplicitEnvironment(required bool) ContentTypeOption {
+	return func(s *contentTypeService) {
+		s.requireExplicitEnv = required
+	}
+}
+
+// WithContentTypeRequireActiveEnvironment blocks operations on inactive environments.
+func WithContentTypeRequireActiveEnvironment(required bool) ContentTypeOption {
+	return func(s *contentTypeService) {
+		s.requireActiveEnv = required
+	}
+}
+
 // WithContentTypeValidators appends validators applied on create/update.
 func WithContentTypeValidators(validators ...ContentTypeValidator) ContentTypeOption {
 	return func(s *contentTypeService) {
@@ -132,12 +167,13 @@ func WithContentTypeValidators(validators ...ContentTypeValidator) ContentTypeOp
 // NewContentTypeService constructs a content type service.
 func NewContentTypeService(repo ContentTypeRepository, opts ...ContentTypeOption) ContentTypeService {
 	svc := &contentTypeService{
-		repo:       repo,
-		now:        func() time.Time { return time.Now().UTC() },
-		id:         uuid.New,
-		slugger:    slug.Default(),
-		activity:   activity.NewEmitter(nil, activity.Config{}),
-		validators: []ContentTypeValidator{validateContentTypeSchema},
+		repo:          repo,
+		now:           func() time.Time { return time.Now().UTC() },
+		id:            uuid.New,
+		slugger:       slug.Default(),
+		activity:      activity.NewEmitter(nil, activity.Config{}),
+		validators:    []ContentTypeValidator{validateContentTypeSchema},
+		defaultEnvKey: cmsenv.DefaultKey,
 	}
 	for _, opt := range opts {
 		if opt != nil {
@@ -148,12 +184,16 @@ func NewContentTypeService(repo ContentTypeRepository, opts ...ContentTypeOption
 }
 
 type contentTypeService struct {
-	repo       ContentTypeRepository
-	now        func() time.Time
-	id         IDGenerator
-	slugger    slug.Normalizer
-	activity   *activity.Emitter
-	validators []ContentTypeValidator
+	repo               ContentTypeRepository
+	envSvc             cmsenv.Service
+	now                func() time.Time
+	id                 IDGenerator
+	slugger            slug.Normalizer
+	activity           *activity.Emitter
+	validators         []ContentTypeValidator
+	defaultEnvKey      string
+	requireExplicitEnv bool
+	requireActiveEnv   bool
 }
 
 func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRequest) (*ContentType, error) {
@@ -191,12 +231,18 @@ func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRe
 		UpdatedAt:    s.now(),
 	}
 
+	envID, _, err := s.resolveEnvironment(ctx, req.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+	record.EnvironmentID = envID
+
 	record.Slug, err = s.normalizeSlug(record)
 	if err != nil {
 		return nil, err
 	}
 
-	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID); err != nil {
+	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID, envID.String()); err != nil {
 		return nil, err
 	}
 
@@ -235,12 +281,34 @@ func (s *contentTypeService) Update(ctx context.Context, req UpdateContentTypeRe
 	if err != nil {
 		return nil, err
 	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.EnvironmentKey) != "" || s.requireExplicitEnv {
+		envID, _, err := s.resolveEnvironment(ctx, req.EnvironmentKey)
+		if err != nil {
+			return nil, err
+		}
+		if record.EnvironmentID != uuid.Nil && record.EnvironmentID != envID {
+			return nil, cmsenv.ErrEnvironmentNotFound
+		}
+	}
 	previousSchema := cloneMap(record.Schema)
 	previousUISchema := cloneMap(record.UISchema)
 	previousCapabilities := cloneMap(record.Capabilities)
 	previousStatus := record.Status
 	previousVersion := record.SchemaVersion
 	previousUpdatedAt := record.UpdatedAt
+
+	envID := record.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		envID = resolvedID
+		record.EnvironmentID = envID
+	}
 
 	if req.Name != nil {
 		record.Name = strings.TrimSpace(*req.Name)
@@ -298,7 +366,7 @@ func (s *contentTypeService) Update(ctx context.Context, req UpdateContentTypeRe
 		return nil, err
 	}
 
-	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID); err != nil {
+	if err := s.ensureSlugAvailable(ctx, record.Slug, record.ID, envID.String()); err != nil {
 		return nil, err
 	}
 
@@ -389,6 +457,9 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 			}
 			return err
 		}
+		if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+			return err
+		}
 		if err := s.repo.Delete(ctx, req.ID, true); err != nil {
 			return err
 		}
@@ -398,6 +469,9 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 
 	record, err := s.repo.GetByID(ctx, req.ID)
 	if err != nil {
+		return err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
 		return err
 	}
 
@@ -425,10 +499,17 @@ func (s *contentTypeService) Get(ctx context.Context, id uuid.UUID) (*ContentTyp
 	if id == uuid.Nil {
 		return nil, ErrContentTypeIDRequired
 	}
-	return s.repo.GetByID(ctx, id)
+	record, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
-func (s *contentTypeService) GetBySlug(ctx context.Context, rawSlug string) (*ContentType, error) {
+func (s *contentTypeService) GetBySlug(ctx context.Context, rawSlug string, env ...string) (*ContentType, error) {
 	if s == nil || s.repo == nil {
 		return nil, errors.New("content type service unavailable")
 	}
@@ -447,20 +528,28 @@ func (s *contentTypeService) GetBySlug(ctx context.Context, rawSlug string) (*Co
 		return nil, ErrContentTypeSlugInvalid
 	}
 	slugValue = normalized
-	return s.repo.GetBySlug(ctx, slugValue)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.GetBySlug(ctx, slugValue, envID.String())
 }
 
-func (s *contentTypeService) List(ctx context.Context) ([]*ContentType, error) {
+func (s *contentTypeService) List(ctx context.Context, env ...string) ([]*ContentType, error) {
 	if s == nil || s.repo == nil {
 		return nil, errors.New("content type service unavailable")
 	}
 	if err := permissions.Require(ctx, permissions.ContentTypesRead); err != nil {
 		return nil, err
 	}
-	return s.repo.List(ctx)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.List(ctx, envID.String())
 }
 
-func (s *contentTypeService) Search(ctx context.Context, query string) ([]*ContentType, error) {
+func (s *contentTypeService) Search(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
 	if s == nil || s.repo == nil {
 		return nil, errors.New("content type service unavailable")
 	}
@@ -469,9 +558,13 @@ func (s *contentTypeService) Search(ctx context.Context, query string) ([]*Conte
 	}
 	query = strings.TrimSpace(query)
 	if query == "" {
-		return s.repo.List(ctx)
+		return s.List(ctx, env...)
 	}
-	return s.repo.Search(ctx, query)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	return s.repo.Search(ctx, query, envID.String())
 }
 
 func (s *contentTypeService) emitActivity(ctx context.Context, actor uuid.UUID, verb string, record *ContentType) {
@@ -483,6 +576,12 @@ func (s *contentTypeService) emitActivity(ctx context.Context, actor uuid.UUID, 
 		"status":         record.Status,
 		"schema_version": record.SchemaVersion,
 		"name":           record.Name,
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+		if key := s.environmentKeyForID(ctx, record.EnvironmentID); key != "" {
+			meta["environment_key"] = key
+		}
 	}
 	_ = s.activity.Emit(ctx, activity.Event{
 		Verb:       verb,
@@ -535,8 +634,8 @@ func (s *contentTypeService) normalizeSlug(ct *ContentType) (string, error) {
 	return normalized, nil
 }
 
-func (s *contentTypeService) ensureSlugAvailable(ctx context.Context, slug string, currentID uuid.UUID) error {
-	existing, err := s.repo.GetBySlug(ctx, slug)
+func (s *contentTypeService) ensureSlugAvailable(ctx context.Context, slug string, currentID uuid.UUID, env string) error {
+	existing, err := s.repo.GetBySlug(ctx, slug, env)
 	if err == nil && existing != nil {
 		if existing.ID != currentID {
 			return ErrContentTypeSlugExists
@@ -548,6 +647,68 @@ func (s *contentTypeService) ensureSlugAvailable(ctx context.Context, slug strin
 		return err
 	}
 	return nil
+}
+
+func (s *contentTypeService) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
+	normalized, err := cmsenv.ResolveKey(key, s.defaultEnvKey, s.requireExplicitEnv)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	if s.envSvc == nil {
+		return cmsenv.IDForKey(normalized), normalized, nil
+	}
+	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	if s.requireActiveEnv && !env.IsActive {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentNotFound
+	}
+	return env.ID, env.Key, nil
+}
+
+func (s *contentTypeService) ensureEnvironmentActive(ctx context.Context, envID uuid.UUID) error {
+	if !s.requireActiveEnv || s.envSvc == nil || envID == uuid.Nil {
+		return nil
+	}
+	env, err := s.envSvc.GetEnvironment(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if !env.IsActive {
+		return cmsenv.ErrEnvironmentNotFound
+	}
+	return nil
+}
+
+func (s *contentTypeService) environmentKeyForID(ctx context.Context, envID uuid.UUID) string {
+	if envID == uuid.Nil {
+		return ""
+	}
+	if s.envSvc != nil {
+		env, err := s.envSvc.GetEnvironment(ctx, envID)
+		if err == nil && env != nil {
+			return env.Key
+		}
+	}
+	defaultKey := strings.TrimSpace(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	if envID == cmsenv.IDForKey(defaultKey) {
+		return cmsenv.NormalizeKey(defaultKey)
+	}
+	if envID == cmsenv.IDForKey(cmsenv.DefaultKey) {
+		return cmsenv.DefaultKey
+	}
+	return ""
+}
+
+func pickEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return env[0]
 }
 
 func normalizeContentTypeStatus(value string) (string, error) {

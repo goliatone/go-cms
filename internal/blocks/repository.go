@@ -11,8 +11,8 @@ func NewDefinitionRepository(db *bun.DB) repository.Repository[*Definition] {
 		NewRecord:          func() *Definition { return &Definition{} },
 		GetID:              func(d *Definition) uuid.UUID { return d.ID },
 		SetID:              func(d *Definition, id uuid.UUID) { d.ID = id },
-		GetIdentifier:      func() string { return "name" },
-		GetIdentifierValue: func(d *Definition) string { return d.Name },
+		GetIdentifier:      func() string { return "slug" },
+		GetIdentifierValue: func(d *Definition) string { return d.Slug },
 	})
 }
 

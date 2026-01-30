@@ -27,7 +27,7 @@ func (r *defaultURLResolver) Resolve(ctx context.Context, req ResolveRequest) (s
 	if req.Item == nil {
 		return "", nil
 	}
-	return r.service.resolveURLForTarget(ctx, req.Item.Target, req.LocaleID)
+	return r.service.resolveURLForTarget(ctx, req.Item.Target, req.Item.EnvironmentID, req.LocaleID)
 }
 
 // WithURLResolver overrides the default URL resolver used by the menu service.

@@ -85,11 +85,11 @@ func (a *markdownContentServiceAdapter) Update(ctx context.Context, req interfac
 	return toContentRecord(record), nil
 }
 
-func (a *markdownContentServiceAdapter) GetBySlug(ctx context.Context, slug string) (*interfaces.ContentRecord, error) {
+func (a *markdownContentServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -101,11 +101,11 @@ func (a *markdownContentServiceAdapter) GetBySlug(ctx context.Context, slug stri
 	return nil, nil
 }
 
-func (a *markdownContentServiceAdapter) List(ctx context.Context) ([]*interfaces.ContentRecord, error) {
+func (a *markdownContentServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -330,11 +330,11 @@ func (a *markdownPageServiceAdapter) Update(ctx context.Context, req interfaces.
 	return a.toPageRecord(created), nil
 }
 
-func (a *markdownPageServiceAdapter) GetBySlug(ctx context.Context, slug string) (*interfaces.PageRecord, error) {
+func (a *markdownPageServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.PageRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("page service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -346,11 +346,11 @@ func (a *markdownPageServiceAdapter) GetBySlug(ctx context.Context, slug string)
 	return nil, nil
 }
 
-func (a *markdownPageServiceAdapter) List(ctx context.Context) ([]*interfaces.PageRecord, error) {
+func (a *markdownPageServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.PageRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("page service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}

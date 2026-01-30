@@ -15,13 +15,19 @@ type Definition struct {
 
 	ID               uuid.UUID      `bun:",pk,type:uuid" json:"id"`
 	Name             string         `bun:"name,notnull" json:"name"`
+	Slug             string         `bun:"slug,notnull" json:"slug"`
 	Description      *string        `bun:"description" json:"description,omitempty"`
 	Icon             *string        `bun:"icon" json:"icon,omitempty"`
+	Category         *string        `bun:"category" json:"category,omitempty"`
+	Status           string         `bun:"status" json:"status,omitempty"`
 	Schema           map[string]any `bun:"schema,type:jsonb,notnull" json:"schema"`
+	UISchema         map[string]any `bun:"ui_schema,type:jsonb" json:"ui_schema,omitempty"`
 	SchemaVersion    string         `bun:"schema_version" json:"schema_version,omitempty"`
+	MigrationStatus  string         `bun:"migration_status" json:"migration_status,omitempty"`
 	Defaults         map[string]any `bun:"defaults,type:jsonb" json:"defaults,omitempty"`
 	EditorStyleURL   *string        `bun:"editor_style_url" json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `bun:"frontend_style_url" json:"frontend_style_url,omitempty"`
+	EnvironmentID    uuid.UUID      `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
 	DeletedAt        *time.Time     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
 	CreatedAt        time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
 	UpdatedAt        time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`

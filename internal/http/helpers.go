@@ -10,6 +10,9 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
+	"github.com/goliatone/go-cms/internal/menus"
+	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/google/uuid"
@@ -20,6 +23,8 @@ type errorResponse struct {
 	Message string                       `json:"message,omitempty"`
 	Issues  []validation.ValidationIssue `json:"issues,omitempty"`
 }
+
+var errBadRequest = errors.New("bad_request")
 
 func joinPath(base, suffix string) string {
 	trimmedBase := strings.TrimSpace(base)
@@ -88,6 +93,50 @@ func mapError(err error) (int, errorResponse) {
 		}
 	}
 
+	var envNotFound *cmsenv.NotFoundError
+	if errors.As(err, &envNotFound) || errors.Is(err, cmsenv.ErrEnvironmentNotFound) {
+		return http.StatusNotFound, errorResponse{
+			Error:   "not_found",
+			Message: err.Error(),
+		}
+	}
+
+	var pageNotFound *pages.PageNotFoundError
+	if errors.As(err, &pageNotFound) {
+		return http.StatusNotFound, errorResponse{
+			Error:   "not_found",
+			Message: pageNotFound.Error(),
+		}
+	}
+
+	var pageVersionNotFound *pages.PageVersionNotFoundError
+	if errors.As(err, &pageVersionNotFound) {
+		return http.StatusNotFound, errorResponse{
+			Error:   "not_found",
+			Message: pageVersionNotFound.Error(),
+		}
+	}
+
+	var menuNotFound *menus.NotFoundError
+	if errors.As(err, &menuNotFound) || errors.Is(err, menus.ErrMenuNotFound) || errors.Is(err, menus.ErrMenuItemNotFound) || errors.Is(err, menus.ErrMenuItemPageNotFound) {
+		return http.StatusNotFound, errorResponse{
+			Error:   "not_found",
+			Message: err.Error(),
+		}
+	}
+
+	if errors.Is(err, content.ErrContentTypeRequired) ||
+		errors.Is(err, content.ErrContentTranslationNotFound) ||
+		errors.Is(err, pages.ErrContentRequired) ||
+		errors.Is(err, pages.ErrParentNotFound) ||
+		errors.Is(err, pages.ErrTemplateUnknown) ||
+		errors.Is(err, pages.ErrPageTranslationNotFound) {
+		return http.StatusNotFound, errorResponse{
+			Error:   "not_found",
+			Message: err.Error(),
+		}
+	}
+
 	if errors.Is(err, permissions.ErrPermissionDenied) {
 		return http.StatusForbidden, errorResponse{
 			Error:   "forbidden",
@@ -95,7 +144,11 @@ func mapError(err error) (int, errorResponse) {
 		}
 	}
 
-	if errors.Is(err, content.ErrContentTypeSlugExists) || errors.Is(err, blocks.ErrDefinitionExists) {
+	if errors.Is(err, cmsenv.ErrEnvironmentKeyExists) ||
+		errors.Is(err, content.ErrContentTypeSlugExists) ||
+		errors.Is(err, content.ErrSlugExists) ||
+		errors.Is(err, blocks.ErrDefinitionExists) ||
+		errors.Is(err, menus.ErrMenuCodeExists) {
 		return http.StatusConflict, errorResponse{
 			Error:   "conflict",
 			Message: err.Error(),
@@ -105,7 +158,13 @@ func mapError(err error) (int, errorResponse) {
 	if errors.Is(err, content.ErrContentTypeSchemaBreaking) ||
 		errors.Is(err, content.ErrContentTypeStatusChange) ||
 		errors.Is(err, blocks.ErrDefinitionInUse) ||
-		errors.Is(err, blocks.ErrDefinitionVersionExists) {
+		errors.Is(err, blocks.ErrDefinitionVersionExists) ||
+		errors.Is(err, pages.ErrSlugExists) ||
+		errors.Is(err, pages.ErrPathExists) ||
+		errors.Is(err, pages.ErrPageParentCycle) ||
+		errors.Is(err, pages.ErrPageDuplicateSlug) ||
+		errors.Is(err, menus.ErrMenuInUse) ||
+		errors.Is(err, menus.ErrMenuItemHasChildren) {
 		return http.StatusConflict, errorResponse{
 			Error:   "conflict",
 			Message: err.Error(),
@@ -116,7 +175,8 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, validation.ErrSchemaValidation) ||
 		errors.Is(err, validation.ErrSchemaMigration) ||
 		errors.Is(err, content.ErrContentTypeSchemaInvalid) ||
-		errors.Is(err, blocks.ErrDefinitionSchemaInvalid) {
+		errors.Is(err, blocks.ErrDefinitionSchemaInvalid) ||
+		errors.Is(err, content.ErrContentSchemaInvalid) {
 		return http.StatusUnprocessableEntity, errorResponse{
 			Error:   "validation_failed",
 			Message: err.Error(),
@@ -128,10 +188,63 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, content.ErrContentTypeSchemaRequired) ||
 		errors.Is(err, content.ErrContentTypeSlugInvalid) ||
 		errors.Is(err, content.ErrContentTypeStatusInvalid) ||
+		errors.Is(err, content.ErrSlugRequired) ||
+		errors.Is(err, content.ErrSlugInvalid) ||
+		errors.Is(err, content.ErrNoTranslations) ||
+		errors.Is(err, content.ErrDefaultLocaleRequired) ||
+		errors.Is(err, content.ErrDuplicateLocale) ||
+		errors.Is(err, content.ErrUnknownLocale) ||
+		errors.Is(err, content.ErrContentIDRequired) ||
+		errors.Is(err, content.ErrContentSoftDeleteUnsupported) ||
+		errors.Is(err, content.ErrContentTranslationsDisabled) ||
+		errors.Is(err, pages.ErrTemplateRequired) ||
+		errors.Is(err, pages.ErrSlugRequired) ||
+		errors.Is(err, pages.ErrSlugInvalid) ||
+		errors.Is(err, pages.ErrNoPageTranslations) ||
+		errors.Is(err, pages.ErrDefaultLocaleRequired) ||
+		errors.Is(err, pages.ErrDuplicateLocale) ||
+		errors.Is(err, pages.ErrUnknownLocale) ||
+		errors.Is(err, pages.ErrPageRequired) ||
+		errors.Is(err, pages.ErrPageSoftDeleteUnsupported) ||
+		errors.Is(err, menus.ErrMenuCodeRequired) ||
+		errors.Is(err, menus.ErrMenuCodeInvalid) ||
+		errors.Is(err, menus.ErrMenuItemParentInvalid) ||
+		errors.Is(err, menus.ErrMenuItemPosition) ||
+		errors.Is(err, menus.ErrMenuItemTargetMissing) ||
+		errors.Is(err, menus.ErrMenuItemTranslations) ||
+		errors.Is(err, menus.ErrMenuItemDuplicateLocale) ||
+		errors.Is(err, menus.ErrUnknownLocale) ||
+		errors.Is(err, menus.ErrTranslationExists) ||
+		errors.Is(err, menus.ErrTranslationLabelRequired) ||
+		errors.Is(err, menus.ErrMenuItemPageSlugRequired) ||
+		errors.Is(err, menus.ErrMenuItemTypeInvalid) ||
+		errors.Is(err, menus.ErrMenuItemParentUnsupported) ||
+		errors.Is(err, menus.ErrMenuItemSeparatorFields) ||
+		errors.Is(err, menus.ErrMenuItemGroupFields) ||
+		errors.Is(err, menus.ErrMenuItemCollapsibleWithoutChildren) ||
+		errors.Is(err, menus.ErrMenuItemCollapsedWithoutCollapsible) ||
+		errors.Is(err, menus.ErrMenuItemTranslationTextRequired) ||
+		errors.Is(err, cmsenv.ErrEnvironmentKeyRequired) ||
+		errors.Is(err, cmsenv.ErrEnvironmentKeyInvalid) ||
+		errors.Is(err, cmsenv.ErrEnvironmentNameRequired) ||
 		errors.Is(err, blocks.ErrDefinitionNameRequired) ||
 		errors.Is(err, blocks.ErrDefinitionSchemaRequired) ||
 		errors.Is(err, blocks.ErrDefinitionSchemaVersionInvalid) ||
 		errors.Is(err, blocks.ErrDefinitionIDRequired) {
+		return http.StatusBadRequest, errorResponse{
+			Error:   "bad_request",
+			Message: err.Error(),
+		}
+	}
+
+	if errors.Is(err, errEnvironmentServiceUnavailable) {
+		return http.StatusServiceUnavailable, errorResponse{
+			Error:   "service_unavailable",
+			Message: err.Error(),
+		}
+	}
+
+	if errors.Is(err, errBadRequest) {
 		return http.StatusBadRequest, errorResponse{
 			Error:   "bad_request",
 			Message: err.Error(),
@@ -187,6 +300,25 @@ func requirePermission(w http.ResponseWriter, r *http.Request, permission string
 		return false
 	}
 	if err := permissions.Require(r.Context(), permission); err != nil {
+		writeError(w, err)
+		return false
+	}
+	return true
+}
+
+func requirePermissionWithEnv(w http.ResponseWriter, r *http.Request, permission, envKey string) bool {
+	if strings.TrimSpace(permission) == "" {
+		return true
+	}
+	if r == nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "request missing"})
+		return false
+	}
+	ctx := r.Context()
+	if strings.TrimSpace(envKey) != "" {
+		ctx = permissions.WithEnvironmentKey(ctx, envKey)
+	}
+	if err := permissions.Require(ctx, permission); err != nil {
 		writeError(w, err)
 		return false
 	}

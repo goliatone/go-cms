@@ -11,8 +11,8 @@ import (
 type ContentService interface {
 	Create(ctx context.Context, req ContentCreateRequest) (*ContentRecord, error)
 	Update(ctx context.Context, req ContentUpdateRequest) (*ContentRecord, error)
-	GetBySlug(ctx context.Context, slug string) (*ContentRecord, error)
-	List(ctx context.Context) ([]*ContentRecord, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentRecord, error)
+	List(ctx context.Context, env ...string) ([]*ContentRecord, error)
 	Delete(ctx context.Context, req ContentDeleteRequest) error
 	UpdateTranslation(ctx context.Context, req ContentUpdateTranslationRequest) (*ContentTranslation, error)
 	DeleteTranslation(ctx context.Context, req ContentDeleteTranslationRequest) error
@@ -101,19 +101,20 @@ type ContentTypeService interface {
 	Update(ctx context.Context, req ContentTypeUpdateRequest) (*ContentTypeRecord, error)
 	Delete(ctx context.Context, req ContentTypeDeleteRequest) error
 	Get(ctx context.Context, id uuid.UUID) (*ContentTypeRecord, error)
-	GetBySlug(ctx context.Context, slug string) (*ContentTypeRecord, error)
-	List(ctx context.Context) ([]*ContentTypeRecord, error)
-	Search(ctx context.Context, query string) ([]*ContentTypeRecord, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentTypeRecord, error)
+	List(ctx context.Context, env ...string) ([]*ContentTypeRecord, error)
+	Search(ctx context.Context, query string, env ...string) ([]*ContentTypeRecord, error)
 }
 
 // ContentTypeCreateRequest captures fields required to create a content type.
 type ContentTypeCreateRequest struct {
-	Name         string
-	Slug         string
-	Description  *string
-	Schema       map[string]any
-	Capabilities map[string]any
-	Icon         *string
+	Name           string
+	Slug           string
+	Description    *string
+	Schema         map[string]any
+	Capabilities   map[string]any
+	Icon           *string
+	EnvironmentKey string
 }
 
 // ContentTypeUpdateRequest captures fields for updating a content type.

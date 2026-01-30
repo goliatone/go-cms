@@ -10,8 +10,8 @@ import (
 type PageService interface {
 	Create(ctx context.Context, req PageCreateRequest) (*PageRecord, error)
 	Update(ctx context.Context, req PageUpdateRequest) (*PageRecord, error)
-	GetBySlug(ctx context.Context, slug string) (*PageRecord, error)
-	List(ctx context.Context) ([]*PageRecord, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*PageRecord, error)
+	List(ctx context.Context, env ...string) ([]*PageRecord, error)
 	Delete(ctx context.Context, req PageDeleteRequest) error
 	UpdateTranslation(ctx context.Context, req PageUpdateTranslationRequest) (*PageTranslation, error)
 	DeleteTranslation(ctx context.Context, req PageDeleteTranslationRequest) error

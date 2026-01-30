@@ -19,6 +19,7 @@ import (
 	admintranslations "github.com/goliatone/go-cms/internal/admin/translations"
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/i18n"
 	"github.com/goliatone/go-cms/internal/identity"
@@ -30,6 +31,7 @@ import (
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	shortcode "github.com/goliatone/go-cms/internal/shortcode"
@@ -54,6 +56,9 @@ import (
 
 // ErrWorkflowEngineNotProvided is returned when a custom workflow provider is configured without supplying an engine.
 var ErrWorkflowEngineNotProvided = errors.New("di: workflow engine required for custom workflow provider")
+
+// ErrEnvironmentPermissionStrategyRequired is returned when a custom permission strategy is configured without a resolver.
+var ErrEnvironmentPermissionStrategyRequired = errors.New("di: environment permission strategy resolver required")
 
 // Container wires module dependencies. Phase 1 only returns no-op services.
 type Container struct {
@@ -91,10 +96,12 @@ type Container struct {
 	memoryContentRepo     *content.MemoryContentRepository
 	memoryContentTypeRepo *content.MemoryContentTypeRepository
 	memoryLocaleRepo      *content.MemoryLocaleRepository
+	memoryEnvironmentRepo environments.EnvironmentRepository
 
 	contentRepo     *contentRepositoryProxy
 	contentTypeRepo *contentTypeRepositoryProxy
 	localeRepo      *localeRepositoryProxy
+	environmentRepo *environmentRepositoryProxy
 
 	memoryPageRepo *pages.MemoryPageRepository
 	pageRepo       *pageRepositoryProxy
@@ -127,6 +134,7 @@ type Container struct {
 	menuTranslationRepo menus.MenuItemTranslationRepository
 	menuURLResolver     menus.URLResolver
 	routeManager        *urlkit.RouteManager
+	permissionStrategy  permissions.Strategy
 
 	widgetDefinitionRepo  widgets.DefinitionRepository
 	widgetInstanceRepo    widgets.InstanceRepository
@@ -139,6 +147,7 @@ type Container struct {
 
 	contentSvc             content.Service
 	contentTypeSvc         content.ContentTypeService
+	environmentSvc         environments.Service
 	pageSvc                pages.Service
 	blockSvc               blocks.Service
 	embeddedBlockBridge    *blocks.EmbeddedBlockBridge
@@ -322,6 +331,13 @@ func WithWorkflowDefinitionStore(store interfaces.WorkflowDefinitionStore) Optio
 	}
 }
 
+// WithEnvironmentPermissionStrategy overrides the environment permission strategy resolver.
+func WithEnvironmentPermissionStrategy(strategy permissions.Strategy) Option {
+	return func(c *Container) {
+		c.permissionStrategy = strategy
+	}
+}
+
 // WithGeneratorHooks registers lifecycle hooks for generator operations.
 func WithGeneratorHooks(hooks generator.Hooks) Option {
 	return func(c *Container) {
@@ -353,6 +369,13 @@ func WithContentService(svc content.Service) Option {
 func WithContentTypeService(svc content.ContentTypeService) Option {
 	return func(c *Container) {
 		c.contentTypeSvc = svc
+	}
+}
+
+// WithEnvironmentService overrides the default environment service binding.
+func WithEnvironmentService(svc environments.Service) Option {
+	return func(c *Container) {
+		c.environmentSvc = svc
 	}
 }
 
@@ -480,6 +503,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryContentRepo := content.NewMemoryContentRepository()
 	memoryContentTypeRepo := content.NewMemoryContentTypeRepository()
 	memoryLocaleRepo := content.NewMemoryLocaleRepository()
+	memoryEnvironmentRepo := environments.NewMemoryRepository()
 	memoryPageRepo := pages.NewMemoryPageRepository()
 
 	memoryBlockDefRepo := blocks.NewMemoryDefinitionRepository()
@@ -526,11 +550,13 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		memoryContentRepo:     memoryContentRepo,
 		memoryContentTypeRepo: memoryContentTypeRepo,
 		memoryLocaleRepo:      memoryLocaleRepo,
+		memoryEnvironmentRepo: memoryEnvironmentRepo,
 		memoryPageRepo:        memoryPageRepo,
 
 		contentRepo:     newContentRepositoryProxy(memoryContentRepo),
 		contentTypeRepo: newContentTypeRepositoryProxy(memoryContentTypeRepo),
 		localeRepo:      newLocaleRepositoryProxy(memoryLocaleRepo),
+		environmentRepo: newEnvironmentRepositoryProxy(memoryEnvironmentRepo),
 		pageRepo:        newPageRepositoryProxy(memoryPageRepo),
 
 		memoryBlockDefinitionRepo:        memoryBlockDefRepo,
@@ -581,9 +607,15 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		return nil, err
 	}
 	c.configureActivityEmitter()
+	if err := c.configureEnvironmentPermissionScope(); err != nil {
+		return nil, err
+	}
 	c.storageLogger = logging.StorageLogger(c.loggerProvider)
 	c.configureCacheDefaults()
 	if err := c.initializeStorage(context.Background()); err != nil {
+		return nil, err
+	}
+	if err := c.initializeEnvironments(context.Background()); err != nil {
 		return nil, err
 	}
 	c.seedLocales(context.Background())
@@ -606,15 +638,33 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		requireTranslations = false
 	}
 
+	if c.environmentSvc == nil {
+		if c.Config.Features.Environments {
+			c.environmentSvc = environments.NewService(c.environmentRepo)
+		}
+	}
+	if c.environmentSvc != nil {
+		c.ensureDefaultEnvironment(context.Background())
+	}
+
 	if c.blockSvc == nil {
 		blockOpts := []blocks.ServiceOption{
 			blocks.WithMediaService(c.mediaSvc),
 			blocks.WithVersioningEnabled(c.Config.Features.Versioning),
 			blocks.WithVersionRetentionLimit(c.Config.Retention.Blocks),
 			blocks.WithActivityEmitter(c.activityEmitter),
+			blocks.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			blocks.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			blocks.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
 			blocks.WithRequireTranslations(requireTranslations),
 			blocks.WithTranslationsEnabled(translationsEnabled),
 			blocks.WithTranslationState(c.translationState),
+		}
+		if c.environmentSvc != nil {
+			blockOpts = append(blockOpts, blocks.WithEnvironmentService(c.environmentSvc))
+		}
+		if c.slugger != nil {
+			blockOpts = append(blockOpts, blocks.WithDefinitionSlugNormalizer(c.slugger))
 		}
 		if c.blockDefinitionVersionRepo != nil {
 			blockOpts = append(blockOpts, blocks.WithDefinitionVersionRepository(c.blockDefinitionVersionRepo))
@@ -658,6 +708,12 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
 			content.WithActivityEmitter(c.activityEmitter),
+			content.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			content.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			content.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
+		}
+		if c.environmentSvc != nil {
+			contentOpts = append(contentOpts, content.WithEnvironmentService(c.environmentSvc))
 		}
 		if c.slugger != nil {
 			contentOpts = append(contentOpts, content.WithSlugNormalizer(c.slugger))
@@ -682,6 +738,14 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		if c.activityEmitter != nil {
 			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeActivityEmitter(c.activityEmitter))
 		}
+		if c.environmentSvc != nil {
+			contentTypeOpts = append(contentTypeOpts, content.WithContentTypeEnvironmentService(c.environmentSvc))
+		}
+		contentTypeOpts = append(contentTypeOpts,
+			content.WithContentTypeDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			content.WithContentTypeRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			content.WithContentTypeRequireActiveEnvironment(c.Config.Environments.RequireActive),
+		)
 		c.contentTypeSvc = content.NewContentTypeService(c.contentTypeRepo, contentTypeOpts...)
 	}
 
@@ -733,6 +797,12 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
 			pages.WithWorkflowEngine(c.workflowEngine),
 			pages.WithActivityEmitter(c.activityEmitter),
+			pages.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			pages.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			pages.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
+		}
+		if c.environmentSvc != nil {
+			pageOpts = append(pageOpts, pages.WithEnvironmentService(c.environmentSvc))
 		}
 		pageOpts = append(pageOpts,
 			pages.WithRequireTranslations(requireTranslations),
@@ -756,14 +826,16 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	}
 
 	if c.menuSvc == nil {
-		menuOpts := []menus.ServiceOption{}
-		menuOpts = append(menuOpts,
+		menuOpts := []menus.ServiceOption{
 			menus.WithForgivingMenuBootstrap(c.Config.Menus.AllowOutOfOrderUpserts),
 			menus.WithRequireTranslations(requireTranslations),
 			menus.WithTranslationsEnabled(translationsEnabled),
 			menus.WithTranslationState(c.translationState),
 			menus.WithActivityEmitter(c.activityEmitter),
 			menus.WithAuditRecorder(c.auditRecorder),
+			menus.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
+			menus.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
+			menus.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
 			menus.WithMenuIDDeriver(identity.MenuUUID),
 			menus.WithIDGenerator(func(input menus.AddMenuItemInput) uuid.UUID {
 				if canonicalKey := strings.TrimSpace(input.CanonicalKey); canonicalKey != "" {
@@ -774,7 +846,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				}
 				return identity.UUID("go-cms:menu_item_fallback:" + input.MenuID.String())
 			}),
-		)
+		}
+		if c.environmentSvc != nil {
+			menuOpts = append(menuOpts, menus.WithEnvironmentService(c.environmentSvc))
+		}
 		if c.pageRepo != nil {
 			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
 		}
@@ -889,6 +964,78 @@ func (c *Container) configureActivityEmitter() {
 	c.activityEmitter = activity.NewEmitter(hooks, cfg)
 }
 
+func (c *Container) configureEnvironmentPermissionScope() error {
+	enabled := c.Config.Environments.PermissionScoped ||
+		strings.TrimSpace(c.Config.Environments.PermissionStrategy) != ""
+	if !enabled {
+		permissions.ConfigureEnvironmentScope(permissions.EnvironmentScopeConfig{Enabled: false})
+		return nil
+	}
+
+	strategy := strings.ToLower(strings.TrimSpace(c.Config.Environments.PermissionStrategy))
+	if strategy == "" {
+		strategy = permissions.StrategyEnvFirst
+	}
+
+	var resolver permissions.Strategy
+	switch strategy {
+	case permissions.StrategyEnvFirst:
+		resolver = permissions.EnvFirstStrategy
+	case permissions.StrategyGlobalFirst:
+		resolver = permissions.GlobalFirstStrategy
+	case permissions.StrategyCustom:
+		if c.permissionStrategy == nil {
+			return ErrEnvironmentPermissionStrategyRequired
+		}
+		resolver = c.permissionStrategy
+	default:
+		resolver = permissions.EnvFirstStrategy
+	}
+
+	permissions.ConfigureEnvironmentScope(permissions.EnvironmentScopeConfig{
+		Enabled:  true,
+		Strategy: resolver,
+	})
+	return nil
+}
+
+func (c *Container) ensureDefaultEnvironment(ctx context.Context) {
+	if c == nil || c.environmentSvc == nil || c.environmentRepo == nil {
+		return
+	}
+	if c.environmentRepo.current() != c.memoryEnvironmentRepo {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	logger := logging.ModuleLogger(c.loggerProvider, "cms.environments")
+	if env, err := c.environmentSvc.GetDefaultEnvironment(ctx); err == nil {
+		logger.Debug("environments.default.exists", "key", env.Key, "id", env.ID)
+		return
+	} else if !errors.Is(err, environments.ErrEnvironmentNotFound) {
+		logger.Warn("environments.default.lookup_failed", "error", err)
+		return
+	}
+	key := strings.TrimSpace(c.Config.Environments.DefaultKey)
+	if key == "" {
+		key = environments.DefaultKey
+	}
+	active := true
+	created, err := c.environmentSvc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{
+		Key:       key,
+		IsActive:  &active,
+		IsDefault: true,
+	})
+	if err != nil {
+		logger.Warn("environments.default.create_failed", "key", key, "error", err)
+		return
+	}
+	if created != nil {
+		logger.Info("environments.default.created", "key", created.Key, "id", created.ID)
+	}
+}
+
 func parseConsoleLevel(level string) (console.Level, bool) {
 	switch strings.ToLower(strings.TrimSpace(level)) {
 	case "trace":
@@ -948,6 +1095,9 @@ func (c *Container) configureRepositories() {
 		if c.localeRepo != nil {
 			c.localeRepo.swap(content.NewBunLocaleRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
 		}
+		if c.environmentRepo != nil && c.Config.Features.Environments {
+			c.environmentRepo.swap(environments.NewBunEnvironmentRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
+		}
 		if c.pageRepo != nil {
 			c.pageRepo.swap(pages.NewBunPageRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer))
 		}
@@ -991,6 +1141,9 @@ func (c *Container) configureRepositories() {
 	}
 	if c.localeRepo != nil && c.memoryLocaleRepo != nil {
 		c.localeRepo.swap(c.memoryLocaleRepo)
+	}
+	if c.environmentRepo != nil && c.memoryEnvironmentRepo != nil {
+		c.environmentRepo.swap(c.memoryEnvironmentRepo)
 	}
 	if c.pageRepo != nil && c.memoryPageRepo != nil {
 		c.pageRepo.swap(c.memoryPageRepo)
@@ -1815,6 +1968,11 @@ func (c *Container) LocaleRepository() content.LocaleRepository {
 	return c.localeRepo
 }
 
+// EnvironmentRepository exposes the configured environment repository.
+func (c *Container) EnvironmentRepository() environments.EnvironmentRepository {
+	return c.environmentRepo
+}
+
 func (c *Container) PageRepository() pages.PageRepository {
 	return c.pageRepo
 }
@@ -1847,6 +2005,11 @@ func (c *Container) TranslationsRequired() bool {
 // ContentService returns the configured content service.
 func (c *Container) ContentService() content.Service {
 	return c.contentSvc
+}
+
+// EnvironmentService returns the configured environment service.
+func (c *Container) EnvironmentService() environments.Service {
+	return c.environmentSvc
 }
 
 // ContentTypeService returns the configured content type service.

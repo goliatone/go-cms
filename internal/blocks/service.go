@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/identity"
 	"github.com/goliatone/go-cms/internal/media"
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
@@ -16,13 +17,14 @@ import (
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-slug"
 	"github.com/google/uuid"
 )
 
 type Service interface {
 	RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error)
-	ListDefinitions(ctx context.Context) ([]*Definition, error)
+	ListDefinitions(ctx context.Context, env ...string) ([]*Definition, error)
 	UpdateDefinition(ctx context.Context, input UpdateDefinitionInput) (*Definition, error)
 	DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error
 	SyncRegistry(ctx context.Context) error
@@ -49,23 +51,33 @@ type Service interface {
 
 type RegisterDefinitionInput struct {
 	Name             string
+	Slug             string
 	Description      *string
 	Icon             *string
+	Category         *string
+	Status           string
 	Schema           map[string]any
+	UISchema         map[string]any
 	Defaults         map[string]any
 	EditorStyleURL   *string
 	FrontendStyleURL *string
+	EnvironmentKey   string
 }
 
 type UpdateDefinitionInput struct {
 	ID               uuid.UUID
 	Name             *string
+	Slug             *string
 	Description      *string
 	Icon             *string
+	Category         *string
+	Status           *string
 	Schema           map[string]any
+	UISchema         map[string]any
 	Defaults         map[string]any
 	EditorStyleURL   *string
 	FrontendStyleURL *string
+	EnvironmentKey   *string
 }
 
 // CreateDefinitionVersionInput captures schema version updates for a definition.
@@ -157,6 +169,9 @@ type RestoreInstanceVersionRequest struct {
 
 var (
 	ErrDefinitionNameRequired          = errors.New("blocks: definition name required")
+	ErrDefinitionSlugRequired          = errors.New("blocks: definition slug required")
+	ErrDefinitionSlugInvalid           = errors.New("blocks: definition slug invalid")
+	ErrDefinitionSlugExists            = errors.New("blocks: definition slug already exists")
 	ErrDefinitionSchemaRequired        = errors.New("blocks: definition schema required")
 	ErrDefinitionSchemaInvalid         = errors.New("blocks: definition schema invalid")
 	ErrDefinitionSchemaVersionInvalid  = errors.New("blocks: definition schema version invalid")
@@ -218,6 +233,38 @@ func WithRegistry(reg *Registry) ServiceOption {
 		if reg != nil {
 			s.registry = reg
 		}
+	}
+}
+
+// WithEnvironmentService wires the environment service for env resolution.
+func WithEnvironmentService(envSvc cmsenv.Service) ServiceOption {
+	return func(s *service) {
+		if envSvc != nil {
+			s.envSvc = envSvc
+		}
+	}
+}
+
+// WithDefaultEnvironmentKey overrides the default environment key.
+func WithDefaultEnvironmentKey(key string) ServiceOption {
+	return func(s *service) {
+		if strings.TrimSpace(key) != "" {
+			s.defaultEnvKey = key
+		}
+	}
+}
+
+// WithRequireExplicitEnvironment enforces explicit environment selection.
+func WithRequireExplicitEnvironment(required bool) ServiceOption {
+	return func(s *service) {
+		s.requireExplicitEnv = required
+	}
+}
+
+// WithRequireActiveEnvironment blocks operations on inactive environments.
+func WithRequireActiveEnvironment(required bool) ServiceOption {
+	return func(s *service) {
+		s.requireActiveEnv = required
 	}
 }
 
@@ -309,6 +356,15 @@ func WithTranslationState(state *translationconfig.State) ServiceOption {
 	}
 }
 
+// WithDefinitionSlugNormalizer overrides the slug normalizer used by block definitions.
+func WithDefinitionSlugNormalizer(normalizer slug.Normalizer) ServiceOption {
+	return func(s *service) {
+		if normalizer != nil {
+			s.slugger = normalizer
+		}
+	}
+}
+
 type service struct {
 	definitions           DefinitionRepository
 	definitionVersions    DefinitionVersionRepository
@@ -327,7 +383,12 @@ type service struct {
 	requireTranslations   bool
 	translationsEnabled   bool
 	translationState      *translationconfig.State
+	slugger               slug.Normalizer
 	activity              *activity.Emitter
+	envSvc                cmsenv.Service
+	defaultEnvKey         string
+	requireExplicitEnv    bool
+	requireActiveEnv      bool
 }
 
 func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRepo TranslationRepository, opts ...ServiceOption) Service {
@@ -339,7 +400,9 @@ func NewService(defRepo DefinitionRepository, instRepo InstanceRepository, trRep
 		id:                  uuid.New,
 		media:               media.NewNoOpService(),
 		translationsEnabled: true,
+		slugger:             slug.Default(),
 		activity:            activity.NewEmitter(nil, activity.Config{}),
+		defaultEnvKey:       cmsenv.DefaultKey,
 	}
 
 	for _, opt := range opts {
@@ -378,6 +441,17 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
 	}
+	if meta != nil {
+		if _, ok := meta["environment_key"]; !ok {
+			if raw, ok := meta["environment_id"].(string); ok && strings.TrimSpace(raw) != "" {
+				if parsed, err := uuid.Parse(raw); err == nil {
+					if key := s.environmentKeyForID(ctx, parsed); key != "" {
+						meta["environment_key"] = key
+					}
+				}
+			}
+		}
+	}
 	event := activity.Event{
 		Verb:       verb,
 		ActorID:    actor.String(),
@@ -388,6 +462,100 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 	_ = s.activity.Emit(ctx, event)
 }
 
+func (s *service) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed == "" && s.requireExplicitEnv {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentKeyRequired
+	}
+	if trimmed != "" {
+		if parsed, err := uuid.Parse(trimmed); err == nil {
+			return parsed, trimmed, nil
+		}
+	}
+	normalized, err := cmsenv.ResolveKey(trimmed, s.defaultEnvKey, s.requireExplicitEnv)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	if s.envSvc == nil {
+		return cmsenv.IDForKey(normalized), normalized, nil
+	}
+	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	if s.requireActiveEnv && !env.IsActive {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentNotFound
+	}
+	return env.ID, env.Key, nil
+}
+
+func (s *service) ensureEnvironmentActive(ctx context.Context, envID uuid.UUID) error {
+	if !s.requireActiveEnv || s.envSvc == nil || envID == uuid.Nil {
+		return nil
+	}
+	env, err := s.envSvc.GetEnvironment(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if !env.IsActive {
+		return cmsenv.ErrEnvironmentNotFound
+	}
+	return nil
+}
+
+func (s *service) environmentKeyForID(ctx context.Context, envID uuid.UUID) string {
+	if envID == uuid.Nil {
+		return ""
+	}
+	if s.envSvc != nil {
+		env, err := s.envSvc.GetEnvironment(ctx, envID)
+		if err == nil && env != nil {
+			return env.Key
+		}
+	}
+	defaultKey := strings.TrimSpace(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	if envID == cmsenv.IDForKey(defaultKey) {
+		return cmsenv.NormalizeKey(defaultKey)
+	}
+	if envID == cmsenv.IDForKey(cmsenv.DefaultKey) {
+		return cmsenv.DefaultKey
+	}
+	return ""
+}
+
+func (s *service) isDefaultEnvironmentKey(key string) bool {
+	normalized := cmsenv.NormalizeKey(key)
+	if normalized == "" {
+		return true
+	}
+	defaultKey := cmsenv.NormalizeKey(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	return normalized == defaultKey
+}
+
+func (s *service) definitionIdentityID(slug string, envKey string) uuid.UUID {
+	normalizedSlug := strings.ToLower(strings.TrimSpace(slug))
+	if normalizedSlug == "" {
+		return uuid.Nil
+	}
+	if s.isDefaultEnvironmentKey(envKey) {
+		return identity.BlockDefinitionUUID(normalizedSlug)
+	}
+	return identity.UUID("go-cms:block_definition:" + cmsenv.NormalizeKey(envKey) + ":" + normalizedSlug)
+}
+
+func pickEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(env[0])
+}
+
 func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error) {
 	name := strings.TrimSpace(input.Name)
 	if name == "" {
@@ -396,7 +564,18 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	if len(input.Schema) == 0 {
 		return nil, ErrDefinitionSchemaRequired
 	}
-	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, name)
+	slugValue, err := s.normalizeDefinitionSlug(name, input.Slug)
+	if err != nil {
+		return nil, err
+	}
+	envID, envKey, err := s.resolveEnvironment(ctx, input.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureDefinitionSlugAvailable(ctx, slugValue, uuid.Nil, envID.String()); err != nil {
+		return nil, err
+	}
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, slugValue)
 	if err != nil {
 		return nil, ErrDefinitionSchemaVersionInvalid
 	}
@@ -404,21 +583,28 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
 	}
 
-	if _, err := s.definitions.GetByName(ctx, name); err == nil {
-		return nil, ErrDefinitionExists
+	status := strings.TrimSpace(input.Status)
+	if status == "" {
+		status = "draft"
 	}
 
 	definition := &Definition{
-		ID:               identity.BlockDefinitionUUID(name),
+		ID:               s.definitionIdentityID(slugValue, envKey),
 		Name:             name,
+		Slug:             slugValue,
 		Description:      input.Description,
 		Icon:             input.Icon,
+		Category:         cloneStringValue(input.Category),
+		Status:           status,
 		Schema:           maps.Clone(normalizedSchema),
+		UISchema:         maps.Clone(input.UISchema),
 		SchemaVersion:    version.String(),
+		MigrationStatus:  ResolveDefinitionMigrationStatus(normalizedSchema, version.String()),
 		Defaults:         maps.Clone(input.Defaults),
 		EditorStyleURL:   input.EditorStyleURL,
 		FrontendStyleURL: input.FrontendStyleURL,
 		CreatedAt:        s.now(),
+		EnvironmentID:    envID,
 	}
 	if s.idCustom {
 		definition.ID = s.id()
@@ -437,11 +623,22 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 }
 
 func (s *service) GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error) {
-	return s.definitions.GetByID(ctx, id)
+	definition, err := s.definitions.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, definition.EnvironmentID); err != nil {
+		return nil, err
+	}
+	return definition, nil
 }
 
-func (s *service) ListDefinitions(ctx context.Context) ([]*Definition, error) {
-	return s.definitions.List(ctx)
+func (s *service) ListDefinitions(ctx context.Context, env ...string) ([]*Definition, error) {
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	return s.definitions.List(ctx, envID.String())
 }
 
 func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionInput) (*Definition, error) {
@@ -452,6 +649,36 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 	if err != nil {
 		return nil, err
 	}
+	if err := s.ensureEnvironmentActive(ctx, definition.EnvironmentID); err != nil {
+		return nil, err
+	}
+	envKey := ""
+	if input.EnvironmentKey != nil {
+		envKey = *input.EnvironmentKey
+	}
+	if strings.TrimSpace(envKey) != "" || s.requireExplicitEnv {
+		resolvedID, _, err := s.resolveEnvironment(ctx, envKey)
+		if err != nil {
+			return nil, err
+		}
+		if definition.EnvironmentID != uuid.Nil && definition.EnvironmentID != resolvedID {
+			return nil, cmsenv.ErrEnvironmentNotFound
+		}
+		envID := definition.EnvironmentID
+		if envID == uuid.Nil {
+			envID = resolvedID
+			definition.EnvironmentID = envID
+		}
+	}
+	envID := definition.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, envKey)
+		if err != nil {
+			return nil, err
+		}
+		envID = resolvedID
+		definition.EnvironmentID = envID
+	}
 	schemaUpdated := false
 	defaultsUpdated := false
 
@@ -460,23 +687,48 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 		if name == "" {
 			return nil, ErrDefinitionNameRequired
 		}
-		if !strings.EqualFold(name, definition.Name) {
-			if _, err := s.definitions.GetByName(ctx, name); err == nil {
-				return nil, ErrDefinitionExists
-			} else {
-				var nf *NotFoundError
-				if !errors.As(err, &nf) {
-					return nil, err
-				}
+		definition.Name = name
+	}
+
+	if input.Slug != nil {
+		slugValue, err := s.normalizeDefinitionSlug(definition.Name, *input.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if !strings.EqualFold(slugValue, definition.Slug) {
+			if err := s.ensureDefinitionSlugAvailable(ctx, slugValue, definition.ID, envID.String()); err != nil {
+				return nil, err
 			}
 		}
-		definition.Name = name
+		definition.Slug = slugValue
+	} else if strings.TrimSpace(definition.Slug) == "" {
+		slugValue, err := s.normalizeDefinitionSlug(definition.Name, definition.Slug)
+		if err != nil {
+			return nil, err
+		}
+		if err := s.ensureDefinitionSlugAvailable(ctx, slugValue, definition.ID, envID.String()); err != nil {
+			return nil, err
+		}
+		definition.Slug = slugValue
 	}
 	if input.Description != nil {
 		definition.Description = cloneStringValue(input.Description)
 	}
 	if input.Icon != nil {
 		definition.Icon = cloneStringValue(input.Icon)
+	}
+	if input.Category != nil {
+		definition.Category = cloneStringValue(input.Category)
+	}
+	if input.Status != nil {
+		status := strings.TrimSpace(*input.Status)
+		if status == "" {
+			status = "draft"
+		}
+		definition.Status = status
+	}
+	if input.UISchema != nil {
+		definition.UISchema = maps.Clone(input.UISchema)
 	}
 	if input.Schema != nil {
 		if len(input.Schema) == 0 {
@@ -498,7 +750,7 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 	if definition.Schema == nil {
 		return nil, ErrDefinitionSchemaRequired
 	}
-	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(definition.Schema, definition.Name)
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(definition.Schema, definitionSlug(definition))
 	if err != nil {
 		return nil, ErrDefinitionSchemaVersionInvalid
 	}
@@ -507,6 +759,7 @@ func (s *service) UpdateDefinition(ctx context.Context, input UpdateDefinitionIn
 	}
 	definition.Schema = normalizedSchema
 	definition.SchemaVersion = version.String()
+	definition.MigrationStatus = ResolveDefinitionMigrationStatus(definition.Schema, definition.SchemaVersion)
 	definition.UpdatedAt = s.now()
 
 	updated, err := s.definitions.Update(ctx, definition)
@@ -529,6 +782,13 @@ func (s *service) DeleteDefinition(ctx context.Context, req DeleteDefinitionRequ
 		return ErrDefinitionSoftDeleteUnsupported
 	}
 
+	definition, err := s.definitions.GetByID(ctx, req.ID)
+	if err != nil {
+		return err
+	}
+	if err := s.ensureEnvironmentActive(ctx, definition.EnvironmentID); err != nil {
+		return err
+	}
 	instances, err := s.instances.ListByDefinition(ctx, req.ID)
 	if err != nil {
 		return err
@@ -550,7 +810,10 @@ func (s *service) CreateDefinitionVersion(ctx context.Context, input CreateDefin
 	if err != nil {
 		return nil, err
 	}
-	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, definition.Name)
+	if err := s.ensureEnvironmentActive(ctx, definition.EnvironmentID); err != nil {
+		return nil, err
+	}
+	normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(input.Schema, definitionSlug(definition))
 	if err != nil {
 		return nil, ErrDefinitionSchemaVersionInvalid
 	}
@@ -576,6 +839,7 @@ func (s *service) CreateDefinitionVersion(ctx context.Context, input CreateDefin
 		definition.Schema = normalizedSchema
 		definition.Defaults = maps.Clone(input.Defaults)
 		definition.SchemaVersion = version.String()
+		definition.MigrationStatus = ResolveDefinitionMigrationStatus(definition.Schema, definition.SchemaVersion)
 		definition.UpdatedAt = s.now()
 		if _, err := s.definitions.Update(ctx, definition); err != nil {
 			return nil, err
@@ -620,7 +884,8 @@ func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput)
 		return nil, ErrInstancePositionInvalid
 	}
 
-	if _, err := s.definitions.GetByID(ctx, input.DefinitionID); err != nil {
+	definition, err := s.definitions.GetByID(ctx, input.DefinitionID)
+	if err != nil {
 		return nil, err
 	}
 
@@ -647,12 +912,16 @@ func (s *service) CreateInstance(ctx context.Context, input CreateInstanceInput)
 		return nil, err
 	}
 
-	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "block_instance", created.ID, map[string]any{
+	meta := map[string]any{
 		"region":    created.Region,
 		"position":  created.Position,
 		"page_id":   created.PageID,
 		"is_global": created.IsGlobal,
-	})
+	}
+	if definition != nil && definition.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = definition.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(input.CreatedBy, input.UpdatedBy), "create", "block_instance", created.ID, meta)
 
 	return created, nil
 }
@@ -682,6 +951,10 @@ func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput)
 	}
 
 	instance, err := s.instances.GetByID(ctx, input.InstanceID)
+	if err != nil {
+		return nil, err
+	}
+	definition, err := s.definitions.GetByID(ctx, instance.DefinitionID)
 	if err != nil {
 		return nil, err
 	}
@@ -750,12 +1023,16 @@ func (s *service) UpdateInstance(ctx context.Context, input UpdateInstanceInput)
 	if originalRegion != updated.Region || originalPosition != updated.Position {
 		verb = "reorder"
 	}
-	s.emitActivity(ctx, input.UpdatedBy, verb, "block_instance", updated.ID, map[string]any{
+	meta := map[string]any{
 		"region":    updated.Region,
 		"position":  updated.Position,
 		"page_id":   updated.PageID,
 		"is_global": updated.IsGlobal,
-	})
+	}
+	if definition != nil && definition.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = definition.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, input.UpdatedBy, verb, "block_instance", updated.ID, meta)
 
 	return enriched, nil
 }
@@ -788,12 +1065,16 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 	if err := s.instances.Delete(ctx, req.ID); err != nil {
 		return err
 	}
-	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "block_instance", record.ID, map[string]any{
+	meta := map[string]any{
 		"region":    record.Region,
 		"position":  record.Position,
 		"page_id":   record.PageID,
 		"is_global": record.IsGlobal,
-	})
+	}
+	if definition, err := s.definitions.GetByID(ctx, record.DefinitionID); err == nil && definition != nil && definition.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = definition.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "block_instance", record.ID, meta)
 	return nil
 }
 
@@ -945,10 +1226,14 @@ func (s *service) UpdateTranslation(ctx context.Context, input UpdateTranslation
 		return nil, err
 	}
 
-	s.emitActivity(ctx, input.UpdatedBy, "update", "block_translation", record.ID, map[string]any{
+	meta := map[string]any{
 		"instance_id": input.BlockInstanceID.String(),
 		"locale_id":   input.LocaleID.String(),
-	})
+	}
+	if definition != nil && definition.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = definition.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, input.UpdatedBy, "update", "block_translation", record.ID, meta)
 
 	return record, nil
 }
@@ -1007,10 +1292,14 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteTranslationRe
 	if err := s.persistVersion(ctx, preparedVersion); err != nil {
 		return err
 	}
-	s.emitActivity(ctx, pickActor(req.DeletedBy, instance.UpdatedBy, instance.CreatedBy), "delete", "block_translation", target.ID, map[string]any{
+	meta := map[string]any{
 		"instance_id": req.BlockInstanceID.String(),
 		"locale_id":   req.LocaleID.String(),
-	})
+	}
+	if definition, err := s.definitions.GetByID(ctx, instance.DefinitionID); err == nil && definition != nil && definition.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = definition.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, pickActor(req.DeletedBy, instance.UpdatedBy, instance.CreatedBy), "delete", "block_translation", target.ID, meta)
 	return nil
 }
 
@@ -1155,13 +1444,17 @@ func (s *service) PublishDraft(ctx context.Context, req PublishInstanceDraftRequ
 		return nil, err
 	}
 
-	s.emitActivity(ctx, req.PublishedBy, "publish", "block_instance", instance.ID, map[string]any{
+	meta := map[string]any{
 		"version":   updatedVersion.Version,
 		"status":    updatedVersion.Status,
 		"page_id":   instance.PageID,
 		"region":    instance.Region,
 		"is_global": instance.IsGlobal,
-	})
+	}
+	if definition, err := s.definitions.GetByID(ctx, instance.DefinitionID); err == nil && definition != nil && definition.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = definition.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.PublishedBy, "publish", "block_instance", instance.ID, meta)
 
 	return cloneInstanceVersion(updatedVersion), nil
 }
@@ -1323,7 +1616,7 @@ func (s *service) prepareTranslationPayload(definition *Definition, content map[
 	if definition == nil || definition.Schema == nil {
 		return nil, ErrDefinitionSchemaRequired
 	}
-	version, err := resolveDefinitionSchemaVersion(definition.Schema, definition.Name)
+	version, err := resolveDefinitionSchemaVersion(definition.Schema, definitionSlug(definition))
 	if err != nil {
 		return nil, ErrDefinitionSchemaVersionInvalid
 	}
@@ -1341,14 +1634,14 @@ func (s *service) migrateSnapshot(definition *Definition, snapshot BlockVersionS
 	if len(snapshot.Translations) == 0 {
 		return snapshot, false, nil
 	}
-	target, err := resolveDefinitionSchemaVersion(definition.Schema, definition.Name)
+	target, err := resolveDefinitionSchemaVersion(definition.Schema, definitionSlug(definition))
 	if err != nil {
 		return snapshot, false, ErrDefinitionSchemaVersionInvalid
 	}
 	updated := cloneBlockVersionSnapshot(snapshot)
 	migratedAny := false
 	for idx, tr := range updated.Translations {
-		migrated, didMigrate, err := s.migratePayload(definition.Name, target, tr.Content)
+		migrated, didMigrate, err := s.migratePayload(definitionSlug(definition), target, tr.Content)
 		if err != nil {
 			return snapshot, false, err
 		}
@@ -1558,6 +1851,55 @@ func cloneStringValue(value *string) *string {
 	return &cloned
 }
 
+func definitionSlug(definition *Definition) string {
+	if definition == nil {
+		return ""
+	}
+	if trimmed := strings.TrimSpace(definition.Slug); trimmed != "" {
+		return trimmed
+	}
+	return strings.TrimSpace(definition.Name)
+}
+
+func (s *service) normalizeDefinitionSlug(name, rawSlug string) (string, error) {
+	candidate := strings.TrimSpace(rawSlug)
+	if candidate == "" {
+		candidate = strings.TrimSpace(name)
+	}
+	if candidate == "" {
+		return "", ErrDefinitionSlugRequired
+	}
+	if s.slugger == nil {
+		s.slugger = slug.Default()
+	}
+	normalized, err := s.slugger.Normalize(candidate)
+	if err != nil || normalized == "" {
+		return "", ErrDefinitionSlugInvalid
+	}
+	return normalized, nil
+}
+
+func (s *service) ensureDefinitionSlugAvailable(ctx context.Context, slug string, currentID uuid.UUID, env string) error {
+	if slug == "" {
+		return ErrDefinitionSlugRequired
+	}
+	existing, err := s.definitions.GetBySlug(ctx, slug, env)
+	if err != nil {
+		var nf *NotFoundError
+		if errors.As(err, &nf) {
+			return nil
+		}
+		return err
+	}
+	if existing == nil {
+		return nil
+	}
+	if currentID != uuid.Nil && existing.ID == currentID {
+		return nil
+	}
+	return ErrDefinitionSlugExists
+}
+
 func (s *service) SyncRegistry(ctx context.Context) error {
 	if ctx == nil {
 		ctx = context.Background()
@@ -1570,27 +1912,46 @@ func (s *service) applyRegistry(ctx context.Context) {
 	if s.registry == nil {
 		return
 	}
+	envID, _, err := s.resolveEnvironment(ctx, "")
+	if err != nil {
+		return
+	}
+	envKey := envID.String()
 	for _, def := range s.registry.List() {
-		existing, err := s.definitions.GetByName(ctx, def.Name)
+		slugValue, err := s.normalizeDefinitionSlug(def.Name, def.Slug)
+		if err != nil {
+			continue
+		}
+		def.Slug = slugValue
+		existing, err := s.definitions.GetBySlug(ctx, slugValue, envKey)
 		if err != nil {
 			_, _ = s.RegisterDefinition(ctx, def)
 			continue
 		}
-		targetVersion, err := resolveDefinitionSchemaVersion(def.Schema, def.Name)
+		targetVersion, err := resolveDefinitionSchemaVersion(def.Schema, slugValue)
 		if err != nil {
 			continue
 		}
-		currentVersion, err := resolveDefinitionSchemaVersion(existing.Schema, existing.Name)
+		currentSlug := definitionSlug(existing)
+		currentVersion, err := resolveDefinitionSchemaVersion(existing.Schema, currentSlug)
 		if err != nil {
-			currentVersion = cmsschema.DefaultVersion(existing.Name)
+			currentVersion = cmsschema.DefaultVersion(currentSlug)
 		}
 		if compareSchemaVersions(targetVersion.String(), currentVersion.String()) > 0 {
+			status := def.Status
+			var statusPtr *string
+			if strings.TrimSpace(status) != "" {
+				statusPtr = &status
+			}
 			_, _ = s.UpdateDefinition(ctx, UpdateDefinitionInput{
 				ID:               existing.ID,
 				Schema:           def.Schema,
 				Defaults:         def.Defaults,
 				Description:      def.Description,
 				Icon:             def.Icon,
+				Category:         def.Category,
+				Status:           statusPtr,
+				UISchema:         def.UISchema,
 				EditorStyleURL:   def.EditorStyleURL,
 				FrontendStyleURL: def.FrontendStyleURL,
 			})
@@ -1600,11 +1961,15 @@ func (s *service) applyRegistry(ctx context.Context) {
 		return
 	}
 	for _, def := range s.registry.ListAllVersions() {
-		definition, err := s.definitions.GetByName(ctx, def.Name)
+		slugValue, err := s.normalizeDefinitionSlug(def.Name, def.Slug)
 		if err != nil {
 			continue
 		}
-		normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(def.Schema, def.Name)
+		definition, err := s.definitions.GetBySlug(ctx, slugValue, envKey)
+		if err != nil {
+			continue
+		}
+		normalizedSchema, version, err := cmsschema.EnsureSchemaVersion(def.Schema, slugValue)
 		if err != nil {
 			continue
 		}

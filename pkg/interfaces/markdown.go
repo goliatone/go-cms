@@ -90,6 +90,7 @@ type ImportOptions struct {
 	CreatePages                     bool
 	TemplateID                      *uuid.UUID
 	DryRun                          bool
+	EnvironmentKey                  string
 	ContentAllowMissingTranslations bool
 	PageAllowMissingTranslations    bool
 	ProcessShortcodes               bool

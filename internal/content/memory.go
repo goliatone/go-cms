@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/google/uuid"
 )
 
@@ -39,13 +40,14 @@ func (m *MemoryContentRepository) Create(_ context.Context, record *Content) (*C
 	defer m.mu.Unlock()
 
 	copied := cloneContent(record)
+	copied.EnvironmentID = resolveEnvironmentID(copied.EnvironmentID, "")
 	if len(copied.Versions) > 0 {
 		m.versions[copied.ID] = cloneContentVersions(copied.Versions)
 	} else {
 		m.versions[copied.ID] = nil
 	}
 	m.contents[copied.ID] = copied
-	m.slugIndex[copied.Slug] = copied.ID
+	m.slugIndex[contentSlugKey(copied.EnvironmentID, copied.ContentTypeID, copied.Slug)] = copied.ID
 	return m.attachVersions(cloneContent(copied)), nil
 }
 
@@ -62,11 +64,12 @@ func (m *MemoryContentRepository) GetByID(_ context.Context, id uuid.UUID) (*Con
 }
 
 // GetBySlug retrieves content by slug, returning NotFoundError when absent.
-func (m *MemoryContentRepository) GetBySlug(_ context.Context, slug string) (*Content, error) {
+func (m *MemoryContentRepository) GetBySlug(_ context.Context, slug string, contentTypeID uuid.UUID, env ...string) (*Content, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	id, ok := m.slugIndex[slug]
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.slugIndex[contentSlugKey(envID, contentTypeID, slug)]
 	if !ok {
 		return nil, &NotFoundError{Resource: "content", Key: slug}
 	}
@@ -74,12 +77,19 @@ func (m *MemoryContentRepository) GetBySlug(_ context.Context, slug string) (*Co
 }
 
 // List returns all content entries.
-func (m *MemoryContentRepository) List(_ context.Context) ([]*Content, error) {
+func (m *MemoryContentRepository) List(_ context.Context, env ...string) ([]*Content, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
 	out := make([]*Content, 0, len(m.contents))
 	for _, rec := range m.contents {
+		if rec == nil {
+			continue
+		}
+		if !matchesEnvironment(rec.EnvironmentID, envID) {
+			continue
+		}
 		out = append(out, m.attachVersions(cloneContent(rec)))
 	}
 	return out, nil
@@ -153,7 +163,7 @@ func (m *MemoryContentRepository) Delete(_ context.Context, id uuid.UUID, hardDe
 
 	delete(m.contents, id)
 	if slug := strings.TrimSpace(record.Slug); slug != "" {
-		delete(m.slugIndex, slug)
+		delete(m.slugIndex, contentSlugKey(resolveEnvironmentID(record.EnvironmentID, ""), record.ContentTypeID, slug))
 	}
 	delete(m.versions, id)
 
@@ -328,6 +338,49 @@ func cloneUUIDPointer(src *uuid.UUID) *uuid.UUID {
 	return &value
 }
 
+func resolveEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func resolveEnvironmentID(id uuid.UUID, envKey string) uuid.UUID {
+	if id != uuid.Nil {
+		return id
+	}
+	key := strings.TrimSpace(envKey)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	if parsed, err := uuid.Parse(key); err == nil {
+		return parsed
+	}
+	key = cmsenv.NormalizeKey(key)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	return cmsenv.IDForKey(key)
+}
+
+func matchesEnvironment(recordID, targetID uuid.UUID) bool {
+	if targetID == uuid.Nil {
+		targetID = resolveEnvironmentID(uuid.Nil, "")
+	}
+	if recordID == uuid.Nil {
+		return targetID == resolveEnvironmentID(uuid.Nil, "")
+	}
+	return recordID == targetID
+}
+
+func contentSlugKey(envID uuid.UUID, contentTypeID uuid.UUID, slug string) string {
+	return envID.String() + "|" + contentTypeID.String() + "|" + strings.TrimSpace(slug)
+}
+
+func contentTypeSlugKey(envID uuid.UUID, slug string) string {
+	return envID.String() + "|" + strings.TrimSpace(slug)
+}
+
 // MemoryContentTypeRepository stores content types "in memory".
 type MemoryContentTypeRepository struct {
 	mu        sync.RWMutex
@@ -365,26 +418,29 @@ func (m *MemoryContentTypeRepository) Put(ct *ContentType) error {
 		return ErrContentTypeSlugRequired
 	}
 
-	if existingID, ok := m.slugIndex[slug]; ok && existingID != ct.ID {
+	envID := resolveEnvironmentID(ct.EnvironmentID, "")
+	slugKey := contentTypeSlugKey(envID, slug)
+	if existingID, ok := m.slugIndex[slugKey]; ok && existingID != ct.ID {
 		return ErrContentTypeSlugExists
 	}
 
 	if existing, ok := m.types[ct.ID]; ok && existing != nil {
 		oldSlug := strings.TrimSpace(existing.Slug)
 		if oldSlug != "" && oldSlug != slug {
-			delete(m.slugIndex, oldSlug)
+			delete(m.slugIndex, contentTypeSlugKey(resolveEnvironmentID(existing.EnvironmentID, ""), oldSlug))
 		}
 	}
 
 	copied := *ct
 	copied.Slug = slug
+	copied.EnvironmentID = envID
 	copied.Schema = cloneMap(ct.Schema)
 	copied.UISchema = cloneMap(ct.UISchema)
 	copied.Capabilities = cloneMap(ct.Capabilities)
 	copied.SchemaHistory = cloneSchemaHistory(ct.SchemaHistory)
 	copied.DeletedAt = cloneTimePointer(ct.DeletedAt)
 	m.types[ct.ID] = &copied
-	m.slugIndex[slug] = ct.ID
+	m.slugIndex[slugKey] = ct.ID
 	return nil
 }
 
@@ -409,7 +465,7 @@ func (m *MemoryContentTypeRepository) GetByID(_ context.Context, id uuid.UUID) (
 }
 
 // GetBySlug fetches a content type by slug.
-func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string) (*ContentType, error) {
+func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string, env ...string) (*ContentType, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
@@ -418,7 +474,8 @@ func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string) 
 		return nil, &NotFoundError{Resource: "content_type", Key: slug}
 	}
 
-	id, ok := m.slugIndex[key]
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.slugIndex[contentTypeSlugKey(envID, key)]
 	if !ok {
 		return nil, &NotFoundError{Resource: "content_type", Key: slug}
 	}
@@ -441,16 +498,20 @@ func (m *MemoryContentTypeRepository) GetBySlug(_ context.Context, slug string) 
 }
 
 // List returns all content types.
-func (m *MemoryContentTypeRepository) List(_ context.Context) ([]*ContentType, error) {
+func (m *MemoryContentTypeRepository) List(_ context.Context, env ...string) ([]*ContentType, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
 	records := make([]*ContentType, 0, len(m.types))
 	for _, ct := range m.types {
 		if ct == nil {
 			continue
 		}
 		if ct.DeletedAt != nil {
+			continue
+		}
+		if !matchesEnvironment(ct.EnvironmentID, envID) {
 			continue
 		}
 		copied := *ct
@@ -469,21 +530,25 @@ func (m *MemoryContentTypeRepository) List(_ context.Context) ([]*ContentType, e
 }
 
 // Search returns content types whose name or slug contains the query.
-func (m *MemoryContentTypeRepository) Search(ctx context.Context, query string) ([]*ContentType, error) {
+func (m *MemoryContentTypeRepository) Search(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
 	query = strings.TrimSpace(strings.ToLower(query))
 	if query == "" {
-		return m.List(ctx)
+		return m.List(ctx, env...)
 	}
 
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
 	records := make([]*ContentType, 0)
 	for _, ct := range m.types {
 		if ct == nil {
 			continue
 		}
 		if ct.DeletedAt != nil {
+			continue
+		}
+		if !matchesEnvironment(ct.EnvironmentID, envID) {
 			continue
 		}
 		name := strings.ToLower(ct.Name)
@@ -537,7 +602,7 @@ func (m *MemoryContentTypeRepository) Delete(_ context.Context, id uuid.UUID, ha
 		ct.Status = ContentTypeStatusDeprecated
 		ct.UpdatedAt = now
 		if slug := strings.TrimSpace(ct.Slug); slug != "" {
-			delete(m.slugIndex, slug)
+			delete(m.slugIndex, contentTypeSlugKey(resolveEnvironmentID(ct.EnvironmentID, ""), slug))
 		}
 		m.types[id] = ct
 		return nil
@@ -545,7 +610,7 @@ func (m *MemoryContentTypeRepository) Delete(_ context.Context, id uuid.UUID, ha
 	if ct != nil {
 		slug := strings.TrimSpace(ct.Slug)
 		if slug != "" {
-			delete(m.slugIndex, slug)
+			delete(m.slugIndex, contentTypeSlugKey(resolveEnvironmentID(ct.EnvironmentID, ""), slug))
 		}
 	}
 	delete(m.types, id)

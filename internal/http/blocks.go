@@ -4,36 +4,59 @@ import (
 	"context"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/goliatone/go-cms/internal/schema"
+	"github.com/google/uuid"
 )
 
 type blockCreatePayload struct {
 	Name             string         `json:"name"`
+	Slug             string         `json:"slug,omitempty"`
 	Description      *string        `json:"description,omitempty"`
 	Icon             *string        `json:"icon,omitempty"`
+	Category         *string        `json:"category,omitempty"`
+	Status           *string        `json:"status,omitempty"`
 	Schema           map[string]any `json:"schema"`
+	UISchema         map[string]any `json:"ui_schema,omitempty"`
 	Defaults         map[string]any `json:"defaults,omitempty"`
 	EditorStyleURL   *string        `json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `json:"frontend_style_url,omitempty"`
+	Environment      string         `json:"environment,omitempty"`
+	EnvironmentID    *uuid.UUID     `json:"environment_id,omitempty"`
 }
 
 type blockUpdatePayload struct {
 	Name             *string        `json:"name,omitempty"`
+	Slug             *string        `json:"slug,omitempty"`
 	Description      *string        `json:"description,omitempty"`
 	Icon             *string        `json:"icon,omitempty"`
+	Category         *string        `json:"category,omitempty"`
+	Status           *string        `json:"status,omitempty"`
 	Schema           map[string]any `json:"schema,omitempty"`
+	UISchema         map[string]any `json:"ui_schema,omitempty"`
 	Defaults         map[string]any `json:"defaults,omitempty"`
 	EditorStyleURL   *string        `json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `json:"frontend_style_url,omitempty"`
+	Environment      *string        `json:"environment,omitempty"`
+	EnvironmentID    *uuid.UUID     `json:"environment_id,omitempty"`
 }
 
 type blockDefinitionResponse struct {
 	*blocks.Definition
 	Permissions permissions.PermissionSet `json:"permissions,omitempty"`
+}
+
+type blockDefinitionVersionResponse struct {
+	Version         string         `json:"version"`
+	Schema          map[string]any `json:"schema"`
+	Defaults        map[string]any `json:"defaults,omitempty"`
+	CreatedAt       string         `json:"created_at"`
+	UpdatedAt       string         `json:"updated_at,omitempty"`
+	MigrationStatus string         `json:"migration_status,omitempty"`
 }
 
 func buildBlockDefinitionResponse(definition *blocks.Definition) blockDefinitionResponse {
@@ -71,6 +94,7 @@ func (api *AdminAPI) registerBlockRoutes(mux *http.ServeMux, base string) {
 	mux.HandleFunc("GET "+root, api.handleBlockList)
 	mux.HandleFunc("POST "+root, api.handleBlockCreate)
 	mux.HandleFunc("GET "+root+"/{id}", api.handleBlockGet)
+	mux.HandleFunc("GET "+root+"/{id}/versions", api.handleBlockDefinitionVersions)
 	mux.HandleFunc("PUT "+root+"/{id}", api.handleBlockUpdate)
 	mux.HandleFunc("DELETE "+root+"/{id}", api.handleBlockDelete)
 }
@@ -80,10 +104,16 @@ func (api *AdminAPI) handleBlockList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksRead) {
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, "", nil, false)
+	if err != nil {
+		writeError(w, err)
 		return
 	}
-	list, err := api.blocks.ListDefinitions(r.Context())
+	if !requirePermissionWithEnv(w, r, permissions.BlocksRead, envKey) {
+		return
+	}
+	var list []*blocks.Definition
+	list, err = api.blocks.ListDefinitions(r.Context(), envKey)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -96,7 +126,30 @@ func (api *AdminAPI) handleBlockGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksRead) {
+	id, err := parseUUID(r.PathValue("id"))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
+		return
+	}
+	record, err := api.blocks.GetDefinition(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksRead, envKey) {
+		return
+	}
+	writeJSON(w, http.StatusOK, buildBlockDefinitionResponse(record))
+}
+
+func (api *AdminAPI) handleBlockDefinitionVersions(w http.ResponseWriter, r *http.Request) {
+	if api == nil || api.blocks == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
 	id, err := parseUUID(r.PathValue("id"))
@@ -109,7 +162,45 @@ func (api *AdminAPI) handleBlockGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, buildBlockDefinitionResponse(record))
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksRead, envKey) {
+		return
+	}
+	versions, err := api.blocks.ListDefinitionVersions(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	resp := make([]blockDefinitionVersionResponse, 0, len(versions))
+	for _, version := range versions {
+		if version == nil {
+			continue
+		}
+		createdAt := version.CreatedAt
+		if createdAt.IsZero() {
+			createdAt = version.UpdatedAt
+		}
+		if createdAt.IsZero() {
+			createdAt = time.Now()
+		}
+		updatedAt := ""
+		if !version.UpdatedAt.IsZero() {
+			updatedAt = version.UpdatedAt.UTC().Format(time.RFC3339)
+		}
+		resp = append(resp, blockDefinitionVersionResponse{
+			Version:         strings.TrimSpace(version.SchemaVersion),
+			Schema:          version.Schema,
+			Defaults:        version.Defaults,
+			CreatedAt:       createdAt.UTC().Format(time.RFC3339),
+			UpdatedAt:       updatedAt,
+			MigrationStatus: blocks.ResolveDefinitionMigrationStatus(version.Schema, version.SchemaVersion),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"versions": resp})
 }
 
 func (api *AdminAPI) handleBlockCreate(w http.ResponseWriter, r *http.Request) {
@@ -117,22 +208,36 @@ func (api *AdminAPI) handleBlockCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksCreate) {
-		return
-	}
 	var payload blockCreatePayload
 	if err := decodeJSON(r, &payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksCreate, envKey) {
+		return
+	}
+	status := ""
+	if payload.Status != nil {
+		status = strings.TrimSpace(*payload.Status)
+	}
 	req := blocks.RegisterDefinitionInput{
 		Name:             payload.Name,
+		Slug:             strings.TrimSpace(payload.Slug),
 		Description:      payload.Description,
 		Icon:             payload.Icon,
+		Category:         payload.Category,
+		Status:           status,
 		Schema:           payload.Schema,
+		UISchema:         payload.UISchema,
 		Defaults:         payload.Defaults,
 		EditorStyleURL:   payload.EditorStyleURL,
 		FrontendStyleURL: payload.FrontendStyleURL,
+		EnvironmentKey:   envKey,
 	}
 	created, err := api.blocks.RegisterDefinition(r.Context(), req)
 	if err != nil {
@@ -147,9 +252,6 @@ func (api *AdminAPI) handleBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	if !requirePermission(w, r, permissions.BlocksUpdate) {
-		return
-	}
 	id, err := parseUUID(r.PathValue("id"))
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "invalid id"})
@@ -160,15 +262,42 @@ func (api *AdminAPI) handleBlockUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	var envKey *string
+	if payload.Environment != nil || payload.EnvironmentID != nil || api.requireExplicit {
+		keyVal := ""
+		if payload.Environment != nil {
+			keyVal = *payload.Environment
+		}
+		resolved, err := api.resolveEnvironmentKeyWithDefault(r, keyVal, payload.EnvironmentID, api.requireExplicit)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if strings.TrimSpace(resolved) != "" {
+			envKey = &resolved
+		}
+	}
+	envKeyValue := ""
+	if envKey != nil {
+		envKeyValue = *envKey
+	}
+	if !requirePermissionWithEnv(w, r, permissions.BlocksUpdate, envKeyValue) {
+		return
+	}
 	req := blocks.UpdateDefinitionInput{
 		ID:               id,
 		Name:             payload.Name,
+		Slug:             payload.Slug,
 		Description:      payload.Description,
 		Icon:             payload.Icon,
+		Category:         payload.Category,
+		Status:           payload.Status,
 		Schema:           payload.Schema,
+		UISchema:         payload.UISchema,
 		Defaults:         payload.Defaults,
 		EditorStyleURL:   payload.EditorStyleURL,
 		FrontendStyleURL: payload.FrontendStyleURL,
+		EnvironmentKey:   envKey,
 	}
 	updated, err := api.blocks.UpdateDefinition(r.Context(), req)
 	if err != nil {
@@ -207,7 +336,23 @@ func (api *AdminAPI) collectBlockSchemas(ctx context.Context, record *content.Co
 	if api == nil || api.blocks == nil {
 		return nil, nil
 	}
-	definitions, err := api.blocks.ListDefinitions(ctx)
+	var (
+		definitions []*blocks.Definition
+		err         error
+	)
+	if record != nil && record.EnvironmentID != uuid.Nil {
+		envKey, resolveErr := api.environmentKeyForID(ctx, record.EnvironmentID)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		if strings.TrimSpace(envKey) != "" {
+			definitions, err = api.blocks.ListDefinitions(ctx, envKey)
+		} else {
+			definitions, err = api.blocks.ListDefinitions(ctx)
+		}
+	} else {
+		definitions, err = api.blocks.ListDefinitions(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
