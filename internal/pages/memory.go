@@ -2,9 +2,11 @@ package pages
 
 import (
 	"context"
+	"strings"
 	"sync"
 	"time"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/google/uuid"
 )
@@ -31,13 +33,14 @@ func (m *MemoryPageRepository) Create(_ context.Context, record *Page) (*Page, e
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	copied := clonePage(record)
+	copied.EnvironmentID = resolveEnvironmentID(copied.EnvironmentID, "")
 	if len(copied.Versions) > 0 {
 		m.versions[copied.ID] = clonePageVersions(copied.Versions)
 	} else {
 		m.versions[copied.ID] = nil
 	}
 	m.pages[copied.ID] = copied
-	m.slugIndex[copied.Slug] = copied.ID
+	m.slugIndex[pageSlugKey(copied.EnvironmentID, copied.Slug)] = copied.ID
 	return m.attachVersions(clonePage(copied)), nil
 }
 
@@ -53,10 +56,11 @@ func (m *MemoryPageRepository) GetByID(_ context.Context, id uuid.UUID) (*Page, 
 }
 
 // GetBySlug retrieves a page by slug.
-func (m *MemoryPageRepository) GetBySlug(_ context.Context, slug string) (*Page, error) {
+func (m *MemoryPageRepository) GetBySlug(_ context.Context, slug string, env ...string) (*Page, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	id, ok := m.slugIndex[slug]
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.slugIndex[pageSlugKey(envID, slug)]
 	if !ok {
 		return nil, &PageNotFoundError{Key: slug}
 	}
@@ -64,11 +68,18 @@ func (m *MemoryPageRepository) GetBySlug(_ context.Context, slug string) (*Page,
 }
 
 // List returns every page.
-func (m *MemoryPageRepository) List(_ context.Context) ([]*Page, error) {
+func (m *MemoryPageRepository) List(_ context.Context, env ...string) ([]*Page, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
 	out := make([]*Page, 0, len(m.pages))
 	for _, record := range m.pages {
+		if record == nil {
+			continue
+		}
+		if !matchesEnvironment(record.EnvironmentID, envID) {
+			continue
+		}
 		out = append(out, m.attachVersions(clonePage(record)))
 	}
 	return out, nil
@@ -133,7 +144,7 @@ func (m *MemoryPageRepository) Delete(_ context.Context, id uuid.UUID, hardDelet
 
 	delete(m.pages, id)
 	if slug := record.Slug; slug != "" {
-		delete(m.slugIndex, slug)
+		delete(m.slugIndex, pageSlugKey(resolveEnvironmentID(record.EnvironmentID, ""), slug))
 	}
 	delete(m.versions, id)
 	return nil
@@ -202,6 +213,45 @@ func (m *MemoryPageRepository) UpdateVersion(_ context.Context, version *PageVer
 		}
 	}
 	return nil, &PageVersionNotFoundError{PageID: version.PageID, Version: version.Version}
+}
+
+func resolveEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func resolveEnvironmentID(id uuid.UUID, envKey string) uuid.UUID {
+	if id != uuid.Nil {
+		return id
+	}
+	key := strings.TrimSpace(envKey)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	if parsed, err := uuid.Parse(key); err == nil {
+		return parsed
+	}
+	key = cmsenv.NormalizeKey(key)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	return cmsenv.IDForKey(key)
+}
+
+func matchesEnvironment(recordID, targetID uuid.UUID) bool {
+	if targetID == uuid.Nil {
+		targetID = resolveEnvironmentID(uuid.Nil, "")
+	}
+	if recordID == uuid.Nil {
+		return targetID == resolveEnvironmentID(uuid.Nil, "")
+	}
+	return recordID == targetID
+}
+
+func pageSlugKey(envID uuid.UUID, slug string) string {
+	return envID.String() + "|" + strings.TrimSpace(slug)
 }
 
 func clonePage(src *Page) *Page {
