@@ -15,17 +15,19 @@ import (
 )
 
 type contentTypeCreatePayload struct {
-	Name         string         `json:"name"`
-	Slug         string         `json:"slug,omitempty"`
-	Description  *string        `json:"description,omitempty"`
-	Schema       map[string]any `json:"schema"`
-	UISchema     map[string]any `json:"ui_schema,omitempty"`
-	Capabilities map[string]any `json:"capabilities,omitempty"`
-	Icon         *string        `json:"icon,omitempty"`
-	Status       string         `json:"status,omitempty"`
-	CreatedBy    *uuid.UUID     `json:"created_by,omitempty"`
-	UpdatedBy    *uuid.UUID     `json:"updated_by,omitempty"`
-	ActorID      *uuid.UUID     `json:"actor_id,omitempty"`
+	Name          string         `json:"name"`
+	Slug          string         `json:"slug,omitempty"`
+	Description   *string        `json:"description,omitempty"`
+	Schema        map[string]any `json:"schema"`
+	UISchema      map[string]any `json:"ui_schema,omitempty"`
+	Capabilities  map[string]any `json:"capabilities,omitempty"`
+	Icon          *string        `json:"icon,omitempty"`
+	Status        string         `json:"status,omitempty"`
+	Environment   string         `json:"environment,omitempty"`
+	EnvironmentID *uuid.UUID     `json:"environment_id,omitempty"`
+	CreatedBy     *uuid.UUID     `json:"created_by,omitempty"`
+	UpdatedBy     *uuid.UUID     `json:"updated_by,omitempty"`
+	ActorID       *uuid.UUID     `json:"actor_id,omitempty"`
 }
 
 type contentTypeUpdatePayload struct {
@@ -49,17 +51,19 @@ type contentTypePublishPayload struct {
 }
 
 type contentTypeClonePayload struct {
-	Name         *string        `json:"name,omitempty"`
-	Slug         *string        `json:"slug,omitempty"`
-	Description  *string        `json:"description,omitempty"`
-	Schema       map[string]any `json:"schema,omitempty"`
-	UISchema     map[string]any `json:"ui_schema,omitempty"`
-	Capabilities map[string]any `json:"capabilities,omitempty"`
-	Icon         *string        `json:"icon,omitempty"`
-	Status       *string        `json:"status,omitempty"`
-	CreatedBy    *uuid.UUID     `json:"created_by,omitempty"`
-	UpdatedBy    *uuid.UUID     `json:"updated_by,omitempty"`
-	ActorID      *uuid.UUID     `json:"actor_id,omitempty"`
+	Name          *string        `json:"name,omitempty"`
+	Slug          *string        `json:"slug,omitempty"`
+	Description   *string        `json:"description,omitempty"`
+	Schema        map[string]any `json:"schema,omitempty"`
+	UISchema      map[string]any `json:"ui_schema,omitempty"`
+	Capabilities  map[string]any `json:"capabilities,omitempty"`
+	Icon          *string        `json:"icon,omitempty"`
+	Status        *string        `json:"status,omitempty"`
+	Environment   string         `json:"environment,omitempty"`
+	EnvironmentID *uuid.UUID     `json:"environment_id,omitempty"`
+	CreatedBy     *uuid.UUID     `json:"created_by,omitempty"`
+	UpdatedBy     *uuid.UUID     `json:"updated_by,omitempty"`
+	ActorID       *uuid.UUID     `json:"actor_id,omitempty"`
 }
 
 type contentTypeDeletePayload struct {
@@ -164,10 +168,23 @@ func (api *AdminAPI) handleContentTypeList(w http.ResponseWriter, r *http.Reques
 		list []*content.ContentType
 		err  error
 	)
+	envKey, err := api.resolveEnvironmentKey(r, "", nil)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	if query == "" {
-		list, err = api.contentTypes.List(r.Context())
+		if strings.TrimSpace(envKey) == "" {
+			list, err = api.contentTypes.List(r.Context())
+		} else {
+			list, err = api.contentTypes.List(r.Context(), envKey)
+		}
 	} else {
-		list, err = api.contentTypes.Search(r.Context(), query)
+		if strings.TrimSpace(envKey) == "" {
+			list, err = api.contentTypes.Search(r.Context(), query)
+		} else {
+			list, err = api.contentTypes.Search(r.Context(), query, envKey)
+		}
 	}
 	if err != nil {
 		writeError(w, err)
@@ -210,6 +227,11 @@ func (api *AdminAPI) handleContentTypeCreate(w http.ResponseWriter, r *http.Requ
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	envKey, err := api.resolveEnvironmentKey(r, payload.Environment, payload.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	if strings.TrimSpace(payload.Slug) == "" {
 		payload.Slug = content.DeriveContentTypeSlug(&content.ContentType{
 			Name:   payload.Name,
@@ -233,16 +255,17 @@ func (api *AdminAPI) handleContentTypeCreate(w http.ResponseWriter, r *http.Requ
 		updatedBy = actor
 	}
 	req := content.CreateContentTypeRequest{
-		Name:         payload.Name,
-		Slug:         payload.Slug,
-		Description:  payload.Description,
-		Schema:       payload.Schema,
-		UISchema:     payload.UISchema,
-		Capabilities: payload.Capabilities,
-		Icon:         payload.Icon,
-		Status:       payload.Status,
-		CreatedBy:    actor,
-		UpdatedBy:    updatedBy,
+		Name:           payload.Name,
+		Slug:           payload.Slug,
+		Description:    payload.Description,
+		Schema:         payload.Schema,
+		UISchema:       payload.UISchema,
+		Capabilities:   payload.Capabilities,
+		Icon:           payload.Icon,
+		Status:         payload.Status,
+		EnvironmentKey: envKey,
+		CreatedBy:      actor,
+		UpdatedBy:      updatedBy,
 	}
 	created, err := api.contentTypes.Create(r.Context(), req)
 	if err != nil {
@@ -386,6 +409,11 @@ func (api *AdminAPI) handleContentTypeClone(w http.ResponseWriter, r *http.Reque
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	envKey, err := api.resolveEnvironmentKey(r, payload.Environment, payload.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 
 	name := source.Name
 	if payload.Name != nil {
@@ -443,18 +471,26 @@ func (api *AdminAPI) handleContentTypeClone(w http.ResponseWriter, r *http.Reque
 	if actor != uuid.Nil && updatedBy == uuid.Nil {
 		updatedBy = actor
 	}
+	if strings.TrimSpace(envKey) == "" {
+		envKey, err = api.environmentKeyForID(r.Context(), source.EnvironmentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 
 	req := content.CreateContentTypeRequest{
-		Name:         name,
-		Slug:         slugValue,
-		Description:  description,
-		Schema:       schemaPayload,
-		UISchema:     uiSchema,
-		Capabilities: capabilities,
-		Icon:         icon,
-		Status:       status,
-		CreatedBy:    actor,
-		UpdatedBy:    updatedBy,
+		Name:           name,
+		Slug:           slugValue,
+		Description:    description,
+		Schema:         schemaPayload,
+		UISchema:       uiSchema,
+		Capabilities:   capabilities,
+		Icon:           icon,
+		Status:         status,
+		EnvironmentKey: envKey,
+		CreatedBy:      actor,
+		UpdatedBy:      updatedBy,
 	}
 	created, err := api.contentTypes.Create(r.Context(), req)
 	if err != nil {

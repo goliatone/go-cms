@@ -13,22 +13,34 @@ import (
 
 type blockCreatePayload struct {
 	Name             string         `json:"name"`
+	Slug             string         `json:"slug,omitempty"`
 	Description      *string        `json:"description,omitempty"`
 	Icon             *string        `json:"icon,omitempty"`
+	Category         *string        `json:"category,omitempty"`
+	Status           *string        `json:"status,omitempty"`
 	Schema           map[string]any `json:"schema"`
+	UISchema         map[string]any `json:"ui_schema,omitempty"`
 	Defaults         map[string]any `json:"defaults,omitempty"`
 	EditorStyleURL   *string        `json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `json:"frontend_style_url,omitempty"`
+	Environment      string         `json:"environment,omitempty"`
+	EnvironmentID    *uuid.UUID     `json:"environment_id,omitempty"`
 }
 
 type blockUpdatePayload struct {
 	Name             *string        `json:"name,omitempty"`
+	Slug             *string        `json:"slug,omitempty"`
 	Description      *string        `json:"description,omitempty"`
 	Icon             *string        `json:"icon,omitempty"`
+	Category         *string        `json:"category,omitempty"`
+	Status           *string        `json:"status,omitempty"`
 	Schema           map[string]any `json:"schema,omitempty"`
+	UISchema         map[string]any `json:"ui_schema,omitempty"`
 	Defaults         map[string]any `json:"defaults,omitempty"`
 	EditorStyleURL   *string        `json:"editor_style_url,omitempty"`
 	FrontendStyleURL *string        `json:"frontend_style_url,omitempty"`
+	Environment      *string        `json:"environment,omitempty"`
+	EnvironmentID    *uuid.UUID     `json:"environment_id,omitempty"`
 }
 
 type blockDefinitionResponse struct {
@@ -125,11 +137,19 @@ func (api *AdminAPI) handleBlockCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
+	status := ""
+	if payload.Status != nil {
+		status = strings.TrimSpace(*payload.Status)
+	}
 	req := blocks.RegisterDefinitionInput{
 		Name:             payload.Name,
+		Slug:             strings.TrimSpace(payload.Slug),
 		Description:      payload.Description,
 		Icon:             payload.Icon,
+		Category:         payload.Category,
+		Status:           status,
 		Schema:           payload.Schema,
+		UISchema:         payload.UISchema,
 		Defaults:         payload.Defaults,
 		EditorStyleURL:   payload.EditorStyleURL,
 		FrontendStyleURL: payload.FrontendStyleURL,
@@ -163,9 +183,13 @@ func (api *AdminAPI) handleBlockUpdate(w http.ResponseWriter, r *http.Request) {
 	req := blocks.UpdateDefinitionInput{
 		ID:               id,
 		Name:             payload.Name,
+		Slug:             payload.Slug,
 		Description:      payload.Description,
 		Icon:             payload.Icon,
+		Category:         payload.Category,
+		Status:           payload.Status,
 		Schema:           payload.Schema,
+		UISchema:         payload.UISchema,
 		Defaults:         payload.Defaults,
 		EditorStyleURL:   payload.EditorStyleURL,
 		FrontendStyleURL: payload.FrontendStyleURL,
