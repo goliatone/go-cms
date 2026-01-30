@@ -1,5 +1,71 @@
 # Changelog
 
+# [0.23.1](https://github.com/goliatone/go-cms/compare/v0.23.0...v0.23.1) - (2026-01-30)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Include env id in URL resolution ([3e4c47d](https://github.com/goliatone/go-cms/commit/3e4c47d7d3c19f87e5b95a356f2c911681bf2e37))  - (goliatone)
+- Shadowing var name ([62c4ae2](https://github.com/goliatone/go-cms/commit/62c4ae2d019126ff3d6359cc290d53b104323fa8))  - (goliatone)
+- Make migration flags optional ([e96c505](https://github.com/goliatone/go-cms/commit/e96c5057611c16220036d638befd7e9d9eca0cc9))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.23.1 ([9c25d0e](https://github.com/goliatone/go-cms/commit/9c25d0ea0ba68b2f3cf225921851167f3dc622a5))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Logger handler for errors in env setup ([7ce1789](https://github.com/goliatone/go-cms/commit/7ce1789fcf5504bcd23b4658bdcb713ec47e9b7d))  - (goliatone)
+- Require active for env config ([02aa917](https://github.com/goliatone/go-cms/commit/02aa9173d00f4e431ca337b4c97c8cf883aa3536))  - (goliatone)
+- Environment support ([e98025e](https://github.com/goliatone/go-cms/commit/e98025eb14982e2258b644e6ecd226578cab41a1))  - (goliatone)
+- Tests for schema keywords ([d72219c](https://github.com/goliatone/go-cms/commit/d72219ccaf0782a2f8a436aedb085c5a33fe706a))  - (goliatone)
+- Use go-slug to handle slugs ([dcf3c4d](https://github.com/goliatone/go-cms/commit/dcf3c4d1bc2fb39b1e5a416968cfa5bd23a7fa72))  - (goliatone)
+- Normalize slug ([d1f8a5d](https://github.com/goliatone/go-cms/commit/d1f8a5d685276668ad31108473fbb5f49be3aee5))  - (goliatone)
+- Migrations to block definition ([d6062f4](https://github.com/goliatone/go-cms/commit/d6062f4de2bbe903eb05fe546920cc76e9b6a1c5))  - (goliatone)
+- Di container use permissions and envs ([181cf27](https://github.com/goliatone/go-cms/commit/181cf27cb2c3f8d10d742611eeae5261bfe479cb))  - (goliatone)
+- Http blocks handle env and versions ([156069a](https://github.com/goliatone/go-cms/commit/156069af139afc0fff2a6397ace640c169707c38))  - (goliatone)
+- Default environment key handler ([65e4b9b](https://github.com/goliatone/go-cms/commit/65e4b9b527e8ef297b7659746e29b309068d6f72))  - (goliatone)
+- Promotion service ([0b9b159](https://github.com/goliatone/go-cms/commit/0b9b1593c911e4a261cf2840f3a42dedfab8673f))  - (goliatone)
+- Blocks migration status ([cf59b8d](https://github.com/goliatone/go-cms/commit/cf59b8dba7070b5e6c82e6313f23a3070249d440))  - (goliatone)
+- Migrations for block status ([0e7023d](https://github.com/goliatone/go-cms/commit/0e7023d0d08c35df1105832824d0efed4aaed1e0))  - (goliatone)
+- Error management for envs ([239b5e5](https://github.com/goliatone/go-cms/commit/239b5e53e2d9dc15d6302bba23298ffa9e035b95))  - (goliatone)
+- Environment key ([2649bce](https://github.com/goliatone/go-cms/commit/2649bce0e709f2cc38a1e3bdb5ce62950c984ec6))  - (goliatone)
+- Include env selector to interfaces ([472139c](https://github.com/goliatone/go-cms/commit/472139c1121ada1b4b61dbce4eb3a0f1df23e0af))  - (goliatone)
+- Permissions for envs ([1768180](https://github.com/goliatone/go-cms/commit/17681804e93a249183a59a77589df094f770e480))  - (goliatone)
+- Err definitions ([fcb4768](https://github.com/goliatone/go-cms/commit/fcb47683c44698170c9dc774cbc5c823cfa3263e))  - (goliatone)
+- Promotions package ([d0d3522](https://github.com/goliatone/go-cms/commit/d0d352217ad275d032c4150cfd94e2d09af8c05f))  - (goliatone)
+- Http package for envs ([ca4538f](https://github.com/goliatone/go-cms/commit/ca4538f26b47317754ed50f6842a0b77f7de1cd5))  - (goliatone)
+- Environment package ([6b350d0](https://github.com/goliatone/go-cms/commit/6b350d07dc50ed449b61ebf99e142c3e5a296133))  - (goliatone)
+- Block definition metadata ([da442a4](https://github.com/goliatone/go-cms/commit/da442a461b5269b0bcd46019e953208bf65f08bb))  - (goliatone)
+- Intialize envs ([4cda987](https://github.com/goliatone/go-cms/commit/4cda987485f22c4d829a2696d4349b4bb62dd5d2))  - (goliatone)
+- Slug normalizer definition ([6ead2de](https://github.com/goliatone/go-cms/commit/6ead2deb82e6012981443f075369bbb78258d52b))  - (goliatone)
+- GetBySlug ([c19f542](https://github.com/goliatone/go-cms/commit/c19f54201a8306037db6c5eda4a2cafd56eaab70))  - (goliatone)
+- Environment to blocks ([fe4dd71](https://github.com/goliatone/go-cms/commit/fe4dd71e7e57aeb1dfc5e34b4312e9e8a43e1481))  - (goliatone)
+- Ci envinrment boot ([8b47b53](https://github.com/goliatone/go-cms/commit/8b47b53b426754ac77d0e64e7b961d763e7ba3c7))  - (goliatone)
+- Environment migrations ([ce38684](https://github.com/goliatone/go-cms/commit/ce386841ad680f99dd9234762393234be366aa17))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- Environment support ([0dc3a0c](https://github.com/goliatone/go-cms/commit/0dc3a0cded9525a7a6c179ed92ed477774ef40f2))  - (goliatone)
+- Update interfaces to use env ([89e26cb](https://github.com/goliatone/go-cms/commit/89e26cb7c4d1275d973a02cff0b74a32738ee786))  - (goliatone)
+- Use PageNotFoundError ([1717f29](https://github.com/goliatone/go-cms/commit/1717f29463f83a8bb08f59272e4ac5c7a003a3b0))  - (goliatone)
+- Permissions use allowed with scope check ([51630ff](https://github.com/goliatone/go-cms/commit/51630ff5902c7acd14c87b5004503318910d8ece))  - (goliatone)
+- Use slug instead of name ([3dd5f27](https://github.com/goliatone/go-cms/commit/3dd5f27ec7677cd5fa10e5077748a73e5e22640e))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.23.0 ([6fe9820](https://github.com/goliatone/go-cms/commit/6fe98203d60c5f2ce399409434c927f165435c10))  - (goliatone)
+
+## <!-- 30 -->📝 Other
+
+- PR [#4](https://github.com/goliatone/go-cms/pull/4): add first class environment scoping and promotion ([f3ba91b](https://github.com/goliatone/go-cms/commit/f3ba91b610d6e9ac7e0588c1f188cb4658ccac9f))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update test ([eff5d8f](https://github.com/goliatone/go-cms/commit/eff5d8f043ace462c9a23e4e00e6858ded58fa79))  - (goliatone)
+- Udpate test ([bcf4267](https://github.com/goliatone/go-cms/commit/bcf426712bc1b94920ffe9e4da090893b15ee55a))  - (goliatone)
+- Update examples ([ccd037b](https://github.com/goliatone/go-cms/commit/ccd037bb0cab4ff37031b631607c46c53dde6829))  - (goliatone)
+- Clean up ([cbcbeb8](https://github.com/goliatone/go-cms/commit/cbcbeb86514173d66bc9b06572c1018ac0bf7f6d))  - (goliatone)
+
 # [0.23.0](https://github.com/goliatone/go-cms/compare/v0.22.0...v0.23.0) - (2026-01-29)
 
 ## <!-- 1 -->🐛 Bug Fixes
