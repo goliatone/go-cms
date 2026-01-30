@@ -4,8 +4,10 @@ import (
 	"context"
 	"maps"
 	"slices"
+	"strings"
 	"sync"
 
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/google/uuid"
 )
 
@@ -30,12 +32,13 @@ func (m *memoryMenuRepository) Create(_ context.Context, menu *Menu) (*Menu, err
 	defer m.mu.Unlock()
 
 	cloned := cloneMenu(menu)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
 	m.byID[cloned.ID] = cloned
 	if cloned.Code != "" {
-		m.byCode[cloned.Code] = cloned.ID
+		m.byCode[menuCodeKey(cloned.EnvironmentID, cloned.Code)] = cloned.ID
 	}
 	if cloned.Location != "" {
-		m.byLocation[cloned.Location] = cloned.ID
+		m.byLocation[menuLocationKey(cloned.EnvironmentID, cloned.Location)] = cloned.ID
 	}
 	return cloneMenu(cloned), nil
 }
@@ -51,34 +54,43 @@ func (m *memoryMenuRepository) GetByID(_ context.Context, id uuid.UUID) (*Menu, 
 	return cloneMenu(record), nil
 }
 
-func (m *memoryMenuRepository) GetByCode(_ context.Context, code string) (*Menu, error) {
+func (m *memoryMenuRepository) GetByCode(_ context.Context, code string, env ...string) (*Menu, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	id, ok := m.byCode[code]
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.byCode[menuCodeKey(envID, code)]
 	if !ok {
 		return nil, &NotFoundError{Resource: "menu", Key: code}
 	}
 	return cloneMenu(m.byID[id]), nil
 }
 
-func (m *memoryMenuRepository) GetByLocation(_ context.Context, location string) (*Menu, error) {
+func (m *memoryMenuRepository) GetByLocation(_ context.Context, location string, env ...string) (*Menu, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	id, ok := m.byLocation[location]
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.byLocation[menuLocationKey(envID, location)]
 	if !ok {
 		return nil, &NotFoundError{Resource: "menu", Key: location}
 	}
 	return cloneMenu(m.byID[id]), nil
 }
 
-func (m *memoryMenuRepository) List(_ context.Context) ([]*Menu, error) {
+func (m *memoryMenuRepository) List(_ context.Context, env ...string) ([]*Menu, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
 	records := make([]*Menu, 0, len(m.byID))
 	for _, record := range m.byID {
+		if record == nil {
+			continue
+		}
+		if !matchesEnvironment(record.EnvironmentID, envID) {
+			continue
+		}
 		records = append(records, cloneMenu(record))
 	}
 	return records, nil
@@ -96,20 +108,21 @@ func (m *memoryMenuRepository) Update(_ context.Context, menu *Menu) (*Menu, err
 	oldCode := existing.Code
 	oldLocation := existing.Location
 	cloned := cloneMenu(menu)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
 
 	m.byID[cloned.ID] = cloned
 
 	if oldCode != "" && oldCode != cloned.Code {
-		delete(m.byCode, oldCode)
+		delete(m.byCode, menuCodeKey(resolveEnvironmentID(existing.EnvironmentID, ""), oldCode))
 	}
 	if cloned.Code != "" {
-		m.byCode[cloned.Code] = cloned.ID
+		m.byCode[menuCodeKey(cloned.EnvironmentID, cloned.Code)] = cloned.ID
 	}
 	if oldLocation != "" && oldLocation != cloned.Location {
-		delete(m.byLocation, oldLocation)
+		delete(m.byLocation, menuLocationKey(resolveEnvironmentID(existing.EnvironmentID, ""), oldLocation))
 	}
 	if cloned.Location != "" {
-		m.byLocation[cloned.Location] = cloned.ID
+		m.byLocation[menuLocationKey(cloned.EnvironmentID, cloned.Location)] = cloned.ID
 	}
 
 	return cloneMenu(cloned), nil
@@ -125,12 +138,55 @@ func (m *memoryMenuRepository) Delete(_ context.Context, id uuid.UUID) error {
 	}
 	delete(m.byID, id)
 	if existing.Code != "" {
-		delete(m.byCode, existing.Code)
+		delete(m.byCode, menuCodeKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.Code))
 	}
 	if existing.Location != "" {
-		delete(m.byLocation, existing.Location)
+		delete(m.byLocation, menuLocationKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.Location))
 	}
 	return nil
+}
+
+func resolveEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return cmsenv.NormalizeKey(env[0])
+}
+
+func resolveEnvironmentID(id uuid.UUID, envKey string) uuid.UUID {
+	if id != uuid.Nil {
+		return id
+	}
+	key := strings.TrimSpace(envKey)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	if parsed, err := uuid.Parse(key); err == nil {
+		return parsed
+	}
+	key = cmsenv.NormalizeKey(key)
+	if key == "" {
+		key = cmsenv.DefaultKey
+	}
+	return cmsenv.IDForKey(key)
+}
+
+func matchesEnvironment(recordID, targetID uuid.UUID) bool {
+	if targetID == uuid.Nil {
+		targetID = resolveEnvironmentID(uuid.Nil, "")
+	}
+	if recordID == uuid.Nil {
+		return targetID == resolveEnvironmentID(uuid.Nil, "")
+	}
+	return recordID == targetID
+}
+
+func menuCodeKey(envID uuid.UUID, code string) string {
+	return envID.String() + "|" + strings.TrimSpace(code)
+}
+
+func menuLocationKey(envID uuid.UUID, location string) string {
+	return envID.String() + "|" + strings.TrimSpace(location)
 }
 
 // NewMemoryMenuItemRepository constructs an in-memory repository for menu items.
