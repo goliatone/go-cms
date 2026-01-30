@@ -435,7 +435,7 @@ func (s *stubContentService) Get(_ context.Context, id uuid.UUID) (*content.Cont
 	return rec, nil
 }
 
-func (s *stubContentService) List(context.Context) ([]*content.Content, error) {
+func (s *stubContentService) List(context.Context, ...string) ([]*content.Content, error) {
 	return nil, errUnsupported
 }
 
@@ -496,7 +496,7 @@ func (s *stubPagesService) Get(_ context.Context, id uuid.UUID) (*pages.Page, er
 	return rec, nil
 }
 
-func (s *stubPagesService) List(context.Context) ([]*pages.Page, error) {
+func (s *stubPagesService) List(context.Context, ...string) ([]*pages.Page, error) {
 	return append([]*pages.Page{}, s.listing...), nil
 }
 

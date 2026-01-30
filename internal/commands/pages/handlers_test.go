@@ -32,7 +32,7 @@ func (s *stubPageService) Get(context.Context, uuid.UUID) (*pages.Page, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubPageService) List(context.Context) ([]*pages.Page, error) {
+func (s *stubPageService) List(context.Context, ...string) ([]*pages.Page, error) {
 	return nil, errors.New("not implemented")
 }
 

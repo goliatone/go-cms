@@ -2,6 +2,7 @@ package http
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
+	"github.com/goliatone/go-cms/internal/promotions"
 	"github.com/google/uuid"
 )
 
@@ -168,32 +171,201 @@ func TestAdminAPI_BlockCRUDAndOpenAPI(t *testing.T) {
 	}
 }
 
+func TestAdminAPI_EnvironmentCRUD(t *testing.T) {
+	mux, services := setupAdminAPI(t)
+	if services.envSvc == nil {
+		t.Fatalf("expected environment service wired")
+	}
+
+	createBody := map[string]any{
+		"key":         "dev",
+		"name":        "Development",
+		"description": "Development environment",
+		"is_default":  true,
+	}
+	createResp := doJSONRequest(t, mux, http.MethodPost, "/admin/api/environments", createBody, http.StatusCreated)
+
+	var created cmsenv.Environment
+	decodeJSONBody(t, createResp, &created)
+	if created.ID == uuid.Nil {
+		t.Fatalf("expected created environment id")
+	}
+	if created.Key != "dev" {
+		t.Fatalf("expected key dev got %q", created.Key)
+	}
+	if !created.IsDefault {
+		t.Fatalf("expected dev to be default")
+	}
+
+	listResp := doJSONRequest(t, mux, http.MethodGet, "/admin/api/environments", nil, http.StatusOK)
+	var list []*cmsenv.Environment
+	decodeJSONBody(t, listResp, &list)
+	if len(list) < 2 {
+		t.Fatalf("expected at least 2 environments got %d", len(list))
+	}
+
+	getResp := doJSONRequest(t, mux, http.MethodGet, "/admin/api/environments/"+created.ID.String(), nil, http.StatusOK)
+	var fetched cmsenv.Environment
+	decodeJSONBody(t, getResp, &fetched)
+	if fetched.ID != created.ID {
+		t.Fatalf("expected fetched id %s got %s", created.ID, fetched.ID)
+	}
+
+	updateBody := map[string]any{
+		"description": "Updated description",
+		"is_active":   false,
+	}
+	updateResp := doJSONRequest(t, mux, http.MethodPut, "/admin/api/environments/"+created.ID.String(), updateBody, http.StatusOK)
+	var updated cmsenv.Environment
+	decodeJSONBody(t, updateResp, &updated)
+	if updated.Description == nil || *updated.Description != "Updated description" {
+		t.Fatalf("expected updated description")
+	}
+	if updated.IsActive {
+		t.Fatalf("expected environment to be inactive")
+	}
+
+	doJSONRequest(t, mux, http.MethodDelete, "/admin/api/environments/"+created.ID.String(), nil, http.StatusNoContent)
+	doJSONRequest(t, mux, http.MethodGet, "/admin/api/environments/"+created.ID.String(), nil, http.StatusNotFound)
+}
+
+func TestAdminAPI_PromotionEndpoints(t *testing.T) {
+	promo := &promotionStub{
+		envResult: &promotions.PromoteEnvironmentResult{
+			SourceEnv: promotions.EnvironmentRef{ID: uuid.New(), Key: "dev"},
+			TargetEnv: promotions.EnvironmentRef{ID: uuid.New(), Key: "prod"},
+			Summary: promotions.PromoteSummary{
+				ContentTypes:   promotions.PromoteSummaryCounts{Created: 1},
+				ContentEntries: promotions.PromoteSummaryCounts{Created: 2},
+			},
+			Items: []promotions.PromoteItem{
+				{
+					Kind:     "block_definition",
+					SourceID: uuid.New(),
+					TargetID: uuid.New(),
+					Status:   "created",
+				},
+			},
+		},
+		itemResult: &promotions.PromoteItem{
+			Kind:     "content_type",
+			SourceID: uuid.New(),
+			TargetID: uuid.New(),
+			Status:   "created",
+		},
+	}
+
+	mux, _ := setupAdminAPI(t, WithPromotionService(promo))
+
+	bulkPayload := map[string]any{
+		"scope": "all",
+		"options": map[string]any{
+			"promote_as_active": true,
+		},
+	}
+	bulkResp := doJSONRequest(t, mux, http.MethodPost, "/admin/api/environments/dev/promote/prod", bulkPayload, http.StatusOK)
+	var bulkResult promotions.PromoteEnvironmentResult
+	decodeJSONBody(t, bulkResp, &bulkResult)
+	if bulkResult.SourceEnv.Key != "dev" || bulkResult.TargetEnv.Key != "prod" {
+		t.Fatalf("expected source dev and target prod")
+	}
+	if len(bulkResult.Items) != 1 || bulkResult.Items[0].Kind != "block_definition" {
+		t.Fatalf("expected block_definition item in response")
+	}
+	if promo.lastEnv == nil || promo.lastEnv.SourceEnvironment != "dev" || promo.lastEnv.TargetEnvironment != "prod" {
+		t.Fatalf("expected promotion service to receive source and target env")
+	}
+
+	typeID := uuid.New()
+	typeResp := doJSONRequest(t, mux, http.MethodPost, "/admin/api/content-types/"+typeID.String()+"/promote?to=prod", map[string]any{}, http.StatusOK)
+	var typeResult promotions.PromoteItem
+	decodeJSONBody(t, typeResp, &typeResult)
+	if promo.lastType == nil || promo.lastType.ContentTypeID != typeID || promo.lastType.TargetEnvironment != "prod" {
+		t.Fatalf("expected content type promotion request to target prod")
+	}
+
+	contentID := uuid.New()
+	contentResp := doJSONRequest(t, mux, http.MethodPost, "/admin/api/content/"+contentID.String()+"/promote", map[string]any{
+		"target_environment": "staging",
+	}, http.StatusOK)
+	var contentResult promotions.PromoteItem
+	decodeJSONBody(t, contentResp, &contentResult)
+	if promo.lastContent == nil || promo.lastContent.ContentID != contentID || promo.lastContent.TargetEnvironment != "staging" {
+		t.Fatalf("expected content promotion request to target staging")
+	}
+}
+
 type testServices struct {
 	contentSvc content.ContentTypeService
 	blockSvc   blocks.Service
+	envSvc     cmsenv.Service
 }
 
-func setupAdminAPI(t *testing.T) (*http.ServeMux, testServices) {
+func setupAdminAPI(t *testing.T, opts ...AdminOption) (*http.ServeMux, testServices) {
 	t.Helper()
 
+	envRepo := cmsenv.NewMemoryRepository()
+	envSvc := cmsenv.NewService(envRepo)
+	if _, err := envSvc.CreateEnvironment(context.Background(), cmsenv.CreateEnvironmentInput{
+		Key:       cmsenv.DefaultKey,
+		Name:      "Default",
+		IsDefault: true,
+	}); err != nil {
+		t.Fatalf("seed default environment: %v", err)
+	}
+
 	typeRepo := content.NewMemoryContentTypeRepository()
-	contentSvc := content.NewContentTypeService(typeRepo)
+	contentSvc := content.NewContentTypeService(typeRepo, content.WithContentTypeEnvironmentService(envSvc))
 
 	blockSvc := blocks.NewService(
 		blocks.NewMemoryDefinitionRepository(),
 		blocks.NewMemoryInstanceRepository(),
 		blocks.NewMemoryTranslationRepository(),
+		blocks.WithEnvironmentService(envSvc),
 	)
 
-	api := NewAdminAPI(
+	apiOpts := []AdminOption{
 		WithContentTypeService(contentSvc),
 		WithBlockService(blockSvc),
-	)
+		WithEnvironmentService(envSvc),
+	}
+	apiOpts = append(apiOpts, opts...)
+	api := NewAdminAPI(apiOpts...)
 	mux := http.NewServeMux()
 	if err := api.Register(mux); err != nil {
 		t.Fatalf("register api: %v", err)
 	}
-	return mux, testServices{contentSvc: contentSvc, blockSvc: blockSvc}
+	return mux, testServices{contentSvc: contentSvc, blockSvc: blockSvc, envSvc: envSvc}
+}
+
+type promotionStub struct {
+	lastEnv     *promotions.PromoteEnvironmentRequest
+	lastType    *promotions.PromoteContentTypeRequest
+	lastContent *promotions.PromoteContentEntryRequest
+
+	envResult  *promotions.PromoteEnvironmentResult
+	itemResult *promotions.PromoteItem
+}
+
+func (s *promotionStub) PromoteEnvironment(ctx context.Context, req promotions.PromoteEnvironmentRequest) (*promotions.PromoteEnvironmentResult, error) {
+	s.lastEnv = &req
+	return s.envResult, nil
+}
+
+func (s *promotionStub) PromoteContentType(ctx context.Context, req promotions.PromoteContentTypeRequest) (*promotions.PromoteItem, error) {
+	s.lastType = &req
+	if s.itemResult == nil {
+		return &promotions.PromoteItem{Kind: "content_type", SourceID: req.ContentTypeID, TargetID: uuid.New(), Status: "created"}, nil
+	}
+	return s.itemResult, nil
+}
+
+func (s *promotionStub) PromoteContentEntry(ctx context.Context, req promotions.PromoteContentEntryRequest) (*promotions.PromoteItem, error) {
+	s.lastContent = &req
+	if s.itemResult == nil {
+		return &promotions.PromoteItem{Kind: "content_entry", SourceID: req.ContentID, TargetID: uuid.New(), Status: "created"}, nil
+	}
+	return s.itemResult, nil
 }
 
 func doJSONRequest(t *testing.T, mux *http.ServeMux, method, path string, body any, wantStatus int) *httptest.ResponseRecorder {

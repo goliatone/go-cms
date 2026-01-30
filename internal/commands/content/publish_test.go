@@ -30,7 +30,7 @@ func (s *stubContentService) Get(context.Context, uuid.UUID) (*content.Content, 
 	return nil, errors.New("not implemented")
 }
 
-func (s *stubContentService) List(context.Context) ([]*content.Content, error) {
+func (s *stubContentService) List(context.Context, ...string) ([]*content.Content, error) {
 	return nil, errors.New("not implemented")
 }
 

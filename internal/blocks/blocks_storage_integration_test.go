@@ -98,6 +98,7 @@ func registerBlockModels(t *testing.T, db *bun.DB) {
 			schema TEXT,
 			ui_schema TEXT,
 			schema_version TEXT,
+			migration_status TEXT,
 			defaults TEXT,
 			editor_style_url TEXT,
 			frontend_style_url TEXT,
