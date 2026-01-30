@@ -115,11 +115,11 @@ func (a *cmsContentServiceAdapter) Update(ctx context.Context, req interfaces.Co
 	return toContentRecord(record), nil
 }
 
-func (a *cmsContentServiceAdapter) GetBySlug(ctx context.Context, slug string) (*interfaces.ContentRecord, error) {
+func (a *cmsContentServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -131,11 +131,11 @@ func (a *cmsContentServiceAdapter) GetBySlug(ctx context.Context, slug string) (
 	return nil, nil
 }
 
-func (a *cmsContentServiceAdapter) List(ctx context.Context) ([]*interfaces.ContentRecord, error) {
+func (a *cmsContentServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -328,11 +328,11 @@ func (a *cmsPageServiceAdapter) Update(ctx context.Context, req interfaces.PageU
 	return a.toPageRecord(created), nil
 }
 
-func (a *cmsPageServiceAdapter) GetBySlug(ctx context.Context, slug string) (*interfaces.PageRecord, error) {
+func (a *cmsPageServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.PageRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("page service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -344,11 +344,11 @@ func (a *cmsPageServiceAdapter) GetBySlug(ctx context.Context, slug string) (*in
 	return nil, nil
 }
 
-func (a *cmsPageServiceAdapter) List(ctx context.Context) ([]*interfaces.PageRecord, error) {
+func (a *cmsPageServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.PageRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("page service unavailable")
 	}
-	records, err := a.service.List(ctx)
+	records, err := a.service.List(ctx, env...)
 	if err != nil {
 		return nil, err
 	}
@@ -2122,7 +2122,9 @@ func maybeSeedContentType(_ context.Context, container *di.Container, ct *conten
 		return
 	}
 
-	if seeder, ok := repo.(interface{ Put(*content.ContentType) error }); ok {
+	if seeder, ok := repo.(interface {
+		Put(*content.ContentType) error
+	}); ok {
 		if err := seeder.Put(ct); err != nil {
 			log.Printf("seed content type %s: %v", ct.Slug, err)
 		}
