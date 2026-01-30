@@ -283,14 +283,14 @@ func (s *stubContentService) Update(_ context.Context, req interfaces.ContentUpd
 	return cloneContentRecord(record), nil
 }
 
-func (s *stubContentService) GetBySlug(_ context.Context, slug string) (*interfaces.ContentRecord, error) {
+func (s *stubContentService) GetBySlug(_ context.Context, slug string, _ ...string) (*interfaces.ContentRecord, error) {
 	if record, ok := s.records[slug]; ok {
 		return cloneContentRecord(record), nil
 	}
 	return nil, nil
 }
 
-func (s *stubContentService) List(context.Context) ([]*interfaces.ContentRecord, error) {
+func (s *stubContentService) List(context.Context, ...string) ([]*interfaces.ContentRecord, error) {
 	result := make([]*interfaces.ContentRecord, 0, len(s.records))
 	for _, record := range s.records {
 		result = append(result, cloneContentRecord(record))
@@ -418,14 +418,14 @@ func (s *stubPageService) Update(_ context.Context, req interfaces.PageUpdateReq
 	return clonePageRecord(record), nil
 }
 
-func (s *stubPageService) GetBySlug(_ context.Context, slug string) (*interfaces.PageRecord, error) {
+func (s *stubPageService) GetBySlug(_ context.Context, slug string, _ ...string) (*interfaces.PageRecord, error) {
 	if record, ok := s.records[slug]; ok {
 		return clonePageRecord(record), nil
 	}
 	return nil, nil
 }
 
-func (s *stubPageService) List(context.Context) ([]*interfaces.PageRecord, error) {
+func (s *stubPageService) List(context.Context, ...string) ([]*interfaces.PageRecord, error) {
 	result := make([]*interfaces.PageRecord, 0, len(s.records))
 	for _, record := range s.records {
 		result = append(result, clonePageRecord(record))

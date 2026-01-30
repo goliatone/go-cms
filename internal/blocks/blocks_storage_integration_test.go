@@ -90,13 +90,18 @@ func registerBlockModels(t *testing.T, db *bun.DB) {
 		`CREATE TABLE IF NOT EXISTS block_definitions (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
+			slug TEXT,
 			description TEXT,
 			icon TEXT,
+			category TEXT,
+			status TEXT,
 			schema TEXT,
+			ui_schema TEXT,
 			schema_version TEXT,
 			defaults TEXT,
 			editor_style_url TEXT,
 			frontend_style_url TEXT,
+			environment_id TEXT,
 			deleted_at TEXT,
 			created_at TEXT,
 			updated_at TEXT

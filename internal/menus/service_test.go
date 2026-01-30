@@ -1663,7 +1663,7 @@ func (s *stubPageRepository) GetByID(ctx context.Context, id uuid.UUID) (*pages.
 	return nil, &pages.PageNotFoundError{Key: id.String()}
 }
 
-func (s *stubPageRepository) GetBySlug(ctx context.Context, slug string) (*pages.Page, error) {
+func (s *stubPageRepository) GetBySlug(ctx context.Context, slug string, env ...string) (*pages.Page, error) {
 	if page, ok := s.bySlug[strings.TrimSpace(slug)]; ok {
 		return page, nil
 	}

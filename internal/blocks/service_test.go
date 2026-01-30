@@ -33,8 +33,33 @@ func TestServiceRegisterDefinition(t *testing.T) {
 	if _, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
 		Name:   "hero",
 		Schema: map[string]any{"fields": []any{"title"}},
-	}); !errors.Is(err, blocks.ErrDefinitionExists) {
-		t.Fatalf("expected ErrDefinitionExists got %v", err)
+	}); !errors.Is(err, blocks.ErrDefinitionSlugExists) {
+		t.Fatalf("expected ErrDefinitionSlugExists got %v", err)
+	}
+}
+
+func TestServiceRegisterDefinitionSlugNormalization(t *testing.T) {
+	svc := newBlockService()
+
+	def, err := svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "Hero Banner",
+		Slug:   "Hero Banner",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+	if def.Slug != "hero-banner" {
+		t.Fatalf("expected slug hero-banner got %s", def.Slug)
+	}
+
+	_, err = svc.RegisterDefinition(context.Background(), blocks.RegisterDefinitionInput{
+		Name:   "Hero Alt",
+		Slug:   "hero-banner",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if !errors.Is(err, blocks.ErrDefinitionSlugExists) {
+		t.Fatalf("expected ErrDefinitionSlugExists got %v", err)
 	}
 }
 

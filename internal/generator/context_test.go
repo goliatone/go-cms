@@ -574,11 +574,11 @@ func (s *stubMenusService) GetMenu(context.Context, uuid.UUID) (*menus.Menu, err
 	return nil, errUnsupported
 }
 
-func (s *stubMenusService) GetMenuByCode(context.Context, string) (*menus.Menu, error) {
+func (s *stubMenusService) GetMenuByCode(context.Context, string, ...string) (*menus.Menu, error) {
 	return nil, errUnsupported
 }
 
-func (s *stubMenusService) GetMenuByLocation(context.Context, string) (*menus.Menu, error) {
+func (s *stubMenusService) GetMenuByLocation(context.Context, string, ...string) (*menus.Menu, error) {
 	return nil, errUnsupported
 }
 
@@ -602,11 +602,11 @@ func (s *stubMenusService) UpsertMenuItemTranslation(context.Context, menus.Upse
 	return nil, errUnsupported
 }
 
-func (s *stubMenusService) GetMenuItemByExternalCode(context.Context, string, string) (*menus.MenuItem, error) {
+func (s *stubMenusService) GetMenuItemByExternalCode(context.Context, string, string, ...string) (*menus.MenuItem, error) {
 	return nil, errUnsupported
 }
 
-func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string, locale string) ([]menus.NavigationNode, error) {
+func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string, locale string, _ ...string) ([]menus.NavigationNode, error) {
 	s.calls[locale]++
 	id := uuid.NewSHA1(uuid.NameSpaceURL, []byte(menuCode+"-"+locale))
 	return []menus.NavigationNode{
@@ -618,8 +618,8 @@ func (s *stubMenusService) ResolveNavigation(_ context.Context, menuCode string,
 	}, nil
 }
 
-func (s *stubMenusService) ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]menus.NavigationNode, error) {
-	return s.ResolveNavigation(ctx, location, locale)
+func (s *stubMenusService) ResolveNavigationByLocation(ctx context.Context, location string, locale string, env ...string) ([]menus.NavigationNode, error) {
+	return s.ResolveNavigation(ctx, location, locale, env...)
 }
 
 func (s *stubMenusService) InvalidateCache(context.Context) error {
@@ -630,7 +630,7 @@ func (s *stubMenusService) DeleteMenu(context.Context, menus.DeleteMenuRequest) 
 	return errUnsupported
 }
 
-func (s *stubMenusService) ResetMenuByCode(context.Context, string, uuid.UUID, bool) error {
+func (s *stubMenusService) ResetMenuByCode(context.Context, string, uuid.UUID, bool, ...string) error {
 	return errUnsupported
 }
 
@@ -651,11 +651,11 @@ type errorMenuService struct {
 	err error
 }
 
-func (s *errorMenuService) ResolveNavigation(context.Context, string, string) ([]menus.NavigationNode, error) {
+func (s *errorMenuService) ResolveNavigation(context.Context, string, string, ...string) ([]menus.NavigationNode, error) {
 	return nil, s.err
 }
 
-func (s *errorMenuService) ResolveNavigationByLocation(context.Context, string, string) ([]menus.NavigationNode, error) {
+func (s *errorMenuService) ResolveNavigationByLocation(context.Context, string, string, ...string) ([]menus.NavigationNode, error) {
 	return nil, s.err
 }
 
