@@ -6,6 +6,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/google/uuid"
 )
@@ -42,12 +43,12 @@ func (p *contentRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) (*co
 	return p.current().GetByID(ctx, id)
 }
 
-func (p *contentRepositoryProxy) GetBySlug(ctx context.Context, slug string) (*content.Content, error) {
-	return p.current().GetBySlug(ctx, slug)
+func (p *contentRepositoryProxy) GetBySlug(ctx context.Context, slug string, contentTypeID uuid.UUID, env ...string) (*content.Content, error) {
+	return p.current().GetBySlug(ctx, slug, contentTypeID, env...)
 }
 
-func (p *contentRepositoryProxy) List(ctx context.Context) ([]*content.Content, error) {
-	return p.current().List(ctx)
+func (p *contentRepositoryProxy) List(ctx context.Context, env ...string) ([]*content.Content, error) {
+	return p.current().List(ctx, env...)
 }
 
 func (p *contentRepositoryProxy) Update(ctx context.Context, record *content.Content) (*content.Content, error) {
@@ -119,20 +120,20 @@ func (p *contentTypeRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) 
 	return p.current().GetByID(ctx, id)
 }
 
-func (p *contentTypeRepositoryProxy) GetBySlug(ctx context.Context, slug string) (*content.ContentType, error) {
-	return p.current().GetBySlug(ctx, slug)
+func (p *contentTypeRepositoryProxy) GetBySlug(ctx context.Context, slug string, env ...string) (*content.ContentType, error) {
+	return p.current().GetBySlug(ctx, slug, env...)
 }
 
 func (p *contentTypeRepositoryProxy) Create(ctx context.Context, record *content.ContentType) (*content.ContentType, error) {
 	return p.current().Create(ctx, record)
 }
 
-func (p *contentTypeRepositoryProxy) List(ctx context.Context) ([]*content.ContentType, error) {
-	return p.current().List(ctx)
+func (p *contentTypeRepositoryProxy) List(ctx context.Context, env ...string) ([]*content.ContentType, error) {
+	return p.current().List(ctx, env...)
 }
 
-func (p *contentTypeRepositoryProxy) Search(ctx context.Context, query string) ([]*content.ContentType, error) {
-	return p.current().Search(ctx, query)
+func (p *contentTypeRepositoryProxy) Search(ctx context.Context, query string, env ...string) ([]*content.ContentType, error) {
+	return p.current().Search(ctx, query, env...)
 }
 
 func (p *contentTypeRepositoryProxy) Update(ctx context.Context, record *content.ContentType) (*content.ContentType, error) {
@@ -188,6 +189,62 @@ func (p *localeRepositoryProxy) Put(locale *content.Locale) {
 	}
 }
 
+// environmentRepositoryProxy routes calls to the current environment repository implementation.
+type environmentRepositoryProxy struct {
+	mu   sync.RWMutex
+	repo environments.EnvironmentRepository
+}
+
+func newEnvironmentRepositoryProxy(repo environments.EnvironmentRepository) *environmentRepositoryProxy {
+	return &environmentRepositoryProxy{repo: repo}
+}
+
+func (p *environmentRepositoryProxy) swap(repo environments.EnvironmentRepository) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if repo != nil {
+		p.repo = repo
+	}
+}
+
+func (p *environmentRepositoryProxy) current() environments.EnvironmentRepository {
+	p.mu.RLock()
+	defer p.mu.RUnlock()
+	return p.repo
+}
+
+func (p *environmentRepositoryProxy) Create(ctx context.Context, env *environments.Environment) (*environments.Environment, error) {
+	return p.current().Create(ctx, env)
+}
+
+func (p *environmentRepositoryProxy) Update(ctx context.Context, env *environments.Environment) (*environments.Environment, error) {
+	return p.current().Update(ctx, env)
+}
+
+func (p *environmentRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) (*environments.Environment, error) {
+	return p.current().GetByID(ctx, id)
+}
+
+func (p *environmentRepositoryProxy) GetByKey(ctx context.Context, key string) (*environments.Environment, error) {
+	return p.current().GetByKey(ctx, key)
+}
+
+func (p *environmentRepositoryProxy) List(ctx context.Context) ([]*environments.Environment, error) {
+	return p.current().List(ctx)
+}
+
+func (p *environmentRepositoryProxy) ListActive(ctx context.Context) ([]*environments.Environment, error) {
+	return p.current().ListActive(ctx)
+}
+
+func (p *environmentRepositoryProxy) GetDefault(ctx context.Context) (*environments.Environment, error) {
+	return p.current().GetDefault(ctx)
+}
+
+func (p *environmentRepositoryProxy) Delete(ctx context.Context, id uuid.UUID) error {
+	return p.current().Delete(ctx, id)
+}
+
 // pageRepositoryProxy routes calls to the current page repository implementation.
 type pageRepositoryProxy struct {
 	mu   sync.RWMutex
@@ -220,12 +277,12 @@ func (p *pageRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) (*pages
 	return p.current().GetByID(ctx, id)
 }
 
-func (p *pageRepositoryProxy) GetBySlug(ctx context.Context, slug string) (*pages.Page, error) {
-	return p.current().GetBySlug(ctx, slug)
+func (p *pageRepositoryProxy) GetBySlug(ctx context.Context, slug string, env ...string) (*pages.Page, error) {
+	return p.current().GetBySlug(ctx, slug, env...)
 }
 
-func (p *pageRepositoryProxy) List(ctx context.Context) ([]*pages.Page, error) {
-	return p.current().List(ctx)
+func (p *pageRepositoryProxy) List(ctx context.Context, env ...string) ([]*pages.Page, error) {
+	return p.current().List(ctx, env...)
 }
 
 func (p *pageRepositoryProxy) Update(ctx context.Context, record *pages.Page) (*pages.Page, error) {
@@ -292,12 +349,12 @@ func (p *blockDefinitionRepositoryProxy) GetByID(ctx context.Context, id uuid.UU
 	return p.current().GetByID(ctx, id)
 }
 
-func (p *blockDefinitionRepositoryProxy) GetByName(ctx context.Context, name string) (*blocks.Definition, error) {
-	return p.current().GetByName(ctx, name)
+func (p *blockDefinitionRepositoryProxy) GetBySlug(ctx context.Context, slug string, env ...string) (*blocks.Definition, error) {
+	return p.current().GetBySlug(ctx, slug, env...)
 }
 
-func (p *blockDefinitionRepositoryProxy) List(ctx context.Context) ([]*blocks.Definition, error) {
-	return p.current().List(ctx)
+func (p *blockDefinitionRepositoryProxy) List(ctx context.Context, env ...string) ([]*blocks.Definition, error) {
+	return p.current().List(ctx, env...)
 }
 
 func (p *blockDefinitionRepositoryProxy) Update(ctx context.Context, definition *blocks.Definition) (*blocks.Definition, error) {
