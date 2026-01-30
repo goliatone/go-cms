@@ -12,6 +12,7 @@ import (
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/media"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
@@ -29,7 +30,7 @@ import (
 type Service interface {
 	Create(ctx context.Context, req CreatePageRequest) (*Page, error)
 	Get(ctx context.Context, id uuid.UUID) (*Page, error)
-	List(ctx context.Context) ([]*Page, error)
+	List(ctx context.Context, env ...string) ([]*Page, error)
 	Update(ctx context.Context, req UpdatePageRequest) (*Page, error)
 	Delete(ctx context.Context, req DeletePageRequest) error
 	UpdateTranslation(ctx context.Context, req UpdatePageTranslationRequest) (*PageTranslation, error)
@@ -197,8 +198,8 @@ var (
 type PageRepository interface {
 	Create(ctx context.Context, record *Page) (*Page, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Page, error)
-	GetBySlug(ctx context.Context, slug string) (*Page, error)
-	List(ctx context.Context) ([]*Page, error)
+	GetBySlug(ctx context.Context, slug string, env ...string) (*Page, error)
+	List(ctx context.Context, env ...string) ([]*Page, error)
 	Update(ctx context.Context, record *Page) (*Page, error)
 	ReplaceTranslations(ctx context.Context, pageID uuid.UUID, translations []*PageTranslation) error
 	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
@@ -264,6 +265,24 @@ func WithIDGenerator(generator IDGenerator) ServiceOption {
 	}
 }
 
+// WithEnvironmentService wires the environment service for env resolution.
+func WithEnvironmentService(service cmsenv.Service) ServiceOption {
+	return func(ps *pageService) {
+		if service != nil {
+			ps.envSvc = service
+		}
+	}
+}
+
+// WithDefaultEnvironmentKey overrides the default environment key.
+func WithDefaultEnvironmentKey(key string) ServiceOption {
+	return func(ps *pageService) {
+		if strings.TrimSpace(key) != "" {
+			ps.defaultEnvKey = key
+		}
+	}
+}
+
 type pageService struct {
 	pages                 PageRepository
 	content               ContentRepository
@@ -287,6 +306,8 @@ type pageService struct {
 	defaultLocale         string
 	defaultLocaleRequired bool
 	activity              *activity.Emitter
+	envSvc                cmsenv.Service
+	defaultEnvKey         string
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -427,6 +448,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		requireTranslations: true,
 		translationsEnabled: true,
 		activity:            activity.NewEmitter(nil, activity.Config{}),
+		defaultEnvKey:       cmsenv.DefaultKey,
 	}
 
 	for _, opt := range opts {
@@ -490,6 +512,44 @@ func (s *pageService) isDefaultLocale(code string) bool {
 	return strings.ToLower(strings.TrimSpace(code)) == s.defaultLocaleKey()
 }
 
+func (s *pageService) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
+	trimmed := strings.TrimSpace(key)
+	if trimmed != "" {
+		if parsed, err := uuid.Parse(trimmed); err == nil {
+			return parsed, trimmed, nil
+		}
+	}
+	normalized := cmsenv.NormalizeKey(trimmed)
+	if normalized == "" {
+		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
+	}
+	if s.envSvc == nil {
+		if normalized == "" {
+			normalized = cmsenv.DefaultKey
+		}
+		return cmsenv.IDForKey(normalized), normalized, nil
+	}
+	if normalized == "" {
+		env, err := s.envSvc.GetDefaultEnvironment(ctx)
+		if err != nil {
+			return uuid.Nil, "", err
+		}
+		return env.ID, env.Key, nil
+	}
+	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
+	if err != nil {
+		return uuid.Nil, "", err
+	}
+	return env.ID, env.Key, nil
+}
+
+func pickEnvironmentKey(env ...string) string {
+	if len(env) == 0 {
+		return ""
+	}
+	return strings.TrimSpace(env[0])
+}
+
 func (s *pageService) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
@@ -543,9 +603,19 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		return nil, ErrDefaultLocaleRequired
 	}
 
-	if _, err := s.content.GetByID(ctx, req.ContentID); err != nil {
+	contentRecord, err := s.content.GetByID(ctx, req.ContentID)
+	if err != nil {
 		logger.Error("page content lookup failed", "error", err)
 		return nil, ErrContentRequired
+	}
+	envID := contentRecord.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			logger.Error("page environment lookup failed", "error", err)
+			return nil, err
+		}
+		envID = resolvedID
 	}
 
 	if s.themes != nil {
@@ -562,7 +632,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		}
 	}
 
-	if existing, err := s.pages.GetBySlug(ctx, slug); err == nil && existing != nil {
+	if existing, err := s.pages.GetBySlug(ctx, slug, envID.String()); err == nil && existing != nil {
 		logger.Warn("page slug already exists", "existing_page_id", existing.ID)
 		return nil, ErrSlugExists
 	} else if err != nil {
@@ -575,17 +645,18 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 
 	now := s.now()
 	page := &Page{
-		ID:           s.id(),
-		ContentID:    req.ContentID,
-		ParentID:     req.ParentID,
-		TemplateID:   req.TemplateID,
-		Slug:         slug,
-		Status:       string(domain.StatusDraft),
-		CreatedBy:    req.CreatedBy,
-		UpdatedBy:    req.UpdatedBy,
-		CreatedAt:    now,
-		UpdatedAt:    now,
-		Translations: []*PageTranslation{},
+		ID:            s.id(),
+		ContentID:     req.ContentID,
+		EnvironmentID: envID,
+		ParentID:      req.ParentID,
+		TemplateID:    req.TemplateID,
+		Slug:          slug,
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     req.CreatedBy,
+		UpdatedBy:     req.UpdatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		Translations:  []*PageTranslation{},
 	}
 
 	if req.ParentID != nil {
@@ -601,7 +672,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 	)
 	if len(req.Translations) > 0 {
 		groupID := page.ID
-		existingPages, err = s.pages.List(ctx)
+		existingPages, err = s.pages.List(ctx, envID.String())
 		if err != nil {
 			logger.Error("page list for conflict check failed", "error", err)
 			return nil, err
@@ -686,13 +757,17 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 	}
 	logger.Info("page created")
 	record := enriched[0]
-	s.emitActivity(ctx, selectActor(req.CreatedBy, req.UpdatedBy), "create", "page", record.ID, map[string]any{
+	meta := map[string]any{
 		"slug":        record.Slug,
 		"status":      record.Status,
 		"locales":     collectPageLocales(record),
 		"path":        primaryPagePath(record),
 		"template_id": record.TemplateID.String(),
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, selectActor(req.CreatedBy, req.UpdatedBy), "create", "page", record.ID, meta)
 	return record, nil
 }
 
@@ -715,9 +790,14 @@ func (s *pageService) Get(ctx context.Context, id uuid.UUID) (*Page, error) {
 }
 
 // List returns all pages.
-func (s *pageService) List(ctx context.Context) ([]*Page, error) {
+func (s *pageService) List(ctx context.Context, env ...string) ([]*Page, error) {
 	logger := s.opLogger(ctx, "pages.list", nil)
-	pages, err := s.pages.List(ctx)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		logger.Error("pages list environment lookup failed", "error", err)
+		return nil, err
+	}
+	pages, err := s.pages.List(ctx, envID.String())
 	if err != nil {
 		logger.Error("page list failed", "error", err)
 		return nil, err
@@ -749,6 +829,15 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
+	envID := existing.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			logger.Error("page environment lookup failed", "error", err)
+			return nil, err
+		}
+		envID = resolvedID
+	}
 
 	if req.TemplateID != nil {
 		if *req.TemplateID == uuid.Nil {
@@ -775,7 +864,7 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 	replaceTranslations := len(req.Translations) > 0
 	var translations []*PageTranslation
 	if replaceTranslations {
-		allPages, err := s.pages.List(ctx)
+		allPages, err := s.pages.List(ctx, envID.String())
 		if err != nil {
 			logger.Error("page list failed", "error", err)
 			return nil, err
@@ -831,13 +920,17 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 
 	logger.Info("page updated")
 	record := enriched[0]
-	s.emitActivity(ctx, req.UpdatedBy, "update", "page", record.ID, map[string]any{
+	meta := map[string]any{
 		"slug":        record.Slug,
 		"status":      record.Status,
 		"locales":     collectPageLocales(record),
 		"path":        primaryPagePath(record),
 		"template_id": record.TemplateID.String(),
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.UpdatedBy, "update", "page", record.ID, meta)
 	return record, nil
 }
 
@@ -875,12 +968,16 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 	}
 
 	logger.Info("page deleted")
-	s.emitActivity(ctx, req.DeletedBy, "delete", "page", record.ID, map[string]any{
+	meta := map[string]any{
 		"slug":    record.Slug,
 		"status":  record.Status,
 		"locales": collectPageLocales(record),
 		"path":    primaryPagePath(record),
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "page", record.ID, meta)
 	return nil
 }
 
@@ -907,6 +1004,15 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
+	envID := record.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			logger.Error("page environment lookup failed", "error", err)
+			return nil, err
+		}
+		envID = resolvedID
+	}
 
 	locale, err := s.locales.GetByCode(ctx, localeCode)
 	if err != nil {
@@ -930,7 +1036,7 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		return nil, ErrPageTranslationNotFound
 	}
 
-	allPages, err := s.pages.List(ctx)
+	allPages, err := s.pages.List(ctx, envID.String())
 	if err != nil {
 		logger.Error("page list failed", "error", err)
 		return nil, err
@@ -1018,12 +1124,16 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 	}
 
 	logger.Info("page translation updated")
-	s.emitActivity(ctx, req.UpdatedBy, "update", "page_translation", updatedTranslation.ID, map[string]any{
+	meta := map[string]any{
 		"page_id": record.ID.String(),
 		"locale":  locale.Code,
 		"path":    updatedTranslation.Path,
 		"status":  record.Status,
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.UpdatedBy, "update", "page_translation", updatedTranslation.ID, meta)
 	return updatedTranslation, nil
 }
 
@@ -1105,11 +1215,15 @@ func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTrans
 	if targetID == uuid.Nil {
 		targetID = req.PageID
 	}
-	s.emitActivity(ctx, req.DeletedBy, "delete", "page_translation", targetID, map[string]any{
+	meta := map[string]any{
 		"page_id": req.PageID.String(),
 		"locale":  locale.Code,
 		"status":  record.Status,
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.DeletedBy, "delete", "page_translation", targetID, meta)
 	return nil
 }
 
@@ -1179,13 +1293,17 @@ func (s *pageService) Move(ctx context.Context, req MovePageRequest) (*Page, err
 
 	logger.Info("page moved")
 	record = enriched[0]
-	s.emitActivity(ctx, req.ActorID, "reorder", "page", record.ID, map[string]any{
+	meta := map[string]any{
 		"slug":      record.Slug,
 		"path":      primaryPagePath(record),
 		"status":    record.Status,
 		"locales":   collectPageLocales(record),
 		"parent_id": record.ParentID,
-	})
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.ActorID, "reorder", "page", record.ID, meta)
 	return record, nil
 }
 
@@ -1204,8 +1322,17 @@ func (s *pageService) Duplicate(ctx context.Context, req DuplicatePageRequest) (
 		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
+	envID := source.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			logger.Error("page environment lookup failed", "error", err)
+			return nil, err
+		}
+		envID = resolvedID
+	}
 
-	slug, err := s.generateDuplicateSlug(ctx, req.Slug, source.Slug)
+	slug, err := s.generateDuplicateSlug(ctx, req.Slug, source.Slug, envID.String())
 	if err != nil {
 		logger.Error("duplicate slug resolution failed", "error", err)
 		return nil, err
@@ -1239,7 +1366,7 @@ func (s *pageService) Duplicate(ctx context.Context, req DuplicatePageRequest) (
 		}
 	}
 
-	allPages, err := s.pages.List(ctx)
+	allPages, err := s.pages.List(ctx, envID.String())
 	if err != nil {
 		logger.Error("page list failed", "error", err)
 		return nil, err
@@ -1260,16 +1387,17 @@ func (s *pageService) Duplicate(ctx context.Context, req DuplicatePageRequest) (
 	}
 
 	cloned := &Page{
-		ID:         newPageID,
-		ContentID:  source.ContentID,
-		ParentID:   parentPtr,
-		TemplateID: source.TemplateID,
-		Slug:       slug,
-		Status:     status,
-		CreatedBy:  createdBy,
-		UpdatedBy:  updatedBy,
-		CreatedAt:  now,
-		UpdatedAt:  now,
+		ID:            newPageID,
+		ContentID:     source.ContentID,
+		EnvironmentID: envID,
+		ParentID:      parentPtr,
+		TemplateID:    source.TemplateID,
+		Slug:          slug,
+		Status:        status,
+		CreatedBy:     createdBy,
+		UpdatedBy:     updatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 
 	if len(source.Translations) == 0 && s.translationsRequired() {
@@ -1457,13 +1585,17 @@ func (s *pageService) Schedule(ctx context.Context, req SchedulePageRequest) (*P
 		"status", record.Status,
 	)
 	scheduleRecord := enriched[0]
-	s.emitActivity(ctx, req.ScheduledBy, "schedule", "page", scheduleRecord.ID, map[string]any{
+	meta := map[string]any{
 		"status":       scheduleRecord.Status,
 		"publish_at":   scheduleRecord.PublishAt,
 		"unpublish_at": scheduleRecord.UnpublishAt,
 		"path":         primaryPagePath(scheduleRecord),
 		"locales":      collectPageLocales(scheduleRecord),
-	})
+	}
+	if scheduleRecord.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = scheduleRecord.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.ScheduledBy, "schedule", "page", scheduleRecord.ID, meta)
 	return scheduleRecord, nil
 }
 
@@ -1661,13 +1793,17 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 	}
 
 	logger.Info("page version published", "published_at", publishedAt)
-	s.emitActivity(ctx, req.PublishedBy, "publish", "page", page.ID, map[string]any{
+	meta := map[string]any{
 		"version":      updatedVersion.Version,
 		"status":       page.Status,
 		"path":         primaryPagePath(page),
 		"locales":      collectPageLocales(page),
 		"published_at": publishedAt,
-	})
+	}
+	if page.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = page.EnvironmentID.String()
+	}
+	s.emitActivity(ctx, req.PublishedBy, "publish", "page", page.ID, meta)
 
 	return clonePageVersion(updatedVersion), nil
 }
@@ -2561,13 +2697,13 @@ func (s *pageService) ensureValidParent(ctx context.Context, pageID uuid.UUID, p
 	return nil
 }
 
-func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fallback string) (string, error) {
+func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fallback string, env string) (string, error) {
 	candidate := strings.TrimSpace(requested)
 	if candidate != "" {
 		if !isValidSlug(candidate) {
 			return "", ErrSlugInvalid
 		}
-		if _, err := s.pages.GetBySlug(ctx, candidate); err == nil {
+		if _, err := s.pages.GetBySlug(ctx, candidate, env); err == nil {
 			return "", ErrSlugExists
 		} else {
 			var notFound *PageNotFoundError
@@ -2585,7 +2721,7 @@ func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fall
 
 	for attempt := 0; attempt < 100; attempt++ {
 		next := appendCopySuffix(base, attempt)
-		if _, err := s.pages.GetBySlug(ctx, next); err != nil {
+		if _, err := s.pages.GetBySlug(ctx, next, env); err != nil {
 			var notFound *PageNotFoundError
 			if errors.As(err, &notFound) {
 				return next, nil
