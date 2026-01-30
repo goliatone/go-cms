@@ -52,6 +52,7 @@ type CreatePageRequest struct {
 	ParentID                 *uuid.UUID
 	Slug                     string
 	Status                   string
+	EnvironmentKey           string
 	CreatedBy                uuid.UUID
 	UpdatedBy                uuid.UUID
 	Translations             []PageTranslationInput
@@ -72,6 +73,7 @@ type UpdatePageRequest struct {
 	ID                       uuid.UUID
 	TemplateID               *uuid.UUID
 	Status                   string
+	EnvironmentKey           string
 	UpdatedBy                uuid.UUID
 	Translations             []PageTranslationInput
 	AllowMissingTranslations bool
@@ -283,6 +285,20 @@ func WithDefaultEnvironmentKey(key string) ServiceOption {
 	}
 }
 
+// WithRequireExplicitEnvironment enforces explicit environment selection.
+func WithRequireExplicitEnvironment(required bool) ServiceOption {
+	return func(ps *pageService) {
+		ps.requireExplicitEnv = required
+	}
+}
+
+// WithRequireActiveEnvironment blocks operations on inactive environments.
+func WithRequireActiveEnvironment(required bool) ServiceOption {
+	return func(ps *pageService) {
+		ps.requireActiveEnv = required
+	}
+}
+
 type pageService struct {
 	pages                 PageRepository
 	content               ContentRepository
@@ -308,6 +324,8 @@ type pageService struct {
 	activity              *activity.Emitter
 	envSvc                cmsenv.Service
 	defaultEnvKey         string
+	requireExplicitEnv    bool
+	requireActiveEnv      bool
 }
 
 func WithBlockService(service blocks.Service) ServiceOption {
@@ -514,33 +532,66 @@ func (s *pageService) isDefaultLocale(code string) bool {
 
 func (s *pageService) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
 	trimmed := strings.TrimSpace(key)
+	if trimmed == "" && s.requireExplicitEnv {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentKeyRequired
+	}
 	if trimmed != "" {
 		if parsed, err := uuid.Parse(trimmed); err == nil {
 			return parsed, trimmed, nil
 		}
 	}
-	normalized := cmsenv.NormalizeKey(trimmed)
-	if normalized == "" {
-		normalized = cmsenv.NormalizeKey(s.defaultEnvKey)
+	normalized, err := cmsenv.ResolveKey(trimmed, s.defaultEnvKey, s.requireExplicitEnv)
+	if err != nil {
+		return uuid.Nil, "", err
 	}
 	if s.envSvc == nil {
-		if normalized == "" {
-			normalized = cmsenv.DefaultKey
-		}
 		return cmsenv.IDForKey(normalized), normalized, nil
-	}
-	if normalized == "" {
-		env, err := s.envSvc.GetDefaultEnvironment(ctx)
-		if err != nil {
-			return uuid.Nil, "", err
-		}
-		return env.ID, env.Key, nil
 	}
 	env, err := s.envSvc.GetEnvironmentByKey(ctx, normalized)
 	if err != nil {
 		return uuid.Nil, "", err
 	}
+	if s.requireActiveEnv && !env.IsActive {
+		return uuid.Nil, "", cmsenv.ErrEnvironmentNotFound
+	}
 	return env.ID, env.Key, nil
+}
+
+func (s *pageService) ensureEnvironmentActive(ctx context.Context, envID uuid.UUID) error {
+	if !s.requireActiveEnv || s.envSvc == nil || envID == uuid.Nil {
+		return nil
+	}
+	env, err := s.envSvc.GetEnvironment(ctx, envID)
+	if err != nil {
+		return err
+	}
+	if !env.IsActive {
+		return cmsenv.ErrEnvironmentNotFound
+	}
+	return nil
+}
+
+func (s *pageService) environmentKeyForID(ctx context.Context, envID uuid.UUID) string {
+	if envID == uuid.Nil {
+		return ""
+	}
+	if s.envSvc != nil {
+		env, err := s.envSvc.GetEnvironment(ctx, envID)
+		if err == nil && env != nil {
+			return env.Key
+		}
+	}
+	defaultKey := strings.TrimSpace(s.defaultEnvKey)
+	if defaultKey == "" {
+		defaultKey = cmsenv.DefaultKey
+	}
+	if envID == cmsenv.IDForKey(defaultKey) {
+		return cmsenv.NormalizeKey(defaultKey)
+	}
+	if envID == cmsenv.IDForKey(cmsenv.DefaultKey) {
+		return cmsenv.DefaultKey
+	}
+	return ""
 }
 
 func pickEnvironmentKey(env ...string) string {
@@ -553,6 +604,17 @@ func pickEnvironmentKey(env ...string) string {
 func (s *pageService) emitActivity(ctx context.Context, actor uuid.UUID, verb, objectType string, objectID uuid.UUID, meta map[string]any) {
 	if s.activity == nil || !s.activity.Enabled() || objectID == uuid.Nil {
 		return
+	}
+	if meta != nil {
+		if _, ok := meta["environment_key"]; !ok {
+			if raw, ok := meta["environment_id"].(string); ok && strings.TrimSpace(raw) != "" {
+				if parsed, err := uuid.Parse(raw); err == nil {
+					if key := s.environmentKeyForID(ctx, parsed); key != "" {
+						meta["environment_key"] = key
+					}
+				}
+			}
+		}
 	}
 	event := activity.Event{
 		Verb:       verb,
@@ -608,14 +670,38 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		logger.Error("page content lookup failed", "error", err)
 		return nil, ErrContentRequired
 	}
-	envID := contentRecord.EnvironmentID
-	if envID == uuid.Nil {
-		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+	if err := s.ensureEnvironmentActive(ctx, contentRecord.EnvironmentID); err != nil {
+		return nil, err
+	}
+	var resolvedEnvID uuid.UUID
+	if strings.TrimSpace(req.EnvironmentKey) != "" || s.requireExplicitEnv {
+		envID, _, err := s.resolveEnvironment(ctx, req.EnvironmentKey)
 		if err != nil {
-			logger.Error("page environment lookup failed", "error", err)
 			return nil, err
 		}
-		envID = resolvedID
+		resolvedEnvID = envID
+		if contentRecord.EnvironmentID != uuid.Nil && contentRecord.EnvironmentID != envID {
+			return nil, cmsenv.ErrEnvironmentNotFound
+		}
+	}
+	envID := contentRecord.EnvironmentID
+	if envID == uuid.Nil {
+		if resolvedEnvID != uuid.Nil {
+			envID = resolvedEnvID
+		} else {
+			resolvedID, _, err := s.resolveEnvironment(ctx, "")
+			if err != nil {
+				logger.Error("page environment lookup failed", "error", err)
+				return nil, err
+			}
+			envID = resolvedID
+		}
+	}
+	if err := s.ensureEnvironmentActive(ctx, envID); err != nil {
+		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, envID); err != nil {
+		return nil, err
 	}
 
 	if s.themes != nil {
@@ -778,6 +864,9 @@ func (s *pageService) Get(ctx context.Context, id uuid.UUID) (*Page, error) {
 		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
+	if err := s.ensureEnvironmentActive(ctx, page.EnvironmentID); err != nil {
+		return nil, err
+	}
 
 	enriched, err := s.enrichPages(ctx, []*Page{page})
 	if err != nil {
@@ -828,14 +917,32 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 		logger.Error("page lookup failed", "error", err)
 		return nil, err
 	}
-	envID := existing.EnvironmentID
-	if envID == uuid.Nil {
-		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+	if err := s.ensureEnvironmentActive(ctx, existing.EnvironmentID); err != nil {
+		return nil, err
+	}
+	var resolvedEnvID uuid.UUID
+	if strings.TrimSpace(req.EnvironmentKey) != "" || s.requireExplicitEnv {
+		envID, _, err := s.resolveEnvironment(ctx, req.EnvironmentKey)
 		if err != nil {
-			logger.Error("page environment lookup failed", "error", err)
 			return nil, err
 		}
-		envID = resolvedID
+		resolvedEnvID = envID
+		if existing.EnvironmentID != uuid.Nil && existing.EnvironmentID != envID {
+			return nil, cmsenv.ErrEnvironmentNotFound
+		}
+	}
+	envID := existing.EnvironmentID
+	if envID == uuid.Nil {
+		if resolvedEnvID != uuid.Nil {
+			envID = resolvedEnvID
+		} else {
+			resolvedID, _, err := s.resolveEnvironment(ctx, "")
+			if err != nil {
+				logger.Error("page environment lookup failed", "error", err)
+				return nil, err
+			}
+			envID = resolvedID
+		}
 	}
 
 	if req.TemplateID != nil {
@@ -949,6 +1056,9 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 	record, err := s.pages.GetByID(ctx, req.ID)
 	if err != nil {
 		logger.Error("page lookup failed", "error", err)
+		return err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
 		return err
 	}
 
