@@ -46,6 +46,7 @@ var (
 	ErrEnvironmentKeyExists          = errors.New("environments: key already exists")
 	ErrEnvironmentNameRequired       = errors.New("environments: name is required")
 	ErrEnvironmentNotFound           = errors.New("environments: environment not found")
+	ErrEnvironmentDefaultProtected   = errors.New("environments: default environment cannot be unset or deleted")
 )
 
 // IDDeriver produces deterministic environment IDs from keys.
@@ -72,10 +73,18 @@ func WithNow(now func() time.Time) ServiceOption {
 	}
 }
 
+// WithDefaultEnforcement toggles protection for the default environment.
+func WithDefaultEnforcement(enabled bool) ServiceOption {
+	return func(s *service) {
+		s.enforceDefault = enabled
+	}
+}
+
 type service struct {
-	repo EnvironmentRepository
-	id   IDDeriver
-	now  func() time.Time
+	repo           EnvironmentRepository
+	id             IDDeriver
+	now            func() time.Time
+	enforceDefault bool
 }
 
 // NewService constructs an environment service instance.
@@ -167,6 +176,9 @@ func (s *service) UpdateEnvironment(ctx context.Context, input UpdateEnvironment
 	if err != nil {
 		return nil, translateRepoError(err, ErrEnvironmentNotFound)
 	}
+	if input.IsDefault != nil && !*input.IsDefault && env.IsDefault && s.enforceDefault {
+		return nil, ErrEnvironmentDefaultProtected
+	}
 
 	if input.Name != nil {
 		name := strings.TrimSpace(*input.Name)
@@ -213,6 +225,15 @@ func (s *service) UpdateEnvironment(ctx context.Context, input UpdateEnvironment
 func (s *service) DeleteEnvironment(ctx context.Context, id uuid.UUID) error {
 	if id == uuid.Nil {
 		return ErrEnvironmentNotFound
+	}
+	if s.enforceDefault {
+		env, err := s.repo.GetByID(ctx, id)
+		if err != nil {
+			return translateRepoError(err, ErrEnvironmentNotFound)
+		}
+		if env != nil && env.IsDefault {
+			return ErrEnvironmentDefaultProtected
+		}
 	}
 	if err := s.repo.Delete(ctx, id); err != nil {
 		return translateRepoError(err, ErrEnvironmentNotFound)
