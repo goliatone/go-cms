@@ -14,6 +14,7 @@ import (
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/permissions"
+	"github.com/goliatone/go-cms/internal/promotions"
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/google/uuid"
 )
@@ -145,6 +146,7 @@ func mapError(err error) (int, errorResponse) {
 	}
 
 	if errors.Is(err, cmsenv.ErrEnvironmentKeyExists) ||
+		errors.Is(err, cmsenv.ErrEnvironmentDefaultProtected) ||
 		errors.Is(err, content.ErrContentTypeSlugExists) ||
 		errors.Is(err, content.ErrSlugExists) ||
 		errors.Is(err, blocks.ErrDefinitionExists) ||
@@ -227,6 +229,9 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, cmsenv.ErrEnvironmentKeyRequired) ||
 		errors.Is(err, cmsenv.ErrEnvironmentKeyInvalid) ||
 		errors.Is(err, cmsenv.ErrEnvironmentNameRequired) ||
+		errors.Is(err, promotions.ErrContentTypeRequiredForSlugs) ||
+		errors.Is(err, promotions.ErrContentTypeEnvMismatch) ||
+		errors.Is(err, promotions.ErrContentTypeFilterMismatch) ||
 		errors.Is(err, blocks.ErrDefinitionNameRequired) ||
 		errors.Is(err, blocks.ErrDefinitionSchemaRequired) ||
 		errors.Is(err, blocks.ErrDefinitionSchemaVersionInvalid) ||
