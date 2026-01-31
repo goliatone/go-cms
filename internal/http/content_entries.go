@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/google/uuid"
 )
 
@@ -65,9 +66,12 @@ func (api *AdminAPI) handleContentList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	envKey, err := api.resolveEnvironmentKey(r, "", nil)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, "", nil, false)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentRead, envKey) {
 		return
 	}
 	var (
@@ -100,6 +104,14 @@ func (api *AdminAPI) handleContentGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentRead, envKey) {
+		return
+	}
 	writeJSON(w, http.StatusOK, record)
 }
 
@@ -113,14 +125,13 @@ func (api *AdminAPI) handleContentCreate(w http.ResponseWriter, r *http.Request)
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
-	envKey := ""
-	if strings.TrimSpace(payload.Environment) != "" || payload.EnvironmentID != nil || api.requireExplicit {
-		resolved, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		envKey = resolved
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentCreate, envKey) {
+		return
 	}
 	translations := make([]content.ContentTranslationInput, 0, len(payload.Translations))
 	for _, tr := range payload.Translations {
@@ -182,6 +193,20 @@ func (api *AdminAPI) handleContentUpdate(w http.ResponseWriter, r *http.Request)
 			return
 		}
 		envKey = resolved
+	} else {
+		existing, err := api.content.Get(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		envKey, err = api.environmentKeyForID(r.Context(), existing.EnvironmentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentUpdate, envKey) {
+		return
 	}
 	translations := make([]content.ContentTranslationInput, 0, len(payload.Translations))
 	for _, tr := range payload.Translations {
@@ -225,6 +250,19 @@ func (api *AdminAPI) handleContentDelete(w http.ResponseWriter, r *http.Request)
 	decodeErr := decodeJSON(r, &payload)
 	if decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: decodeErr.Error()})
+		return
+	}
+	existing, err := api.content.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	envKey, err := api.environmentKeyForID(r.Context(), existing.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.ContentDelete, envKey) {
 		return
 	}
 	hardDelete := payload.HardDelete
