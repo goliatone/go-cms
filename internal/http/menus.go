@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/goliatone/go-cms/internal/menus"
+	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/google/uuid"
 )
 
@@ -64,9 +65,12 @@ func (api *AdminAPI) handleMenuList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: "code or location required"})
 		return
 	}
-	envKey, err := api.resolveEnvironmentKey(r, "", nil)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, "", nil, false)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.MenusRead, envKey) {
 		return
 	}
 	var record *menus.Menu
@@ -105,6 +109,14 @@ func (api *AdminAPI) handleMenuGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.MenusRead, envKey) {
+		return
+	}
 	writeJSON(w, http.StatusOK, record)
 }
 
@@ -121,6 +133,9 @@ func (api *AdminAPI) handleMenuCreate(w http.ResponseWriter, r *http.Request) {
 	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.MenusCreate, envKey) {
 		return
 	}
 	actor := resolveActorID(payload.CreatedBy, payload.ActorID)
@@ -190,6 +205,9 @@ func (api *AdminAPI) handleMenuUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if !requirePermissionWithEnv(w, r, permissions.MenusUpdate, envKey) {
+		return
+	}
 	actor := resolveActorID(payload.UpdatedBy, payload.ActorID)
 	req := menus.UpsertMenuInput{
 		Code:           existing.Code,
@@ -220,6 +238,19 @@ func (api *AdminAPI) handleMenuDelete(w http.ResponseWriter, r *http.Request) {
 	decodeErr := decodeJSON(r, &payload)
 	if decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: decodeErr.Error()})
+		return
+	}
+	existing, err := api.menus.GetMenu(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	envKey, err := api.environmentKeyForID(r.Context(), existing.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.MenusDelete, envKey) {
 		return
 	}
 	force := payload.Force
