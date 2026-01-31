@@ -2,6 +2,7 @@ package promotions
 
 import (
 	"context"
+	"errors"
 
 	"github.com/google/uuid"
 )
@@ -30,6 +31,12 @@ const (
 	ModeUpsert PromoteMode = "upsert"
 )
 
+var (
+	ErrContentTypeRequiredForSlugs = errors.New("promotions: content type required for content slugs")
+	ErrContentTypeEnvMismatch      = errors.New("promotions: content type does not belong to source environment")
+	ErrContentTypeFilterMismatch   = errors.New("promotions: content type id and slug do not match")
+)
+
 // PromoteOptions captures common promotion flags.
 type PromoteOptions struct {
 	AllowBreakingChanges bool        `json:"allow_breaking_changes,omitempty"`
@@ -50,12 +57,14 @@ type PromoteEnvironmentRequest struct {
 	SourceEnvironment string `json:"-"`
 	TargetEnvironment string `json:"-"`
 
-	Scope            PromoteScope   `json:"scope,omitempty"`
-	ContentTypeIDs   []uuid.UUID    `json:"content_type_ids,omitempty"`
-	ContentTypeSlugs []string       `json:"content_type_slugs,omitempty"`
-	ContentIDs       []uuid.UUID    `json:"content_ids,omitempty"`
-	ContentSlugs     []string       `json:"content_slugs,omitempty"`
-	Options          PromoteOptions `json:"options,omitempty"`
+	Scope                PromoteScope   `json:"scope,omitempty"`
+	ContentTypeIDs       []uuid.UUID    `json:"content_type_ids,omitempty"`
+	ContentTypeSlugs     []string       `json:"content_type_slugs,omitempty"`
+	ContentIDs           []uuid.UUID    `json:"content_ids,omitempty"`
+	ContentSlugs         []string       `json:"content_slugs,omitempty"`
+	ContentEntryTypeID   *uuid.UUID     `json:"content_entry_type_id,omitempty"`
+	ContentEntryTypeSlug string         `json:"content_entry_type_slug,omitempty"`
+	Options              PromoteOptions `json:"options,omitempty"`
 }
 
 // PromoteContentTypeRequest describes a single content type promotion.

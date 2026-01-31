@@ -43,6 +43,21 @@ const (
 	EnvironmentsCreate = "environments:create"
 	EnvironmentsUpdate = "environments:update"
 	EnvironmentsDelete = "environments:delete"
+
+	ContentRead   = "content:read"
+	ContentCreate = "content:create"
+	ContentUpdate = "content:update"
+	ContentDelete = "content:delete"
+
+	PagesRead   = "pages:read"
+	PagesCreate = "pages:create"
+	PagesUpdate = "pages:update"
+	PagesDelete = "pages:delete"
+
+	MenusRead   = "menus:read"
+	MenusCreate = "menus:create"
+	MenusUpdate = "menus:update"
+	MenusDelete = "menus:delete"
 )
 
 var ErrPermissionDenied = errors.New("permissions: denied")

@@ -172,7 +172,11 @@ func (s *service) PromoteEnvironment(ctx context.Context, req PromoteEnvironment
 	}
 
 	if scope == ScopeContentEntries || scope == ScopeAll {
-		ids, err := s.collectContentEntryIDs(ctx, source.ID.String(), req.ContentIDs, req.ContentSlugs)
+		filter, err := s.resolveContentEntryTypeFilter(ctx, source, req)
+		if err != nil {
+			return nil, err
+		}
+		ids, err := s.collectContentEntryIDs(ctx, source.ID.String(), req.ContentIDs, req.ContentSlugs, filter)
 		if err != nil {
 			return nil, err
 		}
@@ -815,6 +819,56 @@ func (s *service) resolveEnvironmentByID(ctx context.Context, id uuid.UUID) (*cm
 	return s.resolveEnvironment(ctx, "", &id)
 }
 
+func (s *service) resolveContentEntryTypeFilter(ctx context.Context, source *cmsenv.Environment, req PromoteEnvironmentRequest) (*uuid.UUID, error) {
+	if s == nil || s.contentTypes == nil {
+		if len(req.ContentSlugs) > 0 || req.ContentEntryTypeID != nil || strings.TrimSpace(req.ContentEntryTypeSlug) != "" {
+			return nil, errors.New("promotions: content type repository unavailable")
+		}
+		return nil, nil
+	}
+	hasSlugs := len(req.ContentSlugs) > 0
+	rawSlug := strings.TrimSpace(req.ContentEntryTypeSlug)
+	rawID := req.ContentEntryTypeID
+	if hasSlugs && (rawID == nil || *rawID == uuid.Nil) && rawSlug == "" {
+		return nil, ErrContentTypeRequiredForSlugs
+	}
+
+	var byID *content.ContentType
+	var bySlug *content.ContentType
+	if rawID != nil && *rawID != uuid.Nil {
+		ct, err := s.contentTypes.GetByID(ctx, *rawID)
+		if err != nil {
+			return nil, err
+		}
+		if source != nil && ct.EnvironmentID != source.ID {
+			return nil, ErrContentTypeEnvMismatch
+		}
+		byID = ct
+	}
+	if rawSlug != "" {
+		if source == nil {
+			return nil, ErrContentTypeRequiredForSlugs
+		}
+		ct, err := s.contentTypes.GetBySlug(ctx, rawSlug, source.ID.String())
+		if err != nil {
+			return nil, err
+		}
+		bySlug = ct
+	}
+	if byID != nil && bySlug != nil && byID.ID != bySlug.ID {
+		return nil, ErrContentTypeFilterMismatch
+	}
+	if byID != nil {
+		id := byID.ID
+		return &id, nil
+	}
+	if bySlug != nil {
+		id := bySlug.ID
+		return &id, nil
+	}
+	return nil, nil
+}
+
 func (s *service) collectContentTypeIDs(ctx context.Context, envID string, ids []uuid.UUID, slugs []string) ([]uuid.UUID, error) {
 	if len(ids) > 0 || len(slugs) > 0 {
 		if len(slugs) == 0 {
@@ -856,7 +910,7 @@ func (s *service) collectContentTypeIDs(ctx context.Context, envID string, ids [
 	return out, nil
 }
 
-func (s *service) collectContentEntryIDs(ctx context.Context, envID string, ids []uuid.UUID, slugs []string) ([]uuid.UUID, error) {
+func (s *service) collectContentEntryIDs(ctx context.Context, envID string, ids []uuid.UUID, slugs []string, typeID *uuid.UUID) ([]uuid.UUID, error) {
 	if len(ids) > 0 || len(slugs) > 0 {
 		if len(slugs) == 0 {
 			return ids, nil
@@ -865,20 +919,27 @@ func (s *service) collectContentEntryIDs(ctx context.Context, envID string, ids 
 		if err != nil {
 			return nil, err
 		}
-		index := map[string]uuid.UUID{}
+		index := map[string][]uuid.UUID{}
 		for _, record := range records {
 			if record == nil {
 				continue
 			}
-			index[strings.ToLower(strings.TrimSpace(record.Slug))] = record.ID
+			if typeID != nil && *typeID != uuid.Nil && record.ContentTypeID != *typeID {
+				continue
+			}
+			key := strings.ToLower(strings.TrimSpace(record.Slug))
+			if key == "" {
+				continue
+			}
+			index[key] = append(index[key], record.ID)
 		}
 		for _, slug := range slugs {
 			key := strings.ToLower(strings.TrimSpace(slug))
 			if key == "" {
 				continue
 			}
-			if id, ok := index[key]; ok {
-				ids = append(ids, id)
+			if matches, ok := index[key]; ok {
+				ids = append(ids, matches...)
 			}
 		}
 		return ids, nil
@@ -890,6 +951,9 @@ func (s *service) collectContentEntryIDs(ctx context.Context, envID string, ids 
 	out := make([]uuid.UUID, 0, len(records))
 	for _, record := range records {
 		if record == nil {
+			continue
+		}
+		if typeID != nil && *typeID != uuid.Nil && record.ContentTypeID != *typeID {
 			continue
 		}
 		out = append(out, record.ID)

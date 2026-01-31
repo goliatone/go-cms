@@ -11,12 +11,14 @@ import (
 )
 
 type promoteEnvironmentPayload struct {
-	Scope            promotions.PromoteScope   `json:"scope,omitempty"`
-	ContentTypeIDs   []uuid.UUID               `json:"content_type_ids,omitempty"`
-	ContentTypeSlugs []string                  `json:"content_type_slugs,omitempty"`
-	ContentIDs       []uuid.UUID               `json:"content_ids,omitempty"`
-	ContentSlugs     []string                  `json:"content_slugs,omitempty"`
-	Options          promotions.PromoteOptions `json:"options,omitempty"`
+	Scope                promotions.PromoteScope   `json:"scope,omitempty"`
+	ContentTypeIDs       []uuid.UUID               `json:"content_type_ids,omitempty"`
+	ContentTypeSlugs     []string                  `json:"content_type_slugs,omitempty"`
+	ContentIDs           []uuid.UUID               `json:"content_ids,omitempty"`
+	ContentSlugs         []string                  `json:"content_slugs,omitempty"`
+	ContentEntryTypeID   *uuid.UUID                `json:"content_entry_type_id,omitempty"`
+	ContentEntryTypeSlug string                    `json:"content_entry_type_slug,omitempty"`
+	Options              promotions.PromoteOptions `json:"options,omitempty"`
 }
 
 type promoteContentTypePayload struct {
@@ -60,14 +62,16 @@ func (api *AdminAPI) handlePromoteEnvironment(w http.ResponseWriter, r *http.Req
 		return
 	}
 	req := promotions.PromoteEnvironmentRequest{
-		SourceEnvironment: source,
-		TargetEnvironment: target,
-		Scope:             payload.Scope,
-		ContentTypeIDs:    payload.ContentTypeIDs,
-		ContentTypeSlugs:  payload.ContentTypeSlugs,
-		ContentIDs:        payload.ContentIDs,
-		ContentSlugs:      payload.ContentSlugs,
-		Options:           payload.Options,
+		SourceEnvironment:    source,
+		TargetEnvironment:    target,
+		Scope:                payload.Scope,
+		ContentTypeIDs:       payload.ContentTypeIDs,
+		ContentTypeSlugs:     payload.ContentTypeSlugs,
+		ContentIDs:           payload.ContentIDs,
+		ContentSlugs:         payload.ContentSlugs,
+		ContentEntryTypeID:   payload.ContentEntryTypeID,
+		ContentEntryTypeSlug: strings.TrimSpace(payload.ContentEntryTypeSlug),
+		Options:              payload.Options,
 	}
 	result, err := api.promotions.PromoteEnvironment(r.Context(), req)
 	if err != nil {

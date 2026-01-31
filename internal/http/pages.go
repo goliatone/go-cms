@@ -8,6 +8,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/google/uuid"
 )
 
@@ -68,9 +69,12 @@ func (api *AdminAPI) handlePageList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "service_unavailable"})
 		return
 	}
-	envKey, err := api.resolveEnvironmentKey(r, "", nil)
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, "", nil, false)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.PagesRead, envKey) {
 		return
 	}
 	var list []*pages.Page
@@ -101,6 +105,14 @@ func (api *AdminAPI) handlePageGet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	envKey, err := api.environmentKeyForID(r.Context(), record.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.PagesRead, envKey) {
+		return
+	}
 	writeJSON(w, http.StatusOK, record)
 }
 
@@ -114,14 +126,13 @@ func (api *AdminAPI) handlePageCreate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: err.Error()})
 		return
 	}
-	envKey := ""
-	if strings.TrimSpace(payload.Environment) != "" || payload.EnvironmentID != nil || api.requireExplicit {
-		resolved, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		envKey = resolved
+	envKey, err := api.resolveEnvironmentKeyWithDefault(r, payload.Environment, payload.EnvironmentID, api.requireExplicit)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.PagesCreate, envKey) {
+		return
 	}
 	translations := make([]pages.PageTranslationInput, 0, len(payload.Translations))
 	for _, tr := range payload.Translations {
@@ -185,6 +196,20 @@ func (api *AdminAPI) handlePageUpdate(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		envKey = resolved
+	} else {
+		existing, err := api.pages.Get(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		envKey, err = api.environmentKeyForID(r.Context(), existing.EnvironmentID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if !requirePermissionWithEnv(w, r, permissions.PagesUpdate, envKey) {
+		return
 	}
 	translations := make([]pages.PageTranslationInput, 0, len(payload.Translations))
 	for _, tr := range payload.Translations {
@@ -228,6 +253,19 @@ func (api *AdminAPI) handlePageDelete(w http.ResponseWriter, r *http.Request) {
 	decodeErr := decodeJSON(r, &payload)
 	if decodeErr != nil && !errors.Is(decodeErr, io.EOF) {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "bad_request", Message: decodeErr.Error()})
+		return
+	}
+	existing, err := api.pages.Get(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	envKey, err := api.environmentKeyForID(r.Context(), existing.EnvironmentID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if !requirePermissionWithEnv(w, r, permissions.PagesDelete, envKey) {
 		return
 	}
 	hardDelete := payload.HardDelete

@@ -165,6 +165,7 @@ type EnvironmentsConfig struct {
 	DefaultKey         string
 	RequireExplicit    bool
 	RequireActive      bool
+	EnforceDefault     bool
 	PermissionScoped   bool
 	PermissionStrategy string
 	Definitions        []EnvironmentConfig
@@ -571,6 +572,7 @@ func validateEnvironmentsConfig(featureEnabled bool, cfg EnvironmentsConfig) err
 	hasConfig := strings.TrimSpace(cfg.DefaultKey) != "" ||
 		cfg.RequireExplicit ||
 		cfg.RequireActive ||
+		cfg.EnforceDefault ||
 		cfg.PermissionScoped ||
 		strings.TrimSpace(cfg.PermissionStrategy) != "" ||
 		len(cfg.Definitions) > 0
