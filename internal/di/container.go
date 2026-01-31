@@ -640,7 +640,10 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 
 	if c.environmentSvc == nil {
 		if c.Config.Features.Environments {
-			c.environmentSvc = environments.NewService(c.environmentRepo)
+			c.environmentSvc = environments.NewService(
+				c.environmentRepo,
+				environments.WithDefaultEnforcement(c.Config.Environments.EnforceDefault),
+			)
 		}
 	}
 	if c.environmentSvc != nil {
