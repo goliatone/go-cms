@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.25.0](https://github.com/goliatone/go-cms/compare/v0.24.0...v0.25.0) - (2026-02-03)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Get type info from const ([8e247a3](https://github.com/goliatone/go-cms/commit/8e247a3bcc26711f376924b02643329ade9ee94b))  - (goliatone)
+- Optint default env protection ([c22b1a5](https://github.com/goliatone/go-cms/commit/c22b1a5c702efd8e9c5ec67f03f2b6e8de775d94))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.25.0 ([bb3a3d7](https://github.com/goliatone/go-cms/commit/bb3a3d71e613160f6cbc3396c722fa219b87634d))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Guides and docs ([13ba042](https://github.com/goliatone/go-cms/commit/13ba042693d990a699d238c90eadd22073d30d37))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.24.0 ([066cc74](https://github.com/goliatone/go-cms/commit/066cc74b0790cb9614cc62b66f12ea8f7e30994f))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update guides ([55e27bf](https://github.com/goliatone/go-cms/commit/55e27bf9653ed214c7e6475dec89deabd7b66f20))  - (goliatone)
+
 # [0.24.0](https://github.com/goliatone/go-cms/compare/v0.23.1...v0.24.0) - (2026-01-30)
 
 ## <!-- 13 -->📦 Bumps
