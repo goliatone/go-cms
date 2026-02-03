@@ -253,6 +253,13 @@ func parseTypeInfo(node map[string]any) typeInfo {
 		return typeInfo{kind: "scalar", scalars: toSet(types)}
 	}
 
+	if info, ok := typeInfoFromConst(node["const"]); ok {
+		return info
+	}
+	if info, ok := typeInfoFromEnum(node["enum"]); ok {
+		return info
+	}
+
 	if props, ok := node["properties"].(map[string]any); ok && len(props) > 0 {
 		return typeInfo{kind: "object"}
 	}
@@ -289,6 +296,63 @@ func parseTypeInfo(node map[string]any) typeInfo {
 	return typeInfo{kind: "unknown"}
 }
 
+func typeInfoFromConst(value any) (typeInfo, bool) {
+	if value == nil {
+		return typeInfo{}, false
+	}
+	if kind := kindFromValue(value); kind != "" {
+		return typeInfo{kind: "scalar", scalars: toSet([]string{kind})}, true
+	}
+	return typeInfo{}, false
+}
+
+func typeInfoFromEnum(value any) (typeInfo, bool) {
+	if value == nil {
+		return typeInfo{}, false
+	}
+	switch typed := value.(type) {
+	case []any:
+		types := make(map[string]struct{})
+		for _, entry := range typed {
+			if kind := kindFromValue(entry); kind != "" {
+				types[kind] = struct{}{}
+			}
+		}
+		if len(types) == 0 {
+			return typeInfo{}, false
+		}
+		return typeInfo{kind: "scalar", scalars: types}, true
+	case []string:
+		if len(typed) == 0 {
+			return typeInfo{}, false
+		}
+		return typeInfo{kind: "scalar", scalars: toSet([]string{"string"})}, true
+	}
+	return typeInfo{}, false
+}
+
+func kindFromValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		if strings.TrimSpace(typed) == "" {
+			return ""
+		}
+		return "string"
+	case bool:
+		return "boolean"
+	case float64, float32, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64:
+		return "number"
+	case []any:
+		return "array"
+	case map[string]any:
+		return "object"
+	case nil:
+		return "null"
+	default:
+		return ""
+	}
+}
+
 func compareTypeInfo(oldInfo, newInfo typeInfo) typeChange {
 	if oldInfo.kind == "" && newInfo.kind == "" {
 		return typeChangeNone
@@ -316,6 +380,9 @@ func compareTypeInfo(oldInfo, newInfo typeInfo) typeChange {
 	case "object":
 		return typeChangeNone
 	default:
+		if oldInfo.signature == "" && newInfo.signature == "" {
+			return typeChangeNone
+		}
 		if oldInfo.signature != "" || newInfo.signature != "" {
 			if oldInfo.signature == newInfo.signature {
 				return typeChangeNone
