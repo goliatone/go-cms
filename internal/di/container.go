@@ -149,6 +149,7 @@ type Container struct {
 	contentTypeSvc         content.ContentTypeService
 	environmentSvc         environments.Service
 	pageSvc                pages.Service
+	adminPageReadSvc       interfaces.AdminPageReadService
 	blockSvc               blocks.Service
 	embeddedBlockBridge    *blocks.EmbeddedBlockBridge
 	i18nSvc                i18n.Service
@@ -2038,6 +2039,19 @@ func (c *Container) BlockAdminService() *adminblocks.Service {
 // PageService returns the configured page service.
 func (c *Container) PageService() pages.Service {
 	return c.pageSvc
+}
+
+// AdminPageReadService returns the configured admin page read service.
+func (c *Container) AdminPageReadService() interfaces.AdminPageReadService {
+	if c.adminPageReadSvc == nil {
+		logger := logging.ModuleLogger(c.loggerProvider, "cms.admin.pages.read")
+		if c.bunDB != nil {
+			c.adminPageReadSvc = pages.NewAdminPageDBReadService(c.bunDB, c.pageSvc, c.contentSvc, c.localeRepo, pages.WithAdminPageReadLogger(logger))
+		} else {
+			c.adminPageReadSvc = pages.NewAdminPageReadService(c.pageSvc, c.contentSvc, c.localeRepo, pages.WithAdminPageReadLogger(logger))
+		}
+	}
+	return c.adminPageReadSvc
 }
 
 // BlockService returns the configured block service.
