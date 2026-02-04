@@ -21,6 +21,24 @@ type ContentService = content.Service
 // PageService exports the pages service contract.
 type PageService = pages.Service
 
+// AdminPageReadService exports the admin page read service contract.
+type AdminPageReadService = interfaces.AdminPageReadService
+
+// AdminPageRecord exports the admin page read record DTO.
+type AdminPageRecord = interfaces.AdminPageRecord
+
+// AdminPageListOptions exports the admin page list options.
+type AdminPageListOptions = interfaces.AdminPageListOptions
+
+// AdminPageGetOptions exports the admin page get options.
+type AdminPageGetOptions = interfaces.AdminPageGetOptions
+
+// AdminPageIncludeOptions exports admin include options.
+type AdminPageIncludeOptions = interfaces.AdminPageIncludeOptions
+
+// AdminPageIncludeDefaults exports admin include defaults.
+type AdminPageIncludeDefaults = interfaces.AdminPageIncludeDefaults
+
 // BlockService exports the blocks service contract.
 type BlockService = blocks.Service
 
@@ -96,6 +114,14 @@ func (m *Module) BlocksAdmin() BlockAdminService {
 // Pages returns the configured page service.
 func (m *Module) Pages() PageService {
 	return m.container.PageService()
+}
+
+// AdminPageRead returns the configured admin page read service.
+func (m *Module) AdminPageRead() AdminPageReadService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.AdminPageReadService()
 }
 
 // Blocks returns the configured block service.
