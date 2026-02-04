@@ -160,6 +160,32 @@ page, _ := pageSvc.Create(ctx, pages.CreatePageRequest{
 })
 ```
 
+### Admin Page Read Model
+
+Admin list/detail views should use the admin read model for consistent hydration across list + edit surfaces.
+
+```go
+adminRead := module.AdminPageRead()
+
+records, total, err := adminRead.List(ctx, cms.AdminPageListOptions{
+	Locale:      "en",
+	IncludeData: true,
+})
+
+record, err := adminRead.Get(ctx, pageID.String(), cms.AdminPageGetOptions{
+	Locale:         "en",
+	IncludeContent: true,
+	IncludeBlocks:  true,
+	IncludeData:    true,
+})
+```
+
+Contract highlights:
+
+- `RequestedLocale` is always set to the requested locale; `ResolvedLocale` reflects Locale/FallbackLocale resolution.
+- `IncludeContent`/`IncludeBlocks`/`IncludeData` control heavy fields (omit when false).
+- `Blocks` prefers embedded block payloads and falls back to legacy block IDs when embedded data is missing.
+
 ### Blocks
 
 Blocks are reusable fragments that can be attached to pages or content regions with translations.
