@@ -47,6 +47,33 @@ The `pageSvc` variable satisfies the `pages.Service` interface. The service dele
 
 ---
 
+## Admin Page Read Model
+
+Admin list/detail surfaces should use the admin read model for consistent hydration and locale handling. Access it via the module facade:
+
+```go
+adminRead := module.AdminPageRead()
+
+records, total, err := adminRead.List(ctx, cms.AdminPageListOptions{
+    Locale:      "en",
+    IncludeData: true,
+})
+
+record, err := adminRead.Get(ctx, pageID.String(), cms.AdminPageGetOptions{
+    Locale:         "en",
+    IncludeContent: true,
+    IncludeBlocks:  true,
+    IncludeData:    true,
+})
+```
+
+Key contract rules:
+
+- `RequestedLocale` always echoes the caller's `Locale`, even if a translation is missing.
+- `ResolvedLocale` is set to the chosen translation locale (requested, fallback, or empty if missing).
+- `IncludeContent`/`IncludeBlocks`/`IncludeData` control heavy fields; omit flags to keep list payloads lean.
+- `Blocks` prefers embedded block payloads and falls back to legacy block IDs when embedded data is missing.
+
 ## Page CRUD
 
 ### Creating a Page

@@ -273,6 +273,7 @@ The `cms.Module` facade exposes all services:
 ```go
 module.Content()        // Content and content types
 module.Pages()          // Page hierarchy and routing
+module.AdminPageRead()  // Admin page read model (list + detail parity)
 module.Blocks()         // Block definitions and instances
 module.Widgets()        // Widget definitions, instances, and areas
 module.Menus()          // Menu management and navigation resolution
