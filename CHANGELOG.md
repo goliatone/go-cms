@@ -1,5 +1,27 @@
 # Changelog
 
+# [0.26.0](https://github.com/goliatone/go-cms/compare/v0.25.0...v0.26.0) - (2026-02-04)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.26.0 ([f505caa](https://github.com/goliatone/go-cms/commit/f505caaf9876eca4c25330a7f65e87e639f67138))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Expose admin strucs ([dfc2ec8](https://github.com/goliatone/go-cms/commit/dfc2ec84ca2a1c64651fa8ccaa80dd5c77a4ea31))  - (goliatone)
+- AdminPageReadService to di containter ([cd6c42d](https://github.com/goliatone/go-cms/commit/cd6c42d6c81185dff1bc8804e754e86f643f38a5))  - (goliatone)
+- Admin page service interface ([ed5fcda](https://github.com/goliatone/go-cms/commit/ed5fcda72bdcc18d488034c227bd5d915728f6da))  - (goliatone)
+- Pages read service ([1b1b1f4](https://github.com/goliatone/go-cms/commit/1b1b1f43039ec3745979c2a0c1825f9a9f044980))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.25.0 ([00e4952](https://github.com/goliatone/go-cms/commit/00e49527df89aad0d799ca427bdcb68ccd76b004))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([3c790d2](https://github.com/goliatone/go-cms/commit/3c790d244022c17d59b866012823f298dd9b5765))  - (goliatone)
+- Update docs ([f7fc81d](https://github.com/goliatone/go-cms/commit/f7fc81d6e88d564b295f791114f17544d187e0c4))  - (goliatone)
+
 # [0.25.0](https://github.com/goliatone/go-cms/compare/v0.24.0...v0.25.0) - (2026-02-03)
 
 ## <!-- 1 -->🐛 Bug Fixes
