@@ -8,7 +8,7 @@ require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/goliatone/go-command v0.13.0
-	github.com/goliatone/go-crud v0.18.0
+	github.com/goliatone/go-crud v0.20.0
 	github.com/goliatone/go-errors v0.10.0
 	github.com/goliatone/go-logger v0.7.0
 	github.com/goliatone/go-repository-bun v0.12.0
@@ -52,7 +52,7 @@ require (
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
 	github.com/goliatone/go-persistence-bun v0.10.0 // indirect
-	github.com/goliatone/go-router v0.43.0 // indirect
+	github.com/goliatone/go-router v0.44.1 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
