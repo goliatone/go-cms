@@ -1,5 +1,35 @@
 # Changelog
 
+# [0.27.0](https://github.com/goliatone/go-cms/compare/v0.26.0...v0.27.0) - (2026-02-05)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.27.0 ([525a847](https://github.com/goliatone/go-cms/commit/525a847aa77fdf0bf32f53f3e81de96e79bccba9))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Metadata to content ([f414d3d](https://github.com/goliatone/go-cms/commit/f414d3d78bd056e6a42fcacd5f6885e4664d3698))  - (goliatone)
+- Content use metadata ([e95e5ba](https://github.com/goliatone/go-cms/commit/e95e5ba2d8d19c1957d72b590b0a63d67794116a))  - (goliatone)
+- Markdown adapter use metadata ([fd36d9b](https://github.com/goliatone/go-cms/commit/fd36d9b373a342ffc1fa954a431e9b2c9c361380))  - (goliatone)
+- Version metadata ([2b3f5c9](https://github.com/goliatone/go-cms/commit/2b3f5c9763babac46a58de76bfd03da129d46630))  - (goliatone)
+- Content meta ([d1682d0](https://github.com/goliatone/go-cms/commit/d1682d01a33191f280ca4511537a55b62aa90034))  - (goliatone)
+- Migrations for content meta ([272f6f5](https://github.com/goliatone/go-cms/commit/272f6f58df5c2ca399a0e1b0350b5b0d2983f695))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- Remove page service ([9f2186c](https://github.com/goliatone/go-cms/commit/9f2186c65006605baa2a3475b1aa6144f296de6a))  - (goliatone)
+- Remve page service ([2f464dc](https://github.com/goliatone/go-cms/commit/2f464dc01649bf2fc65f5be3c948914b0ef3ae1c))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.26.0 ([89faac4](https://github.com/goliatone/go-cms/commit/89faac4459dc59eff3a584714c6c72f0f86b0c94))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([94b9765](https://github.com/goliatone/go-cms/commit/94b9765cdcb6b841b10b8bc606e24991b2920016))  - (goliatone)
+- Update examples ([3940925](https://github.com/goliatone/go-cms/commit/39409253ec63f2eb5d615df7ee74058106943dda))  - (goliatone)
+- Update test ([3b383ac](https://github.com/goliatone/go-cms/commit/3b383ac253c762e76d1fa11c952d662fbe634d89))  - (goliatone)
+
 # [0.26.0](https://github.com/goliatone/go-cms/compare/v0.25.0...v0.26.0) - (2026-02-04)
 
 ## <!-- 13 -->📦 Bumps
@@ -12,10 +42,6 @@
 - AdminPageReadService to di containter ([cd6c42d](https://github.com/goliatone/go-cms/commit/cd6c42d6c81185dff1bc8804e754e86f643f38a5))  - (goliatone)
 - Admin page service interface ([ed5fcda](https://github.com/goliatone/go-cms/commit/ed5fcda72bdcc18d488034c227bd5d915728f6da))  - (goliatone)
 - Pages read service ([1b1b1f4](https://github.com/goliatone/go-cms/commit/1b1b1f43039ec3745979c2a0c1825f9a9f044980))  - (goliatone)
-
-## <!-- 27 -->⚠️ Deprecations
-
-- Deprecate legacy Pages service/store usage; use content entries (`ContentService`) and content type panels instead. Structural fields belong in entry-level metadata (`parent_id`, `template_id`, `path`, `sort_order`), not translation data.
 
 ## <!-- 3 -->📚 Documentation
 
@@ -840,4 +866,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
