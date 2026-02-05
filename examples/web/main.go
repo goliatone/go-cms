@@ -77,6 +77,7 @@ func (a *cmsContentServiceAdapter) Create(ctx context.Context, req interfaces.Co
 		Status:                   req.Status,
 		CreatedBy:                req.CreatedBy,
 		UpdatedBy:                req.UpdatedBy,
+		Metadata:                 cloneFieldMap(req.Metadata),
 		Translations:             translations,
 		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
@@ -191,7 +192,7 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 		Slug:            record.Slug,
 		Status:          record.Status,
 		Translations:    translations,
-		Metadata:        nil,
+		Metadata:        cloneFieldMap(record.Metadata),
 	}
 }
 
@@ -572,12 +573,12 @@ func main() {
 	}
 
 	// Setup demo data
-	pageTemplateID, err := setupDemoData(ctx, module, &cfg, filepath.ToSlash(themeDir))
+	_, err := setupDemoData(ctx, module, &cfg, filepath.ToSlash(themeDir))
 	if err != nil {
 		log.Fatalf("setup demo data: %v", err)
 	}
 
-	if err := bootstrapMarkdownDemo(ctx, module, &cfg, pageTemplateID); err != nil {
+	if err := bootstrapMarkdownDemo(ctx, module, &cfg); err != nil {
 		log.Printf("bootstrap markdown demo: %v", err)
 	}
 
@@ -1021,7 +1022,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 	})
 }
 
-func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Config, pageTemplateID uuid.UUID) error {
+func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Config) error {
 	if !cfg.Features.Markdown || !cfg.Markdown.Enabled {
 		return nil
 	}
@@ -1048,9 +1049,6 @@ func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Con
 	if adapter := newCMSContentServiceAdapter(module.Content()); adapter != nil {
 		options = append(options, markdown.WithContentService(adapter))
 	}
-	if pageAdapter := newCMSPageServiceAdapter(module.Pages()); pageAdapter != nil {
-		options = append(options, markdown.WithPageService(pageAdapter))
-	}
 	mdService, err := markdown.NewService(
 		mdCfg,
 		nil,
@@ -1061,24 +1059,12 @@ func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Con
 	}
 	service = mdService
 
-	var templatePtr *uuid.UUID
-	if pageTemplateID != uuid.Nil {
-		templateID := pageTemplateID
-		templatePtr = &templateID
-	}
-	createPages := templatePtr != nil
-	if createPages {
-		log.Printf("markdown demo: page import enabled; updates will delete and recreate pages as needed")
-	} else {
-		log.Printf("markdown demo: page import disabled; markdown sync will only import content")
-	}
+	log.Printf("markdown demo: markdown sync will import content entries only")
 
 	syncOpts := interfaces.SyncOptions{
 		ImportOptions: interfaces.ImportOptions{
 			ContentTypeID: demoBlogContentTypeID,
 			AuthorID:      demoAuthorID,
-			CreatePages:   createPages,
-			TemplateID:    templatePtr,
 		},
 		UpdateExisting: true,
 	}
@@ -1116,11 +1102,7 @@ func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Con
 		Directory:      ".",
 		ContentTypeID:  demoBlogContentTypeID,
 		AuthorID:       demoAuthorID,
-		CreatePages:    createPages,
 		UpdateExisting: true,
-	}
-	if templatePtr != nil {
-		syncMsg.TemplateID = templatePtr
 	}
 	if err := markdowncmd.RegisterMarkdownCron(cron.Register, handlerSet.Sync, cronConfig, syncMsg); err != nil {
 		return fmt.Errorf("register markdown cron: %w", err)
@@ -1254,12 +1236,33 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	// Create content types
 	pageTypeID := demoPageContentTypeID
 	maybeSeedContentType(ctx, container, &content.ContentType{
-		ID:   pageTypeID,
-		Name: "page",
-		Slug: "page",
+		ID:     pageTypeID,
+		Name:   "page",
+		Slug:   "page",
+		Status: content.ContentTypeStatusActive,
+		Capabilities: map[string]any{
+			"seo":           true,
+			"blocks":        true,
+			"tree":          true,
+			"structural_fields": true,
+			"workflow":      "pages",
+			"permissions":   "admin.pages",
+			"panel_slug":    "pages",
+			"policy_entity": "pages",
+		},
 		Schema: map[string]any{
 			"fields": []map[string]any{
+				{"name": "title", "type": "string"},
+				{"name": "slug", "type": "string"},
+				{"name": "status", "type": "string"},
+				{"name": "summary", "type": "text"},
 				{"name": "body", "type": "richtext", "required": true},
+				{"name": "seo", "type": "object"},
+				{"name": "blocks", "type": "array"},
+				{"name": "path", "type": "string"},
+				{"name": "template_id", "type": "string"},
+				{"name": "parent_id", "type": "string"},
+				{"name": "sort_order", "type": "integer"},
 			},
 		},
 	})
@@ -1267,15 +1270,32 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	// Blog post content type
 	blogTypeID := demoBlogContentTypeID
 	maybeSeedContentType(ctx, container, &content.ContentType{
-		ID:   blogTypeID,
-		Name: "blog_post",
-		Slug: "blog_post",
+		ID:     blogTypeID,
+		Name:   "blog_post",
+		Slug:   "blog_post",
+		Status: content.ContentTypeStatusActive,
+		Capabilities: map[string]any{
+			"seo":           true,
+			"blocks":        true,
+			"tree":          false,
+			"workflow":      "posts",
+			"permissions":   "admin.posts",
+			"panel_slug":    "posts",
+			"policy_entity": "posts",
+		},
 		Schema: map[string]any{
 			"fields": []map[string]any{
+				{"name": "title", "type": "string"},
+				{"name": "slug", "type": "string"},
+				{"name": "status", "type": "string"},
 				{"name": "body", "type": "richtext", "required": true},
 				{"name": "excerpt", "type": "text", "required": false},
 				{"name": "author", "type": "string", "required": true},
 				{"name": "tags", "type": "array", "required": false},
+				{"name": "category", "type": "string"},
+				{"name": "published_at", "type": "string"},
+				{"name": "seo", "type": "object"},
+				{"name": "blocks", "type": "array"},
 				{"name": "featured_image", "type": "string", "required": false},
 			},
 		},
@@ -2116,9 +2136,13 @@ func createLocalizedBlock(
 	return nil
 }
 
-func maybeSeedContentType(_ context.Context, container *di.Container, ct *content.ContentType) {
+func maybeSeedContentType(ctx context.Context, container *di.Container, ct *content.ContentType) {
 	repo := container.ContentTypeRepository()
 	if repo == nil {
+		return
+	}
+	if err := validateSeedContentType(ctx, repo, ct); err != nil {
+		log.Printf("seed content type %s invalid: %v", ct.Slug, err)
 		return
 	}
 
@@ -2129,6 +2153,81 @@ func maybeSeedContentType(_ context.Context, container *di.Container, ct *conten
 			log.Printf("seed content type %s: %v", ct.Slug, err)
 		}
 	}
+}
+
+func validateSeedContentType(ctx context.Context, repo content.ContentTypeRepository, ct *content.ContentType) error {
+	if ct == nil {
+		return fmt.Errorf("content type is nil")
+	}
+	panelSlug := capabilityString(ct.Capabilities, "panel_slug")
+	if panelSlug != "" {
+		existing, err := repo.List(ctx)
+		if err != nil {
+			return fmt.Errorf("list content types: %w", err)
+		}
+		for _, other := range existing {
+			if other == nil || other.ID == ct.ID {
+				continue
+			}
+			otherPanel := capabilityString(other.Capabilities, "panel_slug")
+			if strings.EqualFold(otherPanel, panelSlug) {
+				return fmt.Errorf("panel_slug %q already used by %q", panelSlug, other.Slug)
+			}
+		}
+	}
+	switch strings.TrimSpace(ct.Slug) {
+	case "page":
+		if panelSlug == "" {
+			return fmt.Errorf("panel_slug required for page")
+		}
+		if !capabilityBool(ct.Capabilities, "seo") || !capabilityBool(ct.Capabilities, "blocks") || !capabilityBool(ct.Capabilities, "tree") || !capabilityBool(ct.Capabilities, "structural_fields") {
+			return fmt.Errorf("page capabilities must include seo/blocks/tree/structural_fields")
+		}
+		if capabilityString(ct.Capabilities, "workflow") == "" || capabilityString(ct.Capabilities, "permissions") == "" {
+			return fmt.Errorf("page capabilities must include workflow/permissions")
+		}
+		if capabilityString(ct.Capabilities, "policy_entity") == "" {
+			return fmt.Errorf("page capabilities must include policy_entity")
+		}
+	case "blog_post":
+		if panelSlug != "posts" {
+			return fmt.Errorf("blog_post must set panel_slug=posts")
+		}
+		if !capabilityBool(ct.Capabilities, "seo") || !capabilityBool(ct.Capabilities, "blocks") {
+			return fmt.Errorf("blog_post capabilities must include seo/blocks")
+		}
+		if capabilityString(ct.Capabilities, "workflow") == "" || capabilityString(ct.Capabilities, "permissions") == "" {
+			return fmt.Errorf("blog_post capabilities must include workflow/permissions")
+		}
+		if capabilityString(ct.Capabilities, "policy_entity") == "" {
+			return fmt.Errorf("blog_post capabilities must include policy_entity")
+		}
+	}
+	return nil
+}
+
+func capabilityString(capabilities map[string]any, key string) string {
+	if capabilities == nil {
+		return ""
+	}
+	if raw, ok := capabilities[key]; ok {
+		if value, ok := raw.(string); ok {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func capabilityBool(capabilities map[string]any, key string) bool {
+	if capabilities == nil {
+		return false
+	}
+	if raw, ok := capabilities[key]; ok {
+		if value, ok := raw.(bool); ok {
+			return value
+		}
+	}
+	return false
 }
 
 // prepareWidgetsForTemplate prepares widgets with their translations merged into configuration
