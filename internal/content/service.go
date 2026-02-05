@@ -25,6 +25,8 @@ type Service interface {
 	Create(ctx context.Context, req CreateContentRequest) (*Content, error)
 	Get(ctx context.Context, id uuid.UUID) (*Content, error)
 	List(ctx context.Context, env ...string) ([]*Content, error)
+	CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts interfaces.TranslationCheckOptions) ([]string, error)
+	AvailableLocales(ctx context.Context, id uuid.UUID, opts interfaces.TranslationCheckOptions) ([]string, error)
 	Update(ctx context.Context, req UpdateContentRequest) (*Content, error)
 	Delete(ctx context.Context, req DeleteContentRequest) error
 	UpdateTranslation(ctx context.Context, req UpdateContentTranslationRequest) (*ContentTranslation, error)
