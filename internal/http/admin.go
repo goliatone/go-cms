@@ -9,7 +9,6 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/menus"
-	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/promotions"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/internal/schema"
@@ -20,7 +19,6 @@ type AdminAPI struct {
 	basePath        string
 	contentTypes    content.ContentTypeService
 	content         content.Service
-	pages           pages.Service
 	menus           menus.Service
 	blocks          blocks.Service
 	environments    cmsenv.Service
@@ -99,15 +97,6 @@ func WithContentService(service content.Service) AdminOption {
 	}
 }
 
-// WithPageService wires the page service.
-func WithPageService(service pages.Service) AdminOption {
-	return func(api *AdminAPI) {
-		if api != nil {
-			api.pages = service
-		}
-	}
-}
-
 // WithMenuService wires the menu service.
 func WithMenuService(service menus.Service) AdminOption {
 	return func(api *AdminAPI) {
@@ -159,7 +148,6 @@ func (api *AdminAPI) Register(mux *http.ServeMux) error {
 	api.registerContentTypeRoutes(mux, base)
 	api.registerSchemaRoutes(mux, base)
 	api.registerContentRoutes(mux, base)
-	api.registerPageRoutes(mux, base)
 	api.registerMenuRoutes(mux, base)
 	api.registerBlockRoutes(mux, base)
 	api.registerPromotionRoutes(mux, base)
