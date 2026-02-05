@@ -1,5 +1,29 @@
 # Changelog
 
+# [0.28.0](https://github.com/goliatone/go-cms/compare/v0.27.0...v0.28.0) - (2026-02-05)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.28.0 ([07811b4](https://github.com/goliatone/go-cms/commit/07811b4cfa217c725a6d60b9f14ad5546bbe279b))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Markdown use read options ([cf7ab4f](https://github.com/goliatone/go-cms/commit/cf7ab4f77b46af6c5459c22e526a7eae19b60e17))  - (goliatone)
+- Sort content using slug and created_at ([abbcdf3](https://github.com/goliatone/go-cms/commit/abbcdf30232eb3deef98605fb84c12ac83800858))  - (goliatone)
+- Translation and content translation to admin page record ([e0d4c8d](https://github.com/goliatone/go-cms/commit/e0d4c8d086cbb47c32a6d19c616fa15053c1bb4b))  - (goliatone)
+- Page read options ([0a59408](https://github.com/goliatone/go-cms/commit/0a594087c06bf19734edf4339fdb563e3b49a5f7))  - (goliatone)
+- Translation interface ([e1cbd36](https://github.com/goliatone/go-cms/commit/e1cbd367cd221d933324b39ed67a0e0972a5da9d))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.27.0 ([1d75350](https://github.com/goliatone/go-cms/commit/1d75350df9c6503de76cd1a92680f53a7e2caab0))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Udpate example ([8f62e83](https://github.com/goliatone/go-cms/commit/8f62e839c6fac39e2f9178b6f3bbf132ca3fc340))  - (goliatone)
+- Update test ([2a42d77](https://github.com/goliatone/go-cms/commit/2a42d773e485cfd68e487d4374298f1bd73fde3f))  - (goliatone)
+- Update guides ([30e5923](https://github.com/goliatone/go-cms/commit/30e5923bc9a4d0d03da0b0dadc7b2697b37eb604))  - (goliatone)
+
 # [0.27.0](https://github.com/goliatone/go-cms/compare/v0.26.0...v0.27.0) - (2026-02-05)
 
 ## <!-- 13 -->📦 Bumps
