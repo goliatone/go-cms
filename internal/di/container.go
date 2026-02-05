@@ -159,7 +159,6 @@ type Container struct {
 	mediaSvc               media.Service
 	markdownSvc            interfaces.MarkdownService
 	markdownContentSvc     interfaces.ContentService
-	markdownPageSvc        interfaces.PageService
 	loggerProvider         interfaces.LoggerProvider
 	shortcodeRegistry      interfaces.ShortcodeRegistry
 	shortcodeService       interfaces.ShortcodeService
@@ -696,7 +695,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		c.embeddedBlockBridge = blocks.NewEmbeddedBlockBridge(
 			c.blockSvc,
 			c.localeRepo,
-			contentPageResolver{pages: c.pageRepo},
+			nil,
 			bridgeOpts...,
 		)
 	}
@@ -817,9 +816,6 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		if c.blockSvc != nil {
 			pageOpts = append(pageOpts, pages.WithBlockService(c.blockSvc))
 		}
-		if c.embeddedBlockBridge != nil {
-			pageOpts = append(pageOpts, pages.WithEmbeddedBlockBridge(c.embeddedBlockBridge))
-		}
 		if c.widgetSvc != nil {
 			pageOpts = append(pageOpts, pages.WithWidgetService(c.widgetSvc))
 		}
@@ -869,7 +865,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		)
 	}
 	if c.jobWorker == nil {
-		c.jobWorker = jobs.NewWorker(c.scheduler, c.contentRepo, c.pageRepo,
+		c.jobWorker = jobs.NewWorker(c.scheduler, c.contentRepo,
 			jobs.WithAuditRecorder(c.auditRecorder),
 			jobs.WithActivityEmitter(c.activityEmitter),
 		)
@@ -902,20 +898,20 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 				},
 			}
 			genDeps := generator.Dependencies{
-				Pages:      c.PageService(),
-				Content:    c.ContentService(),
-				Blocks:     c.BlockService(),
-				Widgets:    c.WidgetService(),
-				Menus:      c.MenuService(),
-				Themes:     c.ThemeService(),
-				I18N:       c.I18nService(),
-				Renderer:   c.template,
-				Storage:    c.generatorStorage,
-				Locales:    c.localeRepo,
-				Assets:     c.generatorAssetResolver,
-				Hooks:      c.generatorHooks,
-				Logger:     logging.GeneratorLogger(c.loggerProvider),
-				Shortcodes: c.ShortcodeService(),
+				ContentTypes: c.ContentTypeService(),
+				Content:      c.ContentService(),
+				Blocks:       c.BlockService(),
+				Widgets:      c.WidgetService(),
+				Menus:        c.MenuService(),
+				Themes:       c.ThemeService(),
+				I18N:         c.I18nService(),
+				Renderer:     c.template,
+				Storage:      c.generatorStorage,
+				Locales:      c.localeRepo,
+				Assets:       c.generatorAssetResolver,
+				Hooks:        c.generatorHooks,
+				Logger:       logging.GeneratorLogger(c.loggerProvider),
+				Shortcodes:   c.ShortcodeService(),
 			}
 			c.generatorSvc = generator.NewService(genCfg, genDeps)
 		}
@@ -2113,9 +2109,6 @@ func (c *Container) MarkdownService() interfaces.MarkdownService {
 	if contentSvc := c.markdownContentService(); contentSvc != nil {
 		options = append(options, markdown.WithContentService(contentSvc))
 	}
-	if pageSvc := c.markdownPageService(); pageSvc != nil {
-		options = append(options, markdown.WithPageService(pageSvc))
-	}
 
 	service, err := markdown.NewService(mdCfg, nil, options...)
 	if err != nil {
@@ -2138,18 +2131,6 @@ func (c *Container) markdownContentService() interfaces.ContentService {
 	}
 	c.markdownContentSvc = newMarkdownContentServiceAdapter(svc)
 	return c.markdownContentSvc
-}
-
-func (c *Container) markdownPageService() interfaces.PageService {
-	if c.markdownPageSvc != nil {
-		return c.markdownPageSvc
-	}
-	svc := c.PageService()
-	if svc == nil {
-		return nil
-	}
-	c.markdownPageSvc = newMarkdownPageServiceAdapter(svc)
-	return c.markdownPageSvc
 }
 
 func (c *Container) Scheduler() interfaces.Scheduler {
