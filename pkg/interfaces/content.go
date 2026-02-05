@@ -11,11 +11,29 @@ import (
 type ContentService interface {
 	Create(ctx context.Context, req ContentCreateRequest) (*ContentRecord, error)
 	Update(ctx context.Context, req ContentUpdateRequest) (*ContentRecord, error)
-	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentRecord, error)
-	List(ctx context.Context, env ...string) ([]*ContentRecord, error)
+	GetBySlug(ctx context.Context, slug string, opts ContentReadOptions) (*ContentRecord, error)
+	List(ctx context.Context, opts ContentReadOptions) ([]*ContentRecord, error)
 	Delete(ctx context.Context, req ContentDeleteRequest) error
 	UpdateTranslation(ctx context.Context, req ContentUpdateTranslationRequest) (*ContentTranslation, error)
 	DeleteTranslation(ctx context.Context, req ContentDeleteTranslationRequest) error
+}
+
+// ContentReadOptions defines read-time locale resolution and metadata behaviour.
+//
+// Behavior contract:
+//   - RequestedLocale always echoes Locale, even when missing.
+//   - If a translation exists for Locale, Translation.Requested/Resolved point to it and ResolvedLocale = Locale.
+//   - If missing and FallbackLocale exists, Translation.Requested is nil, Resolved uses the fallback locale, and FallbackUsed=true.
+//   - If missing with no fallback, Translation.Requested/Resolved are nil and ResolvedLocale is empty.
+//   - AllowMissingTranslations=false should return ErrTranslationMissing when Locale is set and missing.
+//   - List reads never hard-fail on missing translations; they return bundle metadata instead.
+//   - IncludeAvailableLocales populates Translation.Meta.AvailableLocales for the content bundle only.
+type ContentReadOptions struct {
+	Locale                   string
+	FallbackLocale           string
+	AllowMissingTranslations bool
+	IncludeAvailableLocales  bool
+	EnvironmentKey           string
 }
 
 // ContentCreateRequest captures the details required to create a content record.
@@ -82,6 +100,7 @@ type ContentRecord struct {
 	ContentTypeSlug string
 	Slug            string
 	Status          string
+	Translation     TranslationBundle[ContentTranslation] `json:"translation"`
 	Translations    []ContentTranslation
 	Metadata        map[string]any
 }
