@@ -122,6 +122,25 @@ Valid transitions:
 - `active` -> `deprecated`
 - `deprecated` -> `active` (reactivation)
 
+### Pages/Posts UI Sync (Admin Panels)
+
+Admin UI panels for Pages and Posts are driven by **content entries**, not bespoke page/post services. Dynamic panels are created only for content types that are **active**, so the seeded types must be activated to make Pages/Posts available in the admin.
+
+**Required activation (examples):**
+
+- `page` content type: `status = "active"` with `capabilities` including `tree: true`, `seo: true`, `blocks: true`, `workflow: "pages"`, `permissions: "admin.pages"`.
+- `blog_post` content type: `status = "active"` with `capabilities` including `seo: true`, `blocks: true`, `workflow: "posts"`, `permissions: "admin.posts"`, `panel_slug: "posts"`.
+
+**Admin panel routing:**
+
+- Content entry panels are mounted at `/admin/content/:panel_slug`.
+- If `panel_slug` is not set, the content type slug is used.
+- Alias routes keep legacy URLs working:
+  - `/admin/pages` -> `/admin/content/pages`
+  - `/admin/posts` -> `/admin/content/posts`
+
+This keeps Pages/Posts UI aligned with content entries as the single source of truth while preserving existing URLs. The `panel_slug` capability is the mapping mechanism that lets `blog_post` render as "Posts" without renaming the content type.
+
 ### Querying Content Types
 
 ```go

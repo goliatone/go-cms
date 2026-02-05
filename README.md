@@ -215,7 +215,7 @@ content/page translation can store a `blocks[]` array (with `_type` and optional
 
 - **Dual-write**: when `blocks[]` is present, the `EmbeddedBlockBridge` syncs it into legacy block instances (region `blocks` by default) so older readers keep working.
 - **Read fallback**: read paths prefer embedded blocks and backfill from legacy instances when embedded data is missing.
-- **Conflicts + backfill**: use `EmbeddedBlockBridge.BackfillFromLegacy` to populate embedded blocks for existing content, and `EmbeddedBlockBridge.ListConflicts` (or the admin “Block Conflicts” panel) to detect divergences.
+- **Conflicts + backfill**: use `EmbeddedBlockBridge.BackfillFromLegacy` to populate embedded blocks for existing content, and `EmbeddedBlockBridge.ListConflicts` (or the admin "Block Conflicts" panel) to detect divergences.
 - **Publish rules**: drafts allow partial block payloads; publish migrates blocks to the latest schema versions and enforces strict validation.
 
 ### Widgets
