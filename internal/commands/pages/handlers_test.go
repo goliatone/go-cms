@@ -8,6 +8,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	goerrors "github.com/goliatone/go-errors"
 	"github.com/google/uuid"
 )
@@ -33,6 +34,14 @@ func (s *stubPageService) Get(context.Context, uuid.UUID) (*pages.Page, error) {
 }
 
 func (s *stubPageService) List(context.Context, ...string) ([]*pages.Page, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) CheckTranslations(context.Context, uuid.UUID, []string, interfaces.TranslationCheckOptions) ([]string, error) {
+	return nil, errors.New("not implemented")
+}
+
+func (s *stubPageService) AvailableLocales(context.Context, uuid.UUID, interfaces.TranslationCheckOptions) ([]string, error) {
 	return nil, errors.New("not implemented")
 }
 

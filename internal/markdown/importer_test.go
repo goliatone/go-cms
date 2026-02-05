@@ -259,6 +259,14 @@ func (s *stubContentService) List(context.Context, interfaces.ContentReadOptions
 	return result, nil
 }
 
+func (s *stubContentService) CheckTranslations(context.Context, uuid.UUID, []string, interfaces.TranslationCheckOptions) ([]string, error) {
+	return nil, nil
+}
+
+func (s *stubContentService) AvailableLocales(context.Context, uuid.UUID, interfaces.TranslationCheckOptions) ([]string, error) {
+	return nil, nil
+}
+
 func (s *stubContentService) Delete(_ context.Context, req interfaces.ContentDeleteRequest) error {
 	for slug, record := range s.records {
 		if record.ID == req.ID {

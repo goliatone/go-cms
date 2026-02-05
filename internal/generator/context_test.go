@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/goliatone/go-cms/internal/themes"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -388,6 +389,14 @@ func (s *stubContentService) List(context.Context, ...string) ([]*content.Conten
 		return []*content.Content{}, nil
 	}
 	return append([]*content.Content{}, s.listing...), nil
+}
+
+func (s *stubContentService) CheckTranslations(context.Context, uuid.UUID, []string, interfaces.TranslationCheckOptions) ([]string, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubContentService) AvailableLocales(context.Context, uuid.UUID, interfaces.TranslationCheckOptions) ([]string, error) {
+	return nil, errUnsupported
 }
 
 func (s *stubContentService) Update(context.Context, content.UpdateContentRequest) (*content.Content, error) {
