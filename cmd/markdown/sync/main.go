@@ -32,10 +32,8 @@ func runSync(args []string) error {
 	directory := fs.String("directory", ".", "Directory to synchronise, relative to the content root")
 	contentType := fs.String("content-type", "", "Content type ID to associate with imported documents")
 	author := fs.String("author", "", "Author ID recorded on imported content")
-	template := fs.String("template", "", "Template ID applied when create-pages is enabled")
-	createPages := fs.Bool("create-pages", false, "Create CMS pages for imported markdown")
 	dryRun := fs.Bool("dry-run", false, "Preview changes without persisting content")
-	deleteOrphans := fs.Bool("delete-orphaned", false, "Delete CMS content/pages that no longer have matching markdown files")
+	deleteOrphans := fs.Bool("delete-orphaned", false, "Delete CMS content that no longer has matching markdown files")
 	updateExisting := fs.Bool("update-existing", true, "Update CMS entries when markdown documents change")
 
 	if err := fs.Parse(args); err != nil {
@@ -63,8 +61,7 @@ func runSync(args []string) error {
 	ctx := context.Background()
 
 	importOpts := interfaces.ImportOptions{
-		CreatePages: *createPages,
-		DryRun:      *dryRun,
+		DryRun: *dryRun,
 	}
 
 	if id, err := bootstrap.ParseUUID(*contentType); err != nil {
@@ -82,12 +79,6 @@ func runSync(args []string) error {
 		importOpts.AuthorID = id
 	}
 
-	if id, err := bootstrap.ParseUUIDPointer(*template); err != nil {
-		return fmt.Errorf("parse template: %w", err)
-	} else if id != nil {
-		importOpts.TemplateID = id
-	}
-
 	syncOpts := interfaces.SyncOptions{
 		ImportOptions:  importOpts,
 		DeleteOrphaned: *deleteOrphans,
@@ -101,13 +92,9 @@ func runSync(args []string) error {
 		Directory:      *directory,
 		ContentTypeID:  importOpts.ContentTypeID,
 		AuthorID:       importOpts.AuthorID,
-		CreatePages:    importOpts.CreatePages,
 		DryRun:         importOpts.DryRun,
 		DeleteOrphaned: syncOpts.DeleteOrphaned,
 		UpdateExisting: syncOpts.UpdateExisting,
-	}
-	if importOpts.TemplateID != nil {
-		cmd.TemplateID = importOpts.TemplateID
 	}
 	if err := handler.Execute(ctx, cmd); err != nil {
 		return fmt.Errorf("execute sync command: %w", err)
