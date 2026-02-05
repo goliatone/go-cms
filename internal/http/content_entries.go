@@ -26,6 +26,7 @@ type contentCreatePayload struct {
 	Environment              string                      `json:"environment,omitempty"`
 	EnvironmentID            *uuid.UUID                  `json:"environment_id,omitempty"`
 	Translations             []contentTranslationPayload `json:"translations"`
+	Metadata                 map[string]any              `json:"metadata,omitempty"`
 	AllowMissingTranslations bool                        `json:"allow_missing_translations,omitempty"`
 	CreatedBy                *uuid.UUID                  `json:"created_by,omitempty"`
 	UpdatedBy                *uuid.UUID                  `json:"updated_by,omitempty"`
@@ -155,6 +156,7 @@ func (api *AdminAPI) handleContentCreate(w http.ResponseWriter, r *http.Request)
 		EnvironmentKey:           envKey,
 		CreatedBy:                actor,
 		UpdatedBy:                updatedBy,
+		Metadata:                 payload.Metadata,
 		Translations:             translations,
 		AllowMissingTranslations: payload.AllowMissingTranslations,
 	}
