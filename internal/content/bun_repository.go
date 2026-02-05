@@ -136,6 +136,7 @@ func (r *BunContentRepository) Update(ctx context.Context, record *Content) (*Co
 			"current_version",
 			"published_version",
 			"status",
+			"metadata",
 			"publish_at",
 			"unpublish_at",
 			"published_at",
