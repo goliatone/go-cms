@@ -29,14 +29,14 @@ func benchmarkBuild(b *testing.B, workers int, includeAssets bool) {
 		renderer := &recordingRenderer{}
 		storage := &recordingStorage{}
 		deps := Dependencies{
-			Pages:    fixtures.Pages,
-			Content:  fixtures.Content,
-			Menus:    fixtures.Menus,
-			Themes:   fixtures.Themes,
-			Locales:  fixtures.Locales,
-			Renderer: renderer,
-			Storage:  storage,
-			Logger:   logging.NoOp(),
+			Content:      fixtures.Content,
+			ContentTypes: fixtures.ContentTypes,
+			Menus:        fixtures.Menus,
+			Themes:       fixtures.Themes,
+			Locales:      fixtures.Locales,
+			Renderer:     renderer,
+			Storage:      storage,
+			Logger:       logging.NoOp(),
 		}
 		if includeAssets {
 			deps.Assets = newStubAssetResolver()

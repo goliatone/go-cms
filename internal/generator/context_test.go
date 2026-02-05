@@ -10,7 +10,6 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/menus"
-	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/google/uuid"
 )
@@ -21,116 +20,104 @@ func TestLoadContextBuildsLocalizedPages(t *testing.T) {
 	localeEN := uuid.New()
 	localeES := uuid.New()
 
+	pageTypeID := uuid.New()
 	pageID1 := uuid.New()
 	pageID2 := uuid.New()
-	contentID := uuid.New()
 	templateID := uuid.New()
 	themeID := uuid.New()
 
 	now := time.Date(2024, 1, 25, 12, 0, 0, 0, time.UTC)
 
-	contentRecord := &content.Content{
-		ID:             contentID,
-		Slug:           "company-overview",
+	page1Content := &content.Content{
+		ID:             pageID1,
+		ContentTypeID:  pageTypeID,
+		Slug:           "company",
 		Status:         "published",
 		UpdatedAt:      now.Add(-2 * time.Hour),
 		CurrentVersion: 3,
+		Metadata: map[string]any{
+			"template_id": templateID.String(),
+		},
 		PublishedVersion: func() *int {
 			v := 2
 			return &v
 		}(),
+		IsVisible: true,
 		Translations: []*content.ContentTranslation{
 			{
 				ID:        uuid.New(),
-				ContentID: contentID,
+				ContentID: pageID1,
 				LocaleID:  localeEN,
-				Title:     "Company Overview",
+				Title:     "Company",
 				Content: map[string]any{
 					"body": "English body",
+					"path": "/company",
 				},
 				UpdatedAt: now.Add(-time.Hour),
 			},
 			{
 				ID:        uuid.New(),
-				ContentID: contentID,
+				ContentID: pageID1,
 				LocaleID:  localeES,
-				Title:     "Resumen de la empresa",
+				Title:     "Empresa",
 				Content: map[string]any{
 					"body": "Contenido en español",
+					"path": "/es/empresa",
 				},
 				UpdatedAt: now.Add(-30 * time.Minute),
 			},
 		},
 	}
 
-	pageBase := &pages.Page{
-		ContentID:   contentID,
-		TemplateID:  templateID,
-		Slug:        "company",
-		Status:      "published",
-		PublishedAt: ptrTime(now.Add(-90 * time.Minute)),
-		UpdatedAt:   now.Add(-45 * time.Minute),
+	page2Content := &content.Content{
+		ID:            pageID2,
+		ContentTypeID: pageTypeID,
+		Slug:          "vision",
+		Status:        "published",
+		PublishedAt:   ptrTime(now.Add(-90 * time.Minute)),
+		UpdatedAt:     now.Add(-45 * time.Minute),
+		Metadata: map[string]any{
+			"template_id": templateID.String(),
+		},
 		PublishedVersion: func() *int {
 			v := 2
 			return &v
 		}(),
 		IsVisible: true,
-	}
-
-	page1 := clonePage(pageBase)
-	page1.ID = pageID1
-	page1.Translations = []*pages.PageTranslation{
-		{
-			ID:        uuid.New(),
-			PageID:    pageID1,
-			LocaleID:  localeEN,
-			Title:     "Company",
-			Path:      "/company",
-			UpdatedAt: now.Add(-40 * time.Minute),
-		},
-		{
-			ID:        uuid.New(),
-			PageID:    pageID1,
-			LocaleID:  localeES,
-			Title:     "Empresa",
-			Path:      "/es/empresa",
-			UpdatedAt: now.Add(-35 * time.Minute),
-		},
-	}
-
-	page2 := clonePage(pageBase)
-	page2.ID = pageID2
-	page2.Translations = []*pages.PageTranslation{
-		{
-			ID:        uuid.New(),
-			PageID:    pageID2,
-			LocaleID:  localeEN,
-			Title:     "Vision",
-			Path:      "/vision",
-			UpdatedAt: now.Add(-50 * time.Minute),
-		},
-		{
-			ID:        uuid.New(),
-			PageID:    pageID2,
-			LocaleID:  localeES,
-			Title:     "Visión",
-			Path:      "/es/vision",
-			UpdatedAt: now.Add(-25 * time.Minute),
+		Translations: []*content.ContentTranslation{
+			{
+				ID:        uuid.New(),
+				ContentID: pageID2,
+				LocaleID:  localeEN,
+				Title:     "Vision",
+				Content: map[string]any{
+					"body": "Vision body",
+					"path": "/vision",
+				},
+				UpdatedAt: now.Add(-50 * time.Minute),
+			},
+			{
+				ID:        uuid.New(),
+				ContentID: pageID2,
+				LocaleID:  localeES,
+				Title:     "Visión",
+				Content: map[string]any{
+					"body": "Vision es",
+					"path": "/es/vision",
+				},
+				UpdatedAt: now.Add(-25 * time.Minute),
+			},
 		},
 	}
 
 	contentSvc := &stubContentService{
 		records: map[uuid.UUID]*content.Content{
-			contentID: contentRecord,
+			pageID1: page1Content,
+			pageID2: page2Content,
 		},
+		listing: []*content.Content{page1Content, page2Content},
 	}
-	pagesSvc := &stubPagesService{
-		records: map[uuid.UUID]*pages.Page{
-			pageID1: page1,
-			pageID2: page2,
-		},
-		listing: []*pages.Page{page1, page2},
-	}
+	contentTypeSvc := newStubContentTypeService(pageTypeID, "page")
 	menuSvc := newStubMenuService()
 	themeSvc := &stubThemesService{
 		template: &themes.Template{
@@ -168,12 +155,12 @@ func TestLoadContextBuildsLocalizedPages(t *testing.T) {
 	}
 
 	svc := NewService(cfg, Dependencies{
-		Pages:   pagesSvc,
-		Content: contentSvc,
-		Menus:   menuSvc,
-		Themes:  themeSvc,
-		Locales: locales,
-		Logger:  logging.NoOp(),
+		Content:      contentSvc,
+		ContentTypes: contentTypeSvc,
+		Menus:        menuSvc,
+		Themes:       themeSvc,
+		Locales:      locales,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -234,44 +221,33 @@ func TestLoadContextAppliesLocaleFilter(t *testing.T) {
 
 	localeEN := uuid.New()
 	localeES := uuid.New()
-	contentID := uuid.New()
+	pageTypeID := uuid.New()
 	pageID := uuid.New()
 	templateID := uuid.New()
 	themeID := uuid.New()
 	now := time.Date(2024, 1, 25, 15, 0, 0, 0, time.UTC)
 
-	contentRecord := &content.Content{
-		ID:        contentID,
-		Slug:      "about",
-		Status:    "published",
-		UpdatedAt: now,
-		Translations: []*content.ContentTranslation{
-			{ID: uuid.New(), ContentID: contentID, LocaleID: localeEN, Title: "About", Content: map[string]any{"body": "en"}, UpdatedAt: now},
-			{ID: uuid.New(), ContentID: contentID, LocaleID: localeES, Title: "Acerca", Content: map[string]any{"body": "es"}, UpdatedAt: now},
+	pageContent := &content.Content{
+		ID:            pageID,
+		ContentTypeID: pageTypeID,
+		Slug:          "about",
+		Status:        "published",
+		UpdatedAt:     now,
+		Metadata: map[string]any{
+			"template_id": templateID.String(),
 		},
-	}
-
-	page := &pages.Page{
-		ID:         pageID,
-		ContentID:  contentID,
-		TemplateID: templateID,
-		Slug:       "about",
-		Status:     "published",
-		IsVisible:  true,
-		UpdatedAt:  now,
-		Translations: []*pages.PageTranslation{
-			{ID: uuid.New(), PageID: pageID, LocaleID: localeEN, Title: "About", Path: "/about", UpdatedAt: now},
-			{ID: uuid.New(), PageID: pageID, LocaleID: localeES, Title: "Acerca", Path: "/es/acerca", UpdatedAt: now},
+		IsVisible: true,
+		Translations: []*content.ContentTranslation{
+			{ID: uuid.New(), ContentID: pageID, LocaleID: localeEN, Title: "About", Content: map[string]any{"body": "en", "path": "/about"}, UpdatedAt: now},
+			{ID: uuid.New(), ContentID: pageID, LocaleID: localeES, Title: "Acerca", Content: map[string]any{"body": "es", "path": "/es/acerca"}, UpdatedAt: now},
 		},
 	}
 
 	contentSvc := &stubContentService{
-		records: map[uuid.UUID]*content.Content{contentID: contentRecord},
+		records: map[uuid.UUID]*content.Content{pageID: pageContent},
+		listing: []*content.Content{pageContent},
 	}
-	pagesSvc := &stubPagesService{
-		records: map[uuid.UUID]*pages.Page{pageID: page},
-		listing: []*pages.Page{page},
-	}
+	contentTypeSvc := newStubContentTypeService(pageTypeID, "page")
 	menuSvc := newStubMenuService()
 	themeSvc := &stubThemesService{
 		template: &themes.Template{ID: templateID, ThemeID: themeID, Name: "landing"},
@@ -298,12 +274,12 @@ func TestLoadContextAppliesLocaleFilter(t *testing.T) {
 	}
 
 	svc := NewService(cfg, Dependencies{
-		Pages:   pagesSvc,
-		Content: contentSvc,
-		Menus:   menuSvc,
-		Themes:  themeSvc,
-		Locales: locales,
-		Logger:  logging.NoOp(),
+		Content:      contentSvc,
+		ContentTypes: contentTypeSvc,
+		Menus:        menuSvc,
+		Themes:       themeSvc,
+		Locales:      locales,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -328,52 +304,31 @@ func TestLoadContextPropagatesMenuErrors(t *testing.T) {
 	now := time.Date(2024, 2, 1, 10, 0, 0, 0, time.UTC)
 
 	localeEN := uuid.New()
-	contentID := uuid.New()
+	pageTypeID := uuid.New()
 	pageID := uuid.New()
 	templateID := uuid.New()
 	menuErr := errors.New("menu resolution failed")
 
+	pageContent := &content.Content{
+		ID:            pageID,
+		ContentTypeID: pageTypeID,
+		Slug:          "home",
+		Status:        "published",
+		UpdatedAt:     now,
+		Metadata: map[string]any{
+			"template_id": templateID.String(),
+		},
+		IsVisible: true,
+		Translations: []*content.ContentTranslation{
+			{ID: uuid.New(), ContentID: pageID, LocaleID: localeEN, Title: "Home", Content: map[string]any{"body": "home", "path": "/"}, UpdatedAt: now},
+		},
+	}
+
 	contentSvc := &stubContentService{
-		records: map[uuid.UUID]*content.Content{
-			contentID: {
-				ID:        contentID,
-				Slug:      "home",
-				Status:    "published",
-				UpdatedAt: now,
-				Translations: []*content.ContentTranslation{
-					{ID: uuid.New(), ContentID: contentID, LocaleID: localeEN, Title: "Home", Content: map[string]any{"body": "home"}, UpdatedAt: now},
-				},
-			},
-		},
+		records: map[uuid.UUID]*content.Content{pageID: pageContent},
+		listing: []*content.Content{pageContent},
 	}
-	pageSvc := &stubPagesService{
-		records: map[uuid.UUID]*pages.Page{
-			pageID: {
-				ID:         pageID,
-				ContentID:  contentID,
-				TemplateID: templateID,
-				Slug:       "home",
-				Status:     "published",
-				IsVisible:  true,
-				UpdatedAt:  now,
-				Translations: []*pages.PageTranslation{
-					{ID: uuid.New(), PageID: pageID, LocaleID: localeEN, Title: "Home", Path: "/", UpdatedAt: now},
-				},
-			},
-		},
-		listing: []*pages.Page{{
-			ID:         pageID,
-			ContentID:  contentID,
-			TemplateID: templateID,
-			Slug:       "home",
-			Status:     "published",
-			IsVisible:  true,
-			UpdatedAt:  now,
-			Translations: []*pages.PageTranslation{
-				{ID: uuid.New(), PageID: pageID, LocaleID: localeEN, Title: "Home", Path: "/", UpdatedAt: now},
-			},
-		}},
-	}
+	contentTypeSvc := newStubContentTypeService(pageTypeID, "page")
 	menuSvc := &errorMenuService{stubMenusService: newStubMenuService(), err: menuErr}
 	themeSvc := &stubThemesService{
 		template: &themes.Template{ID: templateID, ThemeID: uuid.New(), Name: "default"},
@@ -393,12 +348,12 @@ func TestLoadContextPropagatesMenuErrors(t *testing.T) {
 	}
 
 	svc := NewService(cfg, Dependencies{
-		Pages:   pageSvc,
-		Content: contentSvc,
-		Menus:   menuSvc,
-		Themes:  themeSvc,
-		Locales: locales,
-		Logger:  logging.NoOp(),
+		Content:      contentSvc,
+		ContentTypes: contentTypeSvc,
+		Menus:        menuSvc,
+		Themes:       themeSvc,
+		Locales:      locales,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -411,16 +366,9 @@ func ptrTime(t time.Time) *time.Time {
 	return &t
 }
 
-func clonePage(src *pages.Page) *pages.Page {
-	if src == nil {
-		return nil
-	}
-	clone := *src
-	return &clone
-}
-
 type stubContentService struct {
 	records map[uuid.UUID]*content.Content
+	listing []*content.Content
 }
 
 func (s *stubContentService) Create(context.Context, content.CreateContentRequest) (*content.Content, error) {
@@ -436,7 +384,10 @@ func (s *stubContentService) Get(_ context.Context, id uuid.UUID) (*content.Cont
 }
 
 func (s *stubContentService) List(context.Context, ...string) ([]*content.Content, error) {
-	return nil, errUnsupported
+	if len(s.listing) == 0 {
+		return []*content.Content{}, nil
+	}
+	return append([]*content.Content{}, s.listing...), nil
 }
 
 func (s *stubContentService) Update(context.Context, content.UpdateContentRequest) (*content.Content, error) {
@@ -479,72 +430,58 @@ func (s *stubContentService) RestoreVersion(context.Context, content.RestoreCont
 	return nil, errUnsupported
 }
 
-type stubPagesService struct {
-	records map[uuid.UUID]*pages.Page
-	listing []*pages.Page
+type stubContentTypeService struct {
+	bySlug map[string]*content.ContentType
+	byID   map[uuid.UUID]*content.ContentType
 }
 
-func (s *stubPagesService) Create(context.Context, pages.CreatePageRequest) (*pages.Page, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) Get(_ context.Context, id uuid.UUID) (*pages.Page, error) {
-	rec, ok := s.records[id]
-	if !ok {
-		return nil, errUnsupported
+func newStubContentTypeService(id uuid.UUID, slug string) *stubContentTypeService {
+	record := &content.ContentType{ID: id, Slug: slug}
+	return &stubContentTypeService{
+		bySlug: map[string]*content.ContentType{
+			strings.ToLower(slug): record,
+		},
+		byID: map[uuid.UUID]*content.ContentType{
+			id: record,
+		},
 	}
-	return rec, nil
 }
 
-func (s *stubPagesService) List(context.Context, ...string) ([]*pages.Page, error) {
-	return append([]*pages.Page{}, s.listing...), nil
-}
-
-func (s *stubPagesService) Update(context.Context, pages.UpdatePageRequest) (*pages.Page, error) {
+func (s *stubContentTypeService) Create(context.Context, content.CreateContentTypeRequest) (*content.ContentType, error) {
 	return nil, errUnsupported
 }
 
-func (s *stubPagesService) Delete(context.Context, pages.DeletePageRequest) error {
+func (s *stubContentTypeService) Update(context.Context, content.UpdateContentTypeRequest) (*content.ContentType, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubContentTypeService) Delete(context.Context, content.DeleteContentTypeRequest) error {
 	return errUnsupported
 }
 
-func (s *stubPagesService) UpdateTranslation(context.Context, pages.UpdatePageTranslationRequest) (*pages.PageTranslation, error) {
-	return nil, errUnsupported
+func (s *stubContentTypeService) Get(_ context.Context, id uuid.UUID) (*content.ContentType, error) {
+	if record, ok := s.byID[id]; ok {
+		return record, nil
+	}
+	return nil, &content.NotFoundError{Resource: "content_type", Key: id.String()}
 }
 
-func (s *stubPagesService) DeleteTranslation(context.Context, pages.DeletePageTranslationRequest) error {
-	return errUnsupported
+func (s *stubContentTypeService) GetBySlug(_ context.Context, slug string, _ ...string) (*content.ContentType, error) {
+	if record, ok := s.bySlug[strings.ToLower(strings.TrimSpace(slug))]; ok {
+		return record, nil
+	}
+	return nil, &content.NotFoundError{Resource: "content_type", Key: slug}
 }
 
-func (s *stubPagesService) Move(context.Context, pages.MovePageRequest) (*pages.Page, error) {
-	return nil, errUnsupported
+func (s *stubContentTypeService) List(context.Context, ...string) ([]*content.ContentType, error) {
+	out := make([]*content.ContentType, 0, len(s.byID))
+	for _, record := range s.byID {
+		out = append(out, record)
+	}
+	return out, nil
 }
 
-func (s *stubPagesService) Duplicate(context.Context, pages.DuplicatePageRequest) (*pages.Page, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) Schedule(context.Context, pages.SchedulePageRequest) (*pages.Page, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) CreateDraft(context.Context, pages.CreatePageDraftRequest) (*pages.PageVersion, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) PublishDraft(context.Context, pages.PublishPagePublishRequest) (*pages.PageVersion, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) PreviewDraft(context.Context, pages.PreviewPageDraftRequest) (*pages.PagePreview, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) ListVersions(context.Context, uuid.UUID) ([]*pages.PageVersion, error) {
-	return nil, errUnsupported
-}
-
-func (s *stubPagesService) RestoreVersion(context.Context, pages.RestorePageVersionRequest) (*pages.PageVersion, error) {
+func (s *stubContentTypeService) Search(context.Context, string, ...string) ([]*content.ContentType, error) {
 	return nil, errUnsupported
 }
 

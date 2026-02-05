@@ -15,23 +15,19 @@ import (
 	"github.com/goliatone/go-cms/pkg/interfaces"
 )
 
-func TestImportCreatesContentAndPage(t *testing.T) {
+func TestImportCreatesContent(t *testing.T) {
 	contentStub := newStubContentService()
-	pageStub := newStubPageService()
 
-	svc := newImportService(t, contentStub, pageStub)
+	svc := newImportService(t, contentStub)
 
 	doc, err := svc.Load(context.Background(), "en/about.md", interfaces.LoadOptions{})
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
 
-	templateID := uuid.New()
 	opts := interfaces.ImportOptions{
 		ContentTypeID: uuid.New(),
 		AuthorID:      uuid.New(),
-		CreatePages:   true,
-		TemplateID:    &templateID,
 	}
 
 	result, err := svc.Import(context.Background(), doc, opts)
@@ -54,19 +50,11 @@ func TestImportCreatesContentAndPage(t *testing.T) {
 		t.Fatalf("expected checksum stored")
 	}
 
-	pageRecord := pageStub.records["about"]
-	if pageRecord == nil {
-		t.Fatalf("page not stored")
-	}
-	if pageRecord.TemplateID != templateID {
-		t.Fatalf("expected template id %s, got %s", templateID, pageRecord.TemplateID)
-	}
 }
 
 func TestImportUpdatesExistingTranslations(t *testing.T) {
 	contentStub := newStubContentService()
-	pageStub := newStubPageService()
-	svc := newImportService(t, contentStub, pageStub)
+	svc := newImportService(t, contentStub)
 
 	doc, err := svc.Load(context.Background(), "en/about.md", interfaces.LoadOptions{})
 	if err != nil {
@@ -75,8 +63,6 @@ func TestImportUpdatesExistingTranslations(t *testing.T) {
 	opts := interfaces.ImportOptions{
 		ContentTypeID: uuid.New(),
 		AuthorID:      uuid.New(),
-		CreatePages:   true,
-		TemplateID:    pointerUUID(uuid.New()),
 	}
 
 	if _, err := svc.Import(context.Background(), doc, opts); err != nil {
@@ -110,15 +96,11 @@ func TestImportUpdatesExistingTranslations(t *testing.T) {
 
 func TestSyncDeletesOrphans(t *testing.T) {
 	contentStub := newStubContentService()
-	pageStub := newStubPageService()
-	svc := newImportService(t, contentStub, pageStub)
+	svc := newImportService(t, contentStub)
 
-	templateID := uuid.New()
 	opts := interfaces.ImportOptions{
 		ContentTypeID: uuid.New(),
 		AuthorID:      uuid.New(),
-		CreatePages:   true,
-		TemplateID:    &templateID,
 	}
 
 	if _, err := svc.ImportDirectory(context.Background(), ".", opts); err != nil {
@@ -133,21 +115,10 @@ func TestSyncDeletesOrphans(t *testing.T) {
 		Status:   "draft",
 		Metadata: map[string]any{},
 	}
-	pageStub.records["orphan"] = &interfaces.PageRecord{
-		ID:         uuid.New(),
-		Slug:       "orphan",
-		ContentID:  orphanID,
-		Status:     "draft",
-		Metadata:   map[string]any{},
-		TemplateID: uuid.New(),
-	}
-
 	syncRes, err := svc.Sync(context.Background(), ".", interfaces.SyncOptions{
 		ImportOptions: interfaces.ImportOptions{
 			ContentTypeID: opts.ContentTypeID,
 			AuthorID:      opts.AuthorID,
-			CreatePages:   true,
-			TemplateID:    &templateID,
 		},
 		DeleteOrphaned: true,
 		UpdateExisting: true,
@@ -158,9 +129,6 @@ func TestSyncDeletesOrphans(t *testing.T) {
 	if _, ok := contentStub.records["orphan"]; ok {
 		t.Fatalf("expected orphan content removed")
 	}
-	if _, ok := pageStub.records["orphan"]; ok {
-		t.Fatalf("expected orphan page removed")
-	}
 	if syncRes.Deleted == 0 {
 		t.Fatalf("expected deleted count > 0")
 	}
@@ -168,7 +136,7 @@ func TestSyncDeletesOrphans(t *testing.T) {
 
 // Helper constructors --------------------------------------------------------
 
-func newImportService(tb testing.TB, contentSvc *stubContentService, pageSvc *stubPageService, opts ...ServiceOption) *Service {
+func newImportService(tb testing.TB, contentSvc *stubContentService, opts ...ServiceOption) *Service {
 	tb.Helper()
 
 	cfg := Config{
@@ -181,7 +149,6 @@ func newImportService(tb testing.TB, contentSvc *stubContentService, pageSvc *st
 
 	serviceOpts := []ServiceOption{
 		WithContentService(contentSvc),
-		WithPageService(pageSvc),
 	}
 	serviceOpts = append(serviceOpts, opts...)
 
@@ -190,14 +157,6 @@ func newImportService(tb testing.TB, contentSvc *stubContentService, pageSvc *st
 		tb.Fatalf("NewService: %v", err)
 	}
 	return svc
-}
-
-func pointerUUID(id uuid.UUID) *uuid.UUID {
-	if id == uuid.Nil {
-		return nil
-	}
-	v := id
-	return &v
 }
 
 func cloneDocument(doc *interfaces.Document) *interfaces.Document {
@@ -352,113 +311,6 @@ func (s *stubContentService) DeleteTranslation(_ context.Context, req interfaces
 	return errors.New("content not found")
 }
 
-type stubPageService struct {
-	records map[string]*interfaces.PageRecord
-}
-
-func newStubPageService() *stubPageService {
-	return &stubPageService{
-		records: map[string]*interfaces.PageRecord{},
-	}
-}
-
-func (s *stubPageService) Create(_ context.Context, req interfaces.PageCreateRequest) (*interfaces.PageRecord, error) {
-	id := uuid.New()
-	record := &interfaces.PageRecord{
-		ID:           id,
-		ContentID:    req.ContentID,
-		TemplateID:   req.TemplateID,
-		Slug:         req.Slug,
-		Status:       req.Status,
-		Translations: make([]interfaces.PageTranslation, len(req.Translations)),
-		Metadata:     cloneMapAny(req.Metadata),
-	}
-	for i, tr := range req.Translations {
-		record.Translations[i] = interfaces.PageTranslation{
-			ID:      uuid.New(),
-			Locale:  tr.Locale,
-			Title:   tr.Title,
-			Path:    tr.Path,
-			Summary: tr.Summary,
-			Fields:  cloneMapAny(tr.Fields),
-		}
-	}
-	s.records[req.Slug] = record
-	return clonePageRecord(record), nil
-}
-
-func (s *stubPageService) Update(_ context.Context, req interfaces.PageUpdateRequest) (*interfaces.PageRecord, error) {
-	var record *interfaces.PageRecord
-	for slug, existing := range s.records {
-		if existing.ID == req.ID {
-			record = existing
-			if req.TemplateID != nil {
-				record.TemplateID = *req.TemplateID
-			}
-			record.Status = req.Status
-			record.Metadata = cloneMapAny(req.Metadata)
-			record.Translations = make([]interfaces.PageTranslation, len(req.Translations))
-			for i, tr := range req.Translations {
-				record.Translations[i] = interfaces.PageTranslation{
-					ID:      uuid.New(),
-					Locale:  tr.Locale,
-					Title:   tr.Title,
-					Path:    tr.Path,
-					Summary: tr.Summary,
-					Fields:  cloneMapAny(tr.Fields),
-				}
-			}
-			s.records[slug] = record
-			break
-		}
-	}
-	if record == nil {
-		return nil, errors.New("page not found")
-	}
-	return clonePageRecord(record), nil
-}
-
-func (s *stubPageService) GetBySlug(_ context.Context, slug string, _ ...string) (*interfaces.PageRecord, error) {
-	if record, ok := s.records[slug]; ok {
-		return clonePageRecord(record), nil
-	}
-	return nil, nil
-}
-
-func (s *stubPageService) List(context.Context, ...string) ([]*interfaces.PageRecord, error) {
-	result := make([]*interfaces.PageRecord, 0, len(s.records))
-	for _, record := range s.records {
-		result = append(result, clonePageRecord(record))
-	}
-	return result, nil
-}
-
-func (s *stubPageService) Delete(_ context.Context, req interfaces.PageDeleteRequest) error {
-	for slug, record := range s.records {
-		if record.ID == req.ID {
-			delete(s.records, slug)
-			return nil
-		}
-	}
-	return nil
-}
-
-func (s *stubPageService) UpdateTranslation(context.Context, interfaces.PageUpdateTranslationRequest) (*interfaces.PageTranslation, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *stubPageService) DeleteTranslation(context.Context, interfaces.PageDeleteTranslationRequest) error {
-	return errors.New("not implemented")
-}
-
-func (s *stubPageService) Move(context.Context, interfaces.PageMoveRequest) (*interfaces.PageRecord, error) {
-	return nil, errors.New("not implemented")
-}
-
-func (s *stubPageService) Duplicate(context.Context, interfaces.PageDuplicateRequest) (*interfaces.PageRecord, error) {
-	return nil, errors.New("not implemented")
-}
-
 // Helper cloning functions ---------------------------------------------------
 
 func cloneContentRecord(record *interfaces.ContentRecord) *interfaces.ContentRecord {
@@ -494,32 +346,6 @@ func cloneContentTranslation(tr interfaces.ContentTranslation) *interfaces.Conte
 		Summary: tr.Summary,
 		Fields:  cloneMapAny(tr.Fields),
 	}
-}
-
-func clonePageRecord(record *interfaces.PageRecord) *interfaces.PageRecord {
-	if record == nil {
-		return nil
-	}
-	out := &interfaces.PageRecord{
-		ID:           record.ID,
-		ContentID:    record.ContentID,
-		TemplateID:   record.TemplateID,
-		Slug:         record.Slug,
-		Status:       record.Status,
-		Metadata:     cloneMapAny(record.Metadata),
-		Translations: make([]interfaces.PageTranslation, len(record.Translations)),
-	}
-	for i, tr := range record.Translations {
-		out.Translations[i] = interfaces.PageTranslation{
-			ID:      tr.ID,
-			Locale:  tr.Locale,
-			Title:   tr.Title,
-			Path:    tr.Path,
-			Summary: tr.Summary,
-			Fields:  cloneMapAny(tr.Fields),
-		}
-	}
-	return out
 }
 
 func cloneMapAny(src map[string]any) map[string]any {

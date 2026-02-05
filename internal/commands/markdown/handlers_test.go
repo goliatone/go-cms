@@ -121,7 +121,6 @@ func TestImportDirectoryHandlerInvokesService(t *testing.T) {
 		MarkdownEnabled: func() bool { return true },
 	})
 
-	templateID := uuid.New()
 	contentTypeID := uuid.New()
 	authorID := uuid.New()
 
@@ -129,10 +128,7 @@ func TestImportDirectoryHandlerInvokesService(t *testing.T) {
 		Directory:                       "content/en",
 		ContentTypeID:                   contentTypeID,
 		AuthorID:                        authorID,
-		TemplateID:                      &templateID,
-		CreatePages:                     true,
 		ContentAllowMissingTranslations: true,
-		PageAllowMissingTranslations:    true,
 		DryRun:                          true,
 	}
 
@@ -153,17 +149,8 @@ func TestImportDirectoryHandlerInvokesService(t *testing.T) {
 	if call.options.AuthorID != authorID {
 		t.Fatalf("expected author %s, got %s", authorID, call.options.AuthorID)
 	}
-	if call.options.TemplateID == nil || *call.options.TemplateID != templateID {
-		t.Fatalf("expected template id %s, got %#v", templateID, call.options.TemplateID)
-	}
-	if !call.options.CreatePages {
-		t.Fatalf("expected create pages option set")
-	}
 	if !call.options.ContentAllowMissingTranslations {
 		t.Fatalf("expected content allow missing translations option set")
-	}
-	if !call.options.PageAllowMissingTranslations {
-		t.Fatalf("expected page allow missing translations option set")
 	}
 	if !call.options.DryRun {
 		t.Fatalf("expected dry run option set")
@@ -245,7 +232,6 @@ func TestSyncDirectoryHandlerInvokesService(t *testing.T) {
 		MarkdownEnabled: func() bool { return true },
 	})
 
-	templateID := uuid.New()
 	contentTypeID := uuid.New()
 	authorID := uuid.New()
 
@@ -253,10 +239,7 @@ func TestSyncDirectoryHandlerInvokesService(t *testing.T) {
 		Directory:                       "content",
 		ContentTypeID:                   contentTypeID,
 		AuthorID:                        authorID,
-		TemplateID:                      &templateID,
-		CreatePages:                     true,
 		ContentAllowMissingTranslations: true,
-		PageAllowMissingTranslations:    true,
 		DryRun:                          true,
 		DeleteOrphaned:                  true,
 		UpdateExisting:                  true,
@@ -279,17 +262,8 @@ func TestSyncDirectoryHandlerInvokesService(t *testing.T) {
 	if call.options.AuthorID != authorID {
 		t.Fatalf("expected author %s, got %s", authorID, call.options.AuthorID)
 	}
-	if call.options.TemplateID == nil || *call.options.TemplateID != templateID {
-		t.Fatalf("expected template id %s, got %#v", templateID, call.options.TemplateID)
-	}
-	if !call.options.CreatePages {
-		t.Fatalf("expected create pages option set")
-	}
 	if !call.options.ContentAllowMissingTranslations {
 		t.Fatalf("expected content allow missing translations option set")
-	}
-	if !call.options.PageAllowMissingTranslations {
-		t.Fatalf("expected page allow missing translations option set")
 	}
 	if !call.options.DryRun {
 		t.Fatalf("expected dry run option set")

@@ -143,7 +143,7 @@ func TestModule_Phase6FeaturesWithBunAndCache(t *testing.T) {
 	}
 
 	container := module.Container()
-	worker := jobs.NewWorker(module.Scheduler(), container.ContentRepository(), container.PageRepository())
+	worker := jobs.NewWorker(module.Scheduler(), container.ContentRepository())
 	if err := worker.Process(ctx); err != nil {
 		t.Fatalf("process scheduler jobs: %v", err)
 	}

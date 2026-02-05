@@ -15,9 +15,9 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
 	ditesting "github.com/goliatone/go-cms/internal/di/testing"
+	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/identity"
-	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/internal/themes"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -62,8 +62,8 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 	template, _ := registerThemeFixtures(t, ctx, themeSvc)
 
 	contentRepo := container.ContentRepository()
+	contentTypeRepo := container.ContentTypeRepository()
 	localeRepo := container.LocaleRepository()
-	pageRepo := container.PageRepository()
 
 	enLocale, err := localeRepo.GetByCode(ctx, "en")
 	if err != nil {
@@ -74,10 +74,26 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 		t.Fatalf("lookup es locale: %v", err)
 	}
 
+	envID := cmsenv.IDForKey(cmsenv.DefaultKey)
+	contentTypeID := uuid.New()
+	if contentTypeRepo == nil {
+		t.Fatal("content type repository is nil")
+	}
+	_, err = contentTypeRepo.Create(ctx, &content.ContentType{
+		ID:            contentTypeID,
+		Name:          "page",
+		Slug:          "page",
+		Status:        content.ContentTypeStatusActive,
+		EnvironmentID: envID,
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
 	contentID := uuid.New()
 	contentRecord := &content.Content{
 		ID:             contentID,
-		ContentTypeID:  uuid.New(),
+		ContentTypeID:  contentTypeID,
 		CurrentVersion: 1,
 		Status:         "published",
 		Slug:           "company",
@@ -85,13 +101,21 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 		UpdatedBy:      uuid.New(),
 		CreatedAt:      now,
 		UpdatedAt:      now,
+		EnvironmentID:  envID,
+		Metadata: map[string]any{
+			"template_id": template.ID.String(),
+		},
+		IsVisible: true,
 		Translations: []*content.ContentTranslation{
 			{
 				ID:        uuid.New(),
 				ContentID: contentID,
 				LocaleID:  enLocale.ID,
 				Title:     "Company",
-				Content:   map[string]any{"body": "english"},
+				Content: map[string]any{
+					"body": "english",
+					"path": "/company",
+				},
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
@@ -100,7 +124,10 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 				ContentID: contentID,
 				LocaleID:  esLocale.ID,
 				Title:     "Empresa",
-				Content:   map[string]any{"body": "espanol"},
+				Content: map[string]any{
+					"body": "espanol",
+					"path": "/es/empresa",
+				},
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
@@ -108,43 +135,6 @@ func TestIntegrationBuildWithMemoryRepositories(t *testing.T) {
 	}
 	if _, err := contentRepo.Create(ctx, contentRecord); err != nil {
 		t.Fatalf("create content: %v", err)
-	}
-
-	pageID := uuid.New()
-	pageRecord := &pages.Page{
-		ID:         pageID,
-		ContentID:  contentID,
-		TemplateID: template.ID,
-		Slug:       "company",
-		Status:     "published",
-		IsVisible:  true,
-		CreatedBy:  uuid.New(),
-		UpdatedBy:  uuid.New(),
-		CreatedAt:  now,
-		UpdatedAt:  now,
-		Translations: []*pages.PageTranslation{
-			{
-				ID:        uuid.New(),
-				PageID:    pageID,
-				LocaleID:  enLocale.ID,
-				Title:     "Company",
-				Path:      "/company",
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			{
-				ID:        uuid.New(),
-				PageID:    pageID,
-				LocaleID:  esLocale.ID,
-				Title:     "Empresa",
-				Path:      "/es/empresa",
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-		},
-	}
-	if _, err := pageRepo.Create(ctx, pageRecord); err != nil {
-		t.Fatalf("create page: %v", err)
 	}
 
 	svc := container.GeneratorService()
@@ -253,7 +243,6 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatalf("build base container: %v", err)
 	}
-	pageWrapper := newHydratingPageService(baseContainer.PageService(), bunDB)
 	contentWrapper := newHydratingContentService(baseContainer.ContentService(), bunDB)
 
 	storage := newRecordingStorage()
@@ -262,7 +251,6 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 		di.WithBunDB(bunDB),
 		di.WithTemplate(renderer),
 		di.WithGeneratorStorage(storage),
-		di.WithPageService(pageWrapper),
 		di.WithContentService(contentWrapper),
 	)
 	if err != nil {
@@ -272,14 +260,17 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	enLocaleID := identity.LocaleUUID("en")
 	esLocaleID := identity.LocaleUUID("es")
 
+	envID := cmsenv.IDForKey(cmsenv.DefaultKey)
 	contentTypeID := uuid.New()
 	contentType := &content.ContentType{
-		ID:        contentTypeID,
-		Name:      "page",
-		Slug:      "page",
-		Schema:    map[string]any{"fields": []map[string]any{{"name": "body", "type": "richtext"}}},
-		CreatedAt: now,
-		UpdatedAt: now,
+		ID:            contentTypeID,
+		Name:          "page",
+		Slug:          "page",
+		Status:        content.ContentTypeStatusActive,
+		Schema:        map[string]any{"fields": []map[string]any{{"name": "body", "type": "richtext"}}},
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		EnvironmentID: envID,
 	}
 	if _, err := bunDB.NewInsert().Model(contentType).Exec(ctx); err != nil {
 		t.Fatalf("insert content type: %v", err)
@@ -289,10 +280,6 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 	template, _ := registerThemeFixtures(t, ctx, themeSvc)
 
 	authorID := uuid.New()
-	pageSvc := container.PageService()
-	if _, ok := pageSvc.(*hydratingPageService); !ok {
-		t.Fatalf("expected hydrating page service, got %T", pageSvc)
-	}
 
 	publishedAt := now.Add(-6 * time.Hour)
 	contentID := uuid.New()
@@ -307,6 +294,11 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 		UpdatedBy:      authorID,
 		CreatedAt:      now,
 		UpdatedAt:      now,
+		EnvironmentID:  envID,
+		Metadata: map[string]any{
+			"template_id": template.ID.String(),
+		},
+		IsVisible: true,
 		Translations: []*content.ContentTranslation{
 			{
 				ID:        uuid.New(),
@@ -314,7 +306,10 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 				LocaleID:  enLocaleID,
 				Title:     "News",
 				Summary:   strPtr("Latest company news"),
-				Content:   map[string]any{"body": "english body"},
+				Content: map[string]any{
+					"body": "english body",
+					"path": "/news",
+				},
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
@@ -324,7 +319,10 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 				LocaleID:  esLocaleID,
 				Title:     "Noticias",
 				Summary:   strPtr("Últimas noticias"),
-				Content:   map[string]any{"body": "spanish body"},
+				Content: map[string]any{
+					"body": "spanish body",
+					"path": "/es/noticias",
+				},
 				CreatedAt: now,
 				UpdatedAt: now,
 			},
@@ -339,63 +337,10 @@ func TestIntegrationBuildFeedsIncrementalWithSQLite(t *testing.T) {
 		}
 	}
 
-	pageID := uuid.New()
-	pageRecord := &pages.Page{
-		ID:          pageID,
-		ContentID:   contentID,
-		TemplateID:  template.ID,
-		Slug:        "news",
-		Status:      "published",
-		PublishedAt: &publishedAt,
-		IsVisible:   true,
-		CreatedBy:   authorID,
-		UpdatedBy:   authorID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
-		Translations: []*pages.PageTranslation{
-			{
-				ID:        uuid.New(),
-				PageID:    pageID,
-				LocaleID:  enLocaleID,
-				Title:     "News",
-				Path:      "/news",
-				Summary:   strPtr("English summary"),
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-			{
-				ID:        uuid.New(),
-				PageID:    pageID,
-				LocaleID:  esLocaleID,
-				Title:     "Noticias",
-				Path:      "/es/noticias",
-				Summary:   strPtr("Resumen español"),
-				CreatedAt: now,
-				UpdatedAt: now,
-			},
-		},
-	}
-	if _, err := bunDB.NewInsert().Model(pageRecord).Exec(ctx); err != nil {
-		t.Fatalf("insert page: %v", err)
-	}
-	for _, tr := range pageRecord.Translations {
-		if _, err := bunDB.NewInsert().Model(tr).Exec(ctx); err != nil {
-			t.Fatalf("insert page translation: %v", err)
-		}
-	}
-
-	fetchedPage, err := pageSvc.Get(ctx, pageID)
-	if err != nil {
-		t.Fatalf("get page: %v", err)
-	}
-	if len(fetchedPage.Translations) == 0 {
-		t.Fatalf("expected page translations on fetch")
-	}
-
 	svc := container.GeneratorService()
 
 	buildOpts := generator.BuildOptions{
-		PageIDs: []uuid.UUID{pageRecord.ID},
+		PageIDs: []uuid.UUID{contentID},
 	}
 
 	firstResult, err := svc.Build(ctx, buildOpts)
@@ -485,9 +430,6 @@ func registerGeneratorModels(t *testing.T, db *bun.DB) {
 		(*content.Content)(nil),
 		(*content.ContentTranslation)(nil),
 		(*content.ContentVersion)(nil),
-		(*pages.Page)(nil),
-		(*pages.PageTranslation)(nil),
-		(*pages.PageVersion)(nil),
 		(*themes.Theme)(nil),
 		(*themes.Template)(nil),
 	}
@@ -758,90 +700,6 @@ func (r *byteRows) Scan(dest ...any) error {
 }
 
 func (r *byteRows) Close() error { return nil }
-
-type hydratingPageService struct {
-	pages.Service
-	db *bun.DB
-}
-
-func newHydratingPageService(delegate pages.Service, db *bun.DB) pages.Service {
-	if delegate == nil || db == nil {
-		return delegate
-	}
-	return &hydratingPageService{Service: delegate, db: db}
-}
-
-func (s *hydratingPageService) List(ctx context.Context, env ...string) ([]*pages.Page, error) {
-	records, err := s.Service.List(ctx, env...)
-	if err != nil || len(records) == 0 {
-		return records, err
-	}
-	return s.hydrate(ctx, records)
-}
-
-func (s *hydratingPageService) Get(ctx context.Context, id uuid.UUID) (*pages.Page, error) {
-	record, err := s.Service.Get(ctx, id)
-	if err != nil || record == nil {
-		return record, err
-	}
-	hydrated, err := s.hydrate(ctx, []*pages.Page{record})
-	if err != nil {
-		return nil, err
-	}
-	if len(hydrated) == 0 {
-		return nil, nil
-	}
-	return hydrated[0], nil
-}
-
-func (s *hydratingPageService) hydrate(ctx context.Context, records []*pages.Page) ([]*pages.Page, error) {
-	if len(records) == 0 || s.db == nil {
-		return records, nil
-	}
-	ids := make([]uuid.UUID, 0, len(records))
-	for _, record := range records {
-		if record == nil || record.ID == uuid.Nil {
-			continue
-		}
-		ids = append(ids, record.ID)
-	}
-	if len(ids) == 0 {
-		return records, nil
-	}
-
-	var translations []*pages.PageTranslation
-	if err := s.db.NewSelect().
-		Model(&translations).
-		Where("page_id IN (?)", bun.In(ids)).
-		Scan(ctx); err != nil {
-		return nil, err
-	}
-
-	grouped := map[uuid.UUID][]*pages.PageTranslation{}
-	for _, tr := range translations {
-		if tr == nil {
-			continue
-		}
-		copyTr := *tr
-		grouped[tr.PageID] = append(grouped[tr.PageID], &copyTr)
-	}
-
-	result := make([]*pages.Page, 0, len(records))
-	for _, record := range records {
-		if record == nil {
-			result = append(result, nil)
-			continue
-		}
-		clone := *record
-		if trs, ok := grouped[record.ID]; ok {
-			clone.Translations = trs
-		} else {
-			clone.Translations = nil
-		}
-		result = append(result, &clone)
-	}
-	return result, nil
-}
 
 type hydratingContentService struct {
 	content.Service

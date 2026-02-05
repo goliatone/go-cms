@@ -136,10 +136,9 @@ func newTestService(tb testing.TB, recursive bool) *Service {
 
 func TestServiceImportLogsGolden(t *testing.T) {
 	contentStub := newStubContentService()
-	pageStub := newStubPageService()
 	logger := newGoldenLogger()
 
-	svc := newImportService(t, contentStub, pageStub, WithLogger(logger))
+	svc := newImportService(t, contentStub, WithLogger(logger))
 
 	doc, err := svc.Load(context.Background(), "en/about.md", interfaces.LoadOptions{})
 	if err != nil {
@@ -160,10 +159,9 @@ func TestServiceImportLogsGolden(t *testing.T) {
 
 func TestServiceImportLogsErrorGolden(t *testing.T) {
 	contentStub := newStubContentService()
-	pageStub := newStubPageService()
 	logger := newGoldenLogger()
 
-	svc := newImportService(t, contentStub, pageStub, WithLogger(logger))
+	svc := newImportService(t, contentStub, WithLogger(logger))
 
 	if _, err := svc.Import(context.Background(), nil, interfaces.ImportOptions{}); err == nil {
 		t.Fatal("expected error when document is nil")

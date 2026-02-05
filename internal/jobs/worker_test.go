@@ -9,7 +9,6 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/jobs"
-	"github.com/goliatone/go-cms/internal/pages"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
@@ -19,10 +18,9 @@ func TestWorkerProcessContentPublish(t *testing.T) {
 	ctx := context.Background()
 	scheduler := cmsscheduler.NewInMemory()
 	contentRepo := content.NewMemoryContentRepository()
-	pageRepo := pages.NewMemoryPageRepository()
 	audit := jobs.NewInMemoryAuditRecorder()
 	now := time.Date(2024, 5, 1, 10, 0, 0, 0, time.UTC)
-	worker := jobs.NewWorker(scheduler, contentRepo, pageRepo, jobs.WithAuditRecorder(audit), jobs.WithClock(func() time.Time { return now }))
+	worker := jobs.NewWorker(scheduler, contentRepo, jobs.WithAuditRecorder(audit), jobs.WithClock(func() time.Time { return now }))
 
 	contentID := uuid.New()
 	userID := uuid.New()
@@ -92,10 +90,9 @@ func TestWorkerProcessContentUnpublish(t *testing.T) {
 	ctx := context.Background()
 	scheduler := cmsscheduler.NewInMemory()
 	contentRepo := content.NewMemoryContentRepository()
-	pageRepo := pages.NewMemoryPageRepository()
 	audit := jobs.NewInMemoryAuditRecorder()
 	now := time.Date(2024, 6, 1, 8, 0, 0, 0, time.UTC)
-	worker := jobs.NewWorker(scheduler, contentRepo, pageRepo, jobs.WithAuditRecorder(audit), jobs.WithClock(func() time.Time { return now }))
+	worker := jobs.NewWorker(scheduler, contentRepo, jobs.WithAuditRecorder(audit), jobs.WithClock(func() time.Time { return now }))
 
 	contentID := uuid.New()
 	userID := uuid.New()
@@ -140,83 +137,6 @@ func TestWorkerProcessContentUnpublish(t *testing.T) {
 
 	if len(audit.Events()) != 1 || audit.Events()[0].Action != "unpublish" {
 		t.Fatalf("expected unpublish audit event")
-	}
-}
-
-func TestWorkerProcessPagePublishAndUnpublish(t *testing.T) {
-	ctx := context.Background()
-	scheduler := cmsscheduler.NewInMemory()
-	contentRepo := content.NewMemoryContentRepository()
-	pageRepo := pages.NewMemoryPageRepository()
-	audit := jobs.NewInMemoryAuditRecorder()
-	now := time.Date(2024, 7, 10, 9, 0, 0, 0, time.UTC)
-	worker := jobs.NewWorker(scheduler, contentRepo, pageRepo, jobs.WithAuditRecorder(audit), jobs.WithClock(func() time.Time { return now }))
-
-	pageID := uuid.New()
-	contentID := uuid.New()
-	userID := uuid.New()
-	pageRecord := &pages.Page{
-		ID:         pageID,
-		ContentID:  contentID,
-		TemplateID: uuid.New(),
-		Slug:       "home",
-		Status:     string(domain.StatusScheduled),
-		PublishAt:  ptrTime(now.Add(-time.Minute)),
-		UpdatedAt:  now,
-		UpdatedBy:  userID,
-	}
-	if _, err := pageRepo.Create(ctx, pageRecord); err != nil {
-		t.Fatalf("create page: %v", err)
-	}
-
-	if _, err := scheduler.Enqueue(ctx, interfaces.JobSpec{
-		Key:     cmsscheduler.PagePublishJobKey(pageID),
-		Type:    cmsscheduler.JobTypePagePublish,
-		RunAt:   now.Add(-time.Minute),
-		Payload: map[string]any{"page_id": pageID.String(), "scheduled_by": userID.String()},
-	}); err != nil {
-		t.Fatalf("enqueue publish: %v", err)
-	}
-
-	if err := worker.Process(ctx); err != nil {
-		t.Fatalf("process publish: %v", err)
-	}
-
-	pageUpdated, err := pageRepo.GetByID(ctx, pageID)
-	if err != nil {
-		t.Fatalf("get page: %v", err)
-	}
-	if pageUpdated.Status != string(domain.StatusPublished) {
-		t.Fatalf("expected published status, got %s", pageUpdated.Status)
-	}
-
-	pageUpdated.UnpublishAt = ptrTime(now.Add(-time.Minute))
-	if _, err := pageRepo.Update(ctx, pageUpdated); err != nil {
-		t.Fatalf("update page: %v", err)
-	}
-
-	if _, err := scheduler.Enqueue(ctx, interfaces.JobSpec{
-		Key:     cmsscheduler.PageUnpublishJobKey(pageID),
-		Type:    cmsscheduler.JobTypePageUnpublish,
-		RunAt:   now.Add(-time.Minute),
-		Payload: map[string]any{"page_id": pageID.String(), "scheduled_by": userID.String()},
-	}); err != nil {
-		t.Fatalf("enqueue unpublish: %v", err)
-	}
-
-	if err := worker.Process(ctx); err != nil {
-		t.Fatalf("process unpublish: %v", err)
-	}
-
-	pageUpdated, err = pageRepo.GetByID(ctx, pageID)
-	if err != nil {
-		t.Fatalf("get page after unpublish: %v", err)
-	}
-	if pageUpdated.Status != string(domain.StatusArchived) {
-		t.Fatalf("expected archived status, got %s", pageUpdated.Status)
-	}
-	if len(audit.Events()) < 2 {
-		t.Fatalf("expected at least 2 audit events, got %d", len(audit.Events()))
 	}
 }
 

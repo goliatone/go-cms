@@ -13,13 +13,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/pages"
 	shortcodepkg "github.com/goliatone/go-cms/internal/shortcode"
 	"github.com/goliatone/go-cms/internal/themes"
-	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
@@ -33,14 +31,14 @@ func TestBuildRendersTemplateContext(t *testing.T) {
 	renderer := &recordingRenderer{}
 	storage := &recordingStorage{}
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -187,28 +185,17 @@ func TestBuildSkipsPagesWithoutTranslations(t *testing.T) {
 	now := time.Date(2024, 8, 12, 9, 0, 0, 0, time.UTC)
 
 	localeID := uuid.New()
+	pageTypeID := uuid.New()
 	contentID := uuid.New()
-	pageID := uuid.New()
 
 	contentRecord := &content.Content{
-		ID:        contentID,
-		Slug:      "translation-optional",
-		Status:    "published",
-		CreatedAt: now.Add(-2 * time.Hour),
-		UpdatedAt: now.Add(-time.Hour),
-	}
-
-	pageRecord := &pages.Page{
-		ID:         pageID,
-		ContentID:  contentID,
-		TemplateID: uuid.Nil,
-		Slug:       "translation-optional",
-		Status:     "published",
-		IsVisible:  true,
-		CreatedAt:  now.Add(-2 * time.Hour),
-		UpdatedAt:  now.Add(-time.Hour),
-		Blocks:     nil,
-		Widgets:    nil,
+		ID:            contentID,
+		ContentTypeID: pageTypeID,
+		Slug:          "translation-optional",
+		Status:        "published",
+		CreatedAt:     now.Add(-2 * time.Hour),
+		UpdatedAt:     now.Add(-time.Hour),
+		IsVisible:     true,
 		// Translations intentionally omitted to mimic optional translation mode.
 	}
 
@@ -226,19 +213,15 @@ func TestBuildSkipsPagesWithoutTranslations(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(cfg, Dependencies{
-		Pages: &stubPagesService{
-			records: map[uuid.UUID]*pages.Page{
-				pageID: pageRecord,
-			},
-			listing: []*pages.Page{pageRecord},
-		},
 		Content: &stubContentService{
 			records: map[uuid.UUID]*content.Content{
 				contentID: contentRecord,
 			},
+			listing: []*content.Content{contentRecord},
 		},
-		Menus:  newStubMenuService(),
-		Themes: &stubThemesService{},
+		ContentTypes: newStubContentTypeService(pageTypeID, "page"),
+		Menus:        newStubMenuService(),
+		Themes:       &stubThemesService{},
 		Locales: &stubLocaleLookup{
 			records: map[string]*content.Locale{
 				"en": {
@@ -288,14 +271,14 @@ func TestBuildUsesWorkerPool(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -336,14 +319,14 @@ func TestBuildFailsOnRenderTimeout(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -373,14 +356,14 @@ func TestBuildDryRunDiagnostics(t *testing.T) {
 	renderer := &recordingRenderer{}
 	storage := &recordingStorage{}
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -442,14 +425,14 @@ func TestBuildGeneratesSitemapAndRobots(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -505,14 +488,14 @@ func TestBuildSkipsSitemapAndFeedsWhenDisabled(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -554,15 +537,15 @@ func TestBuildCopiesThemeAssets(t *testing.T) {
 	assetResolver := newStubAssetResolver()
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
-		Assets:   assetResolver,
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
+		Assets:       assetResolver,
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -613,14 +596,14 @@ func TestBuildReturnsErrorWhenStorageWriteFails(t *testing.T) {
 	storage := &failingStorage{failOnWrite: true}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -645,14 +628,14 @@ func TestBuildFailsWhenThemesDisabled(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   themes.NewNoOpService(),
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       themes.NewNoOpService(),
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -688,14 +671,14 @@ func TestBuildSkipsPagesWithManifest(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -737,14 +720,14 @@ func TestBuildSkipsPagesWithManifest(t *testing.T) {
 
 	renderer2 := &recordingRenderer{}
 	svc2 := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer2,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer2,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc2.now = func() time.Time { return now.Add(30 * time.Minute) }
 
@@ -801,14 +784,14 @@ func TestBuildPageForcesRender(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -823,14 +806,14 @@ func TestBuildPageForcesRender(t *testing.T) {
 
 	renderer2 := &recordingRenderer{}
 	svc2 := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer2,
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer2,
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc2.now = func() time.Time { return now.Add(5 * time.Minute) }
 
@@ -869,15 +852,15 @@ func TestBuildAssetsForcesCopy(t *testing.T) {
 	assetResolver := newStubAssetResolver()
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Assets:   assetResolver,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Assets:       assetResolver,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -888,15 +871,15 @@ func TestBuildAssetsForcesCopy(t *testing.T) {
 
 	renderer2 := &recordingRenderer{}
 	svc2 := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer2,
-		Storage:  storage,
-		Assets:   assetResolver,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer2,
+		Storage:      storage,
+		Assets:       assetResolver,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc2.now = func() time.Time { return now.Add(10 * time.Minute) }
 
@@ -935,15 +918,15 @@ func TestBuildFailsOnAssetCopyTimeout(t *testing.T) {
 	}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: renderer,
-		Storage:  storage,
-		Assets:   assetResolver,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     renderer,
+		Storage:      storage,
+		Assets:       assetResolver,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -969,14 +952,14 @@ func TestCleanInvokesStorageRemove(t *testing.T) {
 	storage := &recordingStorage{}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: &recordingRenderer{},
-		Storage:  storage,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     &recordingRenderer{},
+		Storage:      storage,
+		Logger:       logging.NoOp(),
 	}).(*service)
 
 	if err := svc.Clean(ctx); err != nil {
@@ -1050,16 +1033,16 @@ func TestGeneratorHooksInvoked(t *testing.T) {
 	}
 
 	svc := NewService(fixtures.Config, Dependencies{
-		Pages:    fixtures.Pages,
-		Content:  fixtures.Content,
-		Menus:    fixtures.Menus,
-		Themes:   fixtures.Themes,
-		Locales:  fixtures.Locales,
-		Renderer: &recordingRenderer{},
-		Storage:  storage,
-		Assets:   assetResolver,
-		Hooks:    hooks,
-		Logger:   logging.NoOp(),
+		Content:      fixtures.Content,
+		ContentTypes: fixtures.ContentTypes,
+		Menus:        fixtures.Menus,
+		Themes:       fixtures.Themes,
+		Locales:      fixtures.Locales,
+		Renderer:     &recordingRenderer{},
+		Storage:      storage,
+		Assets:       assetResolver,
+		Hooks:        hooks,
+		Logger:       logging.NoOp(),
 	}).(*service)
 	svc.now = func() time.Time { return now }
 
@@ -1093,14 +1076,14 @@ func TestGeneratorHooksInvoked(t *testing.T) {
 }
 
 type renderFixtures struct {
-	Config   Config
-	Content  *stubContentService
-	Pages    *stubPagesService
-	Menus    *stubMenusService
-	Themes   *stubThemesService
-	Locales  *stubLocaleLookup
-	Template *themes.Template
-	PageIDs  []uuid.UUID
+	Config       Config
+	Content      *stubContentService
+	ContentTypes *stubContentTypeService
+	Menus        *stubMenusService
+	Themes       *stubThemesService
+	Locales      *stubLocaleLookup
+	Template     *themes.Template
+	PageIDs      []uuid.UUID
 }
 
 type storageCall struct {
@@ -1316,63 +1299,82 @@ func newRenderFixtures(now time.Time) renderFixtures {
 	localeES := uuid.New()
 	themeID := uuid.New()
 	templateID := uuid.New()
-	contentID := uuid.New()
+	pageTypeID := uuid.New()
+	page1ID := uuid.New()
+	page2ID := uuid.New()
 
-	contentRecord := &content.Content{
-		ID:             contentID,
+	page1Content := &content.Content{
+		ID:             page1ID,
+		ContentTypeID:  pageTypeID,
 		Slug:           "company",
 		Status:         "published",
 		UpdatedAt:      now.Add(-time.Hour),
 		CurrentVersion: 3,
+		Metadata: map[string]any{
+			"template_id": templateID.String(),
+		},
+		IsVisible: true,
 		Translations: []*content.ContentTranslation{
 			{
 				ID:        uuid.New(),
-				ContentID: contentID,
+				ContentID: page1ID,
 				LocaleID:  localeEN,
 				Title:     "Company",
 				Content: map[string]any{
 					"body": "english body",
+					"path": "/company",
 				},
 				UpdatedAt: now.Add(-30 * time.Minute),
 			},
 			{
 				ID:        uuid.New(),
-				ContentID: contentID,
+				ContentID: page1ID,
 				LocaleID:  localeES,
 				Title:     "Empresa",
 				Content: map[string]any{
 					"body": "contenido español",
+					"path": "/es/empresa",
 				},
 				UpdatedAt: now.Add(-20 * time.Minute),
 			},
 		},
 	}
 
-	pageBase := &pages.Page{
-		ContentID:   contentID,
-		TemplateID:  templateID,
-		Slug:        "company",
-		Status:      "published",
-		IsVisible:   true,
-		Blocks:      []*blocks.Instance{},
-		Widgets:     map[string][]*widgets.ResolvedWidget{},
-		PublishedAt: ptrTime(now.Add(-2 * time.Hour)),
-		UpdatedAt:   now.Add(-90 * time.Minute),
-	}
-
-	page1 := clonePage(pageBase)
-	page1.ID = uuid.New()
-	page1.Translations = []*pages.PageTranslation{
-		{ID: uuid.New(), PageID: page1.ID, LocaleID: localeEN, Title: "Company", Path: "/company", UpdatedAt: now.Add(-80 * time.Minute)},
-		{ID: uuid.New(), PageID: page1.ID, LocaleID: localeES, Title: "Empresa", Path: "/es/empresa", UpdatedAt: now.Add(-70 * time.Minute)},
-	}
-
-	page2 := clonePage(pageBase)
-	page2.ID = uuid.New()
-	page2.Slug = "vision"
-	page2.Translations = []*pages.PageTranslation{
-		{ID: uuid.New(), PageID: page2.ID, LocaleID: localeEN, Title: "Vision", Path: "/vision", UpdatedAt: now.Add(-60 * time.Minute)},
-		{ID: uuid.New(), PageID: page2.ID, LocaleID: localeES, Title: "Visión", Path: "/es/vision", UpdatedAt: now.Add(-50 * time.Minute)},
+	page2Content := &content.Content{
+		ID:            page2ID,
+		ContentTypeID: pageTypeID,
+		Slug:          "vision",
+		Status:        "published",
+		PublishedAt:   ptrTime(now.Add(-2 * time.Hour)),
+		UpdatedAt:     now.Add(-90 * time.Minute),
+		Metadata: map[string]any{
+			"template_id": templateID.String(),
+		},
+		IsVisible: true,
+		Translations: []*content.ContentTranslation{
+			{
+				ID:        uuid.New(),
+				ContentID: page2ID,
+				LocaleID:  localeEN,
+				Title:     "Vision",
+				Content: map[string]any{
+					"body": "vision body",
+					"path": "/vision",
+				},
+				UpdatedAt: now.Add(-60 * time.Minute),
+			},
+			{
+				ID:        uuid.New(),
+				ContentID: page2ID,
+				LocaleID:  localeES,
+				Title:     "Visión",
+				Content: map[string]any{
+					"body": "vision es",
+					"path": "/es/vision",
+				},
+				UpdatedAt: now.Add(-50 * time.Minute),
+			},
+		},
 	}
 
 	templateRecord := &themes.Template{
@@ -1401,18 +1403,13 @@ func newRenderFixtures(now time.Time) renderFixtures {
 
 	contentSvc := &stubContentService{
 		records: map[uuid.UUID]*content.Content{
-			contentID: contentRecord,
+			page1ID: page1Content,
+			page2ID: page2Content,
 		},
+		listing: []*content.Content{page1Content, page2Content},
 	}
 
-	pagesSvc := &stubPagesService{
-		records: map[uuid.UUID]*pages.Page{
-			page1.ID: page1,
-			page2.ID: page2,
-		},
-		listing: []*pages.Page{page1, page2},
-	}
-
+	contentTypeSvc := newStubContentTypeService(pageTypeID, "page")
 	menuSvc := newStubMenuService()
 	themeSvc := &stubThemesService{
 		template: templateRecord,
@@ -1445,14 +1442,14 @@ func newRenderFixtures(now time.Time) renderFixtures {
 	}
 
 	return renderFixtures{
-		Config:   cfg,
-		Content:  contentSvc,
-		Pages:    pagesSvc,
-		Menus:    menuSvc,
-		Themes:   themeSvc,
-		Locales:  locales,
-		Template: templateRecord,
-		PageIDs:  []uuid.UUID{page1.ID, page2.ID},
+		Config:       cfg,
+		Content:      contentSvc,
+		ContentTypes: contentTypeSvc,
+		Menus:        menuSvc,
+		Themes:       themeSvc,
+		Locales:      locales,
+		Template:     templateRecord,
+		PageIDs:      []uuid.UUID{page1ID, page2ID},
 	}
 }
 

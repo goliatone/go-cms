@@ -110,7 +110,7 @@ func TestWorkflowIntegration_GeneratorPropagatesStatuses(t *testing.T) {
 		t.Fatalf("expected seedable content type repository, got %T", typeRepo)
 	}
 	contentTypeID := uuid.New()
-	if err := seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "workflow", Slug: "workflow"}); err != nil {
+	if err := seedTypes.Put(&content.ContentType{ID: contentTypeID, Name: "page", Slug: "page", Status: content.ContentTypeStatusActive}); err != nil {
 		t.Fatalf("seed content type: %v", err)
 	}
 
@@ -124,40 +124,33 @@ func TestWorkflowIntegration_GeneratorPropagatesStatuses(t *testing.T) {
 
 	contentSvc := container.ContentService()
 	authorID := uuid.New()
+	translations := []content.ContentTranslationInput{
+		{
+			Locale: "en",
+			Title:  fixture.Page.Title,
+			Content: map[string]any{
+				"path": fixture.Page.Path,
+			},
+		},
+	}
 	contentRecord, err := contentSvc.Create(ctx, content.CreateContentRequest{
 		ContentTypeID: contentTypeID,
 		Slug:          fixture.Page.Slug,
 		Status:        string(domain.StatusDraft),
 		CreatedBy:     authorID,
 		UpdatedBy:     authorID,
-		Translations: []content.ContentTranslationInput{
-			{Locale: "en", Title: fixture.Page.Title},
+		Metadata: map[string]any{
+			"template_id": template.ID.String(),
 		},
+		Translations: translations,
 	})
 	if err != nil {
 		t.Fatalf("create content: %v", err)
 	}
 
-	pageSvc := container.PageService()
-	translations := []pages.PageTranslationInput{
-		{Locale: "en", Title: fixture.Page.Title, Path: fixture.Page.Path},
-	}
-	page, err := pageSvc.Create(ctx, pages.CreatePageRequest{
-		ContentID:    contentRecord.ID,
-		TemplateID:   template.ID,
-		Slug:         fixture.Page.Slug,
-		Status:       string(domain.StatusDraft),
-		CreatedBy:    authorID,
-		UpdatedBy:    authorID,
-		Translations: append([]pages.PageTranslationInput(nil), translations...),
-	})
-	if err != nil {
-		t.Fatalf("create page: %v", err)
-	}
-
 	initialState := deriveInitialState(fixture.Definition.States)
-	if !stringsEqualFold(page.Status, initialState) {
-		t.Fatalf("initial status mismatch: want %q got %q", initialState, page.Status)
+	if !stringsEqualFold(contentRecord.Status, initialState) {
+		t.Fatalf("initial status mismatch: want %q got %q", initialState, contentRecord.Status)
 	}
 
 	genSvc := container.GeneratorService()
@@ -174,11 +167,14 @@ func TestWorkflowIntegration_GeneratorPropagatesStatuses(t *testing.T) {
 	}
 
 	for idx, step := range fixture.Transitions {
-		page, err = pageSvc.Update(ctx, pages.UpdatePageRequest{
-			ID:           page.ID,
-			Status:       step.Status,
-			UpdatedBy:    authorID,
-			Translations: append([]pages.PageTranslationInput(nil), translations...),
+		contentRecord, err = contentSvc.Update(ctx, content.UpdateContentRequest{
+			ID:        contentRecord.ID,
+			Status:    step.Status,
+			UpdatedBy: authorID,
+			Metadata: map[string]any{
+				"template_id": template.ID.String(),
+			},
+			Translations: append([]content.ContentTranslationInput(nil), translations...),
 		})
 		if err != nil {
 			t.Fatalf("transition %d to %q failed: %v", idx, step.Status, err)
@@ -186,8 +182,8 @@ func TestWorkflowIntegration_GeneratorPropagatesStatuses(t *testing.T) {
 	}
 
 	finalStatus := fixture.Transitions[len(fixture.Transitions)-1].Status
-	if !stringsEqualFold(page.Status, finalStatus) {
-		t.Fatalf("final status mismatch: want %q got %q", finalStatus, page.Status)
+	if !stringsEqualFold(contentRecord.Status, finalStatus) {
+		t.Fatalf("final status mismatch: want %q got %q", finalStatus, contentRecord.Status)
 	}
 
 	resultAfter, err := genSvc.Build(ctx, generator.BuildOptions{Locales: []string{"en"}})
