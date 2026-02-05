@@ -6,7 +6,6 @@
 //   - Schema utilities: /content-types/validate, /content-types/preview,
 //     /content-types/{id}/schema, /content-types/{id}/openapi
 //   - Content entries: /content, /content/{id}
-//   - Pages: /pages, /pages/{id}
 //   - Menus: /menus, /menus/{id}
 //   - Block library: /blocks, /blocks/{id}
 //   - Promotions: /environments/{source}/promote/{target},
