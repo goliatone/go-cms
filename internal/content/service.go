@@ -45,6 +45,7 @@ type CreateContentRequest struct {
 	EnvironmentKey           string
 	CreatedBy                uuid.UUID
 	UpdatedBy                uuid.UUID
+	Metadata                 map[string]any
 	Translations             []ContentTranslationInput
 	AllowMissingTranslations bool
 }
@@ -153,6 +154,7 @@ var (
 	ErrContentSchemaInvalid                = errors.New("content: schema validation failed")
 	ErrContentSoftDeleteUnsupported        = errors.New("content: soft delete not supported")
 	ErrContentIDRequired                   = errors.New("content: content id required")
+	ErrContentMetadataInvalid              = errors.New("content: metadata invalid")
 	ErrVersioningDisabled                  = errors.New("content: versioning feature disabled")
 	ErrContentVersionRequired              = errors.New("content: version identifier required")
 	ErrContentVersionConflict              = errors.New("content: base version mismatch")
@@ -639,6 +641,10 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	if err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
+	entryMetadata, err := normalizeEntryMetadata(req.Metadata)
+	if err != nil {
+		return nil, err
+	}
 
 	if existing, err := s.contents.GetBySlug(ctx, slugValue, req.ContentTypeID, envID.String()); err == nil && existing != nil {
 		return nil, ErrSlugExists
@@ -658,6 +664,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		EnvironmentID: envID,
 		Status:        chooseStatus(req.Status),
 		Slug:          slugValue,
+		Metadata:      entryMetadata,
 		CreatedBy:     req.CreatedBy,
 		UpdatedBy:     req.UpdatedBy,
 		CreatedAt:     now,
@@ -865,6 +872,14 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 			logger.Error("content translations replace failed", "error", err)
 			return nil, err
 		}
+	}
+
+	if req.Metadata != nil {
+		entryMetadata, err := normalizeEntryMetadata(req.Metadata)
+		if err != nil {
+			return nil, err
+		}
+		existing.Metadata = entryMetadata
 	}
 
 	updated, err := s.contents.Update(ctx, existing)
@@ -1331,6 +1346,14 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 	}
 
 	snapshot := cloneContentVersionSnapshot(req.Snapshot)
+	if snapshot.Metadata == nil {
+		snapshot.Metadata = cloneMap(contentRecord.Metadata)
+	}
+	entryMetadata, err := normalizeEntryMetadata(snapshot.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	snapshot.Metadata = entryMetadata
 	if err := s.validateSnapshot(ctx, contentType.Schema, snapshot, EmbeddedBlockValidationDraft); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
@@ -1460,6 +1483,11 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		}
 		return nil, err
 	}
+	entryMetadata, err := normalizeEntryMetadata(migratedSnapshot.Metadata)
+	if err != nil {
+		return nil, err
+	}
+	migratedSnapshot.Metadata = entryMetadata
 	if err := s.validateSnapshot(ctx, contentType.Schema, migratedSnapshot, EmbeddedBlockValidationStrict); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
@@ -1491,6 +1519,9 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		contentRecord.PublishedBy = &req.PublishedBy
 	}
 	contentRecord.Status = string(domain.StatusPublished)
+	if updatedVersion.Snapshot.Metadata != nil {
+		contentRecord.Metadata = cloneMap(updatedVersion.Snapshot.Metadata)
+	}
 	if updatedVersion.Version > contentRecord.CurrentVersion {
 		contentRecord.CurrentVersion = updatedVersion.Version
 	}
@@ -1637,6 +1668,10 @@ func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftReque
 	previewRecord.Status = string(previewVersion.Status)
 	previewRecord.CurrentVersion = previewVersion.Version
 	previewRecord.Type = contentType
+	if previewVersion.Snapshot.Metadata == nil {
+		previewVersion.Snapshot.Metadata = cloneMap(record.Metadata)
+	}
+	previewRecord.Metadata = cloneMap(previewVersion.Snapshot.Metadata)
 
 	translations, err := s.previewTranslations(ctx, previewRecord.ID, migratedSnapshot)
 	if err != nil {
