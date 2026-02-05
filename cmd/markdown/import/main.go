@@ -32,8 +32,6 @@ func runImport(args []string) error {
 	directory := fs.String("directory", ".", "Directory to import, relative to the content root")
 	contentType := fs.String("content-type", "", "Content type ID to associate with imported documents")
 	author := fs.String("author", "", "Author ID recorded on imported content")
-	template := fs.String("template", "", "Template ID applied when create-pages is enabled")
-	createPages := fs.Bool("create-pages", false, "Create CMS pages for imported markdown")
 	dryRun := fs.Bool("dry-run", false, "Preview changes without persisting content")
 
 	if err := fs.Parse(args); err != nil {
@@ -61,8 +59,7 @@ func runImport(args []string) error {
 	ctx := context.Background()
 
 	importOpts := interfaces.ImportOptions{
-		CreatePages: *createPages,
-		DryRun:      *dryRun,
+		DryRun: *dryRun,
 	}
 
 	if id, err := bootstrap.ParseUUID(*contentType); err != nil {
@@ -80,12 +77,6 @@ func runImport(args []string) error {
 		importOpts.AuthorID = id
 	}
 
-	if id, err := bootstrap.ParseUUIDPointer(*template); err != nil {
-		return fmt.Errorf("parse template: %w", err)
-	} else if id != nil {
-		importOpts.TemplateID = id
-	}
-
 	handler := markdowncmd.NewImportDirectoryHandler(module.Service, module.Logger, markdowncmd.FeatureGates{
 		MarkdownEnabled: func() bool { return true },
 	})
@@ -93,11 +84,7 @@ func runImport(args []string) error {
 		Directory:     *directory,
 		ContentTypeID: importOpts.ContentTypeID,
 		AuthorID:      importOpts.AuthorID,
-		CreatePages:   importOpts.CreatePages,
 		DryRun:        importOpts.DryRun,
-	}
-	if importOpts.TemplateID != nil {
-		cmd.TemplateID = importOpts.TemplateID
 	}
 	if err := handler.Execute(ctx, cmd); err != nil {
 		return fmt.Errorf("execute import command: %w", err)
