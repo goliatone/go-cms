@@ -165,6 +165,62 @@ func (a *cmsContentServiceAdapter) List(ctx context.Context, opts interfaces.Con
 	return out, nil
 }
 
+func (a *cmsContentServiceAdapter) CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts interfaces.TranslationCheckOptions) ([]string, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+	return a.service.CheckTranslations(ctx, id, required, opts)
+}
+
+func (a *cmsContentServiceAdapter) AvailableLocales(ctx context.Context, id uuid.UUID, opts interfaces.TranslationCheckOptions) ([]string, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+	return a.service.AvailableLocales(ctx, id, opts)
+}
+
+func (a *cmsContentServiceAdapter) UpdateTranslation(ctx context.Context, req interfaces.ContentUpdateTranslationRequest) (*interfaces.ContentTranslation, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+	translation, err := a.service.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
+		ContentID: req.ContentID,
+		Locale:    req.Locale,
+		Title:     req.Title,
+		Summary:   req.Summary,
+		Content:   cloneFieldMap(req.Fields),
+		UpdatedBy: req.UpdatedBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	locale := req.Locale
+	if translation != nil && translation.Locale != nil && strings.TrimSpace(translation.Locale.Code) != "" {
+		locale = translation.Locale.Code
+	}
+	if translation == nil {
+		return nil, nil
+	}
+	return &interfaces.ContentTranslation{
+		ID:      translation.ID,
+		Locale:  locale,
+		Title:   translation.Title,
+		Summary: translation.Summary,
+		Fields:  cloneFieldMap(translation.Content),
+	}, nil
+}
+
+func (a *cmsContentServiceAdapter) DeleteTranslation(ctx context.Context, req interfaces.ContentDeleteTranslationRequest) error {
+	if a == nil || a.service == nil {
+		return errors.New("content service unavailable")
+	}
+	return a.service.DeleteTranslation(ctx, content.DeleteContentTranslationRequest{
+		ContentID: req.ContentID,
+		Locale:    req.Locale,
+		DeletedBy: req.DeletedBy,
+	})
+}
+
 func (a *cmsContentServiceAdapter) Delete(ctx context.Context, req interfaces.ContentDeleteRequest) error {
 	if a == nil || a.service == nil {
 		return errors.New("content service unavailable")
@@ -587,6 +643,95 @@ func (a *cmsPageServiceAdapter) List(ctx context.Context, opts interfaces.PageRe
 		out = append(out, a.toPageRecordWithOptions(record, opts))
 	}
 	return out, nil
+}
+
+func (a *cmsPageServiceAdapter) CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts interfaces.TranslationCheckOptions) ([]string, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	return a.service.CheckTranslations(ctx, id, required, opts)
+}
+
+func (a *cmsPageServiceAdapter) AvailableLocales(ctx context.Context, id uuid.UUID, opts interfaces.TranslationCheckOptions) ([]string, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	return a.service.AvailableLocales(ctx, id, opts)
+}
+
+func (a *cmsPageServiceAdapter) UpdateTranslation(ctx context.Context, req interfaces.PageUpdateTranslationRequest) (*interfaces.PageTranslation, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	translation, err := a.service.UpdateTranslation(ctx, pages.UpdatePageTranslationRequest{
+		PageID:    req.PageID,
+		Locale:    req.Locale,
+		Title:     req.Title,
+		Path:      req.Path,
+		Summary:   req.Summary,
+		UpdatedBy: req.UpdatedBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if translation == nil {
+		return nil, nil
+	}
+	locale := req.Locale
+	if strings.TrimSpace(translation.Locale) != "" {
+		locale = translation.Locale
+	}
+	return &interfaces.PageTranslation{
+		ID:      translation.ID,
+		Locale:  locale,
+		Title:   translation.Title,
+		Path:    translation.Path,
+		Summary: translation.Summary,
+	}, nil
+}
+
+func (a *cmsPageServiceAdapter) DeleteTranslation(ctx context.Context, req interfaces.PageDeleteTranslationRequest) error {
+	if a == nil || a.service == nil {
+		return errors.New("page service unavailable")
+	}
+	return a.service.DeleteTranslation(ctx, pages.DeletePageTranslationRequest{
+		PageID:    req.PageID,
+		Locale:    req.Locale,
+		DeletedBy: req.DeletedBy,
+	})
+}
+
+func (a *cmsPageServiceAdapter) Move(ctx context.Context, req interfaces.PageMoveRequest) (*interfaces.PageRecord, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	record, err := a.service.Move(ctx, pages.MovePageRequest{
+		PageID:      req.PageID,
+		NewParentID: req.NewParentID,
+		ActorID:     req.ActorID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a.toPageRecord(record), nil
+}
+
+func (a *cmsPageServiceAdapter) Duplicate(ctx context.Context, req interfaces.PageDuplicateRequest) (*interfaces.PageRecord, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("page service unavailable")
+	}
+	record, err := a.service.Duplicate(ctx, pages.DuplicatePageRequest{
+		PageID:    req.PageID,
+		Slug:      req.Slug,
+		ParentID:  req.ParentID,
+		Status:    req.Status,
+		CreatedBy: req.CreatedBy,
+		UpdatedBy: req.UpdatedBy,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return a.toPageRecord(record), nil
 }
 
 func (a *cmsPageServiceAdapter) Delete(ctx context.Context, req interfaces.PageDeleteRequest) error {
