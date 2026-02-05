@@ -7,6 +7,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/google/uuid"
 )
 
 type markdownContentServiceAdapter struct {
@@ -129,6 +130,20 @@ func (a *markdownContentServiceAdapter) List(ctx context.Context, opts interface
 		out = append(out, toContentRecordWithOptions(record, opts))
 	}
 	return out, nil
+}
+
+func (a *markdownContentServiceAdapter) CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts interfaces.TranslationCheckOptions) ([]string, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+	return a.service.CheckTranslations(ctx, id, required, opts)
+}
+
+func (a *markdownContentServiceAdapter) AvailableLocales(ctx context.Context, id uuid.UUID, opts interfaces.TranslationCheckOptions) ([]string, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+	return a.service.AvailableLocales(ctx, id, opts)
 }
 
 func (a *markdownContentServiceAdapter) Delete(ctx context.Context, req interfaces.ContentDeleteRequest) error {
