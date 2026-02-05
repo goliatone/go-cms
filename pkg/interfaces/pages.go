@@ -10,13 +10,32 @@ import (
 type PageService interface {
 	Create(ctx context.Context, req PageCreateRequest) (*PageRecord, error)
 	Update(ctx context.Context, req PageUpdateRequest) (*PageRecord, error)
-	GetBySlug(ctx context.Context, slug string, env ...string) (*PageRecord, error)
-	List(ctx context.Context, env ...string) ([]*PageRecord, error)
+	GetBySlug(ctx context.Context, slug string, opts PageReadOptions) (*PageRecord, error)
+	List(ctx context.Context, opts PageReadOptions) ([]*PageRecord, error)
 	Delete(ctx context.Context, req PageDeleteRequest) error
 	UpdateTranslation(ctx context.Context, req PageUpdateTranslationRequest) (*PageTranslation, error)
 	DeleteTranslation(ctx context.Context, req PageDeleteTranslationRequest) error
 	Move(ctx context.Context, req PageMoveRequest) (*PageRecord, error)
 	Duplicate(ctx context.Context, req PageDuplicateRequest) (*PageRecord, error)
+}
+
+// PageReadOptions defines read-time locale resolution and metadata behaviour.
+//
+// Behavior contract:
+//   - RequestedLocale always echoes Locale, even when missing.
+//   - If a translation exists for Locale, Translation.Requested/Resolved point to it and ResolvedLocale = Locale.
+//   - If missing and FallbackLocale exists, Translation.Requested is nil, Resolved uses the fallback locale, and FallbackUsed=true.
+//   - If missing with no fallback, Translation.Requested/Resolved are nil and ResolvedLocale is empty.
+//   - AllowMissingTranslations=false should return ErrTranslationMissing when Locale is set and missing.
+//   - List reads never hard-fail on missing translations; they return bundle metadata instead.
+//   - IncludeAvailableLocales populates Translation.Meta.AvailableLocales for the page bundle only.
+//   - Page and content translation bundles resolve independently (no forced cross-bundle fallback).
+type PageReadOptions struct {
+	Locale                   string
+	FallbackLocale           string
+	AllowMissingTranslations bool
+	IncludeAvailableLocales  bool
+	EnvironmentKey           string
 }
 
 // PageCreateRequest captures the required fields to create a page backed by content.
@@ -97,13 +116,15 @@ type PageTranslationInput struct {
 
 // PageRecord reflects stored page details.
 type PageRecord struct {
-	ID           uuid.UUID
-	ContentID    uuid.UUID
-	TemplateID   uuid.UUID
-	Slug         string
-	Status       string
-	Translations []PageTranslation
-	Metadata     map[string]any
+	ID                 uuid.UUID
+	ContentID          uuid.UUID
+	TemplateID         uuid.UUID
+	Slug               string
+	Status             string
+	Translation        TranslationBundle[PageTranslation]    `json:"translation"`
+	ContentTranslation TranslationBundle[ContentTranslation] `json:"content_translation"`
+	Translations       []PageTranslation
+	Metadata           map[string]any
 }
 
 // PageTranslation mirrors persisted page translations.
