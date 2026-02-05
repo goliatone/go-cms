@@ -78,7 +78,7 @@ func (s *adminPageReadService) List(ctx context.Context, opts interfaces.AdminPa
 			primaryLocale:    primaryLocaleCode,
 			fallbackLocaleID: fallbackLocaleID,
 			fallbackLocale:   fallbackLocaleCode,
-			allowMissing:     opts.AllowMissingTranslations,
+			allowMissing:     true,
 			includes:         includes,
 		})
 		if err != nil {
@@ -214,24 +214,23 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 		UpdatedAt:       cloneTimePtr(&page.UpdatedAt),
 	}
 
-	pageTranslation, resolvedLocale := resolvePageTranslation(page.Translations, state.primaryLocaleID, state.primaryLocale, state.fallbackLocaleID, state.fallbackLocale)
+	pageAvailableLocales := collectAdminPageLocales(page)
+	pageTranslation, pageResolvedLocale := resolvePageTranslation(page.Translations, state.primaryLocaleID, state.primaryLocale, state.fallbackLocaleID, state.fallbackLocale)
+	record.ResolvedLocale = pageResolvedLocale
+	record.Translation = buildAdminPageTranslationBundle(state.requestedLocale, pageResolvedLocale, pageTranslation, pageAvailableLocales)
 	if pageTranslation == nil {
 		if !state.allowMissing && strings.TrimSpace(state.requestedLocale) != "" {
-			return interfaces.AdminPageRecord{}, ErrPageTranslationNotFound
+			return interfaces.AdminPageRecord{}, errors.Join(interfaces.ErrTranslationMissing, ErrPageTranslationNotFound)
 		}
-		record.ResolvedLocale = resolvedLocale
-		return record, nil
+	} else {
+		record.TranslationGroupID = pageTranslation.TranslationGroupID
+		record.Title = pageTranslation.Title
+		record.Path = pageTranslation.Path
+		record.MetaTitle = stringValue(pageTranslation.SEOTitle)
+		record.MetaDescription = stringValue(pageTranslation.SEODescription)
+		record.Summary = cloneStringPtr(pageTranslation.Summary)
 	}
 
-	record.ResolvedLocale = resolvedLocale
-	record.TranslationGroupID = pageTranslation.TranslationGroupID
-	record.Title = pageTranslation.Title
-	record.Path = pageTranslation.Path
-	record.MetaTitle = stringValue(pageTranslation.SEOTitle)
-	record.MetaDescription = stringValue(pageTranslation.SEODescription)
-	record.Summary = cloneStringPtr(pageTranslation.Summary)
-
-	selectedLocaleID := pageTranslation.LocaleID
 	contentRecord := page.Content
 	needsContent := state.includes.IncludeContent || state.includes.IncludeData || state.includes.IncludeBlocks
 	if (needsContent || contentRecord == nil) && s != nil && s.content != nil && page.ContentID != uuid.Nil {
@@ -241,7 +240,9 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 		}
 	}
 
-	contentTranslation := resolveContentTranslation(contentRecord, selectedLocaleID, resolvedLocale)
+	contentAvailableLocales := collectAdminContentLocales(contentRecord)
+	contentTranslation, contentResolvedLocale := resolveContentTranslation(contentRecord, state.primaryLocaleID, state.primaryLocale, state.fallbackLocaleID, state.fallbackLocale)
+	record.ContentTranslation = buildAdminContentTranslationBundle(state.requestedLocale, contentResolvedLocale, contentTranslation, contentAvailableLocales)
 	if contentTranslation != nil && record.Summary == nil {
 		record.Summary = cloneStringPtr(contentTranslation.Summary)
 	}
@@ -352,28 +353,120 @@ func resolvePageTranslation(translations []*PageTranslation, primaryID uuid.UUID
 	return nil, ""
 }
 
-func resolveContentTranslation(record *content.Content, localeID uuid.UUID, localeCode string) *content.ContentTranslation {
+func resolveContentTranslation(record *content.Content, primaryID uuid.UUID, primaryCode string, fallbackID uuid.UUID, fallbackCode string) (*content.ContentTranslation, string) {
 	if record == nil || len(record.Translations) == 0 {
-		return nil
+		return nil, ""
 	}
-	if localeID != uuid.Nil {
+	if primaryID != uuid.Nil {
 		for _, tr := range record.Translations {
-			if tr != nil && tr.LocaleID == localeID {
-				return tr
+			if tr != nil && tr.LocaleID == primaryID {
+				return tr, resolveContentTranslationLocale(tr, primaryCode)
 			}
 		}
 	}
-	if localeCode != "" {
+	if primaryCode != "" {
 		for _, tr := range record.Translations {
 			if tr == nil {
 				continue
 			}
-			if tr.Locale != nil && strings.EqualFold(tr.Locale.Code, localeCode) {
-				return tr
+			if tr.Locale != nil && strings.EqualFold(tr.Locale.Code, primaryCode) {
+				return tr, resolveContentTranslationLocale(tr, primaryCode)
 			}
 		}
 	}
-	return nil
+	if fallbackID != uuid.Nil {
+		for _, tr := range record.Translations {
+			if tr != nil && tr.LocaleID == fallbackID {
+				return tr, resolveContentTranslationLocale(tr, fallbackCode)
+			}
+		}
+	}
+	if fallbackCode != "" {
+		for _, tr := range record.Translations {
+			if tr == nil {
+				continue
+			}
+			if tr.Locale != nil && strings.EqualFold(tr.Locale.Code, fallbackCode) {
+				return tr, resolveContentTranslationLocale(tr, fallbackCode)
+			}
+		}
+	}
+	return nil, ""
+}
+
+func resolveContentTranslationLocale(tr *content.ContentTranslation, fallback string) string {
+	if tr == nil {
+		return strings.TrimSpace(fallback)
+	}
+	if tr.Locale != nil {
+		if code := strings.TrimSpace(tr.Locale.Code); code != "" {
+			return code
+		}
+	}
+	return strings.TrimSpace(fallback)
+}
+
+func collectAdminPageLocales(page *Page) []string {
+	if page == nil || len(page.Translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(page.Translations))
+	seen := map[string]struct{}{}
+	for _, tr := range page.Translations {
+		if tr == nil {
+			continue
+		}
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			code = tr.LocaleID.String()
+		}
+		if code == "" {
+			continue
+		}
+		key := strings.ToLower(code)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		locales = append(locales, code)
+	}
+	if len(locales) == 0 {
+		return nil
+	}
+	return locales
+}
+
+func collectAdminContentLocales(record *content.Content) []string {
+	if record == nil || len(record.Translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(record.Translations))
+	seen := map[string]struct{}{}
+	for _, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		code := ""
+		if tr.Locale != nil {
+			code = strings.TrimSpace(tr.Locale.Code)
+		}
+		if code == "" {
+			code = tr.LocaleID.String()
+		}
+		if code == "" {
+			continue
+		}
+		key := strings.ToLower(code)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		locales = append(locales, code)
+	}
+	if len(locales) == 0 {
+		return nil
+	}
+	return locales
 }
 
 func buildTranslationData(pageTranslation *PageTranslation, contentTranslation *content.ContentTranslation, requestedLocale, resolvedLocale string) map[string]any {
@@ -502,6 +595,101 @@ func cloneAdminMap(input map[string]any) map[string]any {
 		return nil
 	}
 	return maps.Clone(input)
+}
+
+func buildAdminPageTranslationBundle(requestedLocale, resolvedLocale string, translation *PageTranslation, availableLocales []string) interfaces.TranslationBundle[interfaces.PageTranslation] {
+	meta := buildAdminTranslationMeta(requestedLocale, resolvedLocale, availableLocales)
+	bundle := interfaces.TranslationBundle[interfaces.PageTranslation]{
+		Meta: meta,
+	}
+	if translation == nil {
+		return bundle
+	}
+	value := toInterfacesPageTranslation(translation, meta.ResolvedLocale)
+	if value == nil {
+		return bundle
+	}
+	if meta.RequestedLocale != "" && strings.EqualFold(meta.RequestedLocale, meta.ResolvedLocale) {
+		bundle.Requested = value
+		bundle.Resolved = value
+		return bundle
+	}
+	bundle.Resolved = value
+	return bundle
+}
+
+func buildAdminContentTranslationBundle(requestedLocale, resolvedLocale string, translation *content.ContentTranslation, availableLocales []string) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+	meta := buildAdminTranslationMeta(requestedLocale, resolvedLocale, availableLocales)
+	bundle := interfaces.TranslationBundle[interfaces.ContentTranslation]{
+		Meta: meta,
+	}
+	if translation == nil {
+		return bundle
+	}
+	value := toInterfacesContentTranslation(translation, meta.ResolvedLocale)
+	if value == nil {
+		return bundle
+	}
+	if meta.RequestedLocale != "" && strings.EqualFold(meta.RequestedLocale, meta.ResolvedLocale) {
+		bundle.Requested = value
+		bundle.Resolved = value
+		return bundle
+	}
+	bundle.Resolved = value
+	return bundle
+}
+
+func buildAdminTranslationMeta(requestedLocale, resolvedLocale string, availableLocales []string) interfaces.TranslationMeta {
+	requested := strings.TrimSpace(requestedLocale)
+	resolved := strings.TrimSpace(resolvedLocale)
+	meta := interfaces.TranslationMeta{
+		RequestedLocale: requested,
+		ResolvedLocale:  resolved,
+	}
+	if len(availableLocales) > 0 {
+		meta.AvailableLocales = append([]string(nil), availableLocales...)
+	}
+	if requested != "" && !strings.EqualFold(requested, resolved) {
+		meta.MissingRequestedLocale = true
+		if resolved != "" {
+			meta.FallbackUsed = true
+		}
+	}
+	return meta
+}
+
+func toInterfacesPageTranslation(translation *PageTranslation, locale string) *interfaces.PageTranslation {
+	if translation == nil {
+		return nil
+	}
+	resolvedLocale := strings.TrimSpace(locale)
+	if strings.TrimSpace(translation.Locale) != "" {
+		resolvedLocale = strings.TrimSpace(translation.Locale)
+	}
+	return &interfaces.PageTranslation{
+		ID:      translation.ID,
+		Locale:  resolvedLocale,
+		Title:   translation.Title,
+		Path:    translation.Path,
+		Summary: cloneStringPtr(translation.Summary),
+	}
+}
+
+func toInterfacesContentTranslation(translation *content.ContentTranslation, locale string) *interfaces.ContentTranslation {
+	if translation == nil {
+		return nil
+	}
+	resolvedLocale := strings.TrimSpace(locale)
+	if translation.Locale != nil && strings.TrimSpace(translation.Locale.Code) != "" {
+		resolvedLocale = strings.TrimSpace(translation.Locale.Code)
+	}
+	return &interfaces.ContentTranslation{
+		ID:      translation.ID,
+		Locale:  resolvedLocale,
+		Title:   translation.Title,
+		Summary: cloneStringPtr(translation.Summary),
+		Fields:  cloneAdminMap(translation.Content),
+	}
 }
 
 func matchesAdminPageFilters(record interfaces.AdminPageRecord, filters map[string]any, search string) bool {
