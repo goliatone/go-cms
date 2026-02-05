@@ -323,7 +323,7 @@ func main() {
 		}); err != nil {
 			log.Printf("schedule content publish: %v", err)
 		} else {
-			worker := jobs.NewWorker(scheduler, container.ContentRepository(), container.PageRepository())
+			worker := jobs.NewWorker(scheduler, container.ContentRepository())
 			if err := worker.Process(ctx); err != nil {
 				log.Printf("process scheduled jobs: %v", err)
 			} else if updated, err := contentSvc.Get(ctx, contentRecord.ID); err == nil {
