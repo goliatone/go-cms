@@ -143,6 +143,23 @@ func collectSchemaFields(schema map[string]any) map[string]fieldDescriptor {
 	return fields
 }
 
+// FieldPaths returns the set of schema field paths derived from a JSON schema.
+// The schema should be normalized (see validation.NormalizeSchema) before use.
+func FieldPaths(schema map[string]any) map[string]struct{} {
+	if schema == nil {
+		return nil
+	}
+	fields := collectSchemaFields(schema)
+	if len(fields) == 0 {
+		return nil
+	}
+	paths := make(map[string]struct{}, len(fields))
+	for path := range fields {
+		paths[path] = struct{}{}
+	}
+	return paths
+}
+
 func walkSchemaFields(node map[string]any, prefix string, fields map[string]fieldDescriptor) {
 	if node == nil {
 		return
