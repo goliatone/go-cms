@@ -124,7 +124,9 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 		})
 	}
 
-	existing, err := i.content.GetBySlug(ctx, slug, opts.EnvironmentKey)
+	existing, err := i.content.GetBySlug(ctx, slug, interfaces.ContentReadOptions{
+		EnvironmentKey: opts.EnvironmentKey,
+	})
 	if err != nil && existing != nil {
 		return fmt.Errorf("markdown importer: content lookup %s: %w", slug, err)
 	}
@@ -189,7 +191,9 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 }
 
 func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interfaces.Document, opts interfaces.SyncOptions, acc *syncAccumulator) error {
-	existing, err := i.content.List(ctx, opts.EnvironmentKey)
+	existing, err := i.content.List(ctx, interfaces.ContentReadOptions{
+		EnvironmentKey: opts.EnvironmentKey,
+	})
 	if err != nil {
 		return fmt.Errorf("markdown importer: list content: %w", err)
 	}
