@@ -82,33 +82,51 @@ func (a *markdownContentServiceAdapter) Update(ctx context.Context, req interfac
 	return toContentRecord(record), nil
 }
 
-func (a *markdownContentServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.ContentRecord, error) {
+func (a *markdownContentServiceAdapter) GetBySlug(ctx context.Context, slug string, opts interfaces.ContentReadOptions) (*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx, env...)
+	envKey := strings.TrimSpace(opts.EnvironmentKey)
+	var records []*content.Content
+	var err error
+	if envKey == "" {
+		records, err = a.service.List(ctx)
+	} else {
+		records, err = a.service.List(ctx, envKey)
+	}
 	if err != nil {
 		return nil, err
 	}
 	for _, record := range records {
 		if record != nil && strings.EqualFold(record.Slug, slug) {
-			return toContentRecord(record), nil
+			result := toContentRecordWithOptions(record, opts)
+			if err := validateTranslationAllowed(result, opts.AllowMissingTranslations); err != nil {
+				return nil, err
+			}
+			return result, nil
 		}
 	}
 	return nil, nil
 }
 
-func (a *markdownContentServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.ContentRecord, error) {
+func (a *markdownContentServiceAdapter) List(ctx context.Context, opts interfaces.ContentReadOptions) ([]*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx, env...)
+	envKey := strings.TrimSpace(opts.EnvironmentKey)
+	var records []*content.Content
+	var err error
+	if envKey == "" {
+		records, err = a.service.List(ctx)
+	} else {
+		records, err = a.service.List(ctx, envKey)
+	}
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*interfaces.ContentRecord, 0, len(records))
 	for _, record := range records {
-		out = append(out, toContentRecord(record))
+		out = append(out, toContentRecordWithOptions(record, opts))
 	}
 	return out, nil
 }
@@ -156,6 +174,10 @@ func (a *markdownContentServiceAdapter) DeleteTranslation(ctx context.Context, r
 }
 
 func toContentRecord(record *content.Content) *interfaces.ContentRecord {
+	return toContentRecordWithOptions(record, interfaces.ContentReadOptions{})
+}
+
+func toContentRecordWithOptions(record *content.Content, opts interfaces.ContentReadOptions) *interfaces.ContentRecord {
 	if record == nil {
 		return nil
 	}
@@ -186,6 +208,7 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 		ContentTypeSlug: typeSlug,
 		Slug:            record.Slug,
 		Status:          record.Status,
+		Translation:     buildContentTranslationBundle(translations, opts),
 		Translations:    translations,
 		Metadata:        cloneFieldMap(record.Metadata),
 	}
@@ -228,4 +251,87 @@ func cloneBlockSlice(blocks []map[string]any) []map[string]any {
 		out[i] = cloneFieldMap(block)
 	}
 	return out
+}
+
+func buildContentTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+	requestedLocale := strings.TrimSpace(opts.Locale)
+	fallbackLocale := strings.TrimSpace(opts.FallbackLocale)
+	meta := interfaces.TranslationMeta{
+		RequestedLocale: requestedLocale,
+	}
+
+	if opts.IncludeAvailableLocales {
+		meta.AvailableLocales = collectLocalesFromContentTranslations(translations)
+	}
+
+	var requested *interfaces.ContentTranslation
+	var resolved *interfaces.ContentTranslation
+	resolvedLocale := ""
+
+	if requestedLocale != "" {
+		if tr := findContentTranslation(translations, requestedLocale); tr != nil {
+			requested = tr
+			resolved = tr
+			resolvedLocale = tr.Locale
+		}
+	}
+	if requested == nil && requestedLocale != "" && fallbackLocale != "" {
+		if tr := findContentTranslation(translations, fallbackLocale); tr != nil {
+			resolved = tr
+			resolvedLocale = tr.Locale
+			meta.FallbackUsed = true
+		}
+	}
+
+	meta.ResolvedLocale = strings.TrimSpace(resolvedLocale)
+	meta.MissingRequestedLocale = requestedLocale != "" && requested == nil
+
+	return interfaces.TranslationBundle[interfaces.ContentTranslation]{
+		Meta:      meta,
+		Requested: requested,
+		Resolved:  resolved,
+	}
+}
+
+func validateTranslationAllowed(record *interfaces.ContentRecord, allowMissing bool) error {
+	if allowMissing || record == nil {
+		return nil
+	}
+	meta := record.Translation.Meta
+	if meta.RequestedLocale != "" && meta.MissingRequestedLocale {
+		return interfaces.ErrTranslationMissing
+	}
+	return nil
+}
+
+func findContentTranslation(translations []interfaces.ContentTranslation, locale string) *interfaces.ContentTranslation {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return nil
+	}
+	for _, tr := range translations {
+		if strings.EqualFold(strings.TrimSpace(tr.Locale), locale) {
+			copy := tr
+			return &copy
+		}
+	}
+	return nil
+}
+
+func collectLocalesFromContentTranslations(translations []interfaces.ContentTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(translations))
+	for _, tr := range translations {
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			continue
+		}
+		locales = append(locales, code)
+	}
+	if len(locales) == 0 {
+		return nil
+	}
+	return locales
 }
