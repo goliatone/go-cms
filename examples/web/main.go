@@ -116,33 +116,51 @@ func (a *cmsContentServiceAdapter) Update(ctx context.Context, req interfaces.Co
 	return toContentRecord(record), nil
 }
 
-func (a *cmsContentServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.ContentRecord, error) {
+func (a *cmsContentServiceAdapter) GetBySlug(ctx context.Context, slug string, opts interfaces.ContentReadOptions) (*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx, env...)
+	envKey := strings.TrimSpace(opts.EnvironmentKey)
+	var records []*content.Content
+	var err error
+	if envKey == "" {
+		records, err = a.service.List(ctx)
+	} else {
+		records, err = a.service.List(ctx, envKey)
+	}
 	if err != nil {
 		return nil, err
 	}
 	for _, record := range records {
 		if record != nil && strings.EqualFold(record.Slug, slug) {
-			return toContentRecord(record), nil
+			result := toContentRecordWithOptions(record, opts)
+			if err := validateContentTranslationAllowed(result, opts.AllowMissingTranslations); err != nil {
+				return nil, err
+			}
+			return result, nil
 		}
 	}
 	return nil, nil
 }
 
-func (a *cmsContentServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.ContentRecord, error) {
+func (a *cmsContentServiceAdapter) List(ctx context.Context, opts interfaces.ContentReadOptions) ([]*interfaces.ContentRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
 	}
-	records, err := a.service.List(ctx, env...)
+	envKey := strings.TrimSpace(opts.EnvironmentKey)
+	var records []*content.Content
+	var err error
+	if envKey == "" {
+		records, err = a.service.List(ctx)
+	} else {
+		records, err = a.service.List(ctx, envKey)
+	}
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*interfaces.ContentRecord, 0, len(records))
 	for _, record := range records {
-		out = append(out, toContentRecord(record))
+		out = append(out, toContentRecordWithOptions(record, opts))
 	}
 	return out, nil
 }
@@ -159,6 +177,10 @@ func (a *cmsContentServiceAdapter) Delete(ctx context.Context, req interfaces.Co
 }
 
 func toContentRecord(record *content.Content) *interfaces.ContentRecord {
+	return toContentRecordWithOptions(record, interfaces.ContentReadOptions{})
+}
+
+func toContentRecordWithOptions(record *content.Content, opts interfaces.ContentReadOptions) *interfaces.ContentRecord {
 	if record == nil {
 		return nil
 	}
@@ -191,6 +213,7 @@ func toContentRecord(record *content.Content) *interfaces.ContentRecord {
 		ContentTypeSlug: typeSlug,
 		Slug:            record.Slug,
 		Status:          record.Status,
+		Translation:     buildContentTranslationBundle(translations, opts),
 		Translations:    translations,
 		Metadata:        cloneFieldMap(record.Metadata),
 	}
@@ -205,6 +228,194 @@ func cloneFieldMap(fields map[string]any) map[string]any {
 		out[k] = v
 	}
 	return out
+}
+
+func buildContentTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+	requestedLocale := strings.TrimSpace(opts.Locale)
+	fallbackLocale := strings.TrimSpace(opts.FallbackLocale)
+	meta := interfaces.TranslationMeta{
+		RequestedLocale: requestedLocale,
+	}
+	if opts.IncludeAvailableLocales {
+		meta.AvailableLocales = collectLocalesFromContentTranslations(translations)
+	}
+
+	var requested *interfaces.ContentTranslation
+	var resolved *interfaces.ContentTranslation
+	resolvedLocale := ""
+
+	if requestedLocale != "" {
+		if tr := findContentTranslation(translations, requestedLocale); tr != nil {
+			requested = tr
+			resolved = tr
+			resolvedLocale = tr.Locale
+		}
+	}
+	if requested == nil && requestedLocale != "" && fallbackLocale != "" {
+		if tr := findContentTranslation(translations, fallbackLocale); tr != nil {
+			resolved = tr
+			resolvedLocale = tr.Locale
+			meta.FallbackUsed = true
+		}
+	}
+
+	meta.ResolvedLocale = strings.TrimSpace(resolvedLocale)
+	meta.MissingRequestedLocale = requestedLocale != "" && requested == nil
+
+	return interfaces.TranslationBundle[interfaces.ContentTranslation]{
+		Meta:      meta,
+		Requested: requested,
+		Resolved:  resolved,
+	}
+}
+
+func findContentTranslation(translations []interfaces.ContentTranslation, locale string) *interfaces.ContentTranslation {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return nil
+	}
+	for _, tr := range translations {
+		if strings.EqualFold(strings.TrimSpace(tr.Locale), locale) {
+			copy := tr
+			return &copy
+		}
+	}
+	return nil
+}
+
+func collectLocalesFromContentTranslations(translations []interfaces.ContentTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(translations))
+	for _, tr := range translations {
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			continue
+		}
+		locales = append(locales, code)
+	}
+	if len(locales) == 0 {
+		return nil
+	}
+	return locales
+}
+
+func toContentTranslations(record *content.Content) []interfaces.ContentTranslation {
+	if record == nil || len(record.Translations) == 0 {
+		return nil
+	}
+	translations := make([]interfaces.ContentTranslation, 0, len(record.Translations))
+	for _, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		locale := ""
+		if tr.Locale != nil {
+			locale = tr.Locale.Code
+		}
+		translations = append(translations, interfaces.ContentTranslation{
+			ID:      tr.ID,
+			Locale:  locale,
+			Title:   tr.Title,
+			Summary: tr.Summary,
+			Fields:  cloneFieldMap(tr.Content),
+		})
+	}
+	return translations
+}
+
+func buildPageTranslationBundle(translations []interfaces.PageTranslation, opts interfaces.PageReadOptions) interfaces.TranslationBundle[interfaces.PageTranslation] {
+	requestedLocale := strings.TrimSpace(opts.Locale)
+	fallbackLocale := strings.TrimSpace(opts.FallbackLocale)
+	meta := interfaces.TranslationMeta{
+		RequestedLocale: requestedLocale,
+	}
+	if opts.IncludeAvailableLocales {
+		meta.AvailableLocales = collectLocalesFromPageTranslations(translations)
+	}
+
+	var requested *interfaces.PageTranslation
+	var resolved *interfaces.PageTranslation
+	resolvedLocale := ""
+
+	if requestedLocale != "" {
+		if tr := findPageTranslation(translations, requestedLocale); tr != nil {
+			requested = tr
+			resolved = tr
+			resolvedLocale = tr.Locale
+		}
+	}
+	if requested == nil && requestedLocale != "" && fallbackLocale != "" {
+		if tr := findPageTranslation(translations, fallbackLocale); tr != nil {
+			resolved = tr
+			resolvedLocale = tr.Locale
+			meta.FallbackUsed = true
+		}
+	}
+
+	meta.ResolvedLocale = strings.TrimSpace(resolvedLocale)
+	meta.MissingRequestedLocale = requestedLocale != "" && requested == nil
+
+	return interfaces.TranslationBundle[interfaces.PageTranslation]{
+		Meta:      meta,
+		Requested: requested,
+		Resolved:  resolved,
+	}
+}
+
+func findPageTranslation(translations []interfaces.PageTranslation, locale string) *interfaces.PageTranslation {
+	locale = strings.TrimSpace(locale)
+	if locale == "" {
+		return nil
+	}
+	for _, tr := range translations {
+		if strings.EqualFold(strings.TrimSpace(tr.Locale), locale) {
+			copy := tr
+			return &copy
+		}
+	}
+	return nil
+}
+
+func collectLocalesFromPageTranslations(translations []interfaces.PageTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	locales := make([]string, 0, len(translations))
+	for _, tr := range translations {
+		code := strings.TrimSpace(tr.Locale)
+		if code == "" {
+			continue
+		}
+		locales = append(locales, code)
+	}
+	if len(locales) == 0 {
+		return nil
+	}
+	return locales
+}
+
+func validateContentTranslationAllowed(record *interfaces.ContentRecord, allowMissing bool) error {
+	if allowMissing || record == nil {
+		return nil
+	}
+	meta := record.Translation.Meta
+	if meta.RequestedLocale != "" && meta.MissingRequestedLocale {
+		return interfaces.ErrTranslationMissing
+	}
+	return nil
+}
+
+func validatePageTranslationAllowed(record *interfaces.PageRecord, allowMissing bool) error {
+	if allowMissing || record == nil {
+		return nil
+	}
+	meta := record.Translation.Meta
+	if meta.RequestedLocale != "" && meta.MissingRequestedLocale {
+		return interfaces.ErrTranslationMissing
+	}
+	return nil
 }
 
 // cmsPageServiceAdapter adapts the CMS page service to the importer interface, using a
@@ -329,33 +540,51 @@ func (a *cmsPageServiceAdapter) Update(ctx context.Context, req interfaces.PageU
 	return a.toPageRecord(created), nil
 }
 
-func (a *cmsPageServiceAdapter) GetBySlug(ctx context.Context, slug string, env ...string) (*interfaces.PageRecord, error) {
+func (a *cmsPageServiceAdapter) GetBySlug(ctx context.Context, slug string, opts interfaces.PageReadOptions) (*interfaces.PageRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("page service unavailable")
 	}
-	records, err := a.service.List(ctx, env...)
+	envKey := strings.TrimSpace(opts.EnvironmentKey)
+	var records []*pages.Page
+	var err error
+	if envKey == "" {
+		records, err = a.service.List(ctx)
+	} else {
+		records, err = a.service.List(ctx, envKey)
+	}
 	if err != nil {
 		return nil, err
 	}
 	for _, record := range records {
 		if record != nil && strings.EqualFold(record.Slug, slug) {
-			return a.toPageRecord(record), nil
+			result := a.toPageRecordWithOptions(record, opts)
+			if err := validatePageTranslationAllowed(result, opts.AllowMissingTranslations); err != nil {
+				return nil, err
+			}
+			return result, nil
 		}
 	}
 	return nil, nil
 }
 
-func (a *cmsPageServiceAdapter) List(ctx context.Context, env ...string) ([]*interfaces.PageRecord, error) {
+func (a *cmsPageServiceAdapter) List(ctx context.Context, opts interfaces.PageReadOptions) ([]*interfaces.PageRecord, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("page service unavailable")
 	}
-	records, err := a.service.List(ctx, env...)
+	envKey := strings.TrimSpace(opts.EnvironmentKey)
+	var records []*pages.Page
+	var err error
+	if envKey == "" {
+		records, err = a.service.List(ctx)
+	} else {
+		records, err = a.service.List(ctx, envKey)
+	}
 	if err != nil {
 		return nil, err
 	}
 	out := make([]*interfaces.PageRecord, 0, len(records))
 	for _, record := range records {
-		out = append(out, a.toPageRecord(record))
+		out = append(out, a.toPageRecordWithOptions(record, opts))
 	}
 	return out, nil
 }
@@ -376,6 +605,10 @@ func (a *cmsPageServiceAdapter) Delete(ctx context.Context, req interfaces.PageD
 }
 
 func (a *cmsPageServiceAdapter) toPageRecord(record *pages.Page) *interfaces.PageRecord {
+	return a.toPageRecordWithOptions(record, interfaces.PageReadOptions{})
+}
+
+func (a *cmsPageServiceAdapter) toPageRecordWithOptions(record *pages.Page, opts interfaces.PageReadOptions) *interfaces.PageRecord {
 	if record == nil {
 		return nil
 	}
@@ -395,12 +628,22 @@ func (a *cmsPageServiceAdapter) toPageRecord(record *pages.Page) *interfaces.Pag
 			Fields:  cloneFieldMap(info.Fields),
 		})
 	}
+	contentTranslations := toContentTranslations(record.Content)
 	return &interfaces.PageRecord{
-		ID:           record.ID,
-		ContentID:    record.ContentID,
-		TemplateID:   record.TemplateID,
-		Slug:         record.Slug,
-		Status:       record.Status,
+		ID:          record.ID,
+		ContentID:   record.ContentID,
+		TemplateID:  record.TemplateID,
+		Slug:        record.Slug,
+		Status:      record.Status,
+		Translation: buildPageTranslationBundle(translations, opts),
+		ContentTranslation: buildContentTranslationBundle(
+			contentTranslations,
+			interfaces.ContentReadOptions{
+				Locale:                  opts.Locale,
+				FallbackLocale:          opts.FallbackLocale,
+				IncludeAvailableLocales: opts.IncludeAvailableLocales,
+			},
+		),
 		Translations: translations,
 		Metadata:     a.pageMetaClone(record.ID),
 	}
@@ -1241,14 +1484,14 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 		Slug:   "page",
 		Status: content.ContentTypeStatusActive,
 		Capabilities: map[string]any{
-			"seo":           true,
-			"blocks":        true,
-			"tree":          true,
+			"seo":               true,
+			"blocks":            true,
+			"tree":              true,
 			"structural_fields": true,
-			"workflow":      "pages",
-			"permissions":   "admin.pages",
-			"panel_slug":    "pages",
-			"policy_entity": "pages",
+			"workflow":          "pages",
+			"permissions":       "admin.pages",
+			"panel_slug":        "pages",
+			"policy_entity":     "pages",
 		},
 		Schema: map[string]any{
 			"fields": []map[string]any{
