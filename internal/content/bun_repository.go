@@ -393,7 +393,9 @@ func (r *BunContentTypeRepository) GetBySlug(ctx context.Context, slug string, e
 func (r *BunContentTypeRepository) List(ctx context.Context, env ...string) ([]*ContentType, error) {
 	normalizedEnv := normalizeEnvironmentKey(env...)
 	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
-		return applyEnvironmentFilter(q, normalizedEnv)
+		return applyEnvironmentFilter(q, normalizedEnv).
+			OrderExpr("?TableAlias.slug ASC").
+			OrderExpr("?TableAlias.created_at ASC")
 	}))
 	if err != nil {
 		return nil, err
@@ -409,11 +411,14 @@ func (r *BunContentTypeRepository) Search(ctx context.Context, query string, env
 	like := "%" + strings.ToLower(query) + "%"
 	normalizedEnv := normalizeEnvironmentKey(env...)
 	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
-		return applyEnvironmentFilter(
+		filtered := applyEnvironmentFilter(
 			q.Where("LOWER(?TableAlias.name) LIKE ?", like).
 				WhereOr("LOWER(?TableAlias.slug) LIKE ?", like),
 			normalizedEnv,
 		)
+		return filtered.
+			OrderExpr("?TableAlias.slug ASC").
+			OrderExpr("?TableAlias.created_at ASC")
 	}))
 	if err != nil {
 		return nil, err
