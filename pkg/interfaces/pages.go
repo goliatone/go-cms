@@ -6,7 +6,7 @@ import (
 	"github.com/google/uuid"
 )
 
-// PageService abstracts page orchestration for markdown imports.
+// PageService abstracts page orchestration for CMS page records.
 type PageService interface {
 	Create(ctx context.Context, req PageCreateRequest) (*PageRecord, error)
 	Update(ctx context.Context, req PageUpdateRequest) (*PageRecord, error)
