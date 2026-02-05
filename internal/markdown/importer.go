@@ -15,23 +15,19 @@ import (
 
 var (
 	ErrContentServiceRequired = errors.New("markdown importer: content service is required")
-	ErrPageServiceRequired    = errors.New("markdown importer: page service required when CreatePages is enabled")
 	ErrSlugMissing            = errors.New("markdown importer: frontmatter slug is required")
 	ErrLocaleMissing          = errors.New("markdown importer: locale could not be determined")
-	ErrTemplateMissing        = errors.New("markdown importer: template id required when CreatePages is enabled")
 )
 
 // ImporterConfig encapsulates dependencies required to persist markdown documents.
 type ImporterConfig struct {
 	Content interfaces.ContentService
-	Pages   interfaces.PageService
 	Logger  interfaces.Logger
 }
 
 // Importer orchestrates conversion of markdown documents into content and pages.
 type Importer struct {
 	content interfaces.ContentService
-	pages   interfaces.PageService
 	logger  interfaces.Logger
 }
 
@@ -39,7 +35,6 @@ type Importer struct {
 func NewImporter(cfg ImporterConfig) *Importer {
 	return &Importer{
 		content: cfg.Content,
-		pages:   cfg.Pages,
 		logger:  cfg.Logger,
 	}
 }
@@ -159,7 +154,7 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 			return fmt.Errorf("markdown importer: create content %s: %w", slug, createErr)
 		}
 		acc.created(record.ID)
-		return i.ensurePage(ctx, record, docs, opts, acc)
+		return nil
 	}
 
 	changedTranslations := diffTranslations(existing.Translations, contentTranslations)
@@ -190,104 +185,6 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 		return fmt.Errorf("markdown importer: update content %s: %w", slug, updateErr)
 	}
 	acc.updated(updated.ID)
-	return i.ensurePage(ctx, updated, docs, opts, acc)
-}
-
-func (i *Importer) ensurePage(ctx context.Context, content *interfaces.ContentRecord, docs []*interfaces.Document, opts interfaces.ImportOptions, acc *importAccumulator) error {
-	if !opts.CreatePages {
-		return nil
-	}
-	if i.pages == nil {
-		return ErrPageServiceRequired
-	}
-	if opts.TemplateID == nil || *opts.TemplateID == uuid.Nil {
-		for _, doc := range docs {
-			if strings.TrimSpace(doc.FrontMatter.Template) != "" {
-				break
-			}
-		}
-		if opts.TemplateID == nil || *opts.TemplateID == uuid.Nil {
-			return ErrTemplateMissing
-		}
-	}
-
-	slug := content.Slug
-	existing, err := i.pages.GetBySlug(ctx, slug, opts.EnvironmentKey)
-	if err != nil && existing != nil {
-		return fmt.Errorf("markdown importer: page lookup %s: %w", slug, err)
-	}
-
-	translations := make([]interfaces.PageTranslationInput, 0, len(docs))
-	for _, doc := range docs {
-		title := strings.TrimSpace(doc.FrontMatter.Title)
-		if title == "" {
-			title = fallbackTitle(slug)
-		}
-		path := canonicalPath(doc, slug)
-		translations = append(translations, interfaces.PageTranslationInput{
-			Locale:  doc.Locale,
-			Title:   title,
-			Path:    path,
-			Summary: optionalString(doc.FrontMatter.Summary),
-			Fields: map[string]any{
-				"source":      "markdown",
-				"frontmatter": doc.FrontMatter.Raw,
-			},
-		})
-	}
-
-	if existing == nil {
-		if opts.DryRun {
-			return nil
-		}
-
-		createReq := interfaces.PageCreateRequest{
-			ContentID:    content.ID,
-			TemplateID:   templateFor(opts, docs),
-			Slug:         slug,
-			Status:       content.Status,
-			CreatedBy:    opts.AuthorID,
-			UpdatedBy:    opts.AuthorID,
-			Translations: translations,
-			Metadata: map[string]any{
-				"source": "markdown",
-			},
-			AllowMissingTranslations: opts.PageAllowMissingTranslations,
-		}
-		record, createErr := i.pages.Create(ctx, createReq)
-		if createErr != nil {
-			return fmt.Errorf("markdown importer: create page %s: %w", slug, createErr)
-		}
-		acc.createdPage(record.ID)
-		return nil
-	}
-
-	if !pageNeedsUpdate(existing.Translations, translations, content.Status) {
-		acc.skipPage(existing.ID)
-		return nil
-	}
-
-	if opts.DryRun {
-		acc.skipPage(existing.ID)
-		return nil
-	}
-
-	updateReq := interfaces.PageUpdateRequest{
-		ID:           existing.ID,
-		TemplateID:   pointerTemplate(templateFor(opts, docs)),
-		Status:       content.Status,
-		UpdatedBy:    opts.AuthorID,
-		Translations: translations,
-		Metadata: map[string]any{
-			"source": "markdown",
-		},
-		AllowMissingTranslations: opts.PageAllowMissingTranslations,
-	}
-	record, updateErr := i.pages.Update(ctx, updateReq)
-	if updateErr != nil {
-		return fmt.Errorf("markdown importer: update page %s: %w", slug, updateErr)
-	}
-	acc.updatedPage(record.ID)
 	return nil
 }
 
@@ -321,31 +218,6 @@ func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interf
 		acc.deleted++
 	}
 
-	if !opts.ImportOptions.CreatePages || i.pages == nil {
-		return nil
-	}
-
-	pages, err := i.pages.List(ctx, opts.EnvironmentKey)
-	if err != nil {
-		return fmt.Errorf("markdown importer: list pages: %w", err)
-	}
-	for _, page := range pages {
-		if _, ok := docSlugs[page.Slug]; ok {
-			continue
-		}
-		if opts.DryRun {
-			acc.deleted++
-			continue
-		}
-		deleteReq := interfaces.PageDeleteRequest{
-			ID:         page.ID,
-			HardDelete: true,
-		}
-		if err := i.pages.Delete(ctx, deleteReq); err != nil {
-			return fmt.Errorf("markdown importer: delete page %s: %w", page.Slug, err)
-		}
-		acc.deleted++
-	}
 	return nil
 }
 
@@ -469,36 +341,6 @@ func diffTranslations(existing []interfaces.ContentTranslation, inputs []interfa
 	return len(current) != len(seen)
 }
 
-func pageNeedsUpdate(existing []interfaces.PageTranslation, inputs []interfaces.PageTranslationInput, status string) bool {
-	current := map[string]interfaces.PageTranslation{}
-	for _, tr := range existing {
-		current[strings.ToLower(tr.Locale)] = tr
-	}
-	seen := map[string]struct{}{}
-
-	for _, in := range inputs {
-		locale := strings.ToLower(in.Locale)
-		seen[locale] = struct{}{}
-		cur, ok := current[locale]
-		if !ok {
-			return true
-		}
-		if strings.TrimSpace(cur.Title) != strings.TrimSpace(in.Title) {
-			return true
-		}
-		if strings.TrimSpace(cur.Path) != strings.TrimSpace(in.Path) {
-			return true
-		}
-		if stringValue(in.Summary) != stringValue(cur.Summary) {
-			return true
-		}
-		if !mapsEqual(cur.Fields, in.Fields) {
-			return true
-		}
-	}
-	return len(current) != len(seen)
-}
-
 func checksumFromFields(fields map[string]any) string {
 	markdown, ok := fields["markdown"].(map[string]any)
 	if !ok {
@@ -523,77 +365,19 @@ func optionalString(value string) *string {
 	return &value
 }
 
-func canonicalPath(doc *interfaces.Document, slug string) string {
-	if doc != nil {
-		if path, ok := doc.FrontMatter.Raw["path"].(string); ok && strings.TrimSpace(path) != "" {
-			return path
-		}
-	}
-	if slug == "" {
-		return "/"
-	}
-	if strings.HasPrefix(slug, "/") {
-		return slug
-	}
-	return "/" + slug
-}
-
-func templateFor(opts interfaces.ImportOptions, docs []*interfaces.Document) uuid.UUID {
-	if opts.TemplateID != nil && *opts.TemplateID != uuid.Nil {
-		return *opts.TemplateID
-	}
-	for _, doc := range docs {
-		if doc == nil {
-			continue
-		}
-		if tmpl, ok := doc.FrontMatter.Raw["template_id"].(string); ok {
-			if parsed, err := uuid.Parse(tmpl); err == nil {
-				return parsed
-			}
-		}
-	}
-	return uuid.Nil
-}
-
-func pointerTemplate(value uuid.UUID) *uuid.UUID {
-	if value == uuid.Nil {
-		return nil
-	}
-	out := value
-	return &out
-}
-
-func mapsEqual(a, b map[string]any) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for key, value := range a {
-		if bVal, ok := b[key]; !ok || fmt.Sprint(bVal) != fmt.Sprint(value) {
-			return false
-		}
-	}
-	return true
-}
-
 type importAccumulator struct {
-	createdIDs  []uuid.UUID
-	updatedIDs  []uuid.UUID
-	skippedIDs  []uuid.UUID
-	pageCreated []uuid.UUID
-	pageUpdated []uuid.UUID
-	pageSkipped []uuid.UUID
-	errors      []error
+	createdIDs []uuid.UUID
+	updatedIDs []uuid.UUID
+	skippedIDs []uuid.UUID
+	errors     []error
 }
 
 func newImportAccumulator() *importAccumulator {
 	return &importAccumulator{
-		createdIDs:  []uuid.UUID{},
-		updatedIDs:  []uuid.UUID{},
-		skippedIDs:  []uuid.UUID{},
-		pageCreated: []uuid.UUID{},
-		pageUpdated: []uuid.UUID{},
-		pageSkipped: []uuid.UUID{},
-		errors:      []error{},
+		createdIDs: []uuid.UUID{},
+		updatedIDs: []uuid.UUID{},
+		skippedIDs: []uuid.UUID{},
+		errors:     []error{},
 	}
 }
 
@@ -612,24 +396,6 @@ func (a *importAccumulator) updated(id uuid.UUID) {
 func (a *importAccumulator) skip(id uuid.UUID) {
 	if id != uuid.Nil {
 		a.skippedIDs = append(a.skippedIDs, id)
-	}
-}
-
-func (a *importAccumulator) createdPage(id uuid.UUID) {
-	if id != uuid.Nil {
-		a.pageCreated = append(a.pageCreated, id)
-	}
-}
-
-func (a *importAccumulator) updatedPage(id uuid.UUID) {
-	if id != uuid.Nil {
-		a.pageUpdated = append(a.pageUpdated, id)
-	}
-}
-
-func (a *importAccumulator) skipPage(id uuid.UUID) {
-	if id != uuid.Nil {
-		a.pageSkipped = append(a.pageSkipped, id)
 	}
 }
 
