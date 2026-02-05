@@ -17,6 +17,8 @@ type AdminPageRecord struct {
 	Path               string
 	RequestedLocale    string
 	ResolvedLocale     string
+	Translation        TranslationBundle[PageTranslation]    `json:"translation"`
+	ContentTranslation TranslationBundle[ContentTranslation] `json:"content_translation"`
 	Status             string
 	ParentID           *uuid.UUID
 	MetaTitle          string
