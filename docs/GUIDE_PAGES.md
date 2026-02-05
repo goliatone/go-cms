@@ -77,6 +77,8 @@ Key contract rules:
 
 - `RequestedLocale` always echoes the caller's `Locale`, even if a translation is missing.
 - `ResolvedLocale` is set to the chosen translation locale (requested, fallback, or empty if missing).
+- `Translation` and `ContentTranslation` are `TranslationBundle` values; `Meta` includes requested/resolved locales, `MissingRequestedLocale`, `FallbackUsed`, and available locales scoped to the bundle (page vs content).
+- `AllowMissingTranslations` controls whether missing requested locales return `ErrTranslationMissing` or a record with empty localized fields plus bundle metadata.
 - `IncludeContent`/`IncludeBlocks`/`IncludeData` control heavy fields; omit flags to keep list payloads lean.
 - `Blocks` prefers embedded block payloads and falls back to legacy block IDs when embedded data is missing.
 
@@ -835,11 +837,12 @@ func main() {
     }
 
     contentSvc := module.Content()
+    contentTypeSvc := module.Container().ContentTypeService()
     pageSvc := module.Pages()
     authorID := uuid.New()
 
     // 1. Create a content type and content entry
-    articleType, err := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
+    articleType, err := contentTypeSvc.Create(ctx, content.CreateContentTypeRequest{
         Name: "Article",
         Slug: "article",
         Schema: map[string]any{

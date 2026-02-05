@@ -864,6 +864,7 @@ import (
     "log"
 
     "github.com/goliatone/go-cms"
+    "github.com/goliatone/go-cms/internal/content"
     "github.com/goliatone/go-cms/internal/di"
     "github.com/goliatone/go-cms/pkg/activity"
     "github.com/google/uuid"
@@ -910,10 +911,11 @@ func main() {
 
     // 4. Use the content service -- events are emitted automatically
     contentSvc := module.Content()
+    contentTypeSvc := module.Container().ContentTypeService()
     actorID := uuid.New()
 
     // Create a content type
-    contentType, err := contentSvc.CreateContentType(ctx, cms.CreateContentTypeRequest{
+    contentType, err := contentTypeSvc.Create(ctx, content.CreateContentTypeRequest{
         Name: "Article",
         Slug: "article",
         Schema: map[string]any{
@@ -922,20 +924,22 @@ func main() {
                 "body": map[string]any{"type": "string"},
             },
         },
+        CreatedBy: actorID,
+        UpdatedBy: actorID,
     })
     if err != nil {
         log.Fatalf("create content type: %v", err)
     }
 
     // Create content -- this emits a "create" event
-    record, err := contentSvc.Create(ctx, cms.CreateContentRequest{
+    record, err := contentSvc.Create(ctx, content.CreateContentRequest{
         ContentTypeID: contentType.ID,
         Slug:          "hello-world",
         Status:        "draft",
         CreatedBy:     actorID,
         UpdatedBy:     actorID,
-        Translations: []cms.ContentTranslationInput{
-            {Locale: "en", Title: "Hello World", Body: "Welcome to go-cms"},
+        Translations: []content.ContentTranslationInput{
+            {Locale: "en", Title: "Hello World", Content: map[string]any{"body": "Welcome to go-cms"}},
         },
     })
     if err != nil {
@@ -943,19 +947,23 @@ func main() {
     }
 
     // Update content -- this emits an "update" event
-    _, err = contentSvc.Update(ctx, cms.UpdateContentRequest{
+    _, err = contentSvc.Update(ctx, content.UpdateContentRequest{
         ID:        record.ID,
-        Slug:      stringPtr("hello-world-updated"),
+        Status:    "published",
         UpdatedBy: actorID,
+        Translations: []content.ContentTranslationInput{
+            {Locale: "en", Title: "Hello World (Revised)", Content: map[string]any{"body": "Updated content."}},
+        },
     })
     if err != nil {
         log.Fatalf("update content: %v", err)
     }
 
     // Delete content -- this emits a "delete" event
-    err = contentSvc.Delete(ctx, cms.DeleteContentRequest{
-        ID:        record.ID,
-        DeletedBy: actorID,
+    err = contentSvc.Delete(ctx, content.DeleteContentRequest{
+        ID:         record.ID,
+        DeletedBy:  actorID,
+        HardDelete: true,
     })
     if err != nil {
         log.Fatalf("delete content: %v", err)
@@ -967,8 +975,6 @@ func main() {
         fmt.Printf("  %d. %s %s/%s\n", i+1, event.Verb, event.ObjectType, event.ObjectID)
     }
 }
-
-func stringPtr(s string) *string { return &s }
 ```
 
 **Expected output:**
@@ -978,8 +984,11 @@ func stringPtr(s string) *string { return &s }
   slug: hello-world
   status: draft
 [cms] update content/<uuid> (actor=<uuid>)
-  slug: hello-world-updated
+  slug: hello-world
+  status: published
 [cms] delete content/<uuid> (actor=<uuid>)
+  slug: hello-world
+  status: published
 
 Captured 3 events:
   1. create content/<uuid>

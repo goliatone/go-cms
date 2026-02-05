@@ -100,10 +100,11 @@ func main() {
 	}
 
 	contentSvc := module.Content()
+	contentTypeSvc := module.Container().ContentTypeService()
 	authorID := uuid.New()
 
 	// --- Step 1: Create a page content type ---
-	pageType, err := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
+	pageType, err := contentTypeSvc.Create(ctx, content.CreateContentTypeRequest{
 		Name: "Page",
 		Slug: "page",
 		Schema: map[string]any{

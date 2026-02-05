@@ -384,6 +384,34 @@ err := blockSvc.DeleteTranslation(ctx, blocks.DeleteTranslationRequest{
 
 ---
 
+## Read-Time Locale Resolution (TranslationBundle)
+
+Adapter-facing read services (the `pkg/interfaces` Content/Page services and the admin read model) return `TranslationBundle` values that describe how locale resolution was handled. Bundles include the requested/resolved translation plus metadata for UI warnings and fallback logic.
+
+Key semantics:
+
+- `Meta.RequestedLocale` always echoes the requested locale.
+- When the requested locale exists, `Requested` and `Resolved` point to the same translation and `Meta.ResolvedLocale` matches.
+- When missing and `FallbackLocale` is provided, `Requested` is `nil`, `Resolved` points to the fallback translation, and `Meta.FallbackUsed=true`.
+- When missing and no fallback exists, both `Requested` and `Resolved` are `nil` and `Meta.ResolvedLocale` is empty.
+- `IncludeAvailableLocales` populates `Meta.AvailableLocales` for that bundle (page vs content scoped).
+- `AllowMissingTranslations=false` returns `ErrTranslationMissing` on single reads; list reads still return bundle metadata instead of hard-failing.
+
+Example (adapter-facing read):
+
+```go
+opts := interfaces.ContentReadOptions{
+    Locale:                   "es",
+    FallbackLocale:           "en",
+    AllowMissingTranslations: true,
+    IncludeAvailableLocales:  true,
+}
+record, err := contentReader.GetBySlug(ctx, "about", opts)
+bundle := record.Translation
+```
+
+---
+
 ## Per-Request Flexibility
 
 Some create/update request types expose an `AllowMissingTranslations` field. When set to `true`, it bypasses global translation enforcement for that single operation, without changing the global config.

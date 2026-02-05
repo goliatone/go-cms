@@ -34,9 +34,10 @@ if err != nil {
 }
 
 contentSvc := module.Content()
+contentTypeSvc := module.Container().ContentTypeService()
 ```
 
-The `contentSvc` variable satisfies the `content.Service` interface for content entries and provides `CreateContentType` for content type operations. The service delegates to in-memory repositories by default, or SQL-backed repositories when `di.WithBunDB(db)` is provided.
+The `contentSvc` variable satisfies the `content.Service` interface for content entries. Content types are managed by `content.ContentTypeService`, available via `module.Container().ContentTypeService()`. Both services delegate to in-memory repositories by default, or SQL-backed repositories when `di.WithBunDB(db)` is provided.
 
 ---
 
@@ -47,7 +48,7 @@ The `contentSvc` variable satisfies the `content.Service` interface for content 
 A content type requires a name and a JSON schema at minimum. The slug is auto-generated from the name if omitted.
 
 ```go
-articleType, err := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
+articleType, err := contentTypeSvc.Create(ctx, content.CreateContentTypeRequest{
     Name: "Article",
     Slug: "article",
     Description: stringPtr("Long-form articles"),
@@ -87,9 +88,10 @@ Schemas are validated on create and update. The service uses `schema.EnsureSchem
 When updating a content type with `Status: "active"`, the service checks schema compatibility. Breaking changes (removed required fields, type changes) require explicit opt-in:
 
 ```go
-updated, err := contentSvc.UpdateContentType(ctx, content.UpdateContentTypeRequest{
+updated, err := contentTypeSvc.Update(ctx, content.UpdateContentTypeRequest{
     ID:     articleType.ID,
     Schema: newSchema,
+    Status: stringPtr("active"),
     AllowBreakingChanges: true, // Required for breaking changes on active types
     UpdatedBy: authorID,
 })
@@ -148,16 +150,16 @@ This keeps Pages/Posts UI aligned with content entries as the single source of t
 
 ```go
 // Get by ID
-ct, err := contentSvc.GetContentType(ctx, typeID)
+ct, err := contentTypeSvc.Get(ctx, typeID)
 
 // Get by slug
-ct, err := contentSvc.GetContentTypeBySlug(ctx, "article")
+ct, err := contentTypeSvc.GetBySlug(ctx, "article")
 
 // List all content types
-types, err := contentSvc.ListContentTypes(ctx)
+types, err := contentTypeSvc.List(ctx)
 
 // Search by name or slug
-results, err := contentSvc.SearchContentTypes(ctx, "article")
+results, err := contentTypeSvc.Search(ctx, "article")
 ```
 
 All query methods accept optional environment keys as variadic parameters for environment-scoped lookups.
@@ -679,10 +681,11 @@ func main() {
     }
 
     contentSvc := module.Content()
+    contentTypeSvc := module.Container().ContentTypeService()
     authorID := uuid.New()
 
     // 1. Create a content type
-    articleType, err := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
+    articleType, err := contentTypeSvc.Create(ctx, content.CreateContentTypeRequest{
         Name: "Article",
         Slug: "article",
         Schema: map[string]any{
