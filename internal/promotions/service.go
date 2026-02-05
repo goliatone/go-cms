@@ -548,6 +548,9 @@ func (s *service) updateContentRecord(ctx context.Context, record *content.Conte
 	} else if updated.PublishedVersion == nil {
 		updated.Status = string(domain.StatusDraft)
 	}
+	if version.Snapshot.Metadata != nil {
+		updated.Metadata = cloneMap(version.Snapshot.Metadata)
+	}
 	saved, err := s.contents.Update(ctx, &updated)
 	if err != nil {
 		return nil, err
