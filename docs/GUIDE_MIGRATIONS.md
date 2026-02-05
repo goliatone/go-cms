@@ -287,6 +287,7 @@ The initial migration (`20250102000000_initial_schema`) creates the complete cor
 | `current_version` | `INTEGER` | Active version number |
 | `published_version` | `INTEGER` | Published version number |
 | `publish_at` / `unpublish_at` | `TIMESTAMP` | Scheduling timestamps |
+| `metadata` | `JSONB` | Entry-level metadata (structural fields like `path`, `template_id`, `parent_id`, `sort_order`; added by `20260430000000`) |
 | `environment_id` | `UUID FK` | Environment scope (added by `20260415000000`) |
 
 **content_translations** -- Localized content payloads.
@@ -311,7 +312,9 @@ The initial migration (`20250102000000_initial_schema`) creates the complete cor
 | `snapshot` | `JSONB` | Complete content snapshot |
 | | | UNIQUE on `(content_id, version)` |
 
-### Pages
+### Pages (Legacy)
+
+Pages are now modeled as content entries (`content_types.slug = "page"`) with structural fields stored in `contents.metadata`. The `pages` and `page_translations` tables are retained for legacy integrations.
 
 **pages** -- Hierarchical page metadata with self-referential parent.
 

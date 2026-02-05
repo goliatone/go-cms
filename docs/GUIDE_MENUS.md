@@ -758,7 +758,7 @@ err := cms.SeedMenu(ctx, cms.SeedMenuOptions{
             }},
         {Path: "admin.main.content.pages", Position: intPtr(0), Type: "item",
             Target:      map[string]any{"type": "page", "slug": "pages"},
-            Permissions: []string{"pages:read"},
+            Permissions: []string{"admin.pages"},
             Translations: []cms.MenuItemTranslationInput{
                 {Locale: "en", Label: "Pages", LabelKey: "admin.nav.pages"},
             }},

@@ -7,7 +7,7 @@ This guide covers content types, content entries, translations, versioning, and 
 Content in `go-cms` is split into two distinct entities:
 
 - **Content types** define the structure and validation rules for a category of content. Each content type carries a JSON schema, a slug, and a status lifecycle. Think of a content type as a blueprint -- "Article", "Product", "FAQ".
-- **Content entries** are individual records that belong to a content type. Each entry has a slug, a status, and one or more translations. An entry references its content type by ID and is validated against the type's schema on every write.
+- **Content entries** are individual records that belong to a content type. Each entry has a slug, a status, optional entry-level `Metadata`, and one or more translations. An entry references its content type by ID and is validated against the type's schema on every write.
 
 ```
 ContentType (schema, slug, status)
@@ -124,12 +124,15 @@ Valid transitions:
 
 ### Pages/Posts UI Sync (Admin Panels)
 
-Admin UI panels for Pages and Posts are driven by **content entries**, not bespoke page/post services. Dynamic panels are created only for content types that are **active**, so the seeded types must be activated to make Pages/Posts available in the admin.
+Admin UI panels for Pages and Posts are driven by **content entries**, not bespoke page/post services. Dynamic panels are created only for content types that are **active**, so the seeded types must be activated to make Pages/Posts available in the admin. If the seeded types remain in `draft`, the Pages/Posts panels do not render and the admin will fall back to legacy routes.
 
 **Required activation (examples):**
 
 - `page` content type: `status = "active"` with `capabilities` including `tree: true`, `seo: true`, `blocks: true`, `workflow: "pages"`, `permissions: "admin.pages"`.
-- `blog_post` content type: `status = "active"` with `capabilities` including `seo: true`, `blocks: true`, `workflow: "posts"`, `permissions: "admin.posts"`, `panel_slug: "posts"`.
+- `page` content type should also set `structural_fields: true` and `policy_entity: "pages"` to explicitly opt into entry-level structural metadata.
+- `blog_post` content type: `status = "active"` with `capabilities` including `seo: true`, `blocks: true`, `workflow: "posts"`, `permissions: "admin.posts"`, `panel_slug: "posts"`, `policy_entity: "posts"`.
+
+Pages and Posts are always stored as content entries. The admin UI reads and writes them through the content entry APIs once the content types are active.
 
 **Admin panel routing:**
 
@@ -139,7 +142,7 @@ Admin UI panels for Pages and Posts are driven by **content entries**, not bespo
   - `/admin/pages` -> `/admin/content/pages`
   - `/admin/posts` -> `/admin/content/posts`
 
-This keeps Pages/Posts UI aligned with content entries as the single source of truth while preserving existing URLs. The `panel_slug` capability is the mapping mechanism that lets `blog_post` render as "Posts" without renaming the content type.
+This keeps Pages/Posts UI aligned with content entries as the single source of truth while preserving existing URLs. The `panel_slug` capability is the mapping mechanism that lets `blog_post` render as "Posts" without renaming the content type, so `/admin/content/posts` can target either a `post` or `blog_post` content type depending on the app seed data.
 
 ### Querying Content Types
 
@@ -207,6 +210,7 @@ article, err := contentSvc.Create(ctx, content.CreateContentRequest{
 | `EnvironmentKey` | `string` | No | Environment scope |
 | `CreatedBy` | `uuid.UUID` | Yes | Actor identifier |
 | `UpdatedBy` | `uuid.UUID` | Yes | Actor identifier |
+| `Metadata` | `map[string]any` | No | Entry-level metadata (non-localized structural fields) |
 | `Translations` | `[]ContentTranslationInput` | Conditional | Required when `RequireTranslations` is `true` |
 | `AllowMissingTranslations` | `bool` | No | Override to skip translation requirement |
 
@@ -267,12 +271,30 @@ updated, err := contentSvc.Update(ctx, content.UpdateContentRequest{
 | `EnvironmentKey` | `string` | Environment scope |
 | `UpdatedBy` | `uuid.UUID` | Actor identifier |
 | `Translations` | `[]ContentTranslationInput` | Replaces the entire translation set |
-| `Metadata` | `map[string]any` | Additional metadata |
+| `Metadata` | `map[string]any` | Entry-level metadata (replaces stored metadata when provided) |
 | `AllowMissingTranslations` | `bool` | Override translation requirement |
 
 When translations are provided on update, they replace the entire translation set. To mutate a single locale without touching others, use `UpdateTranslation` instead (see the translations section below).
 
 The slug and content type are immutable after creation.
+
+### Entry Metadata (Structural Fields)
+
+Content entries include a non-localized `Metadata` map for structural fields used by pages and tree-aware content types. Common keys:
+
+- `parent_id` -- parent content entry ID (UUID)
+- `template_id` -- template ID (UUID)
+- `path` -- canonical URL path
+- `sort_order` -- sibling ordering integer (`order` is an alias)
+
+Metadata is normalized on write:
+
+- UUIDs are stored as strings
+- `path` is trimmed and cannot be empty
+- `order` is normalized to `sort_order`
+- `sort_order` must be an integer
+
+When `Metadata` is provided on update, it replaces the stored map. Clients should send the full metadata map each time; send `null` for a key to remove it. Translation-level path overrides are not supported (legacy path fields are only used as a fallback when `metadata.path` is empty).
 
 ### Deleting Content
 

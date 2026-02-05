@@ -10,7 +10,7 @@ The static site generator transforms managed content into static HTML files. It 
 Pages + Content + Translations
          |
          v
-  BuildContext (resolve locales, load pages, fetch dependencies)
+  BuildContext (resolve locales, load page entries, fetch dependencies)
          |
          v
   TemplateContext (site metadata, page data, theme, helpers)
@@ -119,8 +119,8 @@ The generator requires several services wired through the DI container:
 
 | Dependency | Required | Description |
 |------------|----------|-------------|
-| Pages service | Yes | Loads pages and page translations |
 | Content service | Yes | Loads content records and content translations |
+| Content type service | Yes | Resolves the `page` content type used for page generation |
 | Locale lookup | Yes | Resolves locale codes to locale records |
 | Template renderer | Yes | Renders templates with the `TemplateContext` |
 | Blocks service | No | Loads block instances for pages |
@@ -179,7 +179,7 @@ fmt.Printf("Built %d pages, skipped %d, copied %d assets\n",
 
 **Build phases:**
 
-1. **Context loading** -- Resolve locales, load pages, fetch content/translations/blocks/widgets/menus/templates/themes for each page/locale pair.
+1. **Context loading** -- Resolve locales, load page content entries (type `page`), fetch translations/blocks/widgets/menus/templates/themes for each page/locale pair.
 2. **Rendering** -- Render each page through the template engine. Concurrent when `Workers > 1` and multiple pages exist. Pages are grouped by locale for worker distribution.
 3. **Persistence** -- Write rendered HTML to the storage backend.
 4. **Asset copying** -- Copy theme assets (CSS, JS, images) to the `assets/` subdirectory.
@@ -195,7 +195,7 @@ fmt.Printf("Built %d pages, skipped %d, copied %d assets\n",
 ```go
 type BuildOptions struct {
     Locales    []string    // Build only these locales (empty = all configured locales)
-    PageIDs    []uuid.UUID // Build only these pages (empty = all visible pages)
+    PageIDs    []uuid.UUID // Build only these pages (content entry IDs for type `page`)
     DryRun     bool        // Execute without writing artifacts
     Force      bool        // Ignore manifest cache, rebuild everything
     AssetsOnly bool        // Copy theme assets only, skip page rendering
@@ -220,7 +220,7 @@ gen.Build(ctx, generator.BuildOptions{AssetsOnly: true})
 
 ### Single Page Build
 
-`BuildPage` rebuilds a single page (all its locales or a specific one). It always forces a rebuild, ignoring the manifest cache:
+`BuildPage` rebuilds a single page (content entry ID for type `page`) in all locales or a specific one. It always forces a rebuild, ignoring the manifest cache:
 
 ```go
 // Rebuild all locales for a page
@@ -390,9 +390,9 @@ type TemplateContext struct {
 
 | Variable | Type | Description |
 |----------|------|-------------|
-| `{{ .Page.Page }}` | `*pages.Page` | Page record (ID, slug, status, visibility) |
+| `{{ .Page.Page }}` | `*pages.Page` | Page record (ID, slug, status, visibility) derived from content entry metadata |
 | `{{ .Page.Content }}` | `*content.Content` | Content record (ID, slug, status) |
-| `{{ .Page.Translation }}` | `*pages.PageTranslation` | Localized page data (path, title, summary) |
+| `{{ .Page.Translation }}` | `*pages.PageTranslation` | Localized page data (path, title, summary); `path` uses entry `metadata.path` as canonical |
 | `{{ .Page.ContentTranslation }}` | `*content.ContentTranslation` | Localized content data (title, body, summary) |
 | `{{ .Page.Blocks }}` | `[]*blocks.Instance` | Block instances attached to this page |
 | `{{ .Page.Widgets }}` | `map[string][]*widgets.ResolvedWidget` | Widgets grouped by area name |
@@ -935,8 +935,8 @@ func main() {
 | `errRendererRequired` | `Build` called without a `TemplateRenderer` dependency |
 | `errTemplateRequired` | Page has no associated template |
 | `errTemplateIdentifierMissing` | Template has neither `TemplatePath` nor `Slug` set |
-| `errPagesServiceRequired` | Pages service not wired in the DI container |
 | `errContentServiceRequired` | Content service not wired in the DI container |
+| `errContentTypeRequired` | Content type service not wired in the DI container |
 | `errLocaleLookupRequired` | Locale lookup not wired in the DI container |
 
 Build errors are accumulated in `BuildResult.Errors`. A build may partially succeed -- some pages render while others fail. Check `result.Diagnostics` for per-page error details.

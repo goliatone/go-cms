@@ -190,9 +190,9 @@ article, err := contentSvc.Create(ctx, content.CreateContentRequest{
 | `Content` | `map[string]any` | No | Structured content matching the content type schema |
 | `Blocks` | `[]map[string]any` | No | Block data for structured layouts |
 
-### Page Translations
+### Page Translations (Legacy)
 
-Page translations carry the title, URL path, and summary for each locale:
+Pages are now content entries with entry-level `metadata.path` as the canonical URL. Localized `Path` values are only used as a legacy fallback when entry metadata is missing. The page translation APIs below apply to the legacy pages service.
 
 ```go
 page, err := pageSvc.Create(ctx, pages.CreatePageRequest{

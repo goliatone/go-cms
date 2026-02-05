@@ -1,6 +1,6 @@
 # Getting Started with go-cms
 
-This guide walks you through setting up `go-cms` and creating your first content type, content entry, and page. By the end you will have a working CMS module running entirely in memory.
+This guide walks you through setting up `go-cms` and creating your first content type, content entry, and page entry. By the end you will have a working CMS module running entirely in memory.
 
 ## Overview
 
@@ -35,7 +35,6 @@ import (
 
 	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/content"
-	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/google/uuid"
 )
 
@@ -55,12 +54,10 @@ func main() {
 
 	// 3. Access services via the module facade
 	contentSvc := module.Content()
-	pageSvc := module.Pages()
 
 	fmt.Println("CMS module ready")
 	_ = ctx
 	_ = contentSvc
-	_ = pageSvc
 }
 ```
 
@@ -73,9 +70,9 @@ func main() {
 
 When no `di.WithBunDB()` option is provided, the container uses in-memory repositories. This is useful for prototyping, testing, and static site generation.
 
-## Creating a Content Type, Content Entry, and Page
+## Creating a Content Type and Page Content Entry
 
-This example creates an "Article" content type, publishes one article with an English translation, and wraps it in a page.
+Pages and posts are content entries. Structural, non-localized fields like `path`, `template_id`, and `parent_id` live in entry `Metadata`.
 
 ```go
 package main
@@ -87,7 +84,6 @@ import (
 
 	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/content"
-	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/google/uuid"
 )
 
@@ -104,13 +100,12 @@ func main() {
 	}
 
 	contentSvc := module.Content()
-	pageSvc := module.Pages()
 	authorID := uuid.New()
 
-	// --- Step 1: Create a content type ---
-	articleType, err := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
-		Name: "Article",
-		Slug: "article",
+	// --- Step 1: Create a page content type ---
+	pageType, err := contentSvc.CreateContentType(ctx, content.CreateContentTypeRequest{
+		Name: "Page",
+		Slug: "page",
 		Schema: map[string]any{
 			"fields": []map[string]any{
 				{"name": "title", "type": "string", "required": true},
@@ -124,13 +119,21 @@ func main() {
 		log.Fatalf("create content type: %v", err)
 	}
 
-	// --- Step 2: Create a content entry with a translation ---
-	article, err := contentSvc.Create(ctx, content.CreateContentRequest{
-		ContentTypeID: articleType.ID,
+	// --- Step 2: Create a page content entry ---
+	templateID := uuid.New() // placeholder; real templates come from the themes service
+	parentID := uuid.New()   // optional: parent page ID
+	pageEntry, err := contentSvc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: pageType.ID,
 		Slug:          "hello-world",
 		Status:        "published",
 		CreatedBy:     authorID,
 		UpdatedBy:     authorID,
+		Metadata: map[string]any{
+			"path":        "/hello-world",
+			"template_id": templateID,
+			"parent_id":   parentID,
+			"sort_order":  0,
+		},
 		Translations: []content.ContentTranslationInput{
 			{
 				Locale:  "en",
@@ -143,30 +146,8 @@ func main() {
 		log.Fatalf("create content: %v", err)
 	}
 
-	// --- Step 3: Create a page that references the content ---
-	templateID := uuid.New() // placeholder; real templates come from the themes service
-	page, err := pageSvc.Create(ctx, pages.CreatePageRequest{
-		ContentID:  article.ID,
-		TemplateID: templateID,
-		Slug:       "hello-world",
-		Status:     "published",
-		CreatedBy:  authorID,
-		UpdatedBy:  authorID,
-		Translations: []pages.PageTranslationInput{
-			{
-				Locale: "en",
-				Title:  "Hello World",
-				Path:   "/hello-world",
-			},
-		},
-	})
-	if err != nil {
-		log.Fatalf("create page: %v", err)
-	}
-
-	fmt.Printf("Content type: %s (id=%s)\n", articleType.Name, articleType.ID)
-	fmt.Printf("Content:      %s (id=%s)\n", article.Slug, article.ID)
-	fmt.Printf("Page:         %s (id=%s)\n", page.Slug, page.ID)
+	fmt.Printf("Content type: %s (id=%s)\n", pageType.Name, pageType.ID)
+	fmt.Printf("Page entry:   %s (id=%s)\n", pageEntry.Slug, pageEntry.ID)
 }
 ```
 
@@ -176,7 +157,7 @@ Running this prints the created IDs, confirming everything is wired correctly.
 
 1. **Content type** -- defines the schema for a category of content. Every content entry references a content type by ID.
 2. **Content entry** -- an individual piece of content. Translations are attached inline via `ContentTranslationInput`. Because `RequireTranslations` is `true` by default, at least one translation must be provided.
-3. **Page** -- wraps a content entry with routing information (slug, path) and a template reference. Pages form a hierarchy through `ParentID` and are the primary unit the static generator and URL resolver work with.
+3. **Page entry** -- a content entry of type `page` whose routing and hierarchy live in entry `Metadata` (for example: `path`, `template_id`, `parent_id`, `sort_order`). The static generator derives pages from these entries.
 
 ## Wiring with BunDB for Persistent Storage
 

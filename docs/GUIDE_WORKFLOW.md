@@ -1,6 +1,6 @@
 # Workflow Guide
 
-This guide covers content lifecycle orchestration using the workflow engine in `go-cms`. The workflow module provides state machine management for domain entities such as pages, enabling editorial review flows, scheduled publishing, and custom lifecycle transitions.
+This guide covers content lifecycle orchestration using the workflow engine in `go-cms`. The workflow module provides state machine management for domain entities such as content entries (pages/posts) and legacy pages, enabling editorial review flows, scheduled publishing, and custom lifecycle transitions.
 
 ## Workflow Architecture Overview
 
@@ -10,7 +10,7 @@ The workflow engine is a state machine that governs how entities move through li
 2. **Compilation** -- configuration definitions are compiled and validated at container startup, catching misconfigurations early.
 3. **Execution** -- the engine evaluates transitions at runtime, enforcing allowed state changes, guard expressions, and terminal states.
 
-The engine is entity-agnostic: while `go-cms` ships a default page workflow, you can register workflows for any entity type. The engine does not persist state -- it validates transitions and returns results. The caller (typically a service like `pages.Service`) is responsible for persisting the resulting status.
+The engine is entity-agnostic: while `go-cms` ships a default page workflow, you can register workflows for any entity type. The engine does not persist state -- it validates transitions and returns results. The caller (a service or your application) is responsible for persisting the resulting status.
 
 ```
                 +-----------------+
@@ -26,7 +26,7 @@ The engine is entity-agnostic: while `go-cms` ships a default page workflow, you
                    Transition()
                         |
                 +-----------------+
-                |  Service Layer  |   pages.Service.applyPageWorkflow()
+                |  Service Layer  |   apply workflow, persist status
                 +-----------------+
                         |
                    persist status
@@ -54,7 +54,7 @@ To disable workflows entirely:
 cfg.Workflow.Enabled = false
 ```
 
-When disabled, `container.WorkflowEngine()` returns `nil` and the pages service falls back to using the requested status directly without validation.
+When disabled, `container.WorkflowEngine()` returns `nil` and callers fall back to using the requested status directly without validation (legacy pages service behaves this way as well).
 
 ### Provider Options
 
@@ -95,6 +95,10 @@ cfg.Workflow.Definitions = []cms.WorkflowDefinitionConfig{
     },
 }
 ```
+
+### Content Entry Workflows (Pages/Posts)
+
+Pages and posts are modeled as content entries. In admin integrations (go-admin), workflows are selected via content type capabilities (for example, `workflow: "pages"` or `workflow: "posts"`). The admin layer applies transitions and writes the resulting status to content entries. The workflow engine remains available for legacy page service usage or for custom application logic that wants to enforce transitions before persisting content status.
 
 ### Configuration Types
 
@@ -520,13 +524,13 @@ engine := module.Container().WorkflowEngine()
 
 Both return `nil` when workflow is disabled.
 
-## Integration with Content/Page Status Transitions
+## Integration with Page Status Transitions (Legacy)
 
-The pages service automatically applies workflow transitions when pages are created or updated.
+The legacy pages service automatically applies workflow transitions when pages are created or updated. For content entries, workflows are typically applied by the caller (for example, go-admin) before setting the entry status.
 
 ### How It Works
 
-When a page status change is requested (via `Create`, `Update`, or other operations), the pages service:
+When a page status change is requested (via `Create`, `Update`, or other operations), the legacy pages service:
 
 1. Determines the current workflow state from the page's persisted status.
 2. Builds a `PageContext` with metadata about the page (ID, slug, version, timestamps).
@@ -562,7 +566,7 @@ The `Metadata()` method converts the context to a `map[string]any` suitable for 
 
 ### Workflow Events
 
-When a transition produces events, the pages service logs them with structured fields including:
+When a transition produces events, the legacy pages service logs them with structured fields including:
 
 - `page_id`, `page_slug` -- the affected page
 - `workflow_from`, `workflow_to` -- state transition
@@ -889,7 +893,7 @@ Store-sourced definitions are registered alongside config-based definitions duri
 When `cfg.Workflow.Enabled = false`:
 
 - `container.WorkflowEngine()` and `module.WorkflowEngine()` return `nil`.
-- The pages service bypasses workflow validation and uses the requested status directly.
+- The legacy pages service bypasses workflow validation and uses the requested status directly.
 - No compilation or registration occurs at startup.
 
 This is suitable for applications that manage status transitions in their own logic or that use a simple draft/published model without guards or editorial review.

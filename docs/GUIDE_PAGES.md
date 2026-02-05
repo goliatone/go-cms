@@ -1,10 +1,14 @@
 # Pages Guide
 
-This guide covers page hierarchy, routing paths, translations, page-block relationships, versioning, and scheduling in `go-cms`. By the end you will understand how to create and manage pages, build hierarchical navigation structures, assign blocks and widgets to page regions, and use the draft/publish workflow for pages.
+This guide covers page hierarchy, routing paths, translations, page-block relationships, versioning, and scheduling in `go-cms`.
 
-## Page Architecture Overview
+## Status: Legacy Pages Service
 
-Pages in `go-cms` wrap content entries with hierarchical structure and routing metadata. While content entries hold the payload (title, body, fields), pages add:
+Pages and posts are now modeled as **content entries** (content type `page`) with structural fields stored in entry-level `Metadata` (`path`, `template_id`, `parent_id`, `sort_order`). The generator and admin UI derive page views from these content entries. The pages service remains for legacy integrations and compatibility, but new code should prefer content entries (see `GUIDE_CONTENT.md`).
+
+## Page Architecture Overview (Legacy)
+
+Legacy pages wrap content entries with hierarchical structure and routing metadata. While content entries hold the payload (title, body, fields), pages add:
 
 - **Hierarchy** -- parent-child relationships for site structure
 - **Routing** -- localized URL paths per translation
@@ -26,7 +30,7 @@ Page (slug, status, hierarchy, template)
 
 All entities use UUID primary keys and UTC timestamps.
 
-### Accessing the Service
+### Accessing the Service (Legacy)
 
 Page operations are exposed through the `cms.Module` facade:
 
@@ -43,11 +47,13 @@ if err != nil {
 pageSvc := module.Pages()
 ```
 
-The `pageSvc` variable satisfies the `pages.Service` interface. The service delegates to in-memory repositories by default, or SQL-backed repositories when `di.WithBunDB(db)` is provided.
+The `pageSvc` variable satisfies the `pages.Service` interface. This is a legacy surface; new implementations should use content entries with entry metadata. The service delegates to in-memory repositories by default, or SQL-backed repositories when `di.WithBunDB(db)` is provided.
 
 ---
 
 ## Admin Page Read Model
+
+The admin read model builds a page-shaped view from content entries of type `page`. `Path`, `ParentID`, and `TemplateID` are sourced from entry `Metadata` when present (legacy translation fields are only used as a fallback).
 
 Admin list/detail surfaces should use the admin read model for consistent hydration and locale handling. Access it via the module facade:
 
@@ -74,7 +80,9 @@ Key contract rules:
 - `IncludeContent`/`IncludeBlocks`/`IncludeData` control heavy fields; omit flags to keep list payloads lean.
 - `Blocks` prefers embedded block payloads and falls back to legacy block IDs when embedded data is missing.
 
-## Page CRUD
+## Page CRUD (Legacy)
+
+New implementations should create content entries of type `page` and store routing/hierarchy metadata at the entry level. The CRUD APIs below remain for legacy data models only.
 
 ### Creating a Page
 

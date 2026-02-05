@@ -76,7 +76,7 @@ The defaults are:
 | Activity | `Channel` | `"cms"` |
 | Features | all flags | `false` |
 
-All feature flags default to `false`. This means that out of the box, only the core content, pages, blocks, and menus subsystems are active. Enable additional features explicitly.
+All feature flags default to `false`. This means that out of the box, only the core content, blocks, and menus subsystems are active. The legacy pages service is still available, but pages/posts are modeled as content entries.
 
 ---
 
@@ -92,7 +92,7 @@ type ContentConfig struct {
 }
 ```
 
-When `PageHierarchy` is true, the page service resolves parent-child relationships and builds routing paths from the page tree.
+When `PageHierarchy` is true, the generator and legacy page helpers derive hierarchy from entry metadata. New implementations should store structural fields on content entries instead of relying on the legacy page service.
 
 ### I18NConfig
 
@@ -590,7 +590,7 @@ Replace any service with a custom implementation:
 
 ```go
 di.WithContentService(svc content.Service)
-di.WithPageService(svc pages.Service)
+di.WithPageService(svc pages.Service) // Legacy
 di.WithBlockService(svc blocks.Service)
 di.WithMenuService(svc menus.Service)
 di.WithWidgetService(svc widgets.Service)
@@ -755,7 +755,7 @@ if err != nil {
 
 ```go
 contentSvc   := module.Content()         // Content and content types
-pageSvc      := module.Pages()           // Page hierarchy and routing
+pageSvc      := module.Pages()           // Legacy page hierarchy and routing
 blockSvc     := module.Blocks()          // Block definitions and instances
 menuSvc      := module.Menus()           // Menus and navigation resolution
 widgetSvc    := module.Widgets()         // Widget registry and areas
@@ -788,7 +788,7 @@ The module re-exports all service types so consumers never import `internal/` pa
 
 ```go
 type ContentService         = content.Service
-type PageService            = pages.Service
+type PageService            = pages.Service // Legacy
 type BlockService           = blocks.Service
 type StorageAdminService    = *adminstorage.Service
 type TranslationAdminService = *admintranslations.Service
@@ -991,7 +991,7 @@ func main() {
 
     // --- Step 4: Access services
     contentSvc := module.Content()
-    pageSvc := module.Pages()
+    pageSvc := module.Pages() // Legacy
     menuSvc := module.Menus()
     widgetSvc := module.Widgets()
 

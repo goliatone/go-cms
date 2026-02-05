@@ -4,7 +4,7 @@ This guide covers importing and syncing markdown content with frontmatter suppor
 
 ## Markdown Architecture Overview
 
-The markdown module bridges filesystem-based content authoring with the CMS data model. Authors write markdown files with YAML frontmatter, and the module converts them into content entries (and optionally pages) inside `go-cms`.
+The markdown module bridges filesystem-based content authoring with the CMS data model. Authors write markdown files with YAML frontmatter, and the module converts them into content entries inside `go-cms`.
 
 The pipeline has three stages:
 
@@ -12,12 +12,12 @@ The pipeline has three stages:
 Filesystem (.md files)
   └── Load (parse frontmatter, detect locale, compute checksum)
         └── Render (convert markdown to HTML via Goldmark)
-              └── Import / Sync (create or update CMS content and pages)
+              └── Import / Sync (create or update CMS content)
 ```
 
 - **Loading** reads markdown files, extracts YAML frontmatter, detects the locale from the directory structure, and computes a SHA-256 checksum for change detection.
 - **Rendering** converts the markdown body to HTML using the Goldmark engine with configurable extensions. Shortcode expansion happens before parsing when enabled.
-- **Importing** creates or updates content entries and pages in the CMS, grouping multilingual files by slug. **Syncing** extends import with orphan deletion and repeated-run semantics.
+- **Importing** creates or updates content entries in the CMS, grouping multilingual files by slug. **Syncing** extends import with orphan deletion and repeated-run semantics.
 
 All operations are exposed through the `interfaces.MarkdownService` interface and three CLI tools.
 
@@ -287,7 +287,7 @@ When both `SafeMode` and `Sanitize` are `false`, raw HTML embedded in markdown i
 
 ## Import Workflow
 
-Importing converts loaded markdown documents into CMS content entries. The importer groups files by their frontmatter `slug`, creates or updates content entries with translations, and optionally creates page entities.
+Importing converts loaded markdown documents into CMS content entries. The importer groups files by their frontmatter `slug` and creates or updates content entries with translations.
 
 ### Importing a Single Document
 
@@ -320,8 +320,6 @@ fmt.Printf("Created: %d, Updated: %d, Skipped: %d\n",
 result, err := mdSvc.ImportDirectory(ctx, ".", interfaces.ImportOptions{
     ContentTypeID: articleTypeID,
     AuthorID:      authorID,
-    CreatePages:   true,
-    TemplateID:    &templateID,
 })
 if err != nil {
     log.Fatal(err)
@@ -336,12 +334,9 @@ fmt.Printf("Created %d content entries\n", len(result.CreatedContentIDs))
 |-------|------|----------|-------------|
 | `ContentTypeID` | `uuid.UUID` | **Yes** | Content type for imported entries |
 | `AuthorID` | `uuid.UUID` | **Yes** | Actor ID recorded on created/updated records |
-| `CreatePages` | `bool` | No | Also create page entities for each content entry |
-| `TemplateID` | `*uuid.UUID` | When `CreatePages` | Template ID for created pages |
 | `DryRun` | `bool` | No | Preview changes without persisting |
 | `EnvironmentKey` | `string` | No | Environment scope for content lookups |
 | `ContentAllowMissingTranslations` | `bool` | No | Bypass translation requirements for content |
-| `PageAllowMissingTranslations` | `bool` | No | Bypass translation requirements for pages |
 | `ProcessShortcodes` | `bool` | No | Expand shortcodes during rendering |
 
 ### ImportResult Structure
@@ -360,8 +355,6 @@ fmt.Printf("Created %d content entries\n", len(result.CreatedContentIDs))
 3. **Render** -- markdown body is converted to HTML.
 4. **Lookup** -- check if a content entry with this slug already exists (`GetBySlug`).
 5. **Create or update** -- if new, create a content entry with translations. If existing, compare translations and update only when changes are detected (title, summary, or checksum differ).
-6. **Page creation** -- when `CreatePages` is true, a page entity is created or updated alongside the content entry, using the slug as the page path.
-
 Content metadata records the import source:
 
 ```json
@@ -419,8 +412,6 @@ result, err := mdSvc.Sync(ctx, ".", interfaces.SyncOptions{
     ImportOptions: interfaces.ImportOptions{
         ContentTypeID: articleTypeID,
         AuthorID:      authorID,
-        CreatePages:   true,
-        TemplateID:    &templateID,
     },
     DeleteOrphaned: true,
     UpdateExisting: true,
@@ -455,7 +446,7 @@ fmt.Printf("Created: %d, Updated: %d, Deleted: %d, Skipped: %d\n",
 
 ### Orphan Deletion
 
-When `DeleteOrphaned` is `true`, the sync compares all markdown slugs against existing CMS content. Any content entry (and its associated page, if `CreatePages` is enabled) that has no matching markdown file is deleted with a hard delete. Use `DryRun: true` to preview which entries would be removed.
+When `DeleteOrphaned` is `true`, the sync compares all markdown slugs against existing CMS content. Any content entry that has no matching markdown file is deleted with a hard delete. Use `DryRun: true` to preview which entries would be removed.
 
 ---
 
@@ -555,8 +546,6 @@ go run cmd/markdown/import/main.go \
   -locales=en,es \
   -content-type=<UUID> \
   -author=<UUID> \
-  -template=<UUID> \
-  -create-pages \
   -dry-run
 ```
 
@@ -573,8 +562,6 @@ go run cmd/markdown/import/main.go \
 | `-require-translations` | `true` | Enforce at least one translation |
 | `-content-type` | -- | Content type UUID (**required**) |
 | `-author` | -- | Author UUID (**required**) |
-| `-template` | -- | Template UUID for pages |
-| `-create-pages` | `false` | Create page entities alongside content |
 | `-dry-run` | `false` | Preview without persisting |
 
 ### Sync Command
@@ -587,8 +574,6 @@ go run cmd/markdown/sync/main.go \
   -directory=. \
   -content-type=<UUID> \
   -author=<UUID> \
-  -create-pages \
-  -template=<UUID> \
   -delete-orphaned \
   -update-existing \
   -dry-run
@@ -694,8 +679,6 @@ go run cmd/markdown/sync/main.go \
   -content-dir=./content \
   -content-type=$CONTENT_TYPE_ID \
   -author=$AUTHOR_ID \
-  -create-pages \
-  -template=$TEMPLATE_ID \
   -update-existing \
   -delete-orphaned
 ```
