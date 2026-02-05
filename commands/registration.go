@@ -11,7 +11,6 @@ import (
 	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	mediacmd "github.com/goliatone/go-cms/internal/commands/media"
 	menuscmd "github.com/goliatone/go-cms/internal/commands/menus"
-	pagescmd "github.com/goliatone/go-cms/internal/commands/pages"
 	staticcmd "github.com/goliatone/go-cms/internal/commands/static"
 	widgetscmd "github.com/goliatone/go-cms/internal/commands/widgets"
 	"github.com/goliatone/go-cms/internal/di"
@@ -129,22 +128,6 @@ func RegisterContainerCommands(container *di.Container, opts RegistrationOptions
 		}
 		if cfg.Features.Scheduling {
 			register(contentcmd.NewScheduleContentHandler(service, loggerFor("content"), gates))
-		}
-	}
-
-	// Page commands.
-	if service := container.PageService(); service != nil {
-		gates := pagescmd.FeatureGates{
-			VersioningEnabled: func() bool { return cfg.Features.Versioning },
-			SchedulingEnabled: func() bool { return cfg.Features.Scheduling },
-		}
-		if cfg.Features.Versioning {
-			pagesLogger := loggerFor("pages")
-			register(pagescmd.NewPublishPageHandler(service, pagesLogger, gates))
-			register(pagescmd.NewRestorePageVersionHandler(service, pagesLogger, gates))
-		}
-		if cfg.Features.Scheduling {
-			register(pagescmd.NewSchedulePageHandler(service, loggerFor("pages"), gates))
 		}
 	}
 
