@@ -15,7 +15,7 @@ const (
 // ImportDirectoryCommand triggers a filesystem walk for Markdown documents
 // under the provided Directory. The command mirrors markdown.Service
 // ImportDirectory semantics, allowing callers to supply import options that
-// map directly onto interfaces.ImportOptions for content and page creation.
+// map directly onto interfaces.ImportOptions for content creation.
 type ImportDirectoryCommand struct {
 	// Directory selects the filesystem path (relative or absolute) to load Markdown files from.
 	Directory string `json:"directory"`
@@ -23,14 +23,8 @@ type ImportDirectoryCommand struct {
 	ContentTypeID uuid.UUID `json:"content_type_id,omitempty"`
 	// AuthorID sets the author reference recorded on created content entities.
 	AuthorID uuid.UUID `json:"author_id,omitempty"`
-	// TemplateID optionally points at the page template applied when CreatePages is true.
-	TemplateID *uuid.UUID `json:"template_id,omitempty"`
-	// CreatePages instructs the importer to create CMS pages alongside content records.
-	CreatePages bool `json:"create_pages,omitempty"`
 	// ContentAllowMissingTranslations bypasses translation validation when creating content records.
 	ContentAllowMissingTranslations bool `json:"content_allow_missing_translations,omitempty"`
-	// PageAllowMissingTranslations bypasses translation validation when creating companion pages.
-	PageAllowMissingTranslations bool `json:"page_allow_missing_translations,omitempty"`
 	// DryRun toggles preview mode to collect import diffs without persisting changes.
 	DryRun bool `json:"dry_run,omitempty"`
 }
@@ -51,11 +45,6 @@ func (cmd ImportDirectoryCommand) Validate() error {
 	if err != nil {
 		return err
 	}
-	if cmd.TemplateID != nil && *cmd.TemplateID == uuid.Nil {
-		return validation.Errors{
-			"template_id": validation.NewError("cms.markdown.import_directory.template_id_invalid", "template_id must be a valid UUID when provided"),
-		}
-	}
 	return nil
 }
 
@@ -69,14 +58,8 @@ type SyncDirectoryCommand struct {
 	ContentTypeID uuid.UUID `json:"content_type_id,omitempty"`
 	// AuthorID sets the author reference recorded on created content entities.
 	AuthorID uuid.UUID `json:"author_id,omitempty"`
-	// TemplateID optionally points at the page template applied when CreatePages is true.
-	TemplateID *uuid.UUID `json:"template_id,omitempty"`
-	// CreatePages instructs the importer to create CMS pages alongside content records.
-	CreatePages bool `json:"create_pages,omitempty"`
 	// ContentAllowMissingTranslations bypasses translation validation when creating content records.
 	ContentAllowMissingTranslations bool `json:"content_allow_missing_translations,omitempty"`
-	// PageAllowMissingTranslations bypasses translation validation when creating companion pages.
-	PageAllowMissingTranslations bool `json:"page_allow_missing_translations,omitempty"`
 	// DryRun toggles preview mode to collect import diffs without persisting changes.
 	DryRun bool `json:"dry_run,omitempty"`
 	// DeleteOrphaned removes CMS records without matching Markdown files when true.
@@ -100,11 +83,6 @@ func (cmd SyncDirectoryCommand) Validate() error {
 	)
 	if err != nil {
 		return err
-	}
-	if cmd.TemplateID != nil && *cmd.TemplateID == uuid.Nil {
-		return validation.Errors{
-			"template_id": validation.NewError("cms.markdown.sync_directory.template_id_invalid", "template_id must be a valid UUID when provided"),
-		}
 	}
 	return nil
 }
