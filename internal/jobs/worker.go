@@ -8,7 +8,6 @@ import (
 
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
-	"github.com/goliatone/go-cms/internal/pages"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -20,15 +19,9 @@ type ContentRepository interface {
 	Update(ctx context.Context, record *content.Content) (*content.Content, error)
 }
 
-type PageRepository interface {
-	GetByID(ctx context.Context, id uuid.UUID) (*pages.Page, error)
-	Update(ctx context.Context, record *pages.Page) (*pages.Page, error)
-}
-
 type Worker struct {
 	scheduler interfaces.Scheduler
 	contents  ContentRepository
-	pages     PageRepository
 	audit     AuditRecorder
 	activity  *activity.Emitter
 	now       func() time.Time
@@ -67,11 +60,10 @@ func WithBatchSize(size int) Option {
 	}
 }
 
-func NewWorker(scheduler interfaces.Scheduler, contents ContentRepository, pagesRepo PageRepository, opts ...Option) *Worker {
+func NewWorker(scheduler interfaces.Scheduler, contents ContentRepository, opts ...Option) *Worker {
 	w := &Worker{
 		scheduler: scheduler,
 		contents:  contents,
-		pages:     pagesRepo,
 		now:       time.Now,
 		batchSize: 50,
 	}
@@ -127,10 +119,6 @@ func (w *Worker) handleJob(ctx context.Context, job *interfaces.Job, now time.Ti
 		return w.processContentPublish(ctx, job, now)
 	case cmsscheduler.JobTypeContentUnpublish:
 		return w.processContentUnpublish(ctx, job, now)
-	case cmsscheduler.JobTypePagePublish:
-		return w.processPagePublish(ctx, job, now)
-	case cmsscheduler.JobTypePageUnpublish:
-		return w.processPageUnpublish(ctx, job, now)
 	default:
 		return nil
 	}
@@ -229,99 +217,6 @@ func (w *Worker) processContentUnpublish(ctx context.Context, job *interfaces.Jo
 	return nil
 }
 
-func (w *Worker) processPagePublish(ctx context.Context, job *interfaces.Job, now time.Time) error {
-	if w.pages == nil {
-		return errors.New("jobs: page repository is nil")
-	}
-	id, triggeredBy, err := parseJobIdentifiers(job.Payload, "page_id")
-	if err != nil {
-		return err
-	}
-	record, err := w.pages.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	originalStatus := determinePageStatus(record, now)
-	statusChanged := originalStatus != domain.StatusPublished
-	if record.PublishAt != nil {
-		record.PublishAt = nil
-		statusChanged = true
-	}
-	if statusChanged {
-		record.Status = string(domain.StatusPublished)
-		publishedAt := job.RunAt
-		if publishedAt.IsZero() {
-			publishedAt = now
-		}
-		record.PublishedAt = &publishedAt
-		record.UpdatedAt = now
-		if triggeredBy != nil {
-			record.PublishedBy = triggeredBy
-			record.UpdatedBy = *triggeredBy
-		}
-		if _, err := w.pages.Update(ctx, record); err != nil {
-			return err
-		}
-		w.recordAudit(ctx, AuditEvent{
-			EntityType: "page",
-			EntityID:   id.String(),
-			Action:     "publish",
-			OccurredAt: now,
-			Metadata:   buildAuditMetadata(job, triggeredBy),
-		})
-	}
-	w.emitActivity(ctx, triggeredBy, "publish", "page", id, map[string]any{
-		"job_id":       job.ID,
-		"job_type":     job.Type,
-		"status":       record.Status,
-		"published_at": record.PublishedAt,
-	})
-	return nil
-}
-
-func (w *Worker) processPageUnpublish(ctx context.Context, job *interfaces.Job, now time.Time) error {
-	if w.pages == nil {
-		return errors.New("jobs: page repository is nil")
-	}
-	id, triggeredBy, err := parseJobIdentifiers(job.Payload, "page_id")
-	if err != nil {
-		return err
-	}
-	record, err := w.pages.GetByID(ctx, id)
-	if err != nil {
-		return err
-	}
-	originalStatus := determinePageStatus(record, now)
-	statusChanged := originalStatus == domain.StatusPublished
-	if record.UnpublishAt != nil {
-		record.UnpublishAt = nil
-		statusChanged = true
-	}
-	if statusChanged {
-		record.Status = string(domain.StatusArchived)
-		record.UpdatedAt = now
-		if triggeredBy != nil {
-			record.UpdatedBy = *triggeredBy
-		}
-		if _, err := w.pages.Update(ctx, record); err != nil {
-			return err
-		}
-		w.recordAudit(ctx, AuditEvent{
-			EntityType: "page",
-			EntityID:   id.String(),
-			Action:     "unpublish",
-			OccurredAt: now,
-			Metadata:   buildAuditMetadata(job, triggeredBy),
-		})
-	}
-	w.emitActivity(ctx, triggeredBy, "unpublish", "page", id, map[string]any{
-		"job_id":   job.ID,
-		"job_type": job.Type,
-		"status":   record.Status,
-	})
-	return nil
-}
-
 func (w *Worker) recordAudit(ctx context.Context, event AuditEvent) {
 	if w.audit == nil {
 		return
@@ -370,29 +265,6 @@ func buildAuditMetadata(job *interfaces.Job, triggeredBy *uuid.UUID) map[string]
 }
 
 func determineContentStatus(record *content.Content, now time.Time) domain.Status {
-	if record == nil {
-		return domain.StatusDraft
-	}
-	status := domain.Status(record.Status)
-	if record.UnpublishAt != nil && !record.UnpublishAt.After(now) {
-		return domain.StatusArchived
-	}
-	if record.PublishAt != nil {
-		if record.PublishAt.After(now) {
-			return domain.StatusScheduled
-		}
-		return domain.StatusPublished
-	}
-	if record.PublishedAt != nil && !record.PublishedAt.After(now) {
-		return domain.StatusPublished
-	}
-	if status == "" {
-		return domain.StatusDraft
-	}
-	return status
-}
-
-func determinePageStatus(record *pages.Page, now time.Time) domain.Status {
 	if record == nil {
 		return domain.StatusDraft
 	}
