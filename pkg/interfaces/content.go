@@ -13,6 +13,8 @@ type ContentService interface {
 	Update(ctx context.Context, req ContentUpdateRequest) (*ContentRecord, error)
 	GetBySlug(ctx context.Context, slug string, opts ContentReadOptions) (*ContentRecord, error)
 	List(ctx context.Context, opts ContentReadOptions) ([]*ContentRecord, error)
+	CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts TranslationCheckOptions) ([]string, error)
+	AvailableLocales(ctx context.Context, id uuid.UUID, opts TranslationCheckOptions) ([]string, error)
 	Delete(ctx context.Context, req ContentDeleteRequest) error
 	UpdateTranslation(ctx context.Context, req ContentUpdateTranslationRequest) (*ContentTranslation, error)
 	DeleteTranslation(ctx context.Context, req ContentDeleteTranslationRequest) error
