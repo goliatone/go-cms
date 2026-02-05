@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.29.0](https://github.com/goliatone/go-cms/compare/v0.28.0...v0.29.0) - (2026-02-05)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.29.0 ([3c3b4d9](https://github.com/goliatone/go-cms/commit/3c3b4d99cfc156aa06b7456a4e38b4528f421160))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Check translations and available locales ([933fef0](https://github.com/goliatone/go-cms/commit/933fef082b51bf37b835a912b87c47475d399896))  - (goliatone)
+- FieldPaths to return normalized schema field paths ([cbc71fe](https://github.com/goliatone/go-cms/commit/cbc71feac98a8c5d5085d1b7da39f957c3af59cb))  - (goliatone)
+- Translation checks ([e4d2bc8](https://github.com/goliatone/go-cms/commit/e4d2bc863c32f7939ba1fac06f9e6ef851ab0fc0))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.28.0 ([df52a32](https://github.com/goliatone/go-cms/commit/df52a32382b208aa02835079dd5a2189cce3e64b))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update examples ([a06f01a](https://github.com/goliatone/go-cms/commit/a06f01a93c4534aee5fc1330b70783f1960a6096))  - (goliatone)
+- Update test ([79c7cfc](https://github.com/goliatone/go-cms/commit/79c7cfc9d1e542f8e66900bafc63f346fabd63fa))  - (goliatone)
+
 # [0.28.0](https://github.com/goliatone/go-cms/compare/v0.27.0...v0.28.0) - (2026-02-05)
 
 ## <!-- 13 -->📦 Bumps
