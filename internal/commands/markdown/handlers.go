@@ -9,7 +9,6 @@ import (
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	command "github.com/goliatone/go-command"
-	"github.com/google/uuid"
 )
 
 const (
@@ -80,13 +79,8 @@ func (h *ImportDirectoryHandler) Execute(ctx context.Context, msg ImportDirector
 	importOpts := interfaces.ImportOptions{
 		ContentTypeID:                   msg.ContentTypeID,
 		AuthorID:                        msg.AuthorID,
-		CreatePages:                     msg.CreatePages,
 		DryRun:                          msg.DryRun,
 		ContentAllowMissingTranslations: msg.ContentAllowMissingTranslations,
-		PageAllowMissingTranslations:    msg.PageAllowMissingTranslations,
-	}
-	if tpl := normalizeUUIDPointer(msg.TemplateID); tpl != nil {
-		importOpts.TemplateID = tpl
 	}
 
 	result, err := h.service.ImportDirectory(ctx, msg.Directory, importOpts)
@@ -172,13 +166,8 @@ func (h *SyncDirectoryHandler) Execute(ctx context.Context, msg SyncDirectoryCom
 	importOpts := interfaces.ImportOptions{
 		ContentTypeID:                   msg.ContentTypeID,
 		AuthorID:                        msg.AuthorID,
-		CreatePages:                     msg.CreatePages,
 		DryRun:                          msg.DryRun,
 		ContentAllowMissingTranslations: msg.ContentAllowMissingTranslations,
-		PageAllowMissingTranslations:    msg.PageAllowMissingTranslations,
-	}
-	if tpl := normalizeUUIDPointer(msg.TemplateID); tpl != nil {
-		importOpts.TemplateID = tpl
 	}
 
 	syncOpts := interfaces.SyncOptions{
@@ -218,12 +207,4 @@ func (h *SyncDirectoryHandler) CLIOptions() command.CLIConfig {
 		Group:       "markdown",
 		Description: "Synchronise markdown content from a directory",
 	}
-}
-
-func normalizeUUIDPointer(id *uuid.UUID) *uuid.UUID {
-	if id == nil || *id == uuid.Nil {
-		return nil
-	}
-	value := *id
-	return &value
 }
