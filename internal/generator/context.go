@@ -24,8 +24,8 @@ import (
 )
 
 var (
-	errPagesServiceRequired   = errors.New("generator: pages service is required")
 	errContentServiceRequired = errors.New("generator: content service is required")
+	errContentTypeRequired    = errors.New("generator: content type service is required")
 	errLocaleLookupRequired   = errors.New("generator: locale lookup is required")
 )
 
@@ -70,11 +70,11 @@ type DependencyMetadata struct {
 }
 
 func (s *service) loadContext(ctx context.Context, opts BuildOptions) (*BuildContext, error) {
-	if s.deps.Pages == nil {
-		return nil, errPagesServiceRequired
-	}
 	if s.deps.Content == nil {
 		return nil, errContentServiceRequired
+	}
+	if s.deps.ContentTypes == nil {
+		return nil, errContentTypeRequired
 	}
 	if s.deps.Locales == nil {
 		return nil, errLocaleLookupRequired
@@ -249,8 +249,19 @@ func reorderWithDefaultFirst(locales []LocaleSpec, defaultID uuid.UUID) []Locale
 }
 
 func (s *service) loadPages(ctx context.Context, ids []uuid.UUID) ([]*pages.Page, error) {
+	pageTypeID, err := s.pageContentTypeID(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if pageTypeID == uuid.Nil {
+		return nil, nil
+	}
 	if len(ids) == 0 {
-		return s.deps.Pages.List(ctx)
+		records, err := s.deps.Content.List(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return buildPagesFromContent(records, pageTypeID), nil
 	}
 
 	unique := make(map[uuid.UUID]struct{}, len(ids))
@@ -263,15 +274,350 @@ func (s *service) loadPages(ctx context.Context, ids []uuid.UUID) ([]*pages.Page
 			continue
 		}
 		unique[id] = struct{}{}
-		record, err := s.deps.Pages.Get(ctx, id)
+		record, err := s.deps.Content.Get(ctx, id)
 		if err != nil {
 			return nil, err
 		}
-		if record != nil {
-			result = append(result, record)
+		if record == nil {
+			continue
+		}
+		if !isPageContent(record, pageTypeID) {
+			continue
+		}
+		if page := pageFromContentEntry(record); page != nil {
+			result = append(result, page)
 		}
 	}
 	return result, nil
+}
+
+func (s *service) pageContentTypeID(ctx context.Context) (uuid.UUID, error) {
+	if s.deps.ContentTypes == nil {
+		return uuid.Nil, errContentTypeRequired
+	}
+	record, err := s.deps.ContentTypes.GetBySlug(ctx, "page")
+	if err != nil {
+		var notFound *content.NotFoundError
+		if errors.As(err, &notFound) {
+			return uuid.Nil, nil
+		}
+		return uuid.Nil, err
+	}
+	if record == nil {
+		return uuid.Nil, nil
+	}
+	return record.ID, nil
+}
+
+func isPageContent(record *content.Content, pageTypeID uuid.UUID) bool {
+	if record == nil {
+		return false
+	}
+	if pageTypeID != uuid.Nil && record.ContentTypeID == pageTypeID {
+		return true
+	}
+	if record.Type == nil {
+		return false
+	}
+	return strings.EqualFold(record.Type.Slug, "page")
+}
+
+func buildPagesFromContent(records []*content.Content, pageTypeID uuid.UUID) []*pages.Page {
+	out := make([]*pages.Page, 0, len(records))
+	for _, record := range records {
+		if !isPageContent(record, pageTypeID) {
+			continue
+		}
+		if page := pageFromContentEntry(record); page != nil {
+			out = append(out, page)
+		}
+	}
+	return out
+}
+
+func pageFromContentEntry(record *content.Content) *pages.Page {
+	if record == nil {
+		return nil
+	}
+	meta := record.Metadata
+	templateID := templateIDFromMetadata(meta)
+	if templateID == uuid.Nil {
+		templateID = templateIDFromTranslations(record.Translations)
+	}
+	var parentID *uuid.UUID
+	if id, ok := uuidFromMetadata(meta, "parent_id"); ok {
+		parentID = &id
+	} else if id, ok := parentIDFromTranslations(record.Translations); ok {
+		parentID = &id
+	}
+	path := pathFromMetadata(meta)
+
+	translations := make([]*pages.PageTranslation, 0, len(record.Translations))
+	for _, tr := range record.Translations {
+		if tr == nil {
+			continue
+		}
+		localeCode := ""
+		if tr.Locale != nil {
+			localeCode = tr.Locale.Code
+		}
+		translationPath := path
+		if translationPath == "" {
+			translationPath = pathFromTranslation(tr)
+		}
+		if translationPath == "" {
+			translationPath = slugPath(record.Slug)
+		}
+		seoTitle, seoDesc := seoFromTranslation(tr.Content)
+		summary := tr.Summary
+		if summary == nil {
+			if value := stringFromContentMap(tr.Content, "summary", "excerpt"); value != "" {
+				summary = stringPointer(value)
+			}
+		}
+		title := strings.TrimSpace(tr.Title)
+		if title == "" {
+			title = strings.TrimSpace(record.Slug)
+		}
+		translations = append(translations, &pages.PageTranslation{
+			ID:                 tr.ID,
+			PageID:             record.ID,
+			LocaleID:           tr.LocaleID,
+			TranslationGroupID: tr.TranslationGroupID,
+			Title:              title,
+			Path:               translationPath,
+			SEOTitle:           seoTitle,
+			SEODescription:     seoDesc,
+			Summary:            summary,
+			Locale:             localeCode,
+			CreatedAt:          tr.CreatedAt,
+			UpdatedAt:          tr.UpdatedAt,
+		})
+	}
+
+	return &pages.Page{
+		ID:               record.ID,
+		ContentID:        record.ID,
+		CurrentVersion:   record.CurrentVersion,
+		PublishedVersion: record.PublishedVersion,
+		ParentID:         parentID,
+		TemplateID:       templateID,
+		Slug:             record.Slug,
+		Status:           record.Status,
+		PublishAt:        record.PublishAt,
+		UnpublishAt:      record.UnpublishAt,
+		PublishedAt:      record.PublishedAt,
+		PublishedBy:      record.PublishedBy,
+		EnvironmentID:    record.EnvironmentID,
+		CreatedBy:        record.CreatedBy,
+		UpdatedBy:        record.UpdatedBy,
+		CreatedAt:        record.CreatedAt,
+		UpdatedAt:        record.UpdatedAt,
+		Translations:     translations,
+		EffectiveStatus:  record.EffectiveStatus,
+		IsVisible:        record.IsVisible,
+	}
+}
+
+func templateIDFromMetadata(meta map[string]any) uuid.UUID {
+	if id, ok := uuidFromMetadata(meta, "template_id"); ok {
+		return id
+	}
+	if id, ok := uuidFromMetadata(meta, "template"); ok {
+		return id
+	}
+	return uuid.Nil
+}
+
+func templateIDFromTranslations(translations []*content.ContentTranslation) uuid.UUID {
+	if len(translations) == 0 {
+		return uuid.Nil
+	}
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		if id, ok := uuidFromContentMap(tr.Content, "template_id", "template"); ok {
+			return id
+		}
+	}
+	return uuid.Nil
+}
+
+func parentIDFromTranslations(translations []*content.ContentTranslation) (uuid.UUID, bool) {
+	if len(translations) == 0 {
+		return uuid.Nil, false
+	}
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		if id, ok := uuidFromContentMap(tr.Content, "parent_id"); ok {
+			return id, true
+		}
+	}
+	return uuid.Nil, false
+}
+
+func pathFromMetadata(meta map[string]any) string {
+	if meta == nil {
+		return ""
+	}
+	if raw, ok := meta["path"]; ok {
+		return strings.TrimSpace(stringFromAny(raw))
+	}
+	return ""
+}
+
+func pathFromTranslation(tr *content.ContentTranslation) string {
+	if tr == nil {
+		return ""
+	}
+	if tr.Content == nil {
+		return ""
+	}
+	if raw, ok := tr.Content["path"]; ok {
+		return strings.TrimSpace(stringFromAny(raw))
+	}
+	return ""
+}
+
+func slugPath(slug string) string {
+	clean := strings.TrimSpace(slug)
+	if clean == "" {
+		return "/"
+	}
+	if strings.HasPrefix(clean, "/") {
+		return clean
+	}
+	return "/" + clean
+}
+
+func seoFromTranslation(content map[string]any) (*string, *string) {
+	if content == nil {
+		return nil, nil
+	}
+	title := ""
+	desc := ""
+	if seoRaw, ok := content["seo"].(map[string]any); ok {
+		title = firstNonEmpty(
+			stringFromAny(seoRaw["title"]),
+			stringFromAny(seoRaw["meta_title"]),
+			stringFromAny(seoRaw["seo_title"]),
+		)
+		desc = firstNonEmpty(
+			stringFromAny(seoRaw["description"]),
+			stringFromAny(seoRaw["meta_description"]),
+			stringFromAny(seoRaw["seo_description"]),
+		)
+	}
+	if title == "" {
+		title = firstNonEmpty(stringFromAny(content["meta_title"]), stringFromAny(content["seo_title"]))
+	}
+	if desc == "" {
+		desc = firstNonEmpty(stringFromAny(content["meta_description"]), stringFromAny(content["seo_description"]))
+	}
+	var titlePtr *string
+	if strings.TrimSpace(title) != "" {
+		titlePtr = stringPointer(title)
+	}
+	var descPtr *string
+	if strings.TrimSpace(desc) != "" {
+		descPtr = stringPointer(desc)
+	}
+	return titlePtr, descPtr
+}
+
+func stringFromContentMap(content map[string]any, keys ...string) string {
+	if content == nil {
+		return ""
+	}
+	for _, key := range keys {
+		if value, ok := content[key]; ok {
+			if resolved := stringFromAny(value); resolved != "" {
+				return resolved
+			}
+		}
+	}
+	return ""
+}
+
+func uuidFromContentMap(content map[string]any, keys ...string) (uuid.UUID, bool) {
+	if content == nil {
+		return uuid.Nil, false
+	}
+	for _, key := range keys {
+		if value, ok := content[key]; ok {
+			if id, ok := uuidFromAny(value); ok {
+				return id, true
+			}
+		}
+	}
+	return uuid.Nil, false
+}
+
+func uuidFromMetadata(meta map[string]any, key string) (uuid.UUID, bool) {
+	if meta == nil {
+		return uuid.Nil, false
+	}
+	value, ok := meta[key]
+	if !ok {
+		return uuid.Nil, false
+	}
+	return uuidFromAny(value)
+}
+
+func uuidFromAny(value any) (uuid.UUID, bool) {
+	switch typed := value.(type) {
+	case uuid.UUID:
+		if typed == uuid.Nil {
+			return uuid.Nil, false
+		}
+		return typed, true
+	case *uuid.UUID:
+		if typed == nil || *typed == uuid.Nil {
+			return uuid.Nil, false
+		}
+		return *typed, true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return uuid.Nil, false
+		}
+		parsed, err := uuid.Parse(trimmed)
+		if err != nil {
+			return uuid.Nil, false
+		}
+		return parsed, true
+	default:
+		return uuid.Nil, false
+	}
+}
+
+func stringFromAny(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	default:
+		return ""
+	}
+}
+
+func stringPointer(value string) *string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (s *service) buildPageData(
