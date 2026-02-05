@@ -87,12 +87,9 @@ type LoadOptions struct {
 type ImportOptions struct {
 	ContentTypeID                   uuid.UUID
 	AuthorID                        uuid.UUID
-	CreatePages                     bool
-	TemplateID                      *uuid.UUID
 	DryRun                          bool
 	EnvironmentKey                  string
 	ContentAllowMissingTranslations bool
-	PageAllowMissingTranslations    bool
 	ProcessShortcodes               bool
 }
 
