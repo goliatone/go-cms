@@ -32,7 +32,6 @@ type Service struct {
 	parser     interfaces.MarkdownParser
 	loader     *Loader
 	content    interfaces.ContentService
-	pages      interfaces.PageService
 	logger     interfaces.Logger
 	importer   *Importer
 	shortcodes interfaces.ShortcodeService
@@ -45,13 +44,6 @@ type ServiceOption func(*Service)
 func WithContentService(svc interfaces.ContentService) ServiceOption {
 	return func(s *Service) {
 		s.content = svc
-	}
-}
-
-// WithPageService wires the page service used to create or update pages during import.
-func WithPageService(svc interfaces.PageService) ServiceOption {
-	return func(s *Service) {
-		s.pages = svc
 	}
 }
 
@@ -106,7 +98,6 @@ func NewService(cfg Config, parser interfaces.MarkdownParser, opts ...ServiceOpt
 
 	svc.importer = NewImporter(ImporterConfig{
 		Content: svc.content,
-		Pages:   svc.pages,
 		Logger:  svc.logger,
 	})
 
