@@ -115,20 +115,20 @@ type BuildMetrics struct {
 
 // Dependencies lists the services required by the generator.
 type Dependencies struct {
-	Pages      pages.Service
-	Content    content.Service
-	Blocks     blocks.Service
-	Widgets    widgets.Service
-	Menus      menus.Service
-	Themes     themes.Service
-	I18N       i18n.Service
-	Renderer   interfaces.TemplateRenderer
-	Storage    interfaces.StorageProvider
-	Locales    LocaleLookup
-	Assets     AssetResolver
-	Hooks      Hooks
-	Logger     interfaces.Logger
-	Shortcodes interfaces.ShortcodeService
+	Content      content.Service
+	ContentTypes content.ContentTypeService
+	Blocks       blocks.Service
+	Widgets      widgets.Service
+	Menus        menus.Service
+	Themes       themes.Service
+	I18N         i18n.Service
+	Renderer     interfaces.TemplateRenderer
+	Storage      interfaces.StorageProvider
+	Locales      LocaleLookup
+	Assets       AssetResolver
+	Hooks        Hooks
+	Logger       interfaces.Logger
+	Shortcodes   interfaces.ShortcodeService
 }
 
 // Hooks expose lifecycle callbacks for build operations.
