@@ -76,7 +76,7 @@ The defaults are:
 | Activity | `Channel` | `"cms"` |
 | Features | all flags | `false` |
 
-All feature flags default to `false`. This means that out of the box, only the core content, blocks, and menus subsystems are active. The legacy pages service is still available, but pages/posts are modeled as content entries.
+All feature flags default to `false`. This means optional subsystems (widgets, themes, versioning, scheduling, markdown, shortcodes, activity, environments, media library, advanced cache, and structured logging) are off by default. Core content, blocks, menus, i18n, workflow, and cache are configured out of the box; the legacy pages service is still available, but pages/posts are modeled as content entries.
 
 ---
 

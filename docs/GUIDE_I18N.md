@@ -192,7 +192,7 @@ article, err := contentSvc.Create(ctx, content.CreateContentRequest{
 
 ### Page Translations (Legacy)
 
-Pages are now content entries with entry-level `metadata.path` as the canonical URL. Localized `Path` values are only used as a legacy fallback when entry metadata is missing. The page translation APIs below apply to the legacy pages service.
+Pages still maintain their own translation table. The pages service uses `page_translations.path` as the canonical URL for pages, while content entry metadata (such as `metadata.path`) is managed by the content service and is not used by the legacy pages service. The page translation APIs below apply to the legacy pages service.
 
 ```go
 page, err := pageSvc.Create(ctx, pages.CreatePageRequest{
@@ -386,7 +386,7 @@ err := blockSvc.DeleteTranslation(ctx, blocks.DeleteTranslationRequest{
 
 ## Per-Request Flexibility
 
-Every create and update request type exposes an `AllowMissingTranslations` field. When set to `true`, it bypasses global translation enforcement for that single operation, without changing the global config.
+Some create/update request types expose an `AllowMissingTranslations` field. When set to `true`, it bypasses global translation enforcement for that single operation, without changing the global config.
 
 ```go
 // Global config requires translations, but this request skips enforcement
@@ -407,7 +407,7 @@ This is available on:
 |--------|-----------------------------------------------|
 | Content | `CreateContentRequest`, `UpdateContentRequest` |
 | Pages | `CreatePageRequest`, `UpdatePageRequest` |
-| Blocks | `DeleteTranslationRequest` |
+| Blocks | `DeleteTranslationRequest` (delete-only) |
 | Menus | `AddMenuItemInput`, `UpsertMenuItemInput` |
 
 Use cases for per-request overrides:
@@ -421,7 +421,7 @@ When `AllowMissingTranslations` is `true`:
 
 - Empty translation slices are treated as no-ops on update paths
 - Services skip the "at least one translation" and "default locale" checks
-- Existing translations are preserved; only new/changed translations are applied
+- For content/pages, a non-empty translations slice still replaces the full translation set; omit the slice to preserve existing translations
 
 ---
 
@@ -450,7 +450,7 @@ For a complete opt-out, disable i18n:
 cfg.I18N.Enabled = false
 ```
 
-This makes the entire translation pipeline no-op. Services still accept translation slices (they're just ignored), so code that provides translations continues to work without modification.
+This disables translation enforcement. Create/update calls can still persist translations and validate locale codes when provided, but translation mutation endpoints (e.g., UpdateTranslation/DeleteTranslation) return `Err*TranslationsDisabled` while i18n is disabled.
 
 ---
 
@@ -487,7 +487,7 @@ cfg.DefaultLocale = "en"
 cfg.I18N.Locales = []string{"en", "es"}
 
 module, err := cms.New(cfg)
-i18nSvc := module.I18n()
+i18nSvc := module.Container().I18nService()
 ```
 
 ### Translator Interface
@@ -693,7 +693,7 @@ type Locale struct {
 }
 ```
 
-Locale records are created automatically when `cfg.I18N.Locales` is configured. Content, page, and menu translations reference locale codes (strings), while block and widget translations reference locale UUIDs. The service layer handles the mapping transparently.
+Locale records are created automatically when `cfg.I18N.Locales` is configured. Content, page, and menu translations reference locale codes (strings), while block and widget translations reference locale UUIDs. Locale code resolution is handled for content/pages/menus only; for blocks/widgets you must supply a locale ID (resolve via the locale repository in the DI container if needed).
 
 ---
 

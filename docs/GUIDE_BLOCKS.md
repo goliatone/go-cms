@@ -699,7 +699,7 @@ This bridge is primarily used internally by the content service during create an
 The block admin service exposes administrative operations for managing embedded blocks:
 
 ```go
-blockAdmin := module.BlockAdmin()
+blockAdmin := module.BlocksAdmin()
 
 // List conflicts between embedded and legacy block data
 conflicts, err := blockAdmin.ListConflicts(ctx, opts)
