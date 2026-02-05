@@ -12,6 +12,8 @@ type PageService interface {
 	Update(ctx context.Context, req PageUpdateRequest) (*PageRecord, error)
 	GetBySlug(ctx context.Context, slug string, opts PageReadOptions) (*PageRecord, error)
 	List(ctx context.Context, opts PageReadOptions) ([]*PageRecord, error)
+	CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts TranslationCheckOptions) ([]string, error)
+	AvailableLocales(ctx context.Context, id uuid.UUID, opts TranslationCheckOptions) ([]string, error)
 	Delete(ctx context.Context, req PageDeleteRequest) error
 	UpdateTranslation(ctx context.Context, req PageUpdateTranslationRequest) (*PageTranslation, error)
 	DeleteTranslation(ctx context.Context, req PageDeleteTranslationRequest) error
