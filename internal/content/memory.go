@@ -113,6 +113,7 @@ func (m *MemoryContentRepository) Update(_ context.Context, record *Content) (*C
 	updated.PublishedAt = cloneTimePointer(record.PublishedAt)
 	updated.PublishedBy = cloneUUIDPointer(record.PublishedBy)
 	updated.Status = record.Status
+	updated.Metadata = cloneMap(record.Metadata)
 	updated.UpdatedAt = record.UpdatedAt
 	updated.UpdatedBy = record.UpdatedBy
 	if len(record.Translations) > 0 {
@@ -242,6 +243,7 @@ func cloneContent(src *Content) *Content {
 	}
 
 	copied := *src
+	copied.Metadata = cloneMap(src.Metadata)
 	copied.Translations = cloneContentTranslations(src.Translations)
 	if len(src.Versions) > 0 {
 		copied.Versions = cloneContentVersions(src.Versions)
