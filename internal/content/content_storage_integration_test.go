@@ -140,6 +140,90 @@ func TestContentService_AllowsOptionalTranslations(t *testing.T) {
 	}
 }
 
+func TestBunContentTypeRepository_ListAndSearchOrdersBySlugAndCreatedAt(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerContentModels(t, bunDB)
+
+	envID := mustUUID("00000000-0000-0000-0000-000000000301")
+	base := time.Date(2024, 5, 1, 12, 0, 0, 0, time.UTC)
+	schema := map[string]any{"fields": []map[string]any{{"name": "body", "type": "richtext"}}}
+
+	records := []*content.ContentType{
+		{
+			ID:            mustUUID("00000000-0000-0000-0000-000000000311"),
+			Name:          "Alpha Old",
+			Slug:          "alpha",
+			Schema:        schema,
+			EnvironmentID: envID,
+			CreatedAt:     base,
+			UpdatedAt:     base,
+		},
+		{
+			ID:            mustUUID("00000000-0000-0000-0000-000000000312"),
+			Name:          "Alpha New",
+			Slug:          "alpha",
+			Schema:        schema,
+			EnvironmentID: envID,
+			CreatedAt:     base.Add(2 * time.Hour),
+			UpdatedAt:     base.Add(2 * time.Hour),
+		},
+		{
+			ID:            mustUUID("00000000-0000-0000-0000-000000000313"),
+			Name:          "Bravo",
+			Slug:          "bravo",
+			Schema:        schema,
+			EnvironmentID: envID,
+			CreatedAt:     base.Add(-3 * time.Hour),
+			UpdatedAt:     base.Add(-3 * time.Hour),
+		},
+	}
+
+	for _, record := range records {
+		if _, err := bunDB.NewInsert().Model(record).Exec(ctx); err != nil {
+			t.Fatalf("insert content type %s: %v", record.ID, err)
+		}
+	}
+
+	repo := content.NewBunContentTypeRepository(bunDB)
+	expected := []uuid.UUID{records[0].ID, records[1].ID, records[2].ID}
+
+	assertOrder := func(label string, got []*content.ContentType) {
+		t.Helper()
+		if len(got) != len(expected) {
+			t.Fatalf("%s: expected %d records, got %d", label, len(expected), len(got))
+		}
+		for i, id := range expected {
+			if got[i].ID != id {
+				t.Fatalf("%s: expected index %d to be %s, got %s", label, i, id, got[i].ID)
+			}
+		}
+	}
+
+	listed, err := repo.List(ctx, envID.String())
+	if err != nil {
+		t.Fatalf("list content types: %v", err)
+	}
+	assertOrder("list", listed)
+
+	searched, err := repo.Search(ctx, "a", envID.String())
+	if err != nil {
+		t.Fatalf("search content types: %v", err)
+	}
+	assertOrder("search", searched)
+}
+
 func registerContentModels(t *testing.T, db *bun.DB) {
 	t.Helper()
 	ctx := context.Background()

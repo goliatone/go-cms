@@ -354,6 +354,9 @@ func TestAdminPageReadServiceMissingTranslationError(t *testing.T) {
 	_, err = adminSvc.Get(ctx, pageID.String(), interfaces.AdminPageGetOptions{
 		Locale: "fr",
 	})
+	if !errors.Is(err, interfaces.ErrTranslationMissing) {
+		t.Fatalf("expected ErrTranslationMissing, got %v", err)
+	}
 	if !errors.Is(err, pages.ErrPageTranslationNotFound) {
 		t.Fatalf("expected ErrPageTranslationNotFound, got %v", err)
 	}

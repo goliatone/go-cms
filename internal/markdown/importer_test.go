@@ -199,6 +199,7 @@ func (s *stubContentService) Create(_ context.Context, req interfaces.ContentCre
 		ContentType:  req.ContentTypeID,
 		Slug:         req.Slug,
 		Status:       req.Status,
+		Translation:  interfaces.TranslationBundle[interfaces.ContentTranslation]{},
 		Translations: make([]interfaces.ContentTranslation, len(req.Translations)),
 		Metadata:     cloneMapAny(req.Metadata),
 	}
@@ -222,6 +223,7 @@ func (s *stubContentService) Update(_ context.Context, req interfaces.ContentUpd
 			record = existing
 			record.Status = req.Status
 			record.Metadata = cloneMapAny(req.Metadata)
+			record.Translation = interfaces.TranslationBundle[interfaces.ContentTranslation]{}
 			record.Translations = make([]interfaces.ContentTranslation, len(req.Translations))
 			for i, tr := range req.Translations {
 				record.Translations[i] = interfaces.ContentTranslation{
@@ -242,14 +244,14 @@ func (s *stubContentService) Update(_ context.Context, req interfaces.ContentUpd
 	return cloneContentRecord(record), nil
 }
 
-func (s *stubContentService) GetBySlug(_ context.Context, slug string, _ ...string) (*interfaces.ContentRecord, error) {
+func (s *stubContentService) GetBySlug(_ context.Context, slug string, _ interfaces.ContentReadOptions) (*interfaces.ContentRecord, error) {
 	if record, ok := s.records[slug]; ok {
 		return cloneContentRecord(record), nil
 	}
 	return nil, nil
 }
 
-func (s *stubContentService) List(context.Context, ...string) ([]*interfaces.ContentRecord, error) {
+func (s *stubContentService) List(context.Context, interfaces.ContentReadOptions) ([]*interfaces.ContentRecord, error) {
 	result := make([]*interfaces.ContentRecord, 0, len(s.records))
 	for _, record := range s.records {
 		result = append(result, cloneContentRecord(record))
@@ -324,6 +326,7 @@ func cloneContentRecord(record *interfaces.ContentRecord) *interfaces.ContentRec
 		Slug:            record.Slug,
 		Status:          record.Status,
 		Metadata:        cloneMapAny(record.Metadata),
+		Translation:     record.Translation,
 		Translations:    make([]interfaces.ContentTranslation, len(record.Translations)),
 	}
 	for i, tr := range record.Translations {
