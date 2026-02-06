@@ -42,10 +42,10 @@ func TestImportCreatesContent(t *testing.T) {
 	if record == nil {
 		t.Fatalf("content not stored")
 	}
-	if len(record.Translations) != 1 {
-		t.Fatalf("expected 1 translation, got %d", len(record.Translations))
+	if record.Translation.Requested == nil {
+		t.Fatalf("expected requested translation")
 	}
-	md := record.Translations[0].Fields["markdown"].(map[string]any)
+	md := record.Translation.Requested.Fields["markdown"].(map[string]any)
 	if md["checksum"] == "" {
 		t.Fatalf("expected checksum stored")
 	}
@@ -88,7 +88,10 @@ func TestImportUpdatesExistingTranslations(t *testing.T) {
 	if record == nil {
 		t.Fatalf("content missing after update")
 	}
-	md := record.Translations[0].Fields["markdown"].(map[string]any)
+	if record.Translation.Requested == nil {
+		t.Fatalf("expected requested translation after update")
+	}
+	md := record.Translation.Requested.Fields["markdown"].(map[string]any)
 	if md["checksum"] != hex.EncodeToString(sum[:]) {
 		t.Fatalf("checksum not updated")
 	}
@@ -183,28 +186,22 @@ func cloneDocument(doc *interfaces.Document) *interfaces.Document {
 // Stub implementations -------------------------------------------------------
 
 type stubContentService struct {
-	records map[string]*interfaces.ContentRecord
+	records      map[string]*interfaces.ContentRecord
+	translations map[uuid.UUID][]interfaces.ContentTranslation
 }
 
 func newStubContentService() *stubContentService {
 	return &stubContentService{
-		records: map[string]*interfaces.ContentRecord{},
+		records:      map[string]*interfaces.ContentRecord{},
+		translations: map[uuid.UUID][]interfaces.ContentTranslation{},
 	}
 }
 
 func (s *stubContentService) Create(_ context.Context, req interfaces.ContentCreateRequest) (*interfaces.ContentRecord, error) {
 	id := uuid.New()
-	record := &interfaces.ContentRecord{
-		ID:           id,
-		ContentType:  req.ContentTypeID,
-		Slug:         req.Slug,
-		Status:       req.Status,
-		Translation:  interfaces.TranslationBundle[interfaces.ContentTranslation]{},
-		Translations: make([]interfaces.ContentTranslation, len(req.Translations)),
-		Metadata:     cloneMapAny(req.Metadata),
-	}
+	translations := make([]interfaces.ContentTranslation, len(req.Translations))
 	for i, tr := range req.Translations {
-		record.Translations[i] = interfaces.ContentTranslation{
+		translations[i] = interfaces.ContentTranslation{
 			ID:      uuid.New(),
 			Locale:  tr.Locale,
 			Title:   tr.Title,
@@ -212,29 +209,47 @@ func (s *stubContentService) Create(_ context.Context, req interfaces.ContentCre
 			Fields:  cloneMapAny(tr.Fields),
 		}
 	}
+	record := &interfaces.ContentRecord{
+		ID:           id,
+		ContentType:  req.ContentTypeID,
+		Slug:         req.Slug,
+		Status:       req.Status,
+		Metadata:     cloneMapAny(req.Metadata),
+	}
+	record.Translation = buildStubTranslationBundle(translations, interfaces.ContentReadOptions{
+		Locale:                   firstLocale(translations),
+		IncludeAvailableLocales:  true,
+		AllowMissingTranslations: true,
+	})
 	s.records[req.Slug] = record
+	s.translations[id] = translations
 	return cloneContentRecord(record), nil
 }
 
 func (s *stubContentService) Update(_ context.Context, req interfaces.ContentUpdateRequest) (*interfaces.ContentRecord, error) {
 	var record *interfaces.ContentRecord
+	translations := make([]interfaces.ContentTranslation, len(req.Translations))
+	for i, tr := range req.Translations {
+		translations[i] = interfaces.ContentTranslation{
+			ID:      uuid.New(),
+			Locale:  tr.Locale,
+			Title:   tr.Title,
+			Summary: tr.Summary,
+			Fields:  cloneMapAny(tr.Fields),
+		}
+	}
 	for slug, existing := range s.records {
 		if existing.ID == req.ID {
 			record = existing
 			record.Status = req.Status
 			record.Metadata = cloneMapAny(req.Metadata)
-			record.Translation = interfaces.TranslationBundle[interfaces.ContentTranslation]{}
-			record.Translations = make([]interfaces.ContentTranslation, len(req.Translations))
-			for i, tr := range req.Translations {
-				record.Translations[i] = interfaces.ContentTranslation{
-					ID:      uuid.New(),
-					Locale:  tr.Locale,
-					Title:   tr.Title,
-					Summary: tr.Summary,
-					Fields:  cloneMapAny(tr.Fields),
-				}
-			}
+			record.Translation = buildStubTranslationBundle(translations, interfaces.ContentReadOptions{
+				Locale:                   firstLocale(translations),
+				IncludeAvailableLocales:  true,
+				AllowMissingTranslations: true,
+			})
 			s.records[slug] = record
+			s.translations[record.ID] = translations
 			break
 		}
 	}
@@ -244,17 +259,21 @@ func (s *stubContentService) Update(_ context.Context, req interfaces.ContentUpd
 	return cloneContentRecord(record), nil
 }
 
-func (s *stubContentService) GetBySlug(_ context.Context, slug string, _ interfaces.ContentReadOptions) (*interfaces.ContentRecord, error) {
+func (s *stubContentService) GetBySlug(_ context.Context, slug string, opts interfaces.ContentReadOptions) (*interfaces.ContentRecord, error) {
 	if record, ok := s.records[slug]; ok {
-		return cloneContentRecord(record), nil
+		cloned := cloneContentRecord(record)
+		cloned.Translation = buildStubTranslationBundle(s.translations[record.ID], opts)
+		return cloned, nil
 	}
 	return nil, nil
 }
 
-func (s *stubContentService) List(context.Context, interfaces.ContentReadOptions) ([]*interfaces.ContentRecord, error) {
+func (s *stubContentService) List(_ context.Context, opts interfaces.ContentReadOptions) ([]*interfaces.ContentRecord, error) {
 	result := make([]*interfaces.ContentRecord, 0, len(s.records))
 	for _, record := range s.records {
-		result = append(result, cloneContentRecord(record))
+		cloned := cloneContentRecord(record)
+		cloned.Translation = buildStubTranslationBundle(s.translations[record.ID], opts)
+		result = append(result, cloned)
 	}
 	return result, nil
 }
@@ -263,14 +282,15 @@ func (s *stubContentService) CheckTranslations(context.Context, uuid.UUID, []str
 	return nil, nil
 }
 
-func (s *stubContentService) AvailableLocales(context.Context, uuid.UUID, interfaces.TranslationCheckOptions) ([]string, error) {
-	return nil, nil
+func (s *stubContentService) AvailableLocales(_ context.Context, id uuid.UUID, _ interfaces.TranslationCheckOptions) ([]string, error) {
+	return collectTranslationLocales(s.translations[id]), nil
 }
 
 func (s *stubContentService) Delete(_ context.Context, req interfaces.ContentDeleteRequest) error {
 	for slug, record := range s.records {
 		if record.ID == req.ID {
 			delete(s.records, slug)
+			delete(s.translations, record.ID)
 			return nil
 		}
 	}
@@ -282,7 +302,8 @@ func (s *stubContentService) UpdateTranslation(_ context.Context, req interfaces
 		if record.ID != req.ContentID {
 			continue
 		}
-		for idx, tr := range record.Translations {
+		translations := s.translations[record.ID]
+		for idx, tr := range translations {
 			if strings.EqualFold(tr.Locale, req.Locale) {
 				updated := interfaces.ContentTranslation{
 					ID:      tr.ID,
@@ -291,7 +312,13 @@ func (s *stubContentService) UpdateTranslation(_ context.Context, req interfaces
 					Summary: req.Summary,
 					Fields:  cloneMapAny(req.Fields),
 				}
-				record.Translations[idx] = updated
+				translations[idx] = updated
+				s.translations[record.ID] = translations
+				record.Translation = buildStubTranslationBundle(translations, interfaces.ContentReadOptions{
+					Locale:                   req.Locale,
+					IncludeAvailableLocales:  true,
+					AllowMissingTranslations: true,
+				})
 				return cloneContentTranslation(updated), nil
 			}
 		}
@@ -305,17 +332,23 @@ func (s *stubContentService) DeleteTranslation(_ context.Context, req interfaces
 		if record.ID != req.ContentID {
 			continue
 		}
-		newTranslations := make([]interfaces.ContentTranslation, 0, len(record.Translations))
-		for _, tr := range record.Translations {
+		current := s.translations[record.ID]
+		newTranslations := make([]interfaces.ContentTranslation, 0, len(current))
+		for _, tr := range current {
 			if strings.EqualFold(tr.Locale, req.Locale) {
 				continue
 			}
 			newTranslations = append(newTranslations, tr)
 		}
-		if len(newTranslations) == len(record.Translations) {
+		if len(newTranslations) == len(current) {
 			return errors.New("translation not found")
 		}
-		record.Translations = newTranslations
+		s.translations[record.ID] = newTranslations
+		record.Translation = buildStubTranslationBundle(newTranslations, interfaces.ContentReadOptions{
+			Locale:                   firstLocale(newTranslations),
+			IncludeAvailableLocales:  true,
+			AllowMissingTranslations: true,
+		})
 		return nil
 	}
 	return errors.New("content not found")
@@ -334,17 +367,7 @@ func cloneContentRecord(record *interfaces.ContentRecord) *interfaces.ContentRec
 		Slug:            record.Slug,
 		Status:          record.Status,
 		Metadata:        cloneMapAny(record.Metadata),
-		Translation:     record.Translation,
-		Translations:    make([]interfaces.ContentTranslation, len(record.Translations)),
-	}
-	for i, tr := range record.Translations {
-		out.Translations[i] = interfaces.ContentTranslation{
-			ID:      tr.ID,
-			Locale:  tr.Locale,
-			Title:   tr.Title,
-			Summary: tr.Summary,
-			Fields:  cloneMapAny(tr.Fields),
-		}
+		Translation:     cloneTranslationBundle(record.Translation),
 	}
 	return out
 }
@@ -357,6 +380,103 @@ func cloneContentTranslation(tr interfaces.ContentTranslation) *interfaces.Conte
 		Summary: tr.Summary,
 		Fields:  cloneMapAny(tr.Fields),
 	}
+}
+
+func cloneTranslationBundle(bundle interfaces.TranslationBundle[interfaces.ContentTranslation]) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+	out := interfaces.TranslationBundle[interfaces.ContentTranslation]{
+		Meta: bundle.Meta,
+	}
+	if bundle.Requested != nil {
+		out.Requested = cloneContentTranslation(*bundle.Requested)
+	}
+	if bundle.Resolved != nil {
+		out.Resolved = cloneContentTranslation(*bundle.Resolved)
+	}
+	return out
+}
+
+func buildStubTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+	requested := strings.TrimSpace(opts.Locale)
+	fallback := strings.TrimSpace(opts.FallbackLocale)
+	meta := interfaces.TranslationMeta{
+		RequestedLocale: requested,
+	}
+	if opts.IncludeAvailableLocales {
+		meta.AvailableLocales = collectTranslationLocales(translations)
+	}
+
+	var requestedTr *interfaces.ContentTranslation
+	var resolvedTr *interfaces.ContentTranslation
+	resolvedLocale := ""
+
+	if requested != "" {
+		if tr := findTranslation(translations, requested); tr != nil {
+			requestedTr = tr
+			resolvedTr = tr
+			resolvedLocale = tr.Locale
+		}
+	}
+	if requestedTr == nil && requested != "" && fallback != "" {
+		if tr := findTranslation(translations, fallback); tr != nil {
+			resolvedTr = tr
+			resolvedLocale = tr.Locale
+			meta.FallbackUsed = true
+		}
+	}
+
+	meta.ResolvedLocale = strings.TrimSpace(resolvedLocale)
+	meta.MissingRequestedLocale = requested != "" && requestedTr == nil
+
+	return interfaces.TranslationBundle[interfaces.ContentTranslation]{
+		Meta:      meta,
+		Requested: requestedTr,
+		Resolved:  resolvedTr,
+	}
+}
+
+func findTranslation(translations []interfaces.ContentTranslation, locale string) *interfaces.ContentTranslation {
+	if locale == "" {
+		return nil
+	}
+	for _, tr := range translations {
+		if strings.EqualFold(strings.TrimSpace(tr.Locale), locale) {
+			return cloneContentTranslation(tr)
+		}
+	}
+	return nil
+}
+
+func collectTranslationLocales(translations []interfaces.ContentTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	locales := make([]string, 0, len(translations))
+	for _, tr := range translations {
+		locale := strings.TrimSpace(tr.Locale)
+		if locale == "" {
+			continue
+		}
+		key := strings.ToLower(locale)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		locales = append(locales, locale)
+	}
+	if len(locales) == 0 {
+		return nil
+	}
+	return locales
+}
+
+func firstLocale(translations []interfaces.ContentTranslation) string {
+	for _, tr := range translations {
+		if locale := strings.TrimSpace(tr.Locale); locale != "" {
+			return locale
+		}
+	}
+	return ""
 }
 
 func cloneMapAny(src map[string]any) map[string]any {
