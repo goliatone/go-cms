@@ -77,11 +77,12 @@ func (m *MemoryContentRepository) GetBySlug(_ context.Context, slug string, cont
 }
 
 // List returns all content entries.
-func (m *MemoryContentRepository) List(_ context.Context, env ...string) ([]*Content, error) {
+func (m *MemoryContentRepository) List(_ context.Context, env ...ContentListOption) ([]*Content, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	opts := parseContentListOptions(env...)
+	envID := resolveEnvironmentID(uuid.Nil, opts.envKey)
 	out := make([]*Content, 0, len(m.contents))
 	for _, rec := range m.contents {
 		if rec == nil {
@@ -90,7 +91,11 @@ func (m *MemoryContentRepository) List(_ context.Context, env ...string) ([]*Con
 		if !matchesEnvironment(rec.EnvironmentID, envID) {
 			continue
 		}
-		out = append(out, m.attachVersions(cloneContent(rec)))
+		cloned := m.attachVersions(cloneContent(rec))
+		if !opts.includeTranslations {
+			cloned.Translations = nil
+		}
+		out = append(out, cloned)
 	}
 	return out, nil
 }
