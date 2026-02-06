@@ -88,7 +88,7 @@ func (s *pageService) AvailableLocales(ctx context.Context, id uuid.UUID, opts i
 	if err := s.ensureTranslationCheckEnvironment(ctx, record.EnvironmentID, opts.Environment); err != nil {
 		return nil, err
 	}
-	return collectPageTranslationLocales(record), nil
+	return collectPageTranslationLocales(ctx, s.locales, record), nil
 }
 
 func (s *pageService) ensureTranslationCheckEnvironment(ctx context.Context, envID uuid.UUID, key string) error {
@@ -102,7 +102,17 @@ func (s *pageService) ensureTranslationCheckEnvironment(ctx context.Context, env
 	if err != nil {
 		return err
 	}
-	if envID != uuid.Nil && envID != resolvedID {
+	if envID == uuid.Nil {
+		if s.requireExplicitEnv {
+			return cmsenv.ErrEnvironmentNotFound
+		}
+		defaultID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			return err
+		}
+		envID = defaultID
+	}
+	if envID != resolvedID {
 		return cmsenv.ErrEnvironmentNotFound
 	}
 	return nil
@@ -112,7 +122,18 @@ func (s *pageService) localeIDForCheck(ctx context.Context, code string) (uuid.U
 	if s.locales == nil {
 		return uuid.Nil, ErrUnknownLocale
 	}
-	locale, err := s.locales.GetByCode(ctx, code)
+	trimmed := strings.TrimSpace(code)
+	if trimmed == "" {
+		return uuid.Nil, ErrUnknownLocale
+	}
+	if parsed, err := uuid.Parse(trimmed); err == nil {
+		locale, err := s.locales.GetByID(ctx, parsed)
+		if err != nil || locale == nil {
+			return uuid.Nil, ErrUnknownLocale
+		}
+		return locale.ID, nil
+	}
+	locale, err := s.locales.GetByCode(ctx, trimmed)
 	if err != nil || locale == nil {
 		return uuid.Nil, ErrUnknownLocale
 	}
@@ -273,17 +294,20 @@ func pageTranslationHasFields(tr *PageTranslation, fields []string) bool {
 	return true
 }
 
-func collectPageTranslationLocales(record *Page) []string {
+func collectPageTranslationLocales(ctx context.Context, locales LocaleRepository, record *Page) []string {
 	if record == nil || len(record.Translations) == 0 {
 		return nil
 	}
-	locales := make([]string, 0, len(record.Translations))
+	localesList := make([]string, 0, len(record.Translations))
 	seen := map[string]struct{}{}
 	for _, tr := range record.Translations {
 		if tr == nil {
 			continue
 		}
 		code := strings.TrimSpace(tr.Locale)
+		if code == "" && locales != nil && tr.LocaleID != uuid.Nil {
+			code = localeCodeByID(ctx, locales, tr.LocaleID)
+		}
 		if code == "" {
 			code = tr.LocaleID.String()
 		}
@@ -295,10 +319,21 @@ func collectPageTranslationLocales(record *Page) []string {
 			continue
 		}
 		seen[key] = struct{}{}
-		locales = append(locales, code)
+		localesList = append(localesList, code)
 	}
-	if len(locales) == 0 {
+	if len(localesList) == 0 {
 		return nil
 	}
-	return locales
+	return localesList
+}
+
+func localeCodeByID(ctx context.Context, locales LocaleRepository, id uuid.UUID) string {
+	if locales == nil || id == uuid.Nil {
+		return ""
+	}
+	locale, err := locales.GetByID(ctx, id)
+	if err != nil || locale == nil {
+		return ""
+	}
+	return strings.TrimSpace(locale.Code)
 }
