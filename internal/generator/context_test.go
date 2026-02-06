@@ -376,7 +376,7 @@ func (s *stubContentService) Create(context.Context, content.CreateContentReques
 	return nil, errUnsupported
 }
 
-func (s *stubContentService) Get(_ context.Context, id uuid.UUID) (*content.Content, error) {
+func (s *stubContentService) Get(_ context.Context, id uuid.UUID, _ ...content.ContentGetOption) (*content.Content, error) {
 	rec, ok := s.records[id]
 	if !ok {
 		return nil, errUnsupported

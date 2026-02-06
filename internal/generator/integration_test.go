@@ -713,8 +713,8 @@ func newHydratingContentService(delegate content.Service, db *bun.DB) content.Se
 	return &hydratingContentService{Service: delegate, db: db}
 }
 
-func (s *hydratingContentService) Get(ctx context.Context, id uuid.UUID) (*content.Content, error) {
-	record, err := s.Service.Get(ctx, id)
+func (s *hydratingContentService) Get(ctx context.Context, id uuid.UUID, opts ...content.ContentGetOption) (*content.Content, error) {
+	record, err := s.Service.Get(ctx, id, opts...)
 	if err != nil || record == nil {
 		return record, err
 	}

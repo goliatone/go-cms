@@ -217,7 +217,7 @@ func (s *stubContentService) Create(context.Context, content.CreateContentReques
 	return nil, errors.New("stub content service")
 }
 
-func (s *stubContentService) Get(context.Context, uuid.UUID) (*content.Content, error) {
+func (s *stubContentService) Get(context.Context, uuid.UUID, ...content.ContentGetOption) (*content.Content, error) {
 	return nil, errors.New("stub content service")
 }
 

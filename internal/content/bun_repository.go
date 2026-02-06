@@ -247,7 +247,8 @@ func (r *BunContentRepository) ListTranslations(ctx context.Context, contentID u
 	}
 	records, _, err := r.translations.List(ctx,
 		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
-			return q.Where("?TableAlias.content_id = ?", contentID)
+			return q.Where("?TableAlias.content_id = ?", contentID).
+				Relation("Locale")
 		}),
 	)
 	if err != nil {

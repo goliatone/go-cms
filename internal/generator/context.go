@@ -97,7 +97,7 @@ func (s *service) loadContext(ctx context.Context, opts BuildOptions) (*BuildCon
 		if page == nil || !page.IsVisible {
 			continue
 		}
-		contentRecord, err := s.deps.Content.Get(ctx, page.ContentID)
+		contentRecord, err := s.deps.Content.Get(ctx, page.ContentID, content.WithTranslations())
 		if err != nil {
 			return nil, err
 		}
@@ -274,7 +274,7 @@ func (s *service) loadPages(ctx context.Context, ids []uuid.UUID) ([]*pages.Page
 			continue
 		}
 		unique[id] = struct{}{}
-		record, err := s.deps.Content.Get(ctx, id)
+		record, err := s.deps.Content.Get(ctx, id, content.WithTranslations())
 		if err != nil {
 			return nil, err
 		}

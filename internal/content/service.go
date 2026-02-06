@@ -23,7 +23,7 @@ import (
 // Service exposes content management use cases.
 type Service interface {
 	Create(ctx context.Context, req CreateContentRequest) (*Content, error)
-	Get(ctx context.Context, id uuid.UUID) (*Content, error)
+	Get(ctx context.Context, id uuid.UUID, opts ...ContentGetOption) (*Content, error)
 	List(ctx context.Context, env ...ContentListOption) ([]*Content, error)
 	CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts interfaces.TranslationCheckOptions) ([]string, error)
 	AvailableLocales(ctx context.Context, id uuid.UUID, opts interfaces.TranslationCheckOptions) ([]string, error)
@@ -765,8 +765,8 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	return s.decorateContent(created), nil
 }
 
-// Get fetches content by identifier.
-func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
+// Get fetches content by identifier. Use WithTranslations to preload translations.
+func (s *service) Get(ctx context.Context, id uuid.UUID, opts ...ContentGetOption) (*Content, error) {
 	logger := s.opLogger(ctx, "content.get", map[string]any{
 		"content_id": id,
 	})
@@ -779,6 +779,15 @@ func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
 		return nil, err
 	}
 	s.attachContentType(ctx, record)
+	includeTranslations := parseContentListOptions(opts...).includeTranslations
+	if includeTranslations && s.translationsEnabledFlag() {
+		if err := s.loadTranslations(ctx, record); err != nil {
+			logger.Error("content translation lookup failed", "error", err)
+			return nil, err
+		}
+	} else {
+		record.Translations = nil
+	}
 	s.mergeLegacyBlocks(ctx, record)
 	logger.Debug("content retrieved")
 	return s.decorateContent(record), nil
@@ -794,7 +803,8 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 		return nil, err
 	}
 	listArgs := []ContentListOption{ContentListOption(envID.String())}
-	if opts.includeTranslations {
+	includeTranslations := opts.includeTranslations && s.translationsEnabledFlag()
+	if includeTranslations {
 		listArgs = append(listArgs, WithTranslations())
 	}
 	records, err := s.contents.List(ctx, listArgs...)
@@ -804,6 +814,9 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 	}
 	for _, record := range records {
 		s.attachContentType(ctx, record)
+		if !includeTranslations {
+			record.Translations = nil
+		}
 		s.mergeLegacyBlocks(ctx, record)
 		s.decorateContent(record)
 	}
@@ -2112,6 +2125,28 @@ func (s *service) mergeLegacyBlocks(ctx context.Context, record *Content) {
 	if err := s.embeddedBlocks.MergeLegacyBlocks(ctx, record); err != nil {
 		s.log(ctx).Warn("content.embedded_blocks.merge_failed", "error", err, "content_id", record.ID)
 	}
+}
+
+func (s *service) loadTranslations(ctx context.Context, record *Content) error {
+	if s == nil || record == nil || record.ID == uuid.Nil {
+		return nil
+	}
+	if len(record.Translations) > 0 {
+		return nil
+	}
+	reader, ok := s.contents.(ContentTranslationReader)
+	if !ok {
+		return nil
+	}
+	translations, err := reader.ListTranslations(ctx, record.ID)
+	if err != nil {
+		if errors.Is(err, ErrContentTranslationLookupUnsupported) {
+			return nil
+		}
+		return err
+	}
+	record.Translations = translations
+	return nil
 }
 
 func applySchemaVersion(payload map[string]any, version cmsschema.Version) map[string]any {

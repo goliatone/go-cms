@@ -234,7 +234,7 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 	contentRecord := page.Content
 	needsContent := state.includes.IncludeContent || state.includes.IncludeData || state.includes.IncludeBlocks
 	if (needsContent || contentRecord == nil) && s != nil && s.content != nil && page.ContentID != uuid.Nil {
-		fetched, err := s.content.Get(ctx, page.ContentID)
+		fetched, err := s.content.Get(ctx, page.ContentID, content.WithTranslations())
 		if err == nil {
 			contentRecord = fetched
 		}
