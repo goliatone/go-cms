@@ -1919,7 +1919,10 @@ func (c *Container) configureWorkflowEngine() error {
 
 // StorageProvider exposes the configured storage implementation.
 func (c *Container) StorageProvider() interfaces.StorageProvider {
-	return c.storage
+	c.storageMu.RLock()
+	provider := c.storage
+	c.storageMu.RUnlock()
+	return provider
 }
 
 // ShortcodeRegistry exposes the shortcode registry when the feature is enabled.
