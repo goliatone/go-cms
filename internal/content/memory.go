@@ -114,6 +114,9 @@ func (m *MemoryContentRepository) Update(_ context.Context, record *Content) (*C
 	updated.PublishedBy = cloneUUIDPointer(record.PublishedBy)
 	updated.Status = record.Status
 	updated.Metadata = cloneMap(record.Metadata)
+	if strings.TrimSpace(record.PrimaryLocale) != "" {
+		updated.PrimaryLocale = record.PrimaryLocale
+	}
 	updated.UpdatedAt = record.UpdatedAt
 	updated.UpdatedBy = record.UpdatedBy
 	if len(record.Translations) > 0 {
@@ -623,12 +626,14 @@ func (m *MemoryContentTypeRepository) Delete(_ context.Context, id uuid.UUID, ha
 type MemoryLocaleRepository struct {
 	mu      sync.RWMutex
 	locales map[string]*Locale
+	byID    map[uuid.UUID]*Locale
 }
 
 // NewMemoryLocaleRepository constructs the repository.
 func NewMemoryLocaleRepository() *MemoryLocaleRepository {
 	return &MemoryLocaleRepository{
 		locales: make(map[string]*Locale),
+		byID:    make(map[uuid.UUID]*Locale),
 	}
 }
 
@@ -645,6 +650,9 @@ func (m *MemoryLocaleRepository) Put(locale *Locale) {
 	defer m.mu.Unlock()
 	copied := *locale
 	m.locales[strings.ToLower(locale.Code)] = &copied
+	if copied.ID != uuid.Nil {
+		m.byID[copied.ID] = &copied
+	}
 }
 
 // GetByCode resolves a locale by code (case-insensitive).
@@ -654,6 +662,18 @@ func (m *MemoryLocaleRepository) GetByCode(_ context.Context, code string) (*Loc
 	loc, ok := m.locales[strings.ToLower(code)]
 	if !ok {
 		return nil, &NotFoundError{Resource: "locale", Key: code}
+	}
+	copied := *loc
+	return &copied, nil
+}
+
+// GetByID resolves a locale by identifier.
+func (m *MemoryLocaleRepository) GetByID(_ context.Context, id uuid.UUID) (*Locale, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	loc, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "locale", Key: id.String()}
 	}
 	copied := *loc
 	return &copied, nil
