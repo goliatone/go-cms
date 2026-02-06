@@ -24,7 +24,7 @@ import (
 type Service interface {
 	Create(ctx context.Context, req CreateContentRequest) (*Content, error)
 	Get(ctx context.Context, id uuid.UUID) (*Content, error)
-	List(ctx context.Context, env ...string) ([]*Content, error)
+	List(ctx context.Context, env ...ContentListOption) ([]*Content, error)
 	CheckTranslations(ctx context.Context, id uuid.UUID, required []string, opts interfaces.TranslationCheckOptions) ([]string, error)
 	AvailableLocales(ctx context.Context, id uuid.UUID, opts interfaces.TranslationCheckOptions) ([]string, error)
 	Update(ctx context.Context, req UpdateContentRequest) (*Content, error)
@@ -177,7 +177,7 @@ type ContentRepository interface {
 	Create(ctx context.Context, record *Content) (*Content, error)
 	GetByID(ctx context.Context, id uuid.UUID) (*Content, error)
 	GetBySlug(ctx context.Context, slug string, contentTypeID uuid.UUID, env ...string) (*Content, error)
-	List(ctx context.Context, env ...string) ([]*Content, error)
+	List(ctx context.Context, env ...ContentListOption) ([]*Content, error)
 	Update(ctx context.Context, record *Content) (*Content, error)
 	ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error
 	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
@@ -783,15 +783,20 @@ func (s *service) Get(ctx context.Context, id uuid.UUID) (*Content, error) {
 	return s.decorateContent(record), nil
 }
 
-// List returns all content entries.
-func (s *service) List(ctx context.Context, env ...string) ([]*Content, error) {
+// List returns content entries. Use WithTranslations to preload translations for list views.
+func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Content, error) {
 	logger := s.opLogger(ctx, "content.list", nil)
-	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	opts := parseContentListOptions(env...)
+	envID, _, err := s.resolveEnvironment(ctx, opts.envKey)
 	if err != nil {
 		logger.Error("content list environment lookup failed", "error", err)
 		return nil, err
 	}
-	records, err := s.contents.List(ctx, envID.String())
+	listArgs := []ContentListOption{ContentListOption(envID.String())}
+	if opts.includeTranslations {
+		listArgs = append(listArgs, WithTranslations())
+	}
+	records, err := s.contents.List(ctx, listArgs...)
 	if err != nil {
 		logger.Error("content list failed", "error", err)
 		return nil, err
@@ -1073,7 +1078,7 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		Content:   applySchemaVersion(cleanContent, version),
 		CreatedAt: target.CreatedAt,
 		UpdatedAt: now,
-		Locale:    target.Locale,
+		Locale:    loc,
 	}
 
 	translations := make([]*ContentTranslation, len(record.Translations))
@@ -1860,6 +1865,7 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 			Title:     input.Title,
 			Summary:   summary,
 			Content:   applySchemaVersion(cleanContent, version),
+			Locale:    loc,
 			UpdatedAt: now,
 		}
 
