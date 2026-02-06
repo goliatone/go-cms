@@ -131,6 +131,18 @@ func (m *MemoryPageRepository) ReplaceTranslations(_ context.Context, pageID uui
 	return nil
 }
 
+// ListTranslations returns stored translations for a page.
+func (m *MemoryPageRepository) ListTranslations(_ context.Context, pageID uuid.UUID) ([]*PageTranslation, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.pages[pageID]
+	if !ok {
+		return nil, &PageNotFoundError{Key: pageID.String()}
+	}
+	return clonePageTranslations(record.Translations), nil
+}
+
 // Delete removes the page and associated versions when hard delete is requested.
 func (m *MemoryPageRepository) Delete(_ context.Context, id uuid.UUID, hardDelete bool) error {
 	if !hardDelete {
