@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -94,6 +95,8 @@ func (s *adminPageDBReadService) List(ctx context.Context, opts interfaces.Admin
 		ColumnExpr("p.published_at AS published_at").
 		ColumnExpr("p.created_at AS created_at").
 		ColumnExpr("p.updated_at AS updated_at").
+		ColumnExpr("p.primary_locale AS page_primary_locale").
+		ColumnExpr("c.primary_locale AS content_primary_locale").
 		ColumnExpr(expr.title+" AS title").
 		ColumnExpr(expr.path+" AS path").
 		ColumnExpr(expr.metaTitle+" AS meta_title").
@@ -112,6 +115,16 @@ func (s *adminPageDBReadService) List(ctx context.Context, opts interfaces.Admin
 
 	if len(rows) == 0 {
 		return []interfaces.AdminPageRecord{}, total, nil
+	}
+
+	pageLocales := map[uuid.UUID][]string(nil)
+	contentLocales := map[uuid.UUID][]string(nil)
+	if !(includes.IncludeContent || includes.IncludeBlocks || includes.IncludeData) {
+		var err error
+		pageLocales, contentLocales, err = s.fetchAvailableLocales(ctx, rows)
+		if err != nil {
+			return nil, 0, err
+		}
 	}
 
 	records := make([]interfaces.AdminPageRecord, 0, len(rows))
@@ -137,7 +150,7 @@ func (s *adminPageDBReadService) List(ctx context.Context, opts interfaces.Admin
 			records = append(records, record)
 			continue
 		}
-		record := mapAdminPageDBRow(row, requestedLocale)
+		record := mapAdminPageDBRow(row, requestedLocale, pageLocales[row.ID], contentLocales[row.ContentID])
 		records = append(records, record)
 	}
 
@@ -162,6 +175,8 @@ type adminPageDBRow struct {
 	Path                  string         `bun:"path"`
 	PageResolvedLocale    string         `bun:"page_resolved_locale"`
 	ContentResolvedLocale string         `bun:"content_resolved_locale"`
+	PagePrimaryLocale     string         `bun:"page_primary_locale"`
+	ContentPrimaryLocale  string         `bun:"content_primary_locale"`
 	Status                string         `bun:"status"`
 	ParentID              *uuid.UUID     `bun:"parent_id"`
 	MetaTitle             string         `bun:"meta_title"`
@@ -414,12 +429,107 @@ func applyAdminPageDBPagination(query *bun.SelectQuery, pageNum, perPage int) {
 	query.Offset(offset).Limit(perPage)
 }
 
-func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string) interfaces.AdminPageRecord {
+type adminTranslationLocaleRow struct {
+	OwnerID uuid.UUID `bun:"owner_id"`
+	Locale  string    `bun:"locale"`
+}
+
+func (s *adminPageDBReadService) fetchAvailableLocales(ctx context.Context, rows []adminPageDBRow) (map[uuid.UUID][]string, map[uuid.UUID][]string, error) {
+	if s == nil || s.db == nil || len(rows) == 0 {
+		return nil, nil, nil
+	}
+	pageIDs := make([]uuid.UUID, 0, len(rows))
+	contentIDs := make([]uuid.UUID, 0, len(rows))
+	pageSeen := map[uuid.UUID]struct{}{}
+	contentSeen := map[uuid.UUID]struct{}{}
+	for _, row := range rows {
+		if row.ID != uuid.Nil {
+			if _, ok := pageSeen[row.ID]; !ok {
+				pageSeen[row.ID] = struct{}{}
+				pageIDs = append(pageIDs, row.ID)
+			}
+		}
+		if row.ContentID != uuid.Nil {
+			if _, ok := contentSeen[row.ContentID]; !ok {
+				contentSeen[row.ContentID] = struct{}{}
+				contentIDs = append(contentIDs, row.ContentID)
+			}
+		}
+	}
+	pageLocales, err := fetchAdminLocales(ctx, s.db, "page_translations", "page_id", pageIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	contentLocales, err := fetchAdminLocales(ctx, s.db, "content_translations", "content_id", contentIDs)
+	if err != nil {
+		return nil, nil, err
+	}
+	return pageLocales, contentLocales, nil
+}
+
+func fetchAdminLocales(ctx context.Context, db *bun.DB, table, column string, ids []uuid.UUID) (map[uuid.UUID][]string, error) {
+	if db == nil || len(ids) == 0 {
+		return nil, nil
+	}
+	var rows []adminTranslationLocaleRow
+	query := db.NewSelect().
+		TableExpr(table + " AS t").
+		ColumnExpr("t." + column + " AS owner_id").
+		ColumnExpr("l.code AS locale").
+		Join("LEFT JOIN locales AS l ON l.id = t.locale_id").
+		Where(fmt.Sprintf("t.%s IN (?)", column), bun.In(ids))
+	if err := query.Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return collectAdminLocales(rows), nil
+}
+
+func collectAdminLocales(rows []adminTranslationLocaleRow) map[uuid.UUID][]string {
+	if len(rows) == 0 {
+		return nil
+	}
+	buckets := map[uuid.UUID]map[string]string{}
+	for _, row := range rows {
+		if row.OwnerID == uuid.Nil {
+			continue
+		}
+		code := strings.TrimSpace(row.Locale)
+		if code == "" {
+			continue
+		}
+		key := strings.ToLower(code)
+		entry := buckets[row.OwnerID]
+		if entry == nil {
+			entry = map[string]string{}
+			buckets[row.OwnerID] = entry
+		}
+		if _, ok := entry[key]; !ok {
+			entry[key] = code
+		}
+	}
+	if len(buckets) == 0 {
+		return nil
+	}
+	out := make(map[uuid.UUID][]string, len(buckets))
+	for id, entry := range buckets {
+		locales := make([]string, 0, len(entry))
+		for _, code := range entry {
+			locales = append(locales, code)
+		}
+		sort.Slice(locales, func(i, j int) bool {
+			return strings.ToLower(locales[i]) < strings.ToLower(locales[j])
+		})
+		out[id] = locales
+	}
+	return out
+}
+
+func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailableLocales, contentAvailableLocales []string) interfaces.AdminPageRecord {
 	requestedLocale = strings.TrimSpace(requestedLocale)
 	pageResolvedLocale := strings.TrimSpace(row.PageResolvedLocale)
 	contentResolvedLocale := strings.TrimSpace(row.ContentResolvedLocale)
-	pageMeta := buildAdminTranslationMeta(requestedLocale, pageResolvedLocale, nil)
-	contentMeta := buildAdminTranslationMeta(requestedLocale, contentResolvedLocale, nil)
+	pageMeta := buildAdminTranslationMeta(requestedLocale, pageResolvedLocale, pageAvailableLocales, row.PagePrimaryLocale)
+	contentMeta := buildAdminTranslationMeta(requestedLocale, contentResolvedLocale, contentAvailableLocales, row.ContentPrimaryLocale)
 
 	record := interfaces.AdminPageRecord{
 		ID:              row.ID,
