@@ -1,5 +1,28 @@
 # Changelog
 
+# [0.30.1](https://github.com/goliatone/go-cms/compare/v0.30.0...v0.30.1) - (2026-02-06)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Include context with translations ([955b3c7](https://github.com/goliatone/go-cms/commit/955b3c7cbdd2a77e976b663a0e353abdfef9375f))  - (goliatone)
+- Include mux to set storage ([57e3f76](https://github.com/goliatone/go-cms/commit/57e3f761adfad5ee40c40d03d3c21df2bb824cda))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.30.1 ([936fdcb](https://github.com/goliatone/go-cms/commit/936fdcbce0a36522eeb217c28c22052765d13a0e))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Content list options ([fdd26cf](https://github.com/goliatone/go-cms/commit/fdd26cf9169fbcde0505ac9a27fd6fb2de794712))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.30.0 ([4257ce8](https://github.com/goliatone/go-cms/commit/4257ce8f6c8e70d55066e74567794aa17a6407f0))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update test ([a379811](https://github.com/goliatone/go-cms/commit/a379811b415e25ed5a328252eb169e74328c7676))  - (goliatone)
+
 # [0.30.0](https://github.com/goliatone/go-cms/compare/v0.29.0...v0.30.0) - (2026-02-06)
 
 ## <!-- 1 -->🐛 Bug Fixes
