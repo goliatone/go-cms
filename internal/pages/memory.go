@@ -103,6 +103,9 @@ func (m *MemoryPageRepository) Update(_ context.Context, record *Page) (*Page, e
 	updated.PublishedAt = cloneTimePointer(record.PublishedAt)
 	updated.PublishedBy = cloneUUIDPointer(record.PublishedBy)
 	updated.Status = record.Status
+	if strings.TrimSpace(record.PrimaryLocale) != "" {
+		updated.PrimaryLocale = record.PrimaryLocale
+	}
 	updated.UpdatedAt = record.UpdatedAt
 	updated.UpdatedBy = record.UpdatedBy
 	updated.TemplateID = record.TemplateID
