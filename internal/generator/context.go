@@ -257,7 +257,7 @@ func (s *service) loadPages(ctx context.Context, ids []uuid.UUID) ([]*pages.Page
 		return nil, nil
 	}
 	if len(ids) == 0 {
-		records, err := s.deps.Content.List(ctx)
+		records, err := s.deps.Content.List(ctx, content.WithTranslations())
 		if err != nil {
 			return nil, err
 		}
