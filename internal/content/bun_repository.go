@@ -137,6 +137,7 @@ func (r *BunContentRepository) Update(ctx context.Context, record *Content) (*Co
 			"published_version",
 			"status",
 			"metadata",
+			"primary_locale",
 			"publish_at",
 			"unpublish_at",
 			"published_at",
@@ -497,6 +498,14 @@ func (r *BunLocaleRepository) GetByCode(ctx context.Context, code string) (*Loca
 	result, err := r.repo.GetByIdentifier(ctx, code)
 	if err != nil {
 		return nil, mapRepositoryError(err, "locale", code)
+	}
+	return result, nil
+}
+
+func (r *BunLocaleRepository) GetByID(ctx context.Context, id uuid.UUID) (*Locale, error) {
+	result, err := r.repo.GetByID(ctx, id.String())
+	if err != nil {
+		return nil, mapRepositoryError(err, "locale", id.String())
 	}
 	return result, nil
 }
