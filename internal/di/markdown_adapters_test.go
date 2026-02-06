@@ -46,6 +46,12 @@ func TestMarkdownContentAdapterMissingTranslationAllowed(t *testing.T) {
 	if meta.RequestedLocale != "en" {
 		t.Fatalf("expected requested locale %q, got %q", "en", meta.RequestedLocale)
 	}
+	if meta.PrimaryLocale != "es" {
+		t.Fatalf("expected primary locale %q, got %q", "es", meta.PrimaryLocale)
+	}
+	if meta.PrimaryLocale != "es" {
+		t.Fatalf("expected primary locale %q, got %q", "es", meta.PrimaryLocale)
+	}
 	if meta.ResolvedLocale != "" {
 		t.Fatalf("expected empty resolved locale, got %q", meta.ResolvedLocale)
 	}
@@ -151,6 +157,7 @@ func newMarkdownContentFixture(t *testing.T, translations []content.ContentTrans
 		Slug: "article",
 	}
 	seenLocales := map[string]struct{}{}
+	primaryLocale := ""
 	translationRecords := make([]*content.ContentTranslation, 0, len(translations))
 	for _, tr := range translations {
 		code := strings.TrimSpace(tr.Locale)
@@ -161,6 +168,9 @@ func newMarkdownContentFixture(t *testing.T, translations []content.ContentTrans
 			continue
 		}
 		seenLocales[code] = struct{}{}
+		if primaryLocale == "" {
+			primaryLocale = code
+		}
 		locale := &content.Locale{
 			ID:       uuid.New(),
 			Code:     code,
@@ -184,6 +194,7 @@ func newMarkdownContentFixture(t *testing.T, translations []content.ContentTrans
 		ContentTypeID: contentTypeID,
 		Slug:          slug,
 		Status:        string(domain.StatusDraft),
+		PrimaryLocale: primaryLocale,
 		Translations:  translationRecords,
 		Type:          contentType,
 	}
