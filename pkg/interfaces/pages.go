@@ -125,7 +125,6 @@ type PageRecord struct {
 	Status             string
 	Translation        TranslationBundle[PageTranslation]    `json:"translation"`
 	ContentTranslation TranslationBundle[ContentTranslation] `json:"content_translation"`
-	Translations       []PageTranslation
 	Metadata           map[string]any
 }
 
