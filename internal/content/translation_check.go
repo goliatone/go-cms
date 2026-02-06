@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -174,7 +175,18 @@ func (s *service) translationSourceForCheck(ctx context.Context, record *Content
 		return nil, snapshot, nil
 	}
 
-	return record.Translations, nil, nil
+	translations := record.Translations
+	if len(translations) == 0 {
+		if reader, ok := s.contents.(ContentTranslationReader); ok {
+			fetched, err := reader.ListTranslations(ctx, record.ID)
+			if err != nil && !errors.Is(err, ErrContentTranslationLookupUnsupported) {
+				return nil, nil, err
+			}
+			translations = fetched
+		}
+	}
+
+	return translations, nil, nil
 }
 
 func (s *service) ensureTranslationCheckEnvironment(ctx context.Context, envID uuid.UUID, key string) error {
