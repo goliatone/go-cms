@@ -32,6 +32,11 @@ func (s *pageService) CheckTranslations(ctx context.Context, id uuid.UUID, requi
 		"page_id": id,
 	})
 
+	translations, err := s.translationsForCheck(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+
 	requiredFields := normalizeRequiredFields(opts.RequiredFields)
 	strategy := normalizeRequiredFieldsStrategy(opts.RequiredFieldsStrategy)
 
@@ -55,7 +60,7 @@ func (s *pageService) CheckTranslations(ctx context.Context, id uuid.UUID, requi
 		}
 
 		var translation *PageTranslation
-		for _, tr := range record.Translations {
+		for _, tr := range translations {
 			if pageTranslationMatches(tr, localeID, locale) {
 				translation = tr
 				break
@@ -88,7 +93,24 @@ func (s *pageService) AvailableLocales(ctx context.Context, id uuid.UUID, opts i
 	if err := s.ensureTranslationCheckEnvironment(ctx, record.EnvironmentID, opts.Environment); err != nil {
 		return nil, err
 	}
-	return collectPageTranslationLocales(ctx, s.locales, record), nil
+	translations, err := s.translationsForCheck(ctx, record)
+	if err != nil {
+		return nil, err
+	}
+	return collectPageTranslationLocalesFromTranslations(ctx, s.locales, translations), nil
+}
+
+func (s *pageService) translationsForCheck(ctx context.Context, record *Page) ([]*PageTranslation, error) {
+	if record == nil {
+		return nil, nil
+	}
+	if len(record.Translations) > 0 {
+		return record.Translations, nil
+	}
+	if reader, ok := s.pages.(PageTranslationReader); ok {
+		return reader.ListTranslations(ctx, record.ID)
+	}
+	return nil, nil
 }
 
 func (s *pageService) ensureTranslationCheckEnvironment(ctx context.Context, envID uuid.UUID, key string) error {
@@ -295,12 +317,19 @@ func pageTranslationHasFields(tr *PageTranslation, fields []string) bool {
 }
 
 func collectPageTranslationLocales(ctx context.Context, locales LocaleRepository, record *Page) []string {
-	if record == nil || len(record.Translations) == 0 {
+	if record == nil {
 		return nil
 	}
-	localesList := make([]string, 0, len(record.Translations))
+	return collectPageTranslationLocalesFromTranslations(ctx, locales, record.Translations)
+}
+
+func collectPageTranslationLocalesFromTranslations(ctx context.Context, locales LocaleRepository, translations []*PageTranslation) []string {
+	if len(translations) == 0 {
+		return nil
+	}
+	localesList := make([]string, 0, len(translations))
 	seen := map[string]struct{}{}
-	for _, tr := range record.Translations {
+	for _, tr := range translations {
 		if tr == nil {
 			continue
 		}
