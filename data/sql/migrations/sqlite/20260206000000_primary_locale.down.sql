@@ -1,0 +1,2 @@
+-- SQLite does not support dropping columns via ALTER TABLE.
+-- No-op for contents.primary_locale and pages.primary_locale.
