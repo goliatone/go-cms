@@ -202,6 +202,7 @@ type ContentTypeRepository interface {
 // LocaleRepository resolves locales by code.
 type LocaleRepository interface {
 	GetByCode(ctx context.Context, code string) (*Locale, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*Locale, error)
 }
 
 // NotFoundError represents missing records from repository lookups.
@@ -675,6 +676,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		Type:          contentType,
 	}
 
+	primaryLocale := ""
 	if len(req.Translations) > 0 {
 		groupID := record.ID
 		seenLocales := map[string]struct{}{}
@@ -691,6 +693,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 			loc, err := s.locales.GetByCode(ctx, code)
 			if err != nil {
 				return nil, ErrUnknownLocale
+			}
+			if primaryLocale == "" {
+				primaryLocale = loc.Code
 			}
 			payload := mergeBlocksContent(tr.Content, tr.Blocks)
 			cleanContent := stripSchemaVersion(payload)
@@ -723,6 +728,9 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 			record.Translations = append(record.Translations, translation)
 			seenLocales[code] = struct{}{}
 		}
+	}
+	if primaryLocale != "" {
+		record.PrimaryLocale = primaryLocale
 	}
 
 	created, err := s.contents.Create(ctx, record)
@@ -857,6 +865,11 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		if err != nil {
 			logger.Error("content translations build failed", "error", err)
 			return nil, err
+		}
+	}
+	if replaceTranslations && strings.TrimSpace(existing.PrimaryLocale) == "" {
+		if primary := primaryLocaleFromContentInputs(ctx, s.locales, req.Translations); primary != "" {
+			existing.PrimaryLocale = primary
 		}
 	}
 
@@ -1004,6 +1017,10 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	if err != nil {
 		logger.Error("locale lookup failed", "error", err)
 		return nil, ErrUnknownLocale
+	}
+
+	if strings.TrimSpace(record.PrimaryLocale) == "" {
+		record.PrimaryLocale = loc.Code
 	}
 
 	var target *ContentTranslation
@@ -2137,4 +2154,21 @@ func nextContentVersionNumber(records []*ContentVersion) int {
 		}
 	}
 	return max + 1
+}
+
+func primaryLocaleFromContentInputs(ctx context.Context, locales LocaleRepository, inputs []ContentTranslationInput) string {
+	if locales == nil {
+		return ""
+	}
+	for _, input := range inputs {
+		code := strings.TrimSpace(input.Locale)
+		if code == "" {
+			continue
+		}
+		loc, err := locales.GetByCode(ctx, code)
+		if err == nil && loc != nil {
+			return strings.TrimSpace(loc.Code)
+		}
+	}
+	return ""
 }
