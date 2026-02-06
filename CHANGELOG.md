@@ -1,5 +1,19 @@
 # Changelog
 
+# [0.31.0](https://github.com/goliatone/go-cms/compare/v0.30.1...v0.31.0) - (2026-02-06)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.31.0 ([5ac78e6](https://github.com/goliatone/go-cms/commit/5ac78e6e01d5df7e7469ca3a809fda7d151797cb))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Update content service get to accept options ([f4ebd2a](https://github.com/goliatone/go-cms/commit/f4ebd2ad297208745d2eb611c777033e9891ab55))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.30.1 ([ca242a0](https://github.com/goliatone/go-cms/commit/ca242a0bb09dde2c1c0769769c0976af8ced771f))  - (goliatone)
+
 # [0.30.1](https://github.com/goliatone/go-cms/compare/v0.30.0...v0.30.1) - (2026-02-06)
 
 ## <!-- 1 -->🐛 Bug Fixes
