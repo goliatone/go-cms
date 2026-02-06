@@ -121,12 +121,54 @@ func (r *BunContentRepository) GetBySlug(ctx context.Context, slug string, conte
 	return records[0], nil
 }
 
-func (r *BunContentRepository) List(ctx context.Context, env ...string) ([]*Content, error) {
-	normalizedEnv := normalizeEnvironmentKey(env...)
+func (r *BunContentRepository) List(ctx context.Context, env ...ContentListOption) ([]*Content, error) {
+	opts := parseContentListOptions(env...)
+	normalizedEnv := normalizeEnvironmentKey(opts.envKey)
 	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
 		return applyEnvironmentFilter(q, normalizedEnv)
 	}))
-	return records, err
+	if err != nil {
+		return nil, err
+	}
+	if !opts.includeTranslations || len(records) == 0 {
+		return records, nil
+	}
+
+	ids := make([]uuid.UUID, 0, len(records))
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		ids = append(ids, record.ID)
+	}
+	if len(ids) == 0 {
+		return records, nil
+	}
+
+	translations, _, err := r.translations.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.content_id IN (?)", bun.In(ids)).
+				Relation("Locale")
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	byContent := make(map[uuid.UUID][]*ContentTranslation, len(ids))
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		byContent[tr.ContentID] = append(byContent[tr.ContentID], tr)
+	}
+	for _, record := range records {
+		if record == nil {
+			continue
+		}
+		record.Translations = byContent[record.ID]
+	}
+	return records, nil
 }
 
 func (r *BunContentRepository) Update(ctx context.Context, record *Content) (*Content, error) {
