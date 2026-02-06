@@ -89,6 +89,7 @@ func (r *BunPageRepository) Update(ctx context.Context, record *Page) (*Page, er
 			"current_version",
 			"published_version",
 			"status",
+			"primary_locale",
 			"publish_at",
 			"unpublish_at",
 			"published_at",
