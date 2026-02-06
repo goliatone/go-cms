@@ -214,6 +214,11 @@ type PageRepository interface {
 	UpdateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error)
 }
 
+// PageTranslationReader exposes translation lookups when page records omit translations.
+type PageTranslationReader interface {
+	ListTranslations(ctx context.Context, pageID uuid.UUID) ([]*PageTranslation, error)
+}
+
 // LocaleRepository resolves locales.
 type LocaleRepository interface {
 	GetByCode(ctx context.Context, code string) (*content.Locale, error)
