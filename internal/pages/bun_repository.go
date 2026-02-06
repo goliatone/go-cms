@@ -16,9 +16,10 @@ import (
 )
 
 type BunPageRepository struct {
-	db       *bun.DB
-	repo     repository.Repository[*Page]
-	versions repository.Repository[*PageVersion]
+	db           *bun.DB
+	repo         repository.Repository[*Page]
+	translations repository.Repository[*PageTranslation]
+	versions     repository.Repository[*PageVersion]
 }
 
 func NewBunPageRepository(db *bun.DB) *BunPageRepository {
@@ -28,11 +29,13 @@ func NewBunPageRepository(db *bun.DB) *BunPageRepository {
 // NewBunPageRepositoryWithCache constructs a PageRepository backed by bun with optional caching.
 func NewBunPageRepositoryWithCache(db *bun.DB, cacheService cache.CacheService, keySerializer cache.KeySerializer) *BunPageRepository {
 	base := NewPageRepository(db)
+	translationBase := NewPageTranslationRepository(db)
 	versionBase := NewPageVersionRepository(db)
 	return &BunPageRepository{
-		db:       db,
-		repo:     wrapWithCache(base, cacheService, keySerializer),
-		versions: wrapWithCache(versionBase, cacheService, keySerializer),
+		db:           db,
+		repo:         wrapWithCache(base, cacheService, keySerializer),
+		translations: wrapWithCache(translationBase, cacheService, keySerializer),
+		versions:     wrapWithCache(versionBase, cacheService, keySerializer),
 	}
 }
 
@@ -150,6 +153,25 @@ func (r *BunPageRepository) ReplaceTranslations(ctx context.Context, pageID uuid
 		}
 		return nil
 	})
+}
+
+// ListTranslations returns translations for a page record.
+func (r *BunPageRepository) ListTranslations(ctx context.Context, pageID uuid.UUID) ([]*PageTranslation, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("page repository: database not configured")
+	}
+	if r.translations == nil {
+		return nil, fmt.Errorf("page repository: translations repository not configured")
+	}
+	records, _, err := r.translations.List(ctx,
+		repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+			return q.Where("?TableAlias.page_id = ?", pageID)
+		}),
+	)
+	if err != nil {
+		return nil, err
+	}
+	return records, nil
 }
 
 func (r *BunPageRepository) CreateVersion(ctx context.Context, version *PageVersion) (*PageVersion, error) {
