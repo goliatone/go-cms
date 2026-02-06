@@ -103,7 +103,6 @@ type ContentRecord struct {
 	Slug            string
 	Status          string
 	Translation     TranslationBundle[ContentTranslation] `json:"translation"`
-	Translations    []ContentTranslation
 	Metadata        map[string]any
 }
 
