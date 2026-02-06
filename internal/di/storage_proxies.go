@@ -182,6 +182,10 @@ func (p *localeRepositoryProxy) GetByCode(ctx context.Context, code string) (*co
 	return p.current().GetByCode(ctx, code)
 }
 
+func (p *localeRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) (*content.Locale, error) {
+	return p.current().GetByID(ctx, id)
+}
+
 func (p *localeRepositoryProxy) Put(locale *content.Locale) {
 	current := p.current()
 	if repo, ok := current.(interface{ Put(*content.Locale) }); ok && repo != nil {
