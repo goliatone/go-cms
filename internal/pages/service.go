@@ -217,6 +217,7 @@ type PageRepository interface {
 // LocaleRepository resolves locales.
 type LocaleRepository interface {
 	GetByCode(ctx context.Context, code string) (*content.Locale, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*content.Locale, error)
 }
 
 // ContentRepository allows lookups for existing content.
@@ -757,6 +758,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 	var (
 		existingPages []*Page
 	)
+	primaryLocale := ""
 	if len(req.Translations) > 0 {
 		groupID := page.ID
 		existingPages, err = s.pages.List(ctx, envID.String())
@@ -780,6 +782,9 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 				return nil, ErrUnknownLocale
 			}
 
+			if primaryLocale == "" {
+				primaryLocale = locale.Code
+			}
 			path := sanitizePath(tr.Path)
 			if path == "" {
 				logger.Warn("page path empty", "locale_id", locale.ID)
@@ -813,6 +818,9 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 			page.Translations = append(page.Translations, translation)
 			seenLocales[code] = struct{}{}
 		}
+	}
+	if primaryLocale != "" {
+		page.PrimaryLocale = primaryLocale
 	}
 
 	targetState := requestedWorkflowState(req.Status)
@@ -984,6 +992,11 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 			return nil, err
 		}
 	}
+	if replaceTranslations && strings.TrimSpace(existing.PrimaryLocale) == "" {
+		if primary := primaryLocaleFromPageInputs(ctx, s.locales, req.Translations); primary != "" {
+			existing.PrimaryLocale = primary
+		}
+	}
 
 	if req.UpdatedBy != uuid.Nil {
 		existing.UpdatedBy = req.UpdatedBy
@@ -1129,6 +1142,10 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 	if err != nil {
 		logger.Error("locale lookup failed", "error", err)
 		return nil, ErrUnknownLocale
+	}
+
+	if strings.TrimSpace(record.PrimaryLocale) == "" {
+		record.PrimaryLocale = locale.Code
 	}
 
 	var target *PageTranslation
@@ -1510,6 +1527,7 @@ func (s *pageService) Duplicate(ctx context.Context, req DuplicatePageRequest) (
 		CreatedAt:     now,
 		UpdatedAt:     now,
 	}
+	cloned.PrimaryLocale = source.PrimaryLocale
 
 	if len(source.Translations) == 0 && s.translationsRequired() {
 		return nil, ErrNoPageTranslations
@@ -2988,4 +3006,21 @@ func nextVersionNumber(records []*PageVersion) int {
 	}
 
 	return max + 1
+}
+
+func primaryLocaleFromPageInputs(ctx context.Context, locales content.LocaleRepository, inputs []PageTranslationInput) string {
+	if locales == nil {
+		return ""
+	}
+	for _, input := range inputs {
+		code := strings.TrimSpace(input.Locale)
+		if code == "" {
+			continue
+		}
+		loc, err := locales.GetByCode(ctx, code)
+		if err == nil && loc != nil {
+			return strings.TrimSpace(loc.Code)
+		}
+	}
+	return ""
 }
