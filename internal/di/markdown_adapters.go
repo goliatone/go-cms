@@ -100,7 +100,17 @@ func (a *markdownContentServiceAdapter) GetBySlug(ctx context.Context, slug stri
 	}
 	for _, record := range records {
 		if record != nil && strings.EqualFold(record.Slug, slug) {
-			result := toContentRecordWithOptions(record, opts)
+			var availableLocales []string
+			if opts.IncludeAvailableLocales && len(record.Translations) == 0 {
+				locales, err := a.service.AvailableLocales(ctx, record.ID, interfaces.TranslationCheckOptions{
+					Environment: opts.EnvironmentKey,
+				})
+				if err != nil {
+					return nil, err
+				}
+				availableLocales = locales
+			}
+			result := toContentRecordWithOptions(record, opts, availableLocales)
 			if err := validateTranslationAllowed(result, opts.AllowMissingTranslations); err != nil {
 				return nil, err
 			}
@@ -127,7 +137,17 @@ func (a *markdownContentServiceAdapter) List(ctx context.Context, opts interface
 	}
 	out := make([]*interfaces.ContentRecord, 0, len(records))
 	for _, record := range records {
-		out = append(out, toContentRecordWithOptions(record, opts))
+		var availableLocales []string
+		if opts.IncludeAvailableLocales && record != nil && len(record.Translations) == 0 {
+			locales, err := a.service.AvailableLocales(ctx, record.ID, interfaces.TranslationCheckOptions{
+				Environment: opts.EnvironmentKey,
+			})
+			if err != nil {
+				return nil, err
+			}
+			availableLocales = locales
+		}
+		out = append(out, toContentRecordWithOptions(record, opts, availableLocales))
 	}
 	return out, nil
 }
@@ -189,10 +209,10 @@ func (a *markdownContentServiceAdapter) DeleteTranslation(ctx context.Context, r
 }
 
 func toContentRecord(record *content.Content) *interfaces.ContentRecord {
-	return toContentRecordWithOptions(record, interfaces.ContentReadOptions{})
+	return toContentRecordWithOptions(record, interfaces.ContentReadOptions{}, nil)
 }
 
-func toContentRecordWithOptions(record *content.Content, opts interfaces.ContentReadOptions) *interfaces.ContentRecord {
+func toContentRecordWithOptions(record *content.Content, opts interfaces.ContentReadOptions, availableLocales []string) *interfaces.ContentRecord {
 	if record == nil {
 		return nil
 	}
@@ -223,8 +243,7 @@ func toContentRecordWithOptions(record *content.Content, opts interfaces.Content
 		ContentTypeSlug: typeSlug,
 		Slug:            record.Slug,
 		Status:          record.Status,
-		Translation:     buildContentTranslationBundle(translations, opts, record.PrimaryLocale),
-		Translations:    translations,
+		Translation:     buildContentTranslationBundle(translations, opts, record.PrimaryLocale, availableLocales),
 		Metadata:        cloneFieldMap(record.Metadata),
 	}
 }
@@ -268,7 +287,7 @@ func cloneBlockSlice(blocks []map[string]any) []map[string]any {
 	return out
 }
 
-func buildContentTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions, primaryLocale string) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+func buildContentTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions, primaryLocale string, availableLocales []string) interfaces.TranslationBundle[interfaces.ContentTranslation] {
 	requestedLocale := strings.TrimSpace(opts.Locale)
 	fallbackLocale := strings.TrimSpace(opts.FallbackLocale)
 	meta := interfaces.TranslationMeta{
@@ -277,7 +296,11 @@ func buildContentTranslationBundle(translations []interfaces.ContentTranslation,
 	}
 
 	if opts.IncludeAvailableLocales {
-		meta.AvailableLocales = collectLocalesFromContentTranslations(translations)
+		if len(availableLocales) > 0 {
+			meta.AvailableLocales = append([]string(nil), availableLocales...)
+		} else {
+			meta.AvailableLocales = collectLocalesFromContentTranslations(translations)
+		}
 	}
 
 	var requested *interfaces.ContentTranslation
