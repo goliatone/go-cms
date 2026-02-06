@@ -1,5 +1,40 @@
 # Changelog
 
+# [0.30.0](https://github.com/goliatone/go-cms/compare/v0.29.0...v0.30.0) - (2026-02-06)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Remove translations from content record ([3204bba](https://github.com/goliatone/go-cms/commit/3204bba9267f350d1291701534453d6e7597cb45))  - (goliatone)
+- Remove translations from page record ([e919ada](https://github.com/goliatone/go-cms/commit/e919ada0eb2b24bb499f8d3d339383e0bf738e73))  - (goliatone)
+- Primary locale ([3cd1f04](https://github.com/goliatone/go-cms/commit/3cd1f0446ebd1236028f3e0bff1580c37d41efef))  - (goliatone)
+- Primary locale resolution ([0d3bb38](https://github.com/goliatone/go-cms/commit/0d3bb3812f3fab0c2673300e6735f8eec3cabcd6))  - (goliatone)
+- Accessing locale in checks ([8504e7f](https://github.com/goliatone/go-cms/commit/8504e7fb8a5adccfead42f0f4188826fd6f871e6))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.30.0 ([b185dab](https://github.com/goliatone/go-cms/commit/b185dab0cb6fa467fcc65448b7008e0c70750057))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Page translation readers ([04c71cc](https://github.com/goliatone/go-cms/commit/04c71ccd8fbe0696123ca88f4b9c42f905b511ce))  - (goliatone)
+- Rely on translation bundles and available locales ([0303d4e](https://github.com/goliatone/go-cms/commit/0303d4e786a71b519c616a866cae3dd63dc095b0))  - (goliatone)
+- Translation lookup fallbacks ([7f9bd56](https://github.com/goliatone/go-cms/commit/7f9bd562fed67378a9c1984b5fafa4d5bfc90446))  - (goliatone)
+- Primary locale migration ([c3561d6](https://github.com/goliatone/go-cms/commit/c3561d67beb80a84b9acfe6031d2a4c2ae8dff4c))  - (goliatone)
+- Support for primary locale ([d79259d](https://github.com/goliatone/go-cms/commit/d79259d19ec1ddfba18d14b22bb96220ee7cf10a))  - (goliatone)
+- Get by id ([0a512a1](https://github.com/goliatone/go-cms/commit/0a512a1c7808051860f0946aa0a71d8b55e866e4))  - (goliatone)
+- Primary local to content ([6914b2d](https://github.com/goliatone/go-cms/commit/6914b2dc2ada03511345d60e264ec2a951e79ada))  - (goliatone)
+- Primary local to page ([42788c5](https://github.com/goliatone/go-cms/commit/42788c5d6f7ad661509ec813af1871eec524ed41))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.29.0 ([e89d3fa](https://github.com/goliatone/go-cms/commit/e89d3faed72009c6cc6ba1bd8a060b0938a1ea2a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update test ([bfe70d4](https://github.com/goliatone/go-cms/commit/bfe70d452d5700c11e894b727787508ea49745f9))  - (goliatone)
+- Update docs ([749d453](https://github.com/goliatone/go-cms/commit/749d4538bb7334f96c6094d969c363f1e9689826))  - (goliatone)
+- Udpate test ([6fab948](https://github.com/goliatone/go-cms/commit/6fab948f72469f15f765e2dcdd56b1c97b9c9e8a))  - (goliatone)
+
 # [0.29.0](https://github.com/goliatone/go-cms/compare/v0.28.0...v0.29.0) - (2026-02-05)
 
 ## <!-- 13 -->📦 Bumps
