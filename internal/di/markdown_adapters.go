@@ -223,7 +223,7 @@ func toContentRecordWithOptions(record *content.Content, opts interfaces.Content
 		ContentTypeSlug: typeSlug,
 		Slug:            record.Slug,
 		Status:          record.Status,
-		Translation:     buildContentTranslationBundle(translations, opts),
+		Translation:     buildContentTranslationBundle(translations, opts, record.PrimaryLocale),
 		Translations:    translations,
 		Metadata:        cloneFieldMap(record.Metadata),
 	}
@@ -268,11 +268,12 @@ func cloneBlockSlice(blocks []map[string]any) []map[string]any {
 	return out
 }
 
-func buildContentTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions) interfaces.TranslationBundle[interfaces.ContentTranslation] {
+func buildContentTranslationBundle(translations []interfaces.ContentTranslation, opts interfaces.ContentReadOptions, primaryLocale string) interfaces.TranslationBundle[interfaces.ContentTranslation] {
 	requestedLocale := strings.TrimSpace(opts.Locale)
 	fallbackLocale := strings.TrimSpace(opts.FallbackLocale)
 	meta := interfaces.TranslationMeta{
 		RequestedLocale: requestedLocale,
+		PrimaryLocale:   strings.TrimSpace(primaryLocale),
 	}
 
 	if opts.IncludeAvailableLocales {
