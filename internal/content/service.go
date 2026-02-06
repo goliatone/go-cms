@@ -721,6 +721,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 				Title:     tr.Title,
 				Summary:   tr.Summary,
 				Content:   applySchemaVersion(cleanContent, version),
+				Locale:    loc,
 				CreatedAt: now,
 				UpdatedAt: now,
 			}
