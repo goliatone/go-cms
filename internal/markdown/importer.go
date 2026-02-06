@@ -159,7 +159,11 @@ func (i *Importer) applyGroup(ctx context.Context, slug string, docs []*interfac
 		return nil
 	}
 
-	changedTranslations := diffTranslations(existing.Translations, contentTranslations)
+	existingTranslations, availableLocales, err := fetchExistingTranslations(ctx, i.content, slug, existing.ID, contentTranslations, opts.EnvironmentKey)
+	if err != nil {
+		return err
+	}
+	changedTranslations := diffTranslations(existingTranslations, availableLocales, contentTranslations)
 	if !changedTranslations {
 		acc.skip(existing.ID)
 		return nil
@@ -223,6 +227,42 @@ func (i *Importer) deleteOrphaned(ctx context.Context, docs map[string][]*interf
 	}
 
 	return nil
+}
+
+func fetchExistingTranslations(ctx context.Context, svc interfaces.ContentService, slug string, contentID uuid.UUID, inputs []interfaces.ContentTranslationInput, envKey string) (map[string]*interfaces.ContentTranslation, []string, error) {
+	if svc == nil || contentID == uuid.Nil {
+		return nil, nil, nil
+	}
+
+	availableLocales, err := svc.AvailableLocales(ctx, contentID, interfaces.TranslationCheckOptions{
+		Environment: envKey,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+
+	result := map[string]*interfaces.ContentTranslation{}
+	for _, input := range inputs {
+		locale := strings.TrimSpace(input.Locale)
+		if locale == "" {
+			continue
+		}
+		record, err := svc.GetBySlug(ctx, slug, interfaces.ContentReadOptions{
+			Locale:                   locale,
+			AllowMissingTranslations: true,
+			EnvironmentKey:           envKey,
+		})
+		if err != nil {
+			return nil, nil, err
+		}
+		if record == nil || record.Translation.Requested == nil {
+			continue
+		}
+		copyTr := *record.Translation.Requested
+		result[strings.ToLower(locale)] = &copyTr
+	}
+
+	return result, availableLocales, nil
 }
 
 func validateDocument(doc *interfaces.Document) error {
@@ -315,16 +355,26 @@ func documentMetadata(docs []*interfaces.Document) []map[string]any {
 	return out
 }
 
-func diffTranslations(existing []interfaces.ContentTranslation, inputs []interfaces.ContentTranslationInput) bool {
-	current := map[string]interfaces.ContentTranslation{}
-	for _, tr := range existing {
-		current[strings.ToLower(tr.Locale)] = tr
+func diffTranslations(existing map[string]*interfaces.ContentTranslation, availableLocales []string, inputs []interfaces.ContentTranslationInput) bool {
+	current := map[string]*interfaces.ContentTranslation{}
+	for locale, tr := range existing {
+		if tr == nil {
+			continue
+		}
+		key := strings.ToLower(strings.TrimSpace(locale))
+		if key == "" {
+			continue
+		}
+		current[key] = tr
 	}
 
 	seen := map[string]struct{}{}
 
 	for _, in := range inputs {
-		localeKey := strings.ToLower(in.Locale)
+		localeKey := strings.ToLower(strings.TrimSpace(in.Locale))
+		if localeKey == "" {
+			continue
+		}
 		seen[localeKey] = struct{}{}
 		currentTr, ok := current[localeKey]
 		if !ok {
@@ -342,7 +392,17 @@ func diffTranslations(existing []interfaces.ContentTranslation, inputs []interfa
 		}
 	}
 
-	return len(current) != len(seen)
+	for _, locale := range availableLocales {
+		localeKey := strings.ToLower(strings.TrimSpace(locale))
+		if localeKey == "" {
+			continue
+		}
+		if _, ok := seen[localeKey]; !ok {
+			return true
+		}
+	}
+
+	return false
 }
 
 func checksumFromFields(fields map[string]any) string {
