@@ -1,16 +1,16 @@
 package cms
 
 import (
+	"github.com/goliatone/go-cms/blocks"
+	"github.com/goliatone/go-cms/content"
 	adminblocks "github.com/goliatone/go-cms/internal/admin/blocks"
 	adminstorage "github.com/goliatone/go-cms/internal/admin/storage"
 	admintranslations "github.com/goliatone/go-cms/internal/admin/translations"
-	"github.com/goliatone/go-cms/internal/blocks"
-	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/media"
-	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
+	"github.com/goliatone/go-cms/pages"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/widgets"
 )
@@ -20,6 +20,9 @@ type ContentService = content.Service
 
 // PageService exports the pages service contract.
 type PageService = pages.Service
+
+// ContentTypeService exports the content-type service contract.
+type ContentTypeService = content.ContentTypeService
 
 // AdminPageReadService exports the admin page read service contract.
 type AdminPageReadService = interfaces.AdminPageReadService
@@ -85,6 +88,11 @@ func (m *Module) Container() *di.Container {
 // Content returns the configured content service.
 func (m *Module) Content() ContentService {
 	return m.container.ContentService()
+}
+
+// ContentTypes returns the configured content type service.
+func (m *Module) ContentTypes() ContentTypeService {
+	return m.container.ContentTypeService()
 }
 
 // StorageAdmin returns the storage admin helper service.
