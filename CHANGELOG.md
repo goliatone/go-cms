@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Add
+
+- Public locale resolver API via `cms.Module.Locales()` and `cms.LocaleService.ResolveByCode(ctx, code)` to resolve stable locale IDs without internal adapters.
+
+### Fix
+
+- Admin page read locale resolution now returns stable `pages.ErrUnknownLocale` semantics for unknown locale codes.
+- Admin page read DTO hydration now fills `MetaTitle` and `MetaDescription` top-level fields from content translation payloads even when `IncludeData` is disabled.
+- Public menu/widget/admin contract coverage expanded with integration and compile-time tests for location-based menu resolution, locale code resolution, and duplicate widget assignment sentinel handling.
+
+### Migration
+
+- `go-admin` consumers can remove locale UUID fallback hashing and use `module.Locales().ResolveByCode(...)` before calling UUID-based APIs.
+- `go-admin` consumers can remove duplicate widget assignment string matching and rely on `errors.Is(err, widgets.ErrAreaPlacementExists)`.
+- Menu location reads/seeding/reset flows are validated through public `cms.MenuService` contracts (no raw internal service extraction required).
+
 # [0.33.0](https://github.com/goliatone/go-cms/compare/v0.32.1...v0.33.0) - (2026-02-09)
 
 ## <!-- 13 -->📦 Bumps
@@ -1044,5 +1062,4 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
-
 
