@@ -2,6 +2,13 @@
 
 # [0.32.1](https://github.com/goliatone/go-cms/compare/v0.32.0...v0.32.1) - (2026-02-09)
 
+## <!-- 16 -->➕ Add
+
+- Expose typed public contracts for `content`, `pages`, `blocks`, and `content` type services (DTOs, options, and sentinel errors) for external consumers.
+- Add `cms.Module.ContentTypes()` and `cms.ContentTypeService` so consumers do not need reflection through `Container()`.
+- Add public API leak-guard tests and external consumer compile checks for typed integrations across content/pages/blocks/content-types.
+- Add integration coverage that exercises content type CRUD, content CRUD + translation checks, page CRUD + translation checks, and block definition/instance + translation flows through public contracts.
+
 ## <!-- 13 -->📦 Bumps
 
 - Bump version: v0.32.1 ([ef001cc](https://github.com/goliatone/go-cms/commit/ef001cc72b8a77756a6dad0dbf7ad8f8b323b889))  - (goliatone)
@@ -9,6 +16,20 @@
 ## <!-- 3 -->📚 Documentation
 
 - Update changelog for v0.32.0 ([7838619](https://github.com/goliatone/go-cms/commit/783861963e003144804e4d08f2dddf5d6030581e))  - (goliatone)
+
+## Migration Notes
+
+- Replace reflection-based adapters with typed services:
+  - Use `module.Content()` for content.
+  - Use `module.ContentTypes()` for content types.
+  - Use `module.Pages()` for pages.
+  - Use `module.Blocks()` for blocks.
+- Import and construct public DTOs from:
+  - `github.com/goliatone/go-cms/content`
+  - `github.com/goliatone/go-cms/pages`
+  - `github.com/goliatone/go-cms/blocks`
+- Handle typed sentinel errors with `errors.Is` against the new public error vars in each package.
+- Page draft publish DTO name is now `pages.PublishPageDraftRequest` for public consumers.
 
 ## <!-- 7 -->⚙️ Miscellaneous Tasks
 
@@ -1019,5 +1040,4 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
-
 
