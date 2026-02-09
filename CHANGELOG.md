@@ -1,5 +1,27 @@
 # Changelog
 
+# [0.32.0](https://github.com/goliatone/go-cms/compare/v0.31.0...v0.32.0) - (2026-02-09)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.32.0 ([87e1a75](https://github.com/goliatone/go-cms/commit/87e1a7574c5d4b6bb4e3caf6833c5f4a36cdc742))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Expose widget service ([6afb5f8](https://github.com/goliatone/go-cms/commit/6afb5f89823dcbea21e7e6744320a7209091eebf))  - (goliatone)
+- Public contarct aliases ([2a5efe6](https://github.com/goliatone/go-cms/commit/2a5efe64b6c1a18ceb9daaad54de75eb4e032247))  - (goliatone)
+- Widget exposed service ([2f9a2fd](https://github.com/goliatone/go-cms/commit/2f9a2fd203c7dfef32c8fe13eb9d042dd55615b7))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.31.0 ([2a94015](https://github.com/goliatone/go-cms/commit/2a94015c393874baf6ab08031f5d1ef797383be4))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([3b36f1a](https://github.com/goliatone/go-cms/commit/3b36f1ad25bb6d16e02e925e9accd3576c7306d4))  - (goliatone)
+- Udpate readme ([1550a6d](https://github.com/goliatone/go-cms/commit/1550a6d2dbd35ed6cf778fb0cfd956c23bcce683))  - (goliatone)
+- Update test ([bbada4d](https://github.com/goliatone/go-cms/commit/bbada4dbbdb4587823bcd35065fe4c8ccb318115))  - (goliatone)
+
 # [0.31.0](https://github.com/goliatone/go-cms/compare/v0.30.1...v0.31.0) - (2026-02-06)
 
 ## <!-- 13 -->📦 Bumps
@@ -9,7 +31,6 @@
 ## <!-- 16 -->➕ Add
 
 - Update content service get to accept options ([f4ebd2a](https://github.com/goliatone/go-cms/commit/f4ebd2ad297208745d2eb611c777033e9891ab55))  - (goliatone)
-- Widget service public
 
 ## <!-- 3 -->📚 Documentation
 
@@ -984,4 +1005,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
