@@ -210,11 +210,11 @@ func (s *stubContentService) Create(_ context.Context, req interfaces.ContentCre
 		}
 	}
 	record := &interfaces.ContentRecord{
-		ID:           id,
-		ContentType:  req.ContentTypeID,
-		Slug:         req.Slug,
-		Status:       req.Status,
-		Metadata:     cloneMapAny(req.Metadata),
+		ID:          id,
+		ContentType: req.ContentTypeID,
+		Slug:        req.Slug,
+		Status:      req.Status,
+		Metadata:    cloneMapAny(req.Metadata),
 	}
 	record.Translation = buildStubTranslationBundle(translations, interfaces.ContentReadOptions{
 		Locale:                   firstLocale(translations),

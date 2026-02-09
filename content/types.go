@@ -65,7 +65,7 @@ type Content struct {
 	PublishedVersion *int                  `bun:"published_version" json:"published_version,omitempty"`
 	Status           string                `bun:"status,notnull,default:'draft'" json:"status"`
 	Slug             string                `bun:"slug,notnull" json:"slug"`
-	PrimaryLocale   string                `bun:"primary_locale" json:"primary_locale,omitempty"`
+	PrimaryLocale    string                `bun:"primary_locale" json:"primary_locale,omitempty"`
 	Metadata         map[string]any        `bun:"metadata,type:jsonb" json:"metadata,omitempty"`
 	PublishAt        *time.Time            `bun:"publish_at,nullzero" json:"publish_at,omitempty"`
 	UnpublishAt      *time.Time            `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`

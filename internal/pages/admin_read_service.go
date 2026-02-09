@@ -188,10 +188,14 @@ func (s *adminPageReadService) resolveLocale(ctx context.Context, code string) (
 	}
 	locale, err := s.locales.GetByCode(ctx, trimmed)
 	if err != nil {
+		var notFound *content.NotFoundError
+		if errors.As(err, &notFound) {
+			return uuid.Nil, trimmed, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", trimmed))
+		}
 		return uuid.Nil, trimmed, err
 	}
 	if locale == nil {
-		return uuid.Nil, trimmed, fmt.Errorf("pages: locale %q not found", trimmed)
+		return uuid.Nil, trimmed, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", trimmed))
 	}
 	return locale.ID, locale.Code, nil
 }
@@ -264,6 +268,12 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 		record.Tags = extractTags(contentTranslation.Content)
 		if record.TranslationGroupID == nil && contentTranslation.TranslationGroupID != nil {
 			record.TranslationGroupID = contentTranslation.TranslationGroupID
+		}
+		if record.MetaTitle == "" {
+			record.MetaTitle = stringFromData(contentTranslation.Content, "meta_title")
+		}
+		if record.MetaDescription == "" {
+			record.MetaDescription = stringFromData(contentTranslation.Content, "meta_description")
 		}
 	}
 

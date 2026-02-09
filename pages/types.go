@@ -23,7 +23,7 @@ type Page struct {
 	ParentID         *uuid.UUID                           `bun:"parent_id,type:uuid" json:"parent_id,omitempty"`
 	TemplateID       uuid.UUID                            `bun:"template_id,notnull,type:uuid" json:"template_id"`
 	Slug             string                               `bun:"slug,notnull" json:"slug"`
-	PrimaryLocale   string                               `bun:"primary_locale" json:"primary_locale,omitempty"`
+	PrimaryLocale    string                               `bun:"primary_locale" json:"primary_locale,omitempty"`
 	Status           string                               `bun:"status,notnull,default:'draft'" json:"status"`
 	PublishAt        *time.Time                           `bun:"publish_at,nullzero" json:"publish_at,omitempty"`
 	UnpublishAt      *time.Time                           `bun:"unpublish_at,nullzero" json:"unpublish_at,omitempty"`
