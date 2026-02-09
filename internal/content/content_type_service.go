@@ -17,67 +17,6 @@ import (
 	"github.com/google/uuid"
 )
 
-// ContentTypeService provides CRUD operations for content types.
-type ContentTypeService interface {
-	Create(ctx context.Context, req CreateContentTypeRequest) (*ContentType, error)
-	Update(ctx context.Context, req UpdateContentTypeRequest) (*ContentType, error)
-	Delete(ctx context.Context, req DeleteContentTypeRequest) error
-	Get(ctx context.Context, id uuid.UUID) (*ContentType, error)
-	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentType, error)
-	List(ctx context.Context, env ...string) ([]*ContentType, error)
-	Search(ctx context.Context, query string, env ...string) ([]*ContentType, error)
-}
-
-// CreateContentTypeRequest captures required fields to create a content type.
-type CreateContentTypeRequest struct {
-	Name           string
-	Slug           string
-	Description    *string
-	Schema         map[string]any
-	UISchema       map[string]any
-	Capabilities   map[string]any
-	Icon           *string
-	Status         string
-	EnvironmentKey string
-	CreatedBy      uuid.UUID
-	UpdatedBy      uuid.UUID
-}
-
-// UpdateContentTypeRequest captures mutable fields for a content type.
-type UpdateContentTypeRequest struct {
-	ID                   uuid.UUID
-	Name                 *string
-	Slug                 *string
-	Description          *string
-	Schema               map[string]any
-	UISchema             map[string]any
-	Capabilities         map[string]any
-	Icon                 *string
-	Status               *string
-	EnvironmentKey       string
-	UpdatedBy            uuid.UUID
-	AllowBreakingChanges bool
-}
-
-// DeleteContentTypeRequest captures details required to delete a content type.
-type DeleteContentTypeRequest struct {
-	ID         uuid.UUID
-	DeletedBy  uuid.UUID
-	HardDelete bool
-}
-
-var (
-	ErrContentTypeNameRequired   = errors.New("content type: name is required")
-	ErrContentTypeSchemaRequired = errors.New("content type: schema is required")
-	ErrContentTypeSchemaInvalid  = errors.New("content type: schema is invalid")
-	ErrContentTypeIDRequired     = errors.New("content type: id required")
-	ErrContentTypeSlugInvalid    = errors.New("content type: slug contains invalid characters")
-	ErrContentTypeSchemaVersion  = errors.New("content type: schema version invalid")
-	ErrContentTypeSchemaBreaking = errors.New("content type: schema has breaking changes")
-	ErrContentTypeStatusInvalid  = errors.New("content type: status invalid")
-	ErrContentTypeStatusChange   = errors.New("content type: status transition invalid")
-)
-
 // ContentTypeOption mutates the content type service.
 type ContentTypeOption func(*contentTypeService)
 
