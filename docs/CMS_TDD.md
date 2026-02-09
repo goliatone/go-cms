@@ -245,7 +245,7 @@ import (
     "context"
 
     "github.com/goliatone/go-cms"
-    "github.com/goliatone/go-cms/internal/widgets"
+    "github.com/goliatone/go-cms/widgets"
     "github.com/google/uuid"
 )
 
@@ -266,7 +266,7 @@ func purgeWidget(module *cms.Module, defID, instID, localeID uuid.UUID) error {
 }
 ```
 
-*UI hook*: bind delete controls in the go-admin widget registry to these service calls so placements are removed via the repository cascade instead of manual SQL or cache flushes. Failures are typed (`ErrInstanceNotFound`, `ErrDefinitionInUse`) and can be shown inline to operators.
+*UI hook*: bind delete controls in the go-admin widget registry to these service calls so placements are removed via the repository cascade instead of manual SQL or cache flushes. Failures surface typed widget errors such as `ErrDefinitionInUse` plus not-found errors for missing records and can be shown inline to operators.
 
 #### Menus
 
