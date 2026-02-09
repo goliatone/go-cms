@@ -142,6 +142,11 @@ func (m *Module) Menus() MenuService {
 	return newMenuService(m)
 }
 
+// Locales returns the configured locale resolver service.
+func (m *Module) Locales() LocaleService {
+	return newLocaleService(m)
+}
+
 // Widgets returns the configured widget service.
 func (m *Module) Widgets() WidgetService {
 	return m.container.WidgetService()
