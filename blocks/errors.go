@@ -1,0 +1,43 @@
+package blocks
+
+import "errors"
+
+var (
+	ErrDefinitionNameRequired          = errors.New("blocks: definition name required")
+	ErrDefinitionSlugRequired          = errors.New("blocks: definition slug required")
+	ErrDefinitionSlugInvalid           = errors.New("blocks: definition slug invalid")
+	ErrDefinitionSlugExists            = errors.New("blocks: definition slug already exists")
+	ErrDefinitionSchemaRequired        = errors.New("blocks: definition schema required")
+	ErrDefinitionSchemaInvalid         = errors.New("blocks: definition schema invalid")
+	ErrDefinitionSchemaVersionInvalid  = errors.New("blocks: definition schema version invalid")
+	ErrDefinitionExists                = errors.New("blocks: definition already exists")
+	ErrDefinitionIDRequired            = errors.New("blocks: definition id required")
+	ErrDefinitionInUse                 = errors.New("blocks: definition has active instances")
+	ErrDefinitionSoftDeleteUnsupported = errors.New("blocks: soft delete not supported for definitions")
+	ErrDefinitionVersionRequired       = errors.New("blocks: definition version required")
+	ErrDefinitionVersionExists         = errors.New("blocks: definition version already exists")
+	ErrDefinitionVersioningDisabled    = errors.New("blocks: definition versioning disabled")
+
+	ErrInstanceDefinitionRequired    = errors.New("blocks: definition id required")
+	ErrInstanceRegionRequired        = errors.New("blocks: region required")
+	ErrInstancePositionInvalid       = errors.New("blocks: position cannot be negative")
+	ErrInstanceUpdaterRequired       = errors.New("blocks: updated_by is required")
+	ErrInstanceSoftDeleteUnsupported = errors.New("blocks: soft delete not supported for instances")
+
+	ErrTranslationContentRequired       = errors.New("blocks: translation content required")
+	ErrTranslationExists                = errors.New("blocks: translation already exists for locale")
+	ErrTranslationLocaleRequired        = errors.New("blocks: translation locale required")
+	ErrTranslationSchemaInvalid         = errors.New("blocks: translation content invalid")
+	ErrTranslationNotFound              = errors.New("blocks: translation not found")
+	ErrTranslationMinimum               = errors.New("blocks: at least one translation is required")
+	ErrTranslationsDisabled             = errors.New("blocks: translations feature disabled")
+	ErrInstanceIDRequired               = errors.New("blocks: instance id required")
+	ErrVersioningDisabled               = errors.New("blocks: versioning feature disabled")
+	ErrInstanceVersionRequired          = errors.New("blocks: version identifier required")
+	ErrInstanceVersionConflict          = errors.New("blocks: base version mismatch")
+	ErrInstanceVersionAlreadyPublished  = errors.New("blocks: version already published")
+	ErrInstanceVersionRetentionExceeded = errors.New("blocks: version retention limit reached")
+	ErrMediaReferenceRequired           = errors.New("blocks: media reference requires id or path")
+	ErrBlockSchemaMigrationRequired     = errors.New("blocks: schema migration required")
+	ErrBlockSchemaValidationFailed      = errors.New("blocks: schema validation failed")
+)
