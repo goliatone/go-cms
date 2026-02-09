@@ -134,6 +134,39 @@ func TestAdminPageReadServiceHydration(t *testing.T) {
 	expectDataTags(t, record.Data, fixture.expected.tags)
 }
 
+func TestAdminPageReadServiceMetaFallbackWithoutDataInclude(t *testing.T) {
+	fixture := newAdminReadFixture(t)
+
+	record, err := fixture.svc.Get(fixture.ctx, fixture.pageID.String(), interfaces.AdminPageGetOptions{
+		Locale:         "en",
+		IncludeContent: true,
+		IncludeData:    false,
+	})
+	if err != nil {
+		t.Fatalf("get admin record: %v", err)
+	}
+	if record.MetaTitle != fixture.expected.metaTitle {
+		t.Fatalf("expected meta title %q, got %q", fixture.expected.metaTitle, record.MetaTitle)
+	}
+	if record.MetaDescription != fixture.expected.metaDescription {
+		t.Fatalf("expected meta description %q, got %q", fixture.expected.metaDescription, record.MetaDescription)
+	}
+	if record.Data != nil {
+		t.Fatalf("expected data payload to be nil when IncludeData=false, got %#v", record.Data)
+	}
+}
+
+func TestAdminPageReadServiceUnknownLocaleReturnsSentinel(t *testing.T) {
+	fixture := newAdminReadFixture(t)
+
+	_, err := fixture.svc.Get(fixture.ctx, fixture.pageID.String(), interfaces.AdminPageGetOptions{
+		Locale: "zz",
+	})
+	if !errors.Is(err, pages.ErrUnknownLocale) {
+		t.Fatalf("expected ErrUnknownLocale, got %v", err)
+	}
+}
+
 func TestAdminPageReadServiceFallbackLocale(t *testing.T) {
 	ctx := context.Background()
 	localeRepo := content.NewMemoryLocaleRepository()

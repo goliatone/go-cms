@@ -15,11 +15,17 @@ var _ func(*cms.Module) content.Service = (*cms.Module).Content
 var _ func(*cms.Module) content.ContentTypeService = (*cms.Module).ContentTypes
 var _ func(*cms.Module) pages.Service = (*cms.Module).Pages
 var _ func(*cms.Module) blocks.Service = (*cms.Module).Blocks
+var _ func(*cms.Module) cms.MenuService = (*cms.Module).Menus
+var _ func(*cms.Module) cms.AdminPageReadService = (*cms.Module).AdminPageRead
+var _ func(*cms.Module) cms.LocaleService = (*cms.Module).Locales
 
 var _ content.Service = (cms.ContentService)(nil)
 var _ content.ContentTypeService = (cms.ContentTypeService)(nil)
 var _ pages.Service = (cms.PageService)(nil)
 var _ blocks.Service = (cms.BlockService)(nil)
+var _ cms.MenuService = (cms.MenuService)(nil)
+var _ cms.AdminPageReadService = (cms.AdminPageReadService)(nil)
+var _ cms.LocaleService = (cms.LocaleService)(nil)
 
 func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
 	t.Parallel()
@@ -73,13 +79,32 @@ func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
 		"blocks.CreateInstanceDraftRequest":    reflect.TypeOf(blocks.CreateInstanceDraftRequest{}),
 		"blocks.PublishInstanceDraftRequest":   reflect.TypeOf(blocks.PublishInstanceDraftRequest{}),
 		"blocks.RestoreInstanceVersionRequest": reflect.TypeOf(blocks.RestoreInstanceVersionRequest{}),
+
+		"cms.MenuService":               reflect.TypeOf((*cms.MenuService)(nil)).Elem(),
+		"cms.MenuInfo":                  reflect.TypeOf(cms.MenuInfo{}),
+		"cms.NavigationNode":            reflect.TypeOf(cms.NavigationNode{}),
+		"cms.MenuItemInfo":              reflect.TypeOf(cms.MenuItemInfo{}),
+		"cms.MenuItemTranslationInput":  reflect.TypeOf(cms.MenuItemTranslationInput{}),
+		"cms.ReconcileMenuResult":       reflect.TypeOf(cms.ReconcileMenuResult{}),
+		"cms.UpsertMenuItemByPathInput": reflect.TypeOf(cms.UpsertMenuItemByPathInput{}),
+		"cms.UpdateMenuItemByPathInput": reflect.TypeOf(cms.UpdateMenuItemByPathInput{}),
+
+		"cms.AdminPageReadService":     reflect.TypeOf((*cms.AdminPageReadService)(nil)).Elem(),
+		"cms.AdminPageRecord":          reflect.TypeOf(cms.AdminPageRecord{}),
+		"cms.AdminPageListOptions":     reflect.TypeOf(cms.AdminPageListOptions{}),
+		"cms.AdminPageGetOptions":      reflect.TypeOf(cms.AdminPageGetOptions{}),
+		"cms.AdminPageIncludeOptions":  reflect.TypeOf(cms.AdminPageIncludeOptions{}),
+		"cms.AdminPageIncludeDefaults": reflect.TypeOf(cms.AdminPageIncludeDefaults{}),
+
+		"cms.LocaleService": reflect.TypeOf((*cms.LocaleService)(nil)).Elem(),
+		"cms.LocaleInfo":    reflect.TypeOf(cms.LocaleInfo{}),
 	}
 
 	for name, typ := range types {
 		assertNoInternalTypeRefs(t, name, typ, map[reflect.Type]bool{})
 	}
 
-	for _, methodName := range []string{"Content", "ContentTypes", "Pages", "Blocks"} {
+	for _, methodName := range []string{"Content", "ContentTypes", "Pages", "Blocks", "Menus", "AdminPageRead", "Locales"} {
 		method, ok := reflect.TypeOf((*cms.Module)(nil)).MethodByName(methodName)
 		if !ok {
 			t.Fatalf("expected cms.Module.%s method", methodName)
