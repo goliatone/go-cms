@@ -669,9 +669,6 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 	if s.requiresDefaultLocale() && !req.AllowMissingTranslations && len(req.Translations) > 0 && !s.hasDefaultLocale(req.Translations) {
 		return nil, ErrDefaultLocaleRequired
 	}
-	if s.requiresDefaultLocale() && !req.AllowMissingTranslations && len(req.Translations) > 0 && !s.hasDefaultLocale(req.Translations) {
-		return nil, ErrDefaultLocaleRequired
-	}
 
 	contentRecord, err := s.content.GetByID(ctx, req.ContentID)
 	if err != nil {
@@ -704,9 +701,6 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 			}
 			envID = resolvedID
 		}
-	}
-	if err := s.ensureEnvironmentActive(ctx, envID); err != nil {
-		return nil, err
 	}
 	if err := s.ensureEnvironmentActive(ctx, envID); err != nil {
 		return nil, err
