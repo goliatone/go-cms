@@ -1,0 +1,33 @@
+package pages
+
+import "errors"
+
+var (
+	ErrContentRequired            = errors.New("pages: content does not exist")
+	ErrTemplateRequired           = errors.New("pages: template is required")
+	ErrSlugRequired               = errors.New("pages: slug is required")
+	ErrSlugInvalid                = errors.New("pages: slug contains invalid characters")
+	ErrSlugExists                 = errors.New("pages: slug already exists")
+	ErrPathExists                 = errors.New("pages: translation path already exists")
+	ErrUnknownLocale              = errors.New("pages: unknown locale")
+	ErrDuplicateLocale            = errors.New("pages: duplicate locale provided")
+	ErrParentNotFound             = errors.New("pages: parent page not found")
+	ErrNoPageTranslations         = errors.New("pages: at least one translation is required")
+	ErrDefaultLocaleRequired      = errors.New("pages: default locale translation is required")
+	ErrTemplateUnknown            = errors.New("pages: template not found")
+	ErrPageRequired               = errors.New("pages: page id required")
+	ErrVersioningDisabled         = errors.New("pages: versioning feature disabled")
+	ErrPageVersionRequired        = errors.New("pages: version identifier required")
+	ErrVersionAlreadyPublished    = errors.New("pages: version already published")
+	ErrVersionRetentionExceeded   = errors.New("pages: version retention limit reached")
+	ErrVersionConflict            = errors.New("pages: base version mismatch")
+	ErrSchedulingDisabled         = errors.New("pages: scheduling feature disabled")
+	ErrScheduleWindowInvalid      = errors.New("pages: publish_at must be before unpublish_at")
+	ErrScheduleTimestampInvalid   = errors.New("pages: schedule timestamp is invalid")
+	ErrPageMediaReferenceRequired = errors.New("pages: media reference requires id or path")
+	ErrPageSoftDeleteUnsupported  = errors.New("pages: soft delete not supported")
+	ErrPageTranslationsDisabled   = errors.New("pages: translations feature disabled")
+	ErrPageTranslationNotFound    = errors.New("pages: translation not found")
+	ErrPageParentCycle            = errors.New("pages: parent assignment creates hierarchy cycle")
+	ErrPageDuplicateSlug          = errors.New("pages: unable to determine unique duplicate slug")
+)
