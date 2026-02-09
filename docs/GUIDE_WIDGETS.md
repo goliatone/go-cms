@@ -1161,7 +1161,7 @@ import (
     "time"
 
     "github.com/goliatone/go-cms"
-    "github.com/goliatone/go-cms/internal/widgets"
+    "github.com/goliatone/go-cms/widgets"
     "github.com/google/uuid"
 )
 
