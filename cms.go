@@ -11,8 +11,8 @@ import (
 	"github.com/goliatone/go-cms/internal/media"
 	"github.com/goliatone/go-cms/internal/pages"
 	"github.com/goliatone/go-cms/internal/themes"
-	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/widgets"
 )
 
 // ContentService exports the content service contract for consumers of the cms package.
