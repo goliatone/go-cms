@@ -1,13 +1,31 @@
 # Changelog
 
-# [0.32.1](https://github.com/goliatone/go-cms/compare/v0.32.0...v0.32.1) - (2026-02-09)
+# [0.33.0](https://github.com/goliatone/go-cms/compare/v0.32.1...v0.33.0) - (2026-02-09)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.33.0 ([ca46c58](https://github.com/goliatone/go-cms/commit/ca46c5848f9b166dd01bbd276a6f9febe45150f4))  - (goliatone)
 
 ## <!-- 16 -->➕ Add
 
-- Expose typed public contracts for `content`, `pages`, `blocks`, and `content` type services (DTOs, options, and sentinel errors) for external consumers.
-- Add `cms.Module.ContentTypes()` and `cms.ContentTypeService` so consumers do not need reflection through `Container()`.
-- Add public API leak-guard tests and external consumer compile checks for typed integrations across content/pages/blocks/content-types.
-- Add integration coverage that exercises content type CRUD, content CRUD + translation checks, page CRUD + translation checks, and block definition/instance + translation flows through public contracts.
+- Block service ([2fd0fad](https://github.com/goliatone/go-cms/commit/2fd0fad32a50170b1258117f5ebcd3520a02a721))  - (goliatone)
+- Content service ([0f3ef3d](https://github.com/goliatone/go-cms/commit/0f3ef3d85b2548dcbc2cc65bd6998367033eb10c))  - (goliatone)
+- Public contract aliases for pages ([7a40ba5](https://github.com/goliatone/go-cms/commit/7a40ba5317ca1b6e54a6ad4bf7a2e6b22224d144))  - (goliatone)
+- Public contract aliases for content ([c013438](https://github.com/goliatone/go-cms/commit/c013438050971456985fe8e111419016f3c901fd))  - (goliatone)
+- Public contract aliases for blocks ([6eb48a7](https://github.com/goliatone/go-cms/commit/6eb48a79910f580cb0d65fb99a629cf8065dd302))  - (goliatone)
+- Pages service ([303ffe7](https://github.com/goliatone/go-cms/commit/303ffe73090bc71554c28112582616e02d879067))  - (goliatone)
+- Page errors ([0e19ddb](https://github.com/goliatone/go-cms/commit/0e19ddb4521ead15e79a4cdbee65f176a28c0b12))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.32.1 ([667c7d9](https://github.com/goliatone/go-cms/commit/667c7d9fcd36e91e9bfa7c3b997fdcbbd52b8412))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([4ae5bae](https://github.com/goliatone/go-cms/commit/4ae5baeb70b2a674c953f2a83ed97200ec7990b4))  - (goliatone)
+- Update test ([05cb65b](https://github.com/goliatone/go-cms/commit/05cb65b57f105df38cdafaa01b251916b1193ee9))  - (goliatone)
+
+# [0.32.1](https://github.com/goliatone/go-cms/compare/v0.32.0...v0.32.1) - (2026-02-09)
 
 ## <!-- 13 -->📦 Bumps
 
@@ -16,20 +34,6 @@
 ## <!-- 3 -->📚 Documentation
 
 - Update changelog for v0.32.0 ([7838619](https://github.com/goliatone/go-cms/commit/783861963e003144804e4d08f2dddf5d6030581e))  - (goliatone)
-
-## Migration Notes
-
-- Replace reflection-based adapters with typed services:
-  - Use `module.Content()` for content.
-  - Use `module.ContentTypes()` for content types.
-  - Use `module.Pages()` for pages.
-  - Use `module.Blocks()` for blocks.
-- Import and construct public DTOs from:
-  - `github.com/goliatone/go-cms/content`
-  - `github.com/goliatone/go-cms/pages`
-  - `github.com/goliatone/go-cms/blocks`
-- Handle typed sentinel errors with `errors.Is` against the new public error vars in each package.
-- Page draft publish DTO name is now `pages.PublishPageDraftRequest` for public consumers.
 
 ## <!-- 7 -->⚙️ Miscellaneous Tasks
 
@@ -1040,4 +1044,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
