@@ -473,8 +473,8 @@ func fetchAdminLocales(ctx context.Context, db *bun.DB, table, column string, id
 	}
 	var rows []adminTranslationLocaleRow
 	query := db.NewSelect().
-		TableExpr(table + " AS t").
-		ColumnExpr("t." + column + " AS owner_id").
+		TableExpr(table+" AS t").
+		ColumnExpr("t."+column+" AS owner_id").
 		ColumnExpr("l.code AS locale").
 		Join("LEFT JOIN locales AS l ON l.id = t.locale_id").
 		Where(fmt.Sprintf("t.%s IN (?)", column), bun.In(ids))
@@ -554,6 +554,12 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 	record.Path = row.Path
 	record.MetaTitle = strings.TrimSpace(row.MetaTitle)
 	record.MetaDescription = strings.TrimSpace(row.MetaDescription)
+	if record.MetaTitle == "" {
+		record.MetaTitle = stringFromData(row.ContentPayload, "meta_title")
+	}
+	if record.MetaDescription == "" {
+		record.MetaDescription = stringFromData(row.ContentPayload, "meta_description")
+	}
 	record.Summary = cloneStringPtr(row.Summary)
 	record.Tags = extractTags(row.ContentPayload)
 
