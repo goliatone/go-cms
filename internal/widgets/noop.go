@@ -2,13 +2,9 @@ package widgets
 
 import (
 	"context"
-	"errors"
 
 	"github.com/google/uuid"
 )
-
-// ErrFeatureDisabled indicates the widget feature is disabled via configuration.
-var ErrFeatureDisabled = errors.New("widgets: feature disabled")
 
 type noOpService struct{}
 
