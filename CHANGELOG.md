@@ -1,22 +1,29 @@
 # Changelog
 
-## Unreleased
+# [0.34.0](https://github.com/goliatone/go-cms/compare/v0.33.0...v0.34.0) - (2026-02-09)
 
-### Add
+## <!-- 1 -->🐛 Bug Fixes
 
-- Public locale resolver API via `cms.Module.Locales()` and `cms.LocaleService.ResolveByCode(ctx, code)` to resolve stable locale IDs without internal adapters.
+- Metadata expose title and desc ([1719913](https://github.com/goliatone/go-cms/commit/171991353719b0f507fb04c00510bd6df8e3e099))  - (goliatone)
 
-### Fix
+## <!-- 13 -->📦 Bumps
 
-- Admin page read locale resolution now returns stable `pages.ErrUnknownLocale` semantics for unknown locale codes.
-- Admin page read DTO hydration now fills `MetaTitle` and `MetaDescription` top-level fields from content translation payloads even when `IncludeData` is disabled.
-- Public menu/widget/admin contract coverage expanded with integration and compile-time tests for location-based menu resolution, locale code resolution, and duplicate widget assignment sentinel handling.
+- Bump version: v0.34.0 ([b7aa713](https://github.com/goliatone/go-cms/commit/b7aa713041ad66edc1f69f554808840393978d51))  - (goliatone)
 
-### Migration
+## <!-- 16 -->➕ Add
 
-- `go-admin` consumers can remove locale UUID fallback hashing and use `module.Locales().ResolveByCode(...)` before calling UUID-based APIs.
-- `go-admin` consumers can remove duplicate widget assignment string matching and rely on `errors.Is(err, widgets.ErrAreaPlacementExists)`.
-- Menu location reads/seeding/reset flows are validated through public `cms.MenuService` contracts (no raw internal service extraction required).
+- Expose locales service ([6b29c81](https://github.com/goliatone/go-cms/commit/6b29c81d46def7bdef0054b3a8f91927cb26ed8e))  - (goliatone)
+- Locale public ([e553d08](https://github.com/goliatone/go-cms/commit/e553d08d086f734d01c44d5c19a7d8c80bb27cb3))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.33.0 ([7750899](https://github.com/goliatone/go-cms/commit/775089900607edf516bc87d5cdfeedefc8350507))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update docs ([05c8ecc](https://github.com/goliatone/go-cms/commit/05c8ecc66fe80d0007e74eff1c2571eddfb4d01e))  - (goliatone)
+- Update format ([8f6937c](https://github.com/goliatone/go-cms/commit/8f6937c9cee1f1f0b162b2d1c67ba8efd3f0c558))  - (goliatone)
+- Update test ([37b4ec6](https://github.com/goliatone/go-cms/commit/37b4ec634793babe2f607d7ee1860bf7b95a9537))  - (goliatone)
 
 # [0.33.0](https://github.com/goliatone/go-cms/compare/v0.32.1...v0.33.0) - (2026-02-09)
 
@@ -1062,4 +1069,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
