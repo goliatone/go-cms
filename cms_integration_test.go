@@ -14,9 +14,9 @@ import (
 	"github.com/goliatone/go-cms/internal/jobs"
 	"github.com/goliatone/go-cms/internal/media"
 	cmsscheduler "github.com/goliatone/go-cms/internal/scheduler"
-	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
+	"github.com/goliatone/go-cms/widgets"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
@@ -262,6 +262,134 @@ func TestModuleWidgetsAndThemesEnabled(t *testing.T) {
 	}
 	if len(list) != 0 {
 		t.Fatalf("expected no themes registered by default, got %d", len(list))
+	}
+}
+
+func TestModuleWidgets_PublicServiceCRUDAssignResolveFlow(t *testing.T) {
+	t.Parallel()
+	ctx := context.Background()
+
+	cfg := cms.DefaultConfig()
+	cfg.Features.Widgets = true
+
+	module, err := cms.New(cfg)
+	if err != nil {
+		t.Fatalf("new module: %v", err)
+	}
+
+	widgetSvc := module.Widgets()
+	authorID := uuid.New()
+	localeID := uuid.New()
+	areaCode := "sidebar.primary"
+	definitionName := "promo-banner-public-api"
+
+	definition, err := widgetSvc.RegisterDefinition(ctx, widgets.RegisterDefinitionInput{
+		Name: definitionName,
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"headline": map[string]any{"type": "string"},
+			},
+			"additionalProperties": false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	if _, err := widgetSvc.RegisterAreaDefinition(ctx, widgets.RegisterAreaDefinitionInput{
+		Code:  areaCode,
+		Name:  "Sidebar Primary",
+		Scope: widgets.AreaScopeGlobal,
+	}); err != nil {
+		t.Fatalf("register area definition: %v", err)
+	}
+
+	instance, err := widgetSvc.CreateInstance(ctx, widgets.CreateInstanceInput{
+		DefinitionID:  definition.ID,
+		AreaCode:      &areaCode,
+		Configuration: map[string]any{"headline": "Original"},
+		Placement:     map[string]any{"page_id": "home", "locale": "en"},
+		Position:      0,
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	position := 1
+	updated, err := widgetSvc.UpdateInstance(ctx, widgets.UpdateInstanceInput{
+		InstanceID:    instance.ID,
+		Configuration: map[string]any{"headline": "Updated"},
+		Placement:     map[string]any{"page_id": "home", "locale": "en"},
+		Position:      &position,
+		UpdatedBy:     authorID,
+		AreaCode:      &areaCode,
+	})
+	if err != nil {
+		t.Fatalf("update instance: %v", err)
+	}
+	if updated.Position != position {
+		t.Fatalf("expected updated position %d, got %d", position, updated.Position)
+	}
+
+	assignPosition := 0
+	placements, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
+		AreaCode:   areaCode,
+		LocaleID:   &localeID,
+		InstanceID: instance.ID,
+		Position:   &assignPosition,
+		Metadata:   map[string]any{"page_id": "home", "locale": "en"},
+	})
+	if err != nil {
+		t.Fatalf("assign widget to area: %v", err)
+	}
+	if len(placements) != 1 {
+		t.Fatalf("expected one placement, got %d", len(placements))
+	}
+	if placements[0].Metadata["page_id"] != "home" || placements[0].Metadata["locale"] != "en" {
+		t.Fatalf("expected metadata keys to be preserved, got %#v", placements[0].Metadata)
+	}
+
+	resolved, err := widgetSvc.ResolveArea(ctx, widgets.ResolveAreaInput{
+		AreaCode: areaCode,
+		LocaleID: &localeID,
+		Now:      time.Now().UTC(),
+	})
+	if err != nil {
+		t.Fatalf("resolve area: %v", err)
+	}
+	if len(resolved) != 1 {
+		t.Fatalf("expected one resolved widget, got %d", len(resolved))
+	}
+	if resolved[0].Instance == nil || resolved[0].Instance.ID != instance.ID {
+		t.Fatalf("expected resolved instance %s", instance.ID)
+	}
+
+	if _, err := widgetSvc.ListInstancesByDefinition(ctx, definition.ID); err != nil {
+		t.Fatalf("list by definition: %v", err)
+	}
+	if _, err := widgetSvc.ListInstancesByArea(ctx, areaCode); err != nil {
+		t.Fatalf("list by area: %v", err)
+	}
+	if _, err := widgetSvc.ListAllInstances(ctx); err != nil {
+		t.Fatalf("list all instances: %v", err)
+	}
+
+	if err := widgetSvc.DeleteInstance(ctx, widgets.DeleteInstanceRequest{
+		InstanceID: instance.ID,
+		DeletedBy:  authorID,
+		HardDelete: true,
+	}); err != nil {
+		t.Fatalf("delete instance: %v", err)
+	}
+
+	if err := widgetSvc.DeleteDefinition(ctx, widgets.DeleteDefinitionRequest{
+		ID:         definition.ID,
+		HardDelete: true,
+	}); err != nil {
+		t.Fatalf("delete definition: %v", err)
 	}
 }
 
