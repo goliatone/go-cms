@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -48,11 +49,57 @@ type ContentListOption = string
 // ContentGetOption configures content get behavior. It reuses list option tokens.
 type ContentGetOption = ContentListOption
 
-const contentListWithTranslations ContentListOption = "content:list:with_translations"
+// ProjectionTranslationMode controls how projection behaves when translations are
+// not explicitly loaded for reads.
+type ProjectionTranslationMode string
+
+const (
+	ProjectionTranslationModeAutoLoad ProjectionTranslationMode = "auto_load"
+	ProjectionTranslationModeNoop     ProjectionTranslationMode = "noop"
+	ProjectionTranslationModeError    ProjectionTranslationMode = "error"
+)
+
+const (
+	ContentProjectionAdmin         = "admin"
+	ContentProjectionDerivedFields = "derived_fields"
+)
+
+const (
+	contentListWithTranslations     ContentListOption = "content:list:with_translations"
+	contentListProjectionPrefix     ContentListOption = "content:list:projection:"
+	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
+)
 
 // WithTranslations preloads translations when listing or fetching content records.
 func WithTranslations() ContentListOption {
 	return contentListWithTranslations
+}
+
+// WithProjection configures a named read projection for content list/get calls.
+func WithProjection(name string) ContentListOption {
+	normalized := strings.ToLower(strings.TrimSpace(name))
+	switch normalized {
+	case "":
+		return ""
+	case "derived", "derived-fields":
+		normalized = ContentProjectionDerivedFields
+	}
+	return ContentListOption(string(contentListProjectionPrefix) + normalized)
+}
+
+// WithDerivedFields enables the canonical derived-content-fields projection.
+func WithDerivedFields() ContentListOption {
+	return WithProjection(ContentProjectionDerivedFields)
+}
+
+// WithProjectionMode controls projection behavior when translations are not
+// explicitly requested.
+func WithProjectionMode(mode ProjectionTranslationMode) ContentListOption {
+	normalized := strings.ToLower(strings.TrimSpace(string(mode)))
+	if normalized == "" {
+		return ""
+	}
+	return ContentListOption(string(contentListProjectionModePrefix) + normalized)
 }
 
 // CreateContentRequest captures the information required to create content.
