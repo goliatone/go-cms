@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"time"
 
@@ -227,48 +228,60 @@ func WithEmbeddedBlocksResolver(resolver EmbeddedBlocksResolver) ServiceOption {
 	}
 }
 
+// WithProjectionTranslationMode configures projection behavior when translations
+// are not explicitly requested for reads.
+func WithProjectionTranslationMode(mode ProjectionTranslationMode) ServiceOption {
+	return func(svc *service) {
+		if normalized, ok := normalizeProjectionTranslationMode(mode); ok {
+			svc.projectionTranslationMode = normalized
+		}
+	}
+}
+
 // service implements Service.
 type service struct {
-	contents              ContentRepository
-	contentTypes          ContentTypeRepository
-	locales               LocaleRepository
-	now                   func() time.Time
-	id                    IDGenerator
-	slugger               slug.Normalizer
-	versioningEnabled     bool
-	versionRetentionLimit int
-	scheduler             interfaces.Scheduler
-	schedulingEnabled     bool
-	logger                interfaces.Logger
-	requireTranslations   bool
-	translationsEnabled   bool
-	translationState      *translationconfig.State
-	defaultLocale         string
-	defaultLocaleRequired bool
-	activity              *activity.Emitter
-	schemaMigrator        *cmsschema.Migrator
-	embeddedBlocks        EmbeddedBlocksResolver
-	envSvc                cmsenv.Service
-	defaultEnvKey         string
-	requireExplicitEnv    bool
-	requireActiveEnv      bool
+	contents                  ContentRepository
+	contentTypes              ContentTypeRepository
+	locales                   LocaleRepository
+	now                       func() time.Time
+	id                        IDGenerator
+	slugger                   slug.Normalizer
+	versioningEnabled         bool
+	versionRetentionLimit     int
+	scheduler                 interfaces.Scheduler
+	schedulingEnabled         bool
+	logger                    interfaces.Logger
+	requireTranslations       bool
+	translationsEnabled       bool
+	translationState          *translationconfig.State
+	defaultLocale             string
+	defaultLocaleRequired     bool
+	activity                  *activity.Emitter
+	schemaMigrator            *cmsschema.Migrator
+	embeddedBlocks            EmbeddedBlocksResolver
+	envSvc                    cmsenv.Service
+	defaultEnvKey             string
+	requireExplicitEnv        bool
+	requireActiveEnv          bool
+	projectionTranslationMode ProjectionTranslationMode
 }
 
 // NewService constructs a content service with the required dependencies.
 func NewService(contents ContentRepository, types ContentTypeRepository, locales LocaleRepository, opts ...ServiceOption) Service {
 	s := &service{
-		contents:            contents,
-		contentTypes:        types,
-		locales:             locales,
-		now:                 time.Now,
-		id:                  uuid.New,
-		slugger:             slug.Default(),
-		scheduler:           cmsscheduler.NewNoOp(),
-		logger:              logging.ContentLogger(nil),
-		requireTranslations: true,
-		translationsEnabled: true,
-		activity:            activity.NewEmitter(nil, activity.Config{}),
-		defaultEnvKey:       cmsenv.DefaultKey,
+		contents:                  contents,
+		contentTypes:              types,
+		locales:                   locales,
+		now:                       time.Now,
+		id:                        uuid.New,
+		slugger:                   slug.Default(),
+		scheduler:                 cmsscheduler.NewNoOp(),
+		logger:                    logging.ContentLogger(nil),
+		requireTranslations:       true,
+		translationsEnabled:       true,
+		activity:                  activity.NewEmitter(nil, activity.Config{}),
+		defaultEnvKey:             cmsenv.DefaultKey,
+		projectionTranslationMode: ProjectionTranslationModeAutoLoad,
 	}
 
 	for _, opt := range opts {
@@ -627,8 +640,14 @@ func (s *service) Get(ctx context.Context, id uuid.UUID, opts ...ContentGetOptio
 		return nil, err
 	}
 	s.attachContentType(ctx, record)
-	includeTranslations := parseContentListOptions(opts...).includeTranslations
-	if includeTranslations && s.translationsEnabledFlag() {
+	readOpts := parseContentListOptions(opts...)
+	mode, err := s.resolveProjectionMode(readOpts)
+	if err != nil {
+		return nil, err
+	}
+	translationsRequested := s.shouldLoadTranslations(readOpts, mode)
+	translationsLoaded := translationsRequested && s.translationsEnabledFlag()
+	if translationsLoaded {
 		if err := s.loadTranslations(ctx, record); err != nil {
 			logger.Error("content translation lookup failed", "error", err)
 			return nil, err
@@ -637,6 +656,10 @@ func (s *service) Get(ctx context.Context, id uuid.UUID, opts ...ContentGetOptio
 		record.Translations = nil
 	}
 	s.mergeLegacyBlocks(ctx, record)
+	if err := s.applyProjection(record, readOpts, mode, translationsLoaded); err != nil {
+		logger.Error("content projection failed", "error", err)
+		return nil, err
+	}
 	logger.Debug("content retrieved")
 	return s.decorateContent(record), nil
 }
@@ -650,9 +673,14 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 		logger.Error("content list environment lookup failed", "error", err)
 		return nil, err
 	}
+	mode, err := s.resolveProjectionMode(opts)
+	if err != nil {
+		return nil, err
+	}
 	listArgs := []ContentListOption{ContentListOption(envID.String())}
-	includeTranslations := opts.includeTranslations && s.translationsEnabledFlag()
-	if includeTranslations {
+	translationsRequested := s.shouldLoadTranslations(opts, mode)
+	translationsLoaded := translationsRequested && s.translationsEnabledFlag()
+	if translationsLoaded {
 		listArgs = append(listArgs, WithTranslations())
 	}
 	records, err := s.contents.List(ctx, listArgs...)
@@ -662,10 +690,14 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 	}
 	for _, record := range records {
 		s.attachContentType(ctx, record)
-		if !includeTranslations {
+		if !translationsLoaded {
 			record.Translations = nil
 		}
 		s.mergeLegacyBlocks(ctx, record)
+		if err := s.applyProjection(record, opts, mode, translationsLoaded); err != nil {
+			logger.Error("content projection failed", "error", err, "content_id", record.ID)
+			return nil, err
+		}
 		s.decorateContent(record)
 	}
 	logger.Debug("content list returned records", "count", len(records))
@@ -1995,6 +2027,219 @@ func (s *service) loadTranslations(ctx context.Context, record *Content) error {
 	}
 	record.Translations = translations
 	return nil
+}
+
+func (s *service) resolveProjectionMode(opts contentListOptions) (ProjectionTranslationMode, error) {
+	mode := s.projectionTranslationMode
+	if mode == "" {
+		mode = ProjectionTranslationModeAutoLoad
+	}
+	if !opts.projectionModeSet {
+		return mode, nil
+	}
+	normalized, ok := normalizeProjectionTranslationMode(opts.projectionMode)
+	if !ok {
+		return "", ErrContentProjectionModeInvalid
+	}
+	return normalized, nil
+}
+
+func normalizeProjectionTranslationMode(mode ProjectionTranslationMode) (ProjectionTranslationMode, bool) {
+	normalized := strings.ToLower(strings.TrimSpace(string(mode)))
+	switch ProjectionTranslationMode(normalized) {
+	case ProjectionTranslationModeAutoLoad, ProjectionTranslationModeNoop, ProjectionTranslationModeError:
+		return ProjectionTranslationMode(normalized), true
+	default:
+		return "", false
+	}
+}
+
+func (s *service) shouldLoadTranslations(opts contentListOptions, mode ProjectionTranslationMode) bool {
+	if opts.includeTranslations {
+		return true
+	}
+	if strings.TrimSpace(opts.projection) == "" {
+		return false
+	}
+	return mode == ProjectionTranslationModeAutoLoad
+}
+
+func (s *service) applyProjection(record *Content, opts contentListOptions, mode ProjectionTranslationMode, translationsLoaded bool) error {
+	if record == nil {
+		return nil
+	}
+	projection := canonicalProjectionName(opts.projection)
+	if projection == "" {
+		return nil
+	}
+	if !translationsLoaded {
+		if mode == ProjectionTranslationModeNoop {
+			return nil
+		}
+		return ErrContentProjectionRequiresTranslations
+	}
+
+	switch projection {
+	case ContentProjectionAdmin, ContentProjectionDerivedFields:
+		for _, tr := range record.Translations {
+			if tr == nil {
+				continue
+			}
+			tr.Content = projectDerivedContentFields(tr.Content)
+		}
+		return nil
+	default:
+		return ErrContentProjectionUnsupported
+	}
+}
+
+func canonicalProjectionName(value string) string {
+	normalized := strings.ToLower(strings.TrimSpace(value))
+	switch normalized {
+	case "":
+		return ""
+	case "derived", "derived-fields":
+		return ContentProjectionDerivedFields
+	default:
+		return normalized
+	}
+}
+
+func projectDerivedContentFields(payload map[string]any) map[string]any {
+	result := cloneMap(payload)
+	if result == nil {
+		result = map[string]any{}
+	}
+
+	setDerivedFieldIfEmpty(result, "content", nestedLookup(result, "markdown", "body"))
+	setDerivedFieldIfEmpty(result, "summary",
+		result["excerpt"],
+		sourceFieldValue(result, "summary"),
+		sourceFieldValue(result, "excerpt"),
+	)
+	setDerivedFieldIfEmpty(result, "excerpt",
+		result["summary"],
+		sourceFieldValue(result, "excerpt"),
+		sourceFieldValue(result, "summary"),
+	)
+
+	for _, field := range []string{
+		"path",
+		"published_at",
+		"featured_image",
+		"meta",
+		"tags",
+		"template_id",
+		"parent_id",
+		"blocks",
+		"seo",
+	} {
+		setDerivedFieldIfEmpty(result, field, sourceFieldValue(result, field))
+	}
+
+	setDerivedFieldIfEmpty(result, "meta_title",
+		sourceFieldValue(result, "meta_title"),
+		seoFieldValue(result["seo"], "title"),
+	)
+	setDerivedFieldIfEmpty(result, "meta_description",
+		sourceFieldValue(result, "meta_description"),
+		seoFieldValue(result["seo"], "description"),
+	)
+
+	return result
+}
+
+func setDerivedFieldIfEmpty(target map[string]any, key string, candidates ...any) {
+	if target == nil || strings.TrimSpace(key) == "" {
+		return
+	}
+	if isNonEmptyValue(target[key]) {
+		return
+	}
+	for _, candidate := range candidates {
+		if isNonEmptyValue(candidate) {
+			target[key] = candidate
+			return
+		}
+	}
+}
+
+func sourceFieldValue(payload map[string]any, field string) any {
+	if strings.TrimSpace(field) == "" {
+		return nil
+	}
+	for _, path := range [][]string{
+		{"markdown", "custom", field},
+		{"markdown", "frontmatter", field},
+		{"markdown", "custom", "markdown", "frontmatter", field},
+	} {
+		value := nestedLookup(payload, path...)
+		if isNonEmptyValue(value) {
+			return value
+		}
+	}
+	return nil
+}
+
+func nestedLookup(payload map[string]any, path ...string) any {
+	if payload == nil || len(path) == 0 {
+		return nil
+	}
+	var current any = payload
+	for _, part := range path {
+		record, ok := current.(map[string]any)
+		if !ok {
+			return nil
+		}
+		value, ok := record[part]
+		if !ok {
+			return nil
+		}
+		current = value
+	}
+	return current
+}
+
+func seoFieldValue(value any, key string) any {
+	if strings.TrimSpace(key) == "" {
+		return nil
+	}
+	switch seo := value.(type) {
+	case map[string]any:
+		return seo[key]
+	case map[string]string:
+		return seo[key]
+	default:
+		return nil
+	}
+}
+
+func isNonEmptyValue(value any) bool {
+	if value == nil {
+		return false
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed) != ""
+	case map[string]any:
+		return len(typed) > 0
+	case []string:
+		return len(typed) > 0
+	case []any:
+		return len(typed) > 0
+	}
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Interface, reflect.Pointer:
+		if rv.IsNil() {
+			return false
+		}
+		return isNonEmptyValue(rv.Elem().Interface())
+	case reflect.Map, reflect.Slice, reflect.Array:
+		return rv.Len() > 0
+	default:
+		return true
+	}
 }
 
 func applySchemaVersion(payload map[string]any, version cmsschema.Version) map[string]any {
