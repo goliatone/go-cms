@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.35.0](https://github.com/goliatone/go-cms/compare/v0.34.0...v0.35.0) - (2026-02-11)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.35.0 ([829623b](https://github.com/goliatone/go-cms/commit/829623b38d2caa2db7ca34baa445ca94570d2f29))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Implement canonical derived field projection ([f3690aa](https://github.com/goliatone/go-cms/commit/f3690aab50715f619ae3574b274d15fff93ec6ed))  - (goliatone)
+- Projection translation mode ([ee5c4db](https://github.com/goliatone/go-cms/commit/ee5c4db3dcb212b265dfe896616591303b54d177))  - (goliatone)
+- Errors include projection related errors ([c4d2f8f](https://github.com/goliatone/go-cms/commit/c4d2f8fef3e43a7f8ae812d78ab40957bbae8bec))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.34.0 ([a1f0c51](https://github.com/goliatone/go-cms/commit/a1f0c515c8413d718d709a4dfc02712276690b42))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([31564e6](https://github.com/goliatone/go-cms/commit/31564e601c19d1a447a46e90952c9596af085c04))  - (goliatone)
+
 # [0.34.0](https://github.com/goliatone/go-cms/compare/v0.33.0...v0.34.0) - (2026-02-09)
 
 ## <!-- 1 -->🐛 Bug Fixes
