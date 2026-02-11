@@ -5,6 +5,7 @@ import cmscontent "github.com/goliatone/go-cms/content"
 type (
 	Service                         = cmscontent.Service
 	TranslationCheckOptions         = cmscontent.TranslationCheckOptions
+	ProjectionTranslationMode       = cmscontent.ProjectionTranslationMode
 	CreateContentRequest            = cmscontent.CreateContentRequest
 	ContentTranslationInput         = cmscontent.ContentTranslationInput
 	UpdateContentRequest            = cmscontent.UpdateContentRequest
@@ -24,32 +25,44 @@ type (
 	DeleteContentTypeRequest = cmscontent.DeleteContentTypeRequest
 )
 
+const (
+	ContentProjectionAdmin         = cmscontent.ContentProjectionAdmin
+	ContentProjectionDerivedFields = cmscontent.ContentProjectionDerivedFields
+
+	ProjectionTranslationModeAutoLoad = cmscontent.ProjectionTranslationModeAutoLoad
+	ProjectionTranslationModeNoop     = cmscontent.ProjectionTranslationModeNoop
+	ProjectionTranslationModeError    = cmscontent.ProjectionTranslationModeError
+)
+
 var (
-	ErrContentTypeRequired                 = cmscontent.ErrContentTypeRequired
-	ErrSlugRequired                        = cmscontent.ErrSlugRequired
-	ErrSlugInvalid                         = cmscontent.ErrSlugInvalid
-	ErrSlugExists                          = cmscontent.ErrSlugExists
-	ErrNoTranslations                      = cmscontent.ErrNoTranslations
-	ErrDefaultLocaleRequired               = cmscontent.ErrDefaultLocaleRequired
-	ErrDuplicateLocale                     = cmscontent.ErrDuplicateLocale
-	ErrUnknownLocale                       = cmscontent.ErrUnknownLocale
-	ErrContentSchemaInvalid                = cmscontent.ErrContentSchemaInvalid
-	ErrContentSoftDeleteUnsupported        = cmscontent.ErrContentSoftDeleteUnsupported
-	ErrContentIDRequired                   = cmscontent.ErrContentIDRequired
-	ErrContentMetadataInvalid              = cmscontent.ErrContentMetadataInvalid
-	ErrVersioningDisabled                  = cmscontent.ErrVersioningDisabled
-	ErrContentVersionRequired              = cmscontent.ErrContentVersionRequired
-	ErrContentVersionConflict              = cmscontent.ErrContentVersionConflict
-	ErrContentVersionAlreadyPublished      = cmscontent.ErrContentVersionAlreadyPublished
-	ErrContentVersionRetentionExceeded     = cmscontent.ErrContentVersionRetentionExceeded
-	ErrSchedulingDisabled                  = cmscontent.ErrSchedulingDisabled
-	ErrScheduleWindowInvalid               = cmscontent.ErrScheduleWindowInvalid
-	ErrScheduleTimestampInvalid            = cmscontent.ErrScheduleTimestampInvalid
-	ErrContentTranslationsDisabled         = cmscontent.ErrContentTranslationsDisabled
-	ErrContentTranslationNotFound          = cmscontent.ErrContentTranslationNotFound
-	ErrContentSchemaMigrationRequired      = cmscontent.ErrContentSchemaMigrationRequired
-	ErrContentTranslationLookupUnsupported = cmscontent.ErrContentTranslationLookupUnsupported
-	ErrEmbeddedBlocksResolverMissing       = cmscontent.ErrEmbeddedBlocksResolverMissing
+	ErrContentTypeRequired                   = cmscontent.ErrContentTypeRequired
+	ErrSlugRequired                          = cmscontent.ErrSlugRequired
+	ErrSlugInvalid                           = cmscontent.ErrSlugInvalid
+	ErrSlugExists                            = cmscontent.ErrSlugExists
+	ErrNoTranslations                        = cmscontent.ErrNoTranslations
+	ErrDefaultLocaleRequired                 = cmscontent.ErrDefaultLocaleRequired
+	ErrDuplicateLocale                       = cmscontent.ErrDuplicateLocale
+	ErrUnknownLocale                         = cmscontent.ErrUnknownLocale
+	ErrContentSchemaInvalid                  = cmscontent.ErrContentSchemaInvalid
+	ErrContentSoftDeleteUnsupported          = cmscontent.ErrContentSoftDeleteUnsupported
+	ErrContentIDRequired                     = cmscontent.ErrContentIDRequired
+	ErrContentMetadataInvalid                = cmscontent.ErrContentMetadataInvalid
+	ErrVersioningDisabled                    = cmscontent.ErrVersioningDisabled
+	ErrContentVersionRequired                = cmscontent.ErrContentVersionRequired
+	ErrContentVersionConflict                = cmscontent.ErrContentVersionConflict
+	ErrContentVersionAlreadyPublished        = cmscontent.ErrContentVersionAlreadyPublished
+	ErrContentVersionRetentionExceeded       = cmscontent.ErrContentVersionRetentionExceeded
+	ErrSchedulingDisabled                    = cmscontent.ErrSchedulingDisabled
+	ErrScheduleWindowInvalid                 = cmscontent.ErrScheduleWindowInvalid
+	ErrScheduleTimestampInvalid              = cmscontent.ErrScheduleTimestampInvalid
+	ErrContentTranslationsDisabled           = cmscontent.ErrContentTranslationsDisabled
+	ErrContentTranslationNotFound            = cmscontent.ErrContentTranslationNotFound
+	ErrContentSchemaMigrationRequired        = cmscontent.ErrContentSchemaMigrationRequired
+	ErrContentTranslationLookupUnsupported   = cmscontent.ErrContentTranslationLookupUnsupported
+	ErrContentProjectionModeInvalid          = cmscontent.ErrContentProjectionModeInvalid
+	ErrContentProjectionUnsupported          = cmscontent.ErrContentProjectionUnsupported
+	ErrContentProjectionRequiresTranslations = cmscontent.ErrContentProjectionRequiresTranslations
+	ErrEmbeddedBlocksResolverMissing         = cmscontent.ErrEmbeddedBlocksResolverMissing
 
 	ErrContentTypeNameRequired   = cmscontent.ErrContentTypeNameRequired
 	ErrContentTypeSchemaRequired = cmscontent.ErrContentTypeSchemaRequired
