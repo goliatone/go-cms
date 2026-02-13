@@ -130,10 +130,11 @@ type PageRecord struct {
 
 // PageTranslation mirrors persisted page translations.
 type PageTranslation struct {
-	ID      uuid.UUID
-	Locale  string
-	Title   string
-	Path    string
-	Summary *string
-	Fields  map[string]any
+	ID                 uuid.UUID
+	TranslationGroupID *uuid.UUID `json:"translation_group_id,omitempty"`
+	Locale             string
+	Title              string
+	Path               string
+	Summary            *string
+	Fields             map[string]any
 }
