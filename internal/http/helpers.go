@@ -128,10 +128,12 @@ func mapError(err error) (int, errorResponse) {
 
 	if errors.Is(err, content.ErrContentTypeRequired) ||
 		errors.Is(err, content.ErrContentTranslationNotFound) ||
+		errors.Is(err, content.ErrSourceNotFound) ||
 		errors.Is(err, pages.ErrContentRequired) ||
 		errors.Is(err, pages.ErrParentNotFound) ||
 		errors.Is(err, pages.ErrTemplateUnknown) ||
-		errors.Is(err, pages.ErrPageTranslationNotFound) {
+		errors.Is(err, pages.ErrPageTranslationNotFound) ||
+		errors.Is(err, pages.ErrSourceNotFound) {
 		return http.StatusNotFound, errorResponse{
 			Error:   "not_found",
 			Message: err.Error(),
@@ -149,6 +151,9 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, cmsenv.ErrEnvironmentDefaultProtected) ||
 		errors.Is(err, content.ErrContentTypeSlugExists) ||
 		errors.Is(err, content.ErrSlugExists) ||
+		errors.Is(err, content.ErrSlugConflict) ||
+		errors.Is(err, content.ErrTranslationAlreadyExists) ||
+		errors.Is(err, content.ErrTranslationInvariantViolation) ||
 		errors.Is(err, blocks.ErrDefinitionExists) ||
 		errors.Is(err, menus.ErrMenuCodeExists) {
 		return http.StatusConflict, errorResponse{
@@ -163,6 +168,9 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, blocks.ErrDefinitionVersionExists) ||
 		errors.Is(err, pages.ErrSlugExists) ||
 		errors.Is(err, pages.ErrPathExists) ||
+		errors.Is(err, pages.ErrPathConflict) ||
+		errors.Is(err, pages.ErrTranslationAlreadyExists) ||
+		errors.Is(err, pages.ErrTranslationInvariantViolation) ||
 		errors.Is(err, pages.ErrPageParentCycle) ||
 		errors.Is(err, pages.ErrPageDuplicateSlug) ||
 		errors.Is(err, menus.ErrMenuInUse) ||
@@ -196,6 +204,7 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, content.ErrDefaultLocaleRequired) ||
 		errors.Is(err, content.ErrDuplicateLocale) ||
 		errors.Is(err, content.ErrUnknownLocale) ||
+		errors.Is(err, content.ErrInvalidLocale) ||
 		errors.Is(err, content.ErrContentIDRequired) ||
 		errors.Is(err, content.ErrContentSoftDeleteUnsupported) ||
 		errors.Is(err, content.ErrContentTranslationsDisabled) ||
@@ -206,6 +215,7 @@ func mapError(err error) (int, errorResponse) {
 		errors.Is(err, pages.ErrDefaultLocaleRequired) ||
 		errors.Is(err, pages.ErrDuplicateLocale) ||
 		errors.Is(err, pages.ErrUnknownLocale) ||
+		errors.Is(err, pages.ErrInvalidLocale) ||
 		errors.Is(err, pages.ErrPageRequired) ||
 		errors.Is(err, pages.ErrPageSoftDeleteUnsupported) ||
 		errors.Is(err, menus.ErrMenuCodeRequired) ||
