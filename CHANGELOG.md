@@ -1,5 +1,36 @@
 # Changelog
 
+# [0.36.0](https://github.com/goliatone/go-cms/compare/v0.35.0...v0.36.0) - (2026-02-13)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Add translation group id to page record ([9464f44](https://github.com/goliatone/go-cms/commit/9464f4434af658825023a98988c05b024c04f740))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.36.0 ([4c8d5c4](https://github.com/goliatone/go-cms/commit/4c8d5c462b32647ef2a98cfe7ec8dc75d519c529))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Content translation service ([3732ed3](https://github.com/goliatone/go-cms/commit/3732ed33a044f3caa62ba1bb8903787b39b044f7))  - (goliatone)
+- Expose content aliases ([97400d3](https://github.com/goliatone/go-cms/commit/97400d39a5fb663f2b3be82ffbf2cb17f380a13c))  - (goliatone)
+- Translation conflict strategy ([3d4a765](https://github.com/goliatone/go-cms/commit/3d4a7656884bc10699cd8527883fd4b02d0baf2a))  - (goliatone)
+- Translation related errors ([550b434](https://github.com/goliatone/go-cms/commit/550b434502e549290b71bd63c80fd9fc7dfce977))  - (goliatone)
+- Expose translation group id ([788d137](https://github.com/goliatone/go-cms/commit/788d1379e006cf676eefbe3d45dd1934a69de1e0))  - (goliatone)
+- Expose public structs ([f5d5948](https://github.com/goliatone/go-cms/commit/f5d5948678bc95c8f6dd179d372c54f794954d16))  - (goliatone)
+- Content translator interface ([114bd07](https://github.com/goliatone/go-cms/commit/114bd07fc40b0806c18ee3bae9361e8b6b8004e6))  - (goliatone)
+- Migration to enforce translation group locale ([63f1aa4](https://github.com/goliatone/go-cms/commit/63f1aa4cb9305d6d01e7106e8d79b9153764df40))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.35.0 ([7441885](https://github.com/goliatone/go-cms/commit/7441885c39b3265840f0c7de21bf88d9e2216675))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Udpate tests ([80ccb9b](https://github.com/goliatone/go-cms/commit/80ccb9b5639bc8a49b854cd9a57247b0f57f0e14))  - (goliatone)
+- Update readme ([e7c5215](https://github.com/goliatone/go-cms/commit/e7c5215fbfc27118ab68f8b45c8fa3de79e687ca))  - (goliatone)
+- Update tests ([572807b](https://github.com/goliatone/go-cms/commit/572807ba333b993f5346b8fa7cd127c63282ac73))  - (goliatone)
+
 # [0.35.0](https://github.com/goliatone/go-cms/compare/v0.34.0...v0.35.0) - (2026-02-11)
 
 ## <!-- 13 -->📦 Bumps
