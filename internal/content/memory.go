@@ -132,6 +132,67 @@ func (m *MemoryContentRepository) Update(_ context.Context, record *Content) (*C
 	return m.attachVersions(cloneContent(updated)), nil
 }
 
+// CreateTranslation inserts a single translation for an existing content record.
+func (m *MemoryContentRepository) CreateTranslation(_ context.Context, contentID uuid.UUID, translation *ContentTranslation) (*ContentTranslation, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	record, ok := m.contents[contentID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "content", Key: contentID.String()}
+	}
+	if translation == nil {
+		return nil, ErrTranslationInvariantViolation
+	}
+
+	for _, current := range record.Translations {
+		if current == nil {
+			continue
+		}
+		if current.LocaleID == translation.LocaleID {
+			return nil, ErrTranslationAlreadyExists
+		}
+	}
+
+	groupID := contentID
+	if translation.TranslationGroupID != nil && *translation.TranslationGroupID != uuid.Nil {
+		groupID = *translation.TranslationGroupID
+	}
+	for _, candidate := range m.contents {
+		if candidate == nil {
+			continue
+		}
+		for _, current := range candidate.Translations {
+			if current == nil || current.TranslationGroupID == nil {
+				continue
+			}
+			if *current.TranslationGroupID == groupID && current.LocaleID == translation.LocaleID {
+				return nil, ErrTranslationAlreadyExists
+			}
+		}
+	}
+
+	cloned := *translation
+	cloned.ContentID = contentID
+	if cloned.ID == uuid.Nil {
+		cloned.ID = uuid.New()
+	}
+	now := time.Now().UTC()
+	if cloned.CreatedAt.IsZero() {
+		cloned.CreatedAt = now
+	}
+	if cloned.UpdatedAt.IsZero() {
+		cloned.UpdatedAt = now
+	}
+	if cloned.TranslationGroupID == nil || *cloned.TranslationGroupID == uuid.Nil {
+		groupID := contentID
+		cloned.TranslationGroupID = &groupID
+	}
+
+	record.Translations = append(record.Translations, &cloned)
+	return cloneContentTranslations([]*ContentTranslation{&cloned})[0], nil
+}
+
 // ReplaceTranslations swaps the translations associated with a content record.
 func (m *MemoryContentRepository) ReplaceTranslations(_ context.Context, contentID uuid.UUID, translations []*ContentTranslation) error {
 	m.mu.Lock()
