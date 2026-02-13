@@ -18,6 +18,9 @@ import (
 // ContentService exports the content service contract for consumers of the cms package.
 type ContentService = content.Service
 
+// ContentTranslationCreator exports the additive translation-create capability.
+type ContentTranslationCreator = content.TranslationCreator
+
 // PageService exports the pages service contract.
 type PageService = pages.Service
 
@@ -88,6 +91,15 @@ func (m *Module) Container() *di.Container {
 // Content returns the configured content service.
 func (m *Module) Content() ContentService {
 	return m.container.ContentService()
+}
+
+// ContentTranslations returns the optional translation-create capability for content services.
+func (m *Module) ContentTranslations() ContentTranslationCreator {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	creator, _ := m.container.ContentService().(content.TranslationCreator)
+	return creator
 }
 
 // ContentTypes returns the configured content type service.
