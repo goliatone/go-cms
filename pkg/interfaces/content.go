@@ -20,6 +20,12 @@ type ContentService interface {
 	DeleteTranslation(ctx context.Context, req ContentDeleteTranslationRequest) error
 }
 
+// ContentTranslationCreator is an additive capability interface for first-class
+// translation creation.
+type ContentTranslationCreator interface {
+	CreateTranslation(ctx context.Context, req ContentCreateTranslationRequest) (*ContentRecord, error)
+}
+
 // ContentReadOptions defines read-time locale resolution and metadata behaviour.
 //
 // Behavior contract:
@@ -68,6 +74,16 @@ type ContentDeleteRequest struct {
 	HardDelete bool
 }
 
+// ContentCreateTranslationRequest clones an existing locale into a new locale.
+type ContentCreateTranslationRequest struct {
+	SourceID       uuid.UUID
+	SourceLocale   string
+	TargetLocale   string
+	EnvironmentKey string
+	ActorID        uuid.UUID
+	Status         string
+}
+
 // ContentUpdateTranslationRequest updates a single locale entry.
 type ContentUpdateTranslationRequest struct {
 	ContentID uuid.UUID
@@ -108,11 +124,12 @@ type ContentRecord struct {
 
 // ContentTranslation mirrors stored translation fields.
 type ContentTranslation struct {
-	ID      uuid.UUID
-	Locale  string
-	Title   string
-	Summary *string
-	Fields  map[string]any
+	ID                 uuid.UUID
+	TranslationGroupID *uuid.UUID `json:"translation_group_id,omitempty"`
+	Locale             string
+	Title              string
+	Summary            *string
+	Fields             map[string]any
 }
 
 // ContentTypeService abstracts content type management for adapters.
