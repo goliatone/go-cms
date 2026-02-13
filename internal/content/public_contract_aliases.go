@@ -3,21 +3,29 @@ package content
 import cmscontent "github.com/goliatone/go-cms/content"
 
 type (
-	Service                         = cmscontent.Service
-	TranslationCheckOptions         = cmscontent.TranslationCheckOptions
-	ProjectionTranslationMode       = cmscontent.ProjectionTranslationMode
-	CreateContentRequest            = cmscontent.CreateContentRequest
-	ContentTranslationInput         = cmscontent.ContentTranslationInput
-	UpdateContentRequest            = cmscontent.UpdateContentRequest
-	DeleteContentRequest            = cmscontent.DeleteContentRequest
-	UpdateContentTranslationRequest = cmscontent.UpdateContentTranslationRequest
-	DeleteContentTranslationRequest = cmscontent.DeleteContentTranslationRequest
-	CreateContentDraftRequest       = cmscontent.CreateContentDraftRequest
-	PublishContentDraftRequest      = cmscontent.PublishContentDraftRequest
-	PreviewContentDraftRequest      = cmscontent.PreviewContentDraftRequest
-	RestoreContentVersionRequest    = cmscontent.RestoreContentVersionRequest
-	ContentPreview                  = cmscontent.ContentPreview
-	ScheduleContentRequest          = cmscontent.ScheduleContentRequest
+	Service                            = cmscontent.Service
+	TranslationCreator                 = cmscontent.TranslationCreator
+	TranslationCheckOptions            = cmscontent.TranslationCheckOptions
+	ProjectionTranslationMode          = cmscontent.ProjectionTranslationMode
+	TranslationConflictStrategy        = cmscontent.TranslationConflictStrategy
+	CreateContentRequest               = cmscontent.CreateContentRequest
+	ContentTranslationInput            = cmscontent.ContentTranslationInput
+	UpdateContentRequest               = cmscontent.UpdateContentRequest
+	DeleteContentRequest               = cmscontent.DeleteContentRequest
+	CreateContentTranslationRequest    = cmscontent.CreateContentTranslationRequest
+	UpdateContentTranslationRequest    = cmscontent.UpdateContentTranslationRequest
+	DeleteContentTranslationRequest    = cmscontent.DeleteContentTranslationRequest
+	CreateContentDraftRequest          = cmscontent.CreateContentDraftRequest
+	PublishContentDraftRequest         = cmscontent.PublishContentDraftRequest
+	PreviewContentDraftRequest         = cmscontent.PreviewContentDraftRequest
+	RestoreContentVersionRequest       = cmscontent.RestoreContentVersionRequest
+	ContentPreview                     = cmscontent.ContentPreview
+	ScheduleContentRequest             = cmscontent.ScheduleContentRequest
+	TranslationAlreadyExistsError      = cmscontent.TranslationAlreadyExistsError
+	InvalidLocaleError                 = cmscontent.InvalidLocaleError
+	SourceNotFoundError                = cmscontent.SourceNotFoundError
+	SlugConflictError                  = cmscontent.SlugConflictError
+	TranslationInvariantViolationError = cmscontent.TranslationInvariantViolationError
 
 	ContentTypeService       = cmscontent.ContentTypeService
 	CreateContentTypeRequest = cmscontent.CreateContentTypeRequest
@@ -32,6 +40,8 @@ const (
 	ProjectionTranslationModeAutoLoad = cmscontent.ProjectionTranslationModeAutoLoad
 	ProjectionTranslationModeNoop     = cmscontent.ProjectionTranslationModeNoop
 	ProjectionTranslationModeError    = cmscontent.ProjectionTranslationModeError
+
+	TranslationConflictStrict = cmscontent.TranslationConflictStrict
 )
 
 var (
@@ -39,10 +49,15 @@ var (
 	ErrSlugRequired                          = cmscontent.ErrSlugRequired
 	ErrSlugInvalid                           = cmscontent.ErrSlugInvalid
 	ErrSlugExists                            = cmscontent.ErrSlugExists
+	ErrSlugConflict                          = cmscontent.ErrSlugConflict
 	ErrNoTranslations                        = cmscontent.ErrNoTranslations
 	ErrDefaultLocaleRequired                 = cmscontent.ErrDefaultLocaleRequired
 	ErrDuplicateLocale                       = cmscontent.ErrDuplicateLocale
 	ErrUnknownLocale                         = cmscontent.ErrUnknownLocale
+	ErrInvalidLocale                         = cmscontent.ErrInvalidLocale
+	ErrSourceNotFound                        = cmscontent.ErrSourceNotFound
+	ErrTranslationAlreadyExists              = cmscontent.ErrTranslationAlreadyExists
+	ErrTranslationInvariantViolation         = cmscontent.ErrTranslationInvariantViolation
 	ErrContentSchemaInvalid                  = cmscontent.ErrContentSchemaInvalid
 	ErrContentSoftDeleteUnsupported          = cmscontent.ErrContentSoftDeleteUnsupported
 	ErrContentIDRequired                     = cmscontent.ErrContentIDRequired
