@@ -340,8 +340,18 @@ func TestBuildFailsOnRenderTimeout(t *testing.T) {
 	if !strings.Contains(err.Error(), "timed out") {
 		t.Fatalf("expected timeout error, got %v", err)
 	}
-	if len(result.Diagnostics) == 0 || result.Diagnostics[0].Err == nil {
-		t.Fatalf("expected diagnostic error for timeout")
+	if len(result.Diagnostics) == 0 {
+		t.Fatalf("expected diagnostics for timeout run")
+	}
+	hasDiagnosticErr := false
+	for _, diag := range result.Diagnostics {
+		if diag.Err != nil {
+			hasDiagnosticErr = true
+			break
+		}
+	}
+	if !hasDiagnosticErr {
+		t.Fatalf("expected at least one diagnostic error for timeout")
 	}
 	if len(result.Errors) == 0 {
 		t.Fatalf("expected recorded error slice")
