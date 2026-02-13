@@ -1,0 +1,2 @@
+DROP INDEX IF EXISTS idx_page_translations_group_locale_unique;
+DROP INDEX IF EXISTS idx_content_translations_group_locale_unique;
