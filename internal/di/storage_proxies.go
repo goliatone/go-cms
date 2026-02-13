@@ -55,6 +55,10 @@ func (p *contentRepositoryProxy) Update(ctx context.Context, record *content.Con
 	return p.current().Update(ctx, record)
 }
 
+func (p *contentRepositoryProxy) CreateTranslation(ctx context.Context, contentID uuid.UUID, translation *content.ContentTranslation) (*content.ContentTranslation, error) {
+	return p.current().CreateTranslation(ctx, contentID, translation)
+}
+
 func (p *contentRepositoryProxy) ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*content.ContentTranslation) error {
 	return p.current().ReplaceTranslations(ctx, contentID, translations)
 }
