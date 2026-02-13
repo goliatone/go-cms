@@ -572,10 +572,11 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 
 	if pageResolvedLocale != "" {
 		pageTranslation := interfaces.PageTranslation{
-			Locale:  pageResolvedLocale,
-			Title:   row.Title,
-			Path:    row.Path,
-			Summary: cloneStringPtr(row.Summary),
+			TranslationGroupID: row.TranslationGroupID,
+			Locale:             pageResolvedLocale,
+			Title:              row.Title,
+			Path:               row.Path,
+			Summary:            cloneStringPtr(row.Summary),
 		}
 		if pageMeta.RequestedLocale != "" && strings.EqualFold(pageMeta.RequestedLocale, pageMeta.ResolvedLocale) {
 			record.Translation.Requested = &pageTranslation
@@ -587,8 +588,9 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 
 	if contentResolvedLocale != "" {
 		contentTranslation := interfaces.ContentTranslation{
-			Locale: contentResolvedLocale,
-			Fields: cloneAdminMap(row.ContentPayload),
+			TranslationGroupID: row.TranslationGroupID,
+			Locale:             contentResolvedLocale,
+			Fields:             cloneAdminMap(row.ContentPayload),
 		}
 		if contentMeta.RequestedLocale != "" && strings.EqualFold(contentMeta.RequestedLocale, contentMeta.ResolvedLocale) {
 			record.ContentTranslation.Requested = &contentTranslation
