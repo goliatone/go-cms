@@ -361,6 +361,9 @@ Locales, translations, and fallbacks are available across services. `cfg.I18N.Lo
 Translation grouping: content/page translations store `TranslationGroupID` (backed by `translation_group_id` in SQL). The services default it to the owning content/page ID and preserve it across updates so export pipelines or translation workflows can treat locales as a single group.
 
 Migration note: `data/sql/migrations/20260301000000_translation_grouping.up.sql` (content/page translation group columns + indexes).
+`data/sql/migrations/20260501000000_translation_group_locale_unique.up.sql` adds a uniqueness invariant for active `(translation_group_id, locale_id)` rows.
+
+Translation create capability: content services now expose an additive `content.TranslationCreator` capability. Use `module.ContentTranslations()` and call `CreateTranslation` to clone an existing locale into a target locale atomically with typed conflicts (`ErrTranslationAlreadyExists`, `ErrInvalidLocale`, `ErrSourceNotFound`).
 
 ## Slug Rules & Schema Validation
 
