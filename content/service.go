@@ -31,6 +31,12 @@ type Service interface {
 	RestoreVersion(ctx context.Context, req RestoreContentVersionRequest) (*ContentVersion, error)
 }
 
+// TranslationCreator exposes first-class translation creation without forcing
+// consumers to depend on concrete service implementations.
+type TranslationCreator interface {
+	CreateTranslation(ctx context.Context, req CreateContentTranslationRequest) (*Content, error)
+}
+
 // ContentTypeService provides CRUD operations for content types.
 type ContentTypeService interface {
 	Create(ctx context.Context, req CreateContentTypeRequest) (*ContentType, error)
@@ -140,6 +146,24 @@ type DeleteContentRequest struct {
 	ID         uuid.UUID
 	DeletedBy  uuid.UUID
 	HardDelete bool
+}
+
+// TranslationConflictStrategy controls duplicate handling when creating translations.
+type TranslationConflictStrategy string
+
+const (
+	TranslationConflictStrict TranslationConflictStrategy = "strict"
+)
+
+// CreateContentTranslationRequest captures the payload required to clone one locale into another.
+type CreateContentTranslationRequest struct {
+	SourceID         uuid.UUID
+	SourceLocale     string
+	TargetLocale     string
+	EnvironmentKey   string
+	ActorID          uuid.UUID
+	Status           string
+	ConflictStrategy TranslationConflictStrategy
 }
 
 // UpdateContentTranslationRequest captures the payload required to mutate a single translation.
