@@ -194,6 +194,37 @@ func (r *BunContentRepository) Update(ctx context.Context, record *Content) (*Co
 	return updated, nil
 }
 
+func (r *BunContentRepository) CreateTranslation(ctx context.Context, contentID uuid.UUID, translation *ContentTranslation) (*ContentTranslation, error) {
+	if r.db == nil {
+		return nil, fmt.Errorf("content repository: database not configured")
+	}
+	if translation == nil {
+		return nil, ErrTranslationInvariantViolation
+	}
+
+	now := time.Now().UTC()
+	cloned := *translation
+	cloned.ContentID = contentID
+	if cloned.ID == uuid.Nil {
+		cloned.ID = uuid.New()
+	}
+	if cloned.CreatedAt.IsZero() {
+		cloned.CreatedAt = now
+	}
+	if cloned.UpdatedAt.IsZero() {
+		cloned.UpdatedAt = now
+	}
+	if cloned.TranslationGroupID == nil || *cloned.TranslationGroupID == uuid.Nil {
+		groupID := contentID
+		cloned.TranslationGroupID = &groupID
+	}
+
+	if _, err := r.db.NewInsert().Model(&cloned).Exec(ctx); err != nil {
+		return nil, fmt.Errorf("insert translation: %w", err)
+	}
+	return &cloned, nil
+}
+
 func (r *BunContentRepository) ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error {
 	if r.db == nil {
 		return fmt.Errorf("content repository: database not configured")
