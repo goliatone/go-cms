@@ -3,12 +3,14 @@ package content_test
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/pkg/activity"
+	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -399,6 +401,286 @@ func TestServiceUpdateTranslation(t *testing.T) {
 	}
 	if reloaded.UpdatedBy != editorID {
 		t.Fatalf("expected updated_by %s got %s", editorID, reloaded.UpdatedBy)
+	}
+}
+
+func TestServiceCreateTranslationHappyPath(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "body"}},
+		},
+	})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+
+	source, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "translation-create",
+		Status:        string(domain.StatusPublished),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Hello",
+			Content: map[string]any{
+				"body": "Welcome",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+	if len(source.Translations) != 1 {
+		t.Fatalf("expected one source translation, got %d", len(source.Translations))
+	}
+	sourceGroup := source.Translations[0].TranslationGroupID
+
+	updated, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "fr",
+	})
+	if err != nil {
+		t.Fatalf("create translation: %v", err)
+	}
+	if updated.Status != string(domain.StatusDraft) {
+		t.Fatalf("expected status %q, got %q", domain.StatusDraft, updated.Status)
+	}
+	if len(updated.Translations) != 2 {
+		t.Fatalf("expected 2 translations, got %d", len(updated.Translations))
+	}
+
+	var fr *content.ContentTranslation
+	for _, tr := range updated.Translations {
+		if tr == nil || tr.Locale == nil {
+			continue
+		}
+		if tr.Locale.Code == "fr" {
+			fr = tr
+			break
+		}
+	}
+	if fr == nil {
+		t.Fatalf("expected fr translation to be created")
+	}
+	if sourceGroup == nil || fr.TranslationGroupID == nil || *sourceGroup != *fr.TranslationGroupID {
+		t.Fatalf("expected translation group to match source")
+	}
+
+	locales, err := svc.AvailableLocales(context.Background(), source.ID, interfaces.TranslationCheckOptions{})
+	if err != nil {
+		t.Fatalf("available locales: %v", err)
+	}
+	if len(locales) != 2 {
+		t.Fatalf("expected locales [en fr], got %v", locales)
+	}
+}
+
+func TestServiceCreateTranslationDuplicateReturnsTypedConflict(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+
+	source, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "translation-duplicate",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	if _, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		TargetLocale: "fr",
+	}); err != nil {
+		t.Fatalf("first create translation: %v", err)
+	}
+
+	_, err = creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		TargetLocale: "fr",
+	})
+	if !errors.Is(err, content.ErrTranslationAlreadyExists) {
+		t.Fatalf("expected ErrTranslationAlreadyExists, got %v", err)
+	}
+	if errors.Is(err, content.ErrSlugExists) {
+		t.Fatalf("did not expect slug conflict for duplicate translation creation")
+	}
+
+	var existsErr *content.TranslationAlreadyExistsError
+	if !errors.As(err, &existsErr) {
+		t.Fatalf("expected typed TranslationAlreadyExistsError, got %T", err)
+	}
+	if existsErr.ExistingID == uuid.Nil {
+		t.Fatalf("expected existing translation id to be populated")
+	}
+	if existsErr.TargetLocale != "fr" {
+		t.Fatalf("expected target locale fr, got %q", existsErr.TargetLocale)
+	}
+}
+
+func TestServiceCreateTranslationValidatesLocale(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+
+	source, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "translation-locale",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	_, err = creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		TargetLocale: "zz",
+	})
+	if !errors.Is(err, content.ErrInvalidLocale) {
+		t.Fatalf("expected ErrInvalidLocale, got %v", err)
+	}
+
+	var localeErr *content.InvalidLocaleError
+	if !errors.As(err, &localeErr) {
+		t.Fatalf("expected typed InvalidLocaleError, got %T", err)
+	}
+}
+
+func TestServiceCreateTranslationSourceNotFound(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+
+	_, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     uuid.New(),
+		TargetLocale: "fr",
+	})
+	if !errors.Is(err, content.ErrSourceNotFound) {
+		t.Fatalf("expected ErrSourceNotFound, got %v", err)
+	}
+	var notFound *content.SourceNotFoundError
+	if !errors.As(err, &notFound) {
+		t.Fatalf("expected typed SourceNotFoundError, got %T", err)
+	}
+}
+
+func TestServiceCreateTranslationConcurrency(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+
+	source, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "translation-concurrency",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Hello",
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	const workers = 2
+	results := make(chan error, workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			_, createErr := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+				SourceID:     source.ID,
+				TargetLocale: "fr",
+			})
+			results <- createErr
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	success := 0
+	conflicts := 0
+	for createErr := range results {
+		if createErr == nil {
+			success++
+			continue
+		}
+		if errors.Is(createErr, content.ErrTranslationAlreadyExists) {
+			conflicts++
+			continue
+		}
+		t.Fatalf("unexpected create translation error: %v", createErr)
+	}
+	if success != 1 || conflicts != 1 {
+		t.Fatalf("expected one success and one conflict, got success=%d conflict=%d", success, conflicts)
+	}
+
+	reloaded, err := svc.Get(context.Background(), source.ID, content.WithTranslations())
+	if err != nil {
+		t.Fatalf("reload content: %v", err)
+	}
+	frCount := 0
+	for _, tr := range reloaded.Translations {
+		if tr != nil && tr.Locale != nil && tr.Locale.Code == "fr" {
+			frCount++
+		}
+	}
+	if frCount != 1 {
+		t.Fatalf("expected exactly one fr translation, got %d", frCount)
 	}
 }
 
@@ -957,4 +1239,13 @@ func seedContentType(t *testing.T, store *content.MemoryContentTypeRepository, c
 	if err := store.Put(ct); err != nil {
 		t.Fatalf("seed content type: %v", err)
 	}
+}
+
+func requireTranslationCreator(t *testing.T, svc content.Service) content.TranslationCreator {
+	t.Helper()
+	creator, ok := svc.(content.TranslationCreator)
+	if !ok {
+		t.Fatalf("expected translation creator capability, got %T", svc)
+	}
+	return creator
 }

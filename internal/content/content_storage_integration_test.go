@@ -2,6 +2,8 @@ package content_test
 
 import (
 	"context"
+	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -140,6 +142,96 @@ func TestContentService_AllowsOptionalTranslations(t *testing.T) {
 	}
 }
 
+func TestContentService_CreateTranslationConcurrencyWithBunStorage(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerContentModels(t, bunDB)
+	seedContentEntities(t, bunDB)
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+
+	svc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	creator, ok := svc.(content.TranslationCreator)
+	if !ok {
+		t.Fatalf("expected translation creator capability, got %T", svc)
+	}
+
+	source, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:          "translation-race",
+		Status:        "published",
+		CreatedBy:     mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+		UpdatedBy:     mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa"),
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Hello",
+				Content: map[string]any{"body": "Welcome"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	if _, err := bunDB.NewInsert().Model(&content.Locale{
+		ID:        mustUUID("00000000-0000-0000-0000-000000000202"),
+		Code:      "fr",
+		Display:   "French",
+		IsActive:  true,
+		IsDefault: false,
+	}).Exec(ctx); err != nil {
+		t.Fatalf("insert fr locale: %v", err)
+	}
+
+	const workers = 2
+	results := make(chan error, workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for i := 0; i < workers; i++ {
+		go func() {
+			defer wg.Done()
+			_, createErr := creator.CreateTranslation(ctx, content.CreateContentTranslationRequest{
+				SourceID:     source.ID,
+				TargetLocale: "fr",
+			})
+			results <- createErr
+		}()
+	}
+	wg.Wait()
+	close(results)
+
+	success := 0
+	conflicts := 0
+	for createErr := range results {
+		if createErr == nil {
+			success++
+			continue
+		}
+		if errors.Is(createErr, content.ErrTranslationAlreadyExists) {
+			conflicts++
+			continue
+		}
+		t.Fatalf("unexpected create translation error: %v", createErr)
+	}
+	if success != 1 || conflicts != 1 {
+		t.Fatalf("expected one success and one conflict, got success=%d conflicts=%d", success, conflicts)
+	}
+}
+
 func TestBunContentTypeRepository_ListAndSearchOrdersBySlugAndCreatedAt(t *testing.T) {
 	ctx := context.Background()
 
@@ -238,6 +330,12 @@ func registerContentModels(t *testing.T, db *bun.DB) {
 		if _, err := db.NewCreateTable().Model(model).IfNotExists().Exec(ctx); err != nil {
 			t.Fatalf("create table %T: %v", model, err)
 		}
+	}
+	if _, err := db.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_translations_content_locale_unique ON content_translations(content_id, locale_id)"); err != nil {
+		t.Fatalf("create index idx_content_translations_content_locale_unique: %v", err)
+	}
+	if _, err := db.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_translations_group_locale_unique ON content_translations(translation_group_id, locale_id) WHERE translation_group_id IS NOT NULL"); err != nil {
+		t.Fatalf("create index idx_content_translations_group_locale_unique: %v", err)
 	}
 }
 
