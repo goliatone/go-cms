@@ -177,6 +177,33 @@ func (a *markdownContentServiceAdapter) Delete(ctx context.Context, req interfac
 	})
 }
 
+func (a *markdownContentServiceAdapter) CreateTranslation(ctx context.Context, req interfaces.ContentCreateTranslationRequest) (*interfaces.ContentRecord, error) {
+	if a == nil || a.service == nil {
+		return nil, errors.New("content service unavailable")
+	}
+	creator, ok := a.service.(content.TranslationCreator)
+	if !ok {
+		return nil, errors.New("content translation create unsupported")
+	}
+	record, err := creator.CreateTranslation(ctx, content.CreateContentTranslationRequest{
+		SourceID:       req.SourceID,
+		SourceLocale:   req.SourceLocale,
+		TargetLocale:   req.TargetLocale,
+		EnvironmentKey: req.EnvironmentKey,
+		ActorID:        req.ActorID,
+		Status:         req.Status,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return toContentRecordWithOptions(record, interfaces.ContentReadOptions{
+		Locale:                   req.TargetLocale,
+		IncludeAvailableLocales:  true,
+		AllowMissingTranslations: true,
+		EnvironmentKey:           req.EnvironmentKey,
+	}, nil), nil
+}
+
 func (a *markdownContentServiceAdapter) UpdateTranslation(ctx context.Context, req interfaces.ContentUpdateTranslationRequest) (*interfaces.ContentTranslation, error) {
 	if a == nil || a.service == nil {
 		return nil, errors.New("content service unavailable")
@@ -230,11 +257,12 @@ func toContentRecordWithOptions(record *content.Content, opts interfaces.Content
 			locale = tr.Locale.Code
 		}
 		translations = append(translations, interfaces.ContentTranslation{
-			ID:      tr.ID,
-			Locale:  locale,
-			Title:   tr.Title,
-			Summary: tr.Summary,
-			Fields:  cloneFieldMap(tr.Content),
+			ID:                 tr.ID,
+			TranslationGroupID: tr.TranslationGroupID,
+			Locale:             locale,
+			Title:              tr.Title,
+			Summary:            tr.Summary,
+			Fields:             cloneFieldMap(tr.Content),
 		})
 	}
 	return &interfaces.ContentRecord{
@@ -257,11 +285,12 @@ func toInterfacesContentTranslation(record *content.ContentTranslation) *interfa
 		locale = record.Locale.Code
 	}
 	return &interfaces.ContentTranslation{
-		ID:      record.ID,
-		Locale:  locale,
-		Title:   record.Title,
-		Summary: record.Summary,
-		Fields:  cloneFieldMap(record.Content),
+		ID:                 record.ID,
+		TranslationGroupID: record.TranslationGroupID,
+		Locale:             locale,
+		Title:              record.Title,
+		Summary:            record.Summary,
+		Fields:             cloneFieldMap(record.Content),
 	}
 }
 
