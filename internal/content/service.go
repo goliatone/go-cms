@@ -28,6 +28,7 @@ type ContentRepository interface {
 	GetBySlug(ctx context.Context, slug string, contentTypeID uuid.UUID, env ...string) (*Content, error)
 	List(ctx context.Context, env ...ContentListOption) ([]*Content, error)
 	Update(ctx context.Context, record *Content) (*Content, error)
+	CreateTranslation(ctx context.Context, contentID uuid.UUID, translation *ContentTranslation) (*ContentTranslation, error)
 	ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error
 	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
 	CreateVersion(ctx context.Context, version *ContentVersion) (*ContentVersion, error)
@@ -871,6 +872,187 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 	}
 	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "content", record.ID, meta)
 	return nil
+}
+
+// CreateTranslation clones an existing locale variant into a target locale.
+func (s *service) CreateTranslation(ctx context.Context, req CreateContentTranslationRequest) (*Content, error) {
+	if !s.translationsEnabledFlag() {
+		return nil, ErrContentTranslationsDisabled
+	}
+	if req.SourceID == uuid.Nil {
+		return nil, ErrContentIDRequired
+	}
+
+	targetLocale := strings.ToLower(strings.TrimSpace(req.TargetLocale))
+	if targetLocale == "" {
+		return nil, &InvalidLocaleError{
+			EntityID: req.SourceID,
+		}
+	}
+
+	conflictStrategy := strings.TrimSpace(strings.ToLower(string(req.ConflictStrategy)))
+	if conflictStrategy == "" {
+		conflictStrategy = string(TranslationConflictStrict)
+	}
+
+	record, err := s.contents.GetByID(ctx, req.SourceID)
+	if err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, &SourceNotFoundError{
+				EntityID:    req.SourceID,
+				Environment: strings.TrimSpace(req.EnvironmentKey),
+			}
+		}
+		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(req.EnvironmentKey) != "" || s.requireExplicitEnv {
+		envID, _, err := s.resolveEnvironment(ctx, req.EnvironmentKey)
+		if err != nil {
+			return nil, err
+		}
+		if record.EnvironmentID != uuid.Nil && record.EnvironmentID != envID {
+			return nil, cmsenv.ErrEnvironmentNotFound
+		}
+	}
+
+	if err := s.loadTranslations(ctx, record); err != nil {
+		return nil, err
+	}
+	if len(record.Translations) == 0 {
+		return nil, &TranslationInvariantViolationError{
+			EntityID: req.SourceID,
+			Message:  "source has no translations",
+		}
+	}
+
+	target, err := s.locales.GetByCode(ctx, targetLocale)
+	if err != nil || target == nil {
+		return nil, &InvalidLocaleError{
+			EntityID:     req.SourceID,
+			TargetLocale: targetLocale,
+			Environment:  strings.TrimSpace(req.EnvironmentKey),
+		}
+	}
+
+	if existing := findContentTranslationByLocale(record.Translations, target.ID, target.Code); existing != nil {
+		return nil, &TranslationAlreadyExistsError{
+			EntityID:           req.SourceID,
+			SourceLocale:       strings.TrimSpace(req.SourceLocale),
+			TargetLocale:       target.Code,
+			TranslationGroupID: existing.TranslationGroupID,
+			ExistingID:         existing.ID,
+			Environment:        strings.TrimSpace(req.EnvironmentKey),
+		}
+	}
+
+	sourceLocale := strings.TrimSpace(req.SourceLocale)
+	var sourceTranslation *ContentTranslation
+	if sourceLocale != "" {
+		sourceTranslation, sourceLocale = resolveContentSourceTranslation(ctx, s.locales, record.Translations, sourceLocale)
+		if sourceTranslation == nil {
+			return nil, &TranslationInvariantViolationError{
+				EntityID:     req.SourceID,
+				SourceLocale: sourceLocale,
+				TargetLocale: target.Code,
+				Message:      "requested source locale is not available",
+			}
+		}
+	} else {
+		sourceTranslation, sourceLocale = selectSourceTranslation(ctx, s.locales, record, req.SourceLocale)
+		if sourceTranslation == nil {
+			return nil, &TranslationInvariantViolationError{
+				EntityID: req.SourceID,
+				Message:  "unable to resolve source translation",
+			}
+		}
+	}
+
+	contentType, err := s.contentTypes.GetByID(ctx, record.ContentTypeID)
+	if err != nil {
+		return nil, ErrContentTypeRequired
+	}
+	if err := validation.ValidateSchema(contentType.Schema); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+	sourceContent := stripSchemaVersion(sourceTranslation.Content)
+	if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(sourceContent)); err != nil {
+		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+	}
+
+	now := s.now()
+	groupID := translationGroupForContent(record.ID, sourceTranslation)
+	createdTranslation := &ContentTranslation{
+		ID:                 s.id(),
+		ContentID:          record.ID,
+		LocaleID:           target.ID,
+		TranslationGroupID: &groupID,
+		Title:              sourceTranslation.Title,
+		Summary:            cloneString(sourceTranslation.Summary),
+		Content:            applySchemaVersion(sourceContent, version),
+		Locale:             target,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+	}
+
+	inserted, err := s.contents.CreateTranslation(ctx, record.ID, createdTranslation)
+	if err != nil {
+		if isTranslationUniqueViolation(err) || conflictStrategy == string(TranslationConflictStrict) {
+			if current, listErr := s.fetchExistingTranslation(ctx, record.ID, target.ID, target.Code); listErr == nil && current != nil {
+				return nil, &TranslationAlreadyExistsError{
+					EntityID:           req.SourceID,
+					SourceLocale:       sourceLocale,
+					TargetLocale:       target.Code,
+					TranslationGroupID: current.TranslationGroupID,
+					ExistingID:         current.ID,
+					Environment:        strings.TrimSpace(req.EnvironmentKey),
+				}
+			}
+		}
+		if errors.Is(err, ErrSlugExists) {
+			return nil, &SlugConflictError{
+				EntityID:     req.SourceID,
+				SourceLocale: sourceLocale,
+				TargetLocale: target.Code,
+				Environment:  strings.TrimSpace(req.EnvironmentKey),
+				Slug:         record.Slug,
+			}
+		}
+		return nil, err
+	}
+
+	if inserted != nil {
+		record.Translations = append(record.Translations, inserted)
+	} else {
+		record.Translations = append(record.Translations, createdTranslation)
+	}
+	if strings.TrimSpace(record.PrimaryLocale) == "" {
+		record.PrimaryLocale = strings.TrimSpace(sourceLocale)
+	}
+	record.Status = chooseStatus(req.Status)
+	record.UpdatedAt = s.now()
+	if req.ActorID != uuid.Nil {
+		record.UpdatedBy = req.ActorID
+	}
+	if _, updateErr := s.contents.Update(ctx, record); updateErr != nil {
+		return nil, updateErr
+	}
+
+	updated, err := s.contents.GetByID(ctx, record.ID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadTranslations(ctx, updated); err != nil {
+		return nil, err
+	}
+	return s.decorateContent(updated), nil
 }
 
 // UpdateTranslation mutates a single translation without replacing the entire set.
@@ -2029,6 +2211,21 @@ func (s *service) loadTranslations(ctx context.Context, record *Content) error {
 	return nil
 }
 
+func (s *service) fetchExistingTranslation(ctx context.Context, contentID uuid.UUID, localeID uuid.UUID, localeCode string) (*ContentTranslation, error) {
+	reader, ok := s.contents.(ContentTranslationReader)
+	if !ok {
+		return nil, nil
+	}
+	translations, err := reader.ListTranslations(ctx, contentID)
+	if err != nil {
+		if errors.Is(err, ErrContentTranslationLookupUnsupported) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return findContentTranslationByLocale(translations, localeID, localeCode), nil
+}
+
 func (s *service) resolveProjectionMode(opts contentListOptions) (ProjectionTranslationMode, error) {
 	mode := s.projectionTranslationMode
 	if mode == "" {
@@ -2103,6 +2300,90 @@ func canonicalProjectionName(value string) string {
 	default:
 		return normalized
 	}
+}
+
+func findContentTranslationByLocale(translations []*ContentTranslation, localeID uuid.UUID, localeCode string) *ContentTranslation {
+	for _, tr := range translations {
+		if tr == nil {
+			continue
+		}
+		if localeID != uuid.Nil && tr.LocaleID == localeID {
+			return tr
+		}
+		if strings.TrimSpace(localeCode) != "" {
+			if tr.Locale != nil && strings.EqualFold(strings.TrimSpace(tr.Locale.Code), strings.TrimSpace(localeCode)) {
+				return tr
+			}
+		}
+	}
+	return nil
+}
+
+func selectSourceTranslation(ctx context.Context, locales LocaleRepository, record *Content, requested string) (*ContentTranslation, string) {
+	if record == nil || len(record.Translations) == 0 {
+		return nil, ""
+	}
+	if locale := strings.TrimSpace(requested); locale != "" {
+		if locales != nil {
+			if resolved, err := locales.GetByCode(ctx, locale); err == nil && resolved != nil {
+				if found := findContentTranslationByLocale(record.Translations, resolved.ID, resolved.Code); found != nil {
+					return found, resolved.Code
+				}
+			}
+		}
+		if found := findContentTranslationByLocale(record.Translations, uuid.Nil, locale); found != nil {
+			return found, locale
+		}
+	}
+	if primary := strings.TrimSpace(record.PrimaryLocale); primary != "" {
+		if found := findContentTranslationByLocale(record.Translations, uuid.Nil, primary); found != nil {
+			return found, primary
+		}
+	}
+	first := record.Translations[0]
+	if first == nil {
+		return nil, ""
+	}
+	if first.Locale != nil && strings.TrimSpace(first.Locale.Code) != "" {
+		return first, strings.TrimSpace(first.Locale.Code)
+	}
+	return first, strings.TrimSpace(requested)
+}
+
+func resolveContentSourceTranslation(ctx context.Context, locales LocaleRepository, translations []*ContentTranslation, locale string) (*ContentTranslation, string) {
+	requested := strings.TrimSpace(locale)
+	if requested == "" {
+		return nil, ""
+	}
+	if locales != nil {
+		if resolved, err := locales.GetByCode(ctx, requested); err == nil && resolved != nil {
+			if found := findContentTranslationByLocale(translations, resolved.ID, resolved.Code); found != nil {
+				return found, resolved.Code
+			}
+		}
+	}
+	if found := findContentTranslationByLocale(translations, uuid.Nil, requested); found != nil {
+		return found, requested
+	}
+	return nil, requested
+}
+
+func translationGroupForContent(contentID uuid.UUID, translation *ContentTranslation) uuid.UUID {
+	if translation != nil && translation.TranslationGroupID != nil && *translation.TranslationGroupID != uuid.Nil {
+		return *translation.TranslationGroupID
+	}
+	return contentID
+}
+
+func isTranslationUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "duplicate key value") ||
+		strings.Contains(message, "unique constraint") ||
+		strings.Contains(message, "constraint failed") ||
+		strings.Contains(message, "unique violation")
 }
 
 func projectDerivedContentFields(payload map[string]any) map[string]any {
