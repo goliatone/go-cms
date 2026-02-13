@@ -699,11 +699,12 @@ func toInterfacesPageTranslation(translation *PageTranslation, locale string) *i
 		resolvedLocale = strings.TrimSpace(translation.Locale)
 	}
 	return &interfaces.PageTranslation{
-		ID:      translation.ID,
-		Locale:  resolvedLocale,
-		Title:   translation.Title,
-		Path:    translation.Path,
-		Summary: cloneStringPtr(translation.Summary),
+		ID:                 translation.ID,
+		TranslationGroupID: translation.TranslationGroupID,
+		Locale:             resolvedLocale,
+		Title:              translation.Title,
+		Path:               translation.Path,
+		Summary:            cloneStringPtr(translation.Summary),
 	}
 }
 
@@ -716,11 +717,12 @@ func toInterfacesContentTranslation(translation *content.ContentTranslation, loc
 		resolvedLocale = strings.TrimSpace(translation.Locale.Code)
 	}
 	return &interfaces.ContentTranslation{
-		ID:      translation.ID,
-		Locale:  resolvedLocale,
-		Title:   translation.Title,
-		Summary: cloneStringPtr(translation.Summary),
-		Fields:  cloneAdminMap(translation.Content),
+		ID:                 translation.ID,
+		TranslationGroupID: translation.TranslationGroupID,
+		Locale:             resolvedLocale,
+		Title:              translation.Title,
+		Summary:            cloneStringPtr(translation.Summary),
+		Fields:             cloneAdminMap(translation.Content),
 	}
 }
 
