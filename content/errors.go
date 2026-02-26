@@ -3,6 +3,7 @@ package content
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/google/uuid"
@@ -43,15 +44,16 @@ var (
 	ErrContentProjectionRequiresTranslations = errors.New("content: projection requires translations")
 	ErrEmbeddedBlocksResolverMissing         = errors.New("content: embedded blocks resolver not configured")
 
-	ErrContentTypeNameRequired   = errors.New("content type: name is required")
-	ErrContentTypeSchemaRequired = errors.New("content type: schema is required")
-	ErrContentTypeSchemaInvalid  = errors.New("content type: schema is invalid")
-	ErrContentTypeIDRequired     = errors.New("content type: id required")
-	ErrContentTypeSlugInvalid    = errors.New("content type: slug contains invalid characters")
-	ErrContentTypeSchemaVersion  = errors.New("content type: schema version invalid")
-	ErrContentTypeSchemaBreaking = errors.New("content type: schema has breaking changes")
-	ErrContentTypeStatusInvalid  = errors.New("content type: status invalid")
-	ErrContentTypeStatusChange   = errors.New("content type: status transition invalid")
+	ErrContentTypeNameRequired        = errors.New("content type: name is required")
+	ErrContentTypeSchemaRequired      = errors.New("content type: schema is required")
+	ErrContentTypeSchemaInvalid       = errors.New("content type: schema is invalid")
+	ErrContentTypeIDRequired          = errors.New("content type: id required")
+	ErrContentTypeSlugInvalid         = errors.New("content type: slug contains invalid characters")
+	ErrContentTypeSchemaVersion       = errors.New("content type: schema version invalid")
+	ErrContentTypeSchemaBreaking      = errors.New("content type: schema has breaking changes")
+	ErrContentTypeStatusInvalid       = errors.New("content type: status invalid")
+	ErrContentTypeStatusChange        = errors.New("content type: status transition invalid")
+	ErrContentTypeCapabilitiesInvalid = errors.New("content type: capabilities invalid")
 )
 
 // TranslationAlreadyExistsError captures duplicate translation conflicts.
@@ -169,4 +171,29 @@ func (e *TranslationInvariantViolationError) Error() string {
 
 func (e *TranslationInvariantViolationError) Unwrap() error {
 	return ErrTranslationInvariantViolation
+}
+
+// ContentTypeCapabilityValidationError captures per-field capability validation failures.
+type ContentTypeCapabilityValidationError struct {
+	Fields map[string]string
+}
+
+func (e *ContentTypeCapabilityValidationError) Error() string {
+	if e == nil || len(e.Fields) == 0 {
+		return ErrContentTypeCapabilitiesInvalid.Error()
+	}
+	keys := make([]string, 0, len(e.Fields))
+	for key := range e.Fields {
+		keys = append(keys, key)
+	}
+	slices.Sort(keys)
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+": "+strings.TrimSpace(e.Fields[key]))
+	}
+	return fmt.Sprintf("%s: %s", ErrContentTypeCapabilitiesInvalid.Error(), strings.Join(parts, "; "))
+}
+
+func (e *ContentTypeCapabilityValidationError) Unwrap() error {
+	return ErrContentTypeCapabilitiesInvalid
 }
