@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/goliatone/go-cms/internal/menus"
 	"github.com/google/uuid"
@@ -21,31 +22,106 @@ var errNilModule = errors.New("cms: module is nil")
 
 // MenuInfo is a stable public view of a menu record.
 type MenuInfo struct {
-	Code        string
-	Location    string
-	Description *string
+	Code               string     `json:"code"`
+	Location           string     `json:"location,omitempty"`
+	Description        *string    `json:"description,omitempty"`
+	Status             string     `json:"status"`
+	Locale             *string    `json:"locale,omitempty"`
+	TranslationGroupID *uuid.UUID `json:"translation_group_id,omitempty"`
+	PublishedAt        *time.Time `json:"published_at,omitempty"`
+}
+
+type MenuResolveOptions struct {
+	IncludeDrafts               bool   `json:"include_drafts,omitempty"`
+	PreviewToken                string `json:"preview_token,omitempty"`
+	Status                      string `json:"status,omitempty"`
+	ViewProfile                 string `json:"view_profile,omitempty"`
+	BindingPolicy               string `json:"binding_policy,omitempty"`
+	IncludeContributions        *bool  `json:"include_contributions,omitempty"`
+	ContributionMergeMode       string `json:"contribution_merge_mode,omitempty"`
+	ContributionDuplicatePolicy string `json:"contribution_duplicate_policy,omitempty"`
+}
+
+type MenuLocationBindingInfo struct {
+	Location        string  `json:"location"`
+	MenuCode        string  `json:"menu_code"`
+	ViewProfileCode *string `json:"view_profile_code,omitempty"`
+	Locale          *string `json:"locale,omitempty"`
+	Priority        int     `json:"priority"`
+	Status          string  `json:"status"`
+}
+
+type MenuViewProfileInfo struct {
+	Code           string   `json:"code"`
+	Name           string   `json:"name"`
+	Mode           string   `json:"mode"`
+	MaxTopLevel    *int     `json:"max_top_level,omitempty"`
+	MaxDepth       *int     `json:"max_depth,omitempty"`
+	IncludeItemIDs []string `json:"include_item_ids,omitempty"`
+	ExcludeItemIDs []string `json:"exclude_item_ids,omitempty"`
+	Status         string   `json:"status"`
+}
+
+type ResolvedMenuPreviewInfo struct {
+	IncludeDrafts       bool   `json:"include_drafts"`
+	PreviewTokenPresent bool   `json:"preview_token_present"`
+	MenuStatus          string `json:"menu_status,omitempty"`
+	BindingStatus       string `json:"binding_status,omitempty"`
+	ViewProfileStatus   string `json:"view_profile_status,omitempty"`
+}
+
+type ResolvedMenuInfo struct {
+	Location           string                      `json:"location"`
+	RequestedLocale    string                      `json:"requested_locale,omitempty"`
+	ResolvedLocale     string                      `json:"resolved_locale,omitempty"`
+	Menu               *MenuInfo                   `json:"menu,omitempty"`
+	Binding            *MenuLocationBindingInfo    `json:"binding,omitempty"`
+	Bindings           []MenuLocationBindingInfo   `json:"bindings,omitempty"`
+	ViewProfile        *MenuViewProfileInfo        `json:"view_profile,omitempty"`
+	Items              []NavigationNode            `json:"items,omitempty"`
+	ContentMembership  []ContentMenuMembershipInfo `json:"content_membership,omitempty"`
+	Preview            ResolvedMenuPreviewInfo     `json:"preview"`
+	TranslationGroupID *uuid.UUID                  `json:"translation_group_id,omitempty"`
 }
 
 // NavigationNode is a localized, presentation-ready navigation node.
 // This type intentionally omits UUIDs; menu identity is expressed via menu codes and item paths.
 type NavigationNode struct {
-	Position      int               `json:"position"`
-	Type          string            `json:"type,omitempty"`
-	Label         string            `json:"label,omitempty"`
-	LabelKey      string            `json:"label_key,omitempty"`
-	GroupTitle    string            `json:"group_title,omitempty"`
-	GroupTitleKey string            `json:"group_title_key,omitempty"`
-	URL           string            `json:"url"`
-	Target        map[string]any    `json:"target,omitempty"`
-	Icon          string            `json:"icon,omitempty"`
-	Badge         map[string]any    `json:"badge,omitempty"`
-	Permissions   []string          `json:"permissions,omitempty"`
-	Classes       []string          `json:"classes,omitempty"`
-	Styles        map[string]string `json:"styles,omitempty"`
-	Collapsible   bool              `json:"collapsible,omitempty"`
-	Collapsed     bool              `json:"collapsed,omitempty"`
-	Metadata      map[string]any    `json:"metadata,omitempty"`
-	Children      []NavigationNode  `json:"children,omitempty"`
+	Position           int               `json:"position"`
+	Type               string            `json:"type,omitempty"`
+	Label              string            `json:"label,omitempty"`
+	LabelKey           string            `json:"label_key,omitempty"`
+	GroupTitle         string            `json:"group_title,omitempty"`
+	GroupTitleKey      string            `json:"group_title_key,omitempty"`
+	URL                string            `json:"url"`
+	Target             map[string]any    `json:"target,omitempty"`
+	Icon               string            `json:"icon,omitempty"`
+	Badge              map[string]any    `json:"badge,omitempty"`
+	Permissions        []string          `json:"permissions,omitempty"`
+	Classes            []string          `json:"classes,omitempty"`
+	Styles             map[string]string `json:"styles,omitempty"`
+	Collapsible        bool              `json:"collapsible,omitempty"`
+	Collapsed          bool              `json:"collapsed,omitempty"`
+	Metadata           map[string]any    `json:"metadata,omitempty"`
+	Contribution       bool              `json:"contribution,omitempty"`
+	ContributionOrigin string            `json:"contribution_origin,omitempty"`
+	Children           []NavigationNode  `json:"children,omitempty"`
+}
+
+type ContentMenuMembershipInfo struct {
+	ContentID       uuid.UUID `json:"content_id"`
+	ContentTypeID   uuid.UUID `json:"content_type_id"`
+	ContentTypeSlug string    `json:"content_type_slug,omitempty"`
+	ContentSlug     string    `json:"content_slug,omitempty"`
+	Location        string    `json:"location"`
+	Visible         bool      `json:"visible"`
+	Origin          string    `json:"origin,omitempty"`
+	VisibilityState string    `json:"visibility_state,omitempty"`
+	MergeMode       string    `json:"merge_mode,omitempty"`
+	DuplicatePolicy string    `json:"duplicate_policy,omitempty"`
+	URL             string    `json:"url,omitempty"`
+	Label           string    `json:"label,omitempty"`
+	SortOrder       *int      `json:"sort_order,omitempty"`
 }
 
 // MenuService is the public menus API for the cms package.
@@ -62,6 +138,8 @@ type MenuService interface {
 	UpsertMenuWithLocation(ctx context.Context, code string, location string, description *string, actor uuid.UUID) (*MenuInfo, error)
 	GetMenuByCode(ctx context.Context, code string) (*MenuInfo, error)
 	GetMenuByLocation(ctx context.Context, location string) (*MenuInfo, error)
+	ResolveMenuByCode(ctx context.Context, code string, locale string, opts MenuResolveOptions) (*ResolvedMenuInfo, error)
+	ResolveMenuByLocation(ctx context.Context, location string, locale string, opts MenuResolveOptions) (*ResolvedMenuInfo, error)
 	ListMenuItemsByCode(ctx context.Context, menuCode string) ([]*MenuItemInfo, error)
 	ResolveNavigation(ctx context.Context, menuCode string, locale string) ([]NavigationNode, error)
 	ResolveNavigationByLocation(ctx context.Context, location string, locale string) ([]NavigationNode, error)
@@ -188,11 +266,7 @@ func (s *menuService) GetOrCreateMenuWithLocation(ctx context.Context, code stri
 		return nil, err
 	}
 
-	return &MenuInfo{
-		Code:        record.Code,
-		Location:    record.Location,
-		Description: record.Description,
-	}, nil
+	return toPublicMenuInfo(record), nil
 }
 
 func (s *menuService) UpsertMenu(ctx context.Context, code string, description *string, actor uuid.UUID) (*MenuInfo, error) {
@@ -219,11 +293,7 @@ func (s *menuService) UpsertMenuWithLocation(ctx context.Context, code string, l
 		return nil, err
 	}
 
-	return &MenuInfo{
-		Code:        record.Code,
-		Location:    record.Location,
-		Description: record.Description,
-	}, nil
+	return toPublicMenuInfo(record), nil
 }
 
 func (s *menuService) GetMenuByCode(ctx context.Context, code string) (*MenuInfo, error) {
@@ -244,11 +314,7 @@ func (s *menuService) GetMenuByCode(ctx context.Context, code string) (*MenuInfo
 		return nil, ErrMenuNotFound
 	}
 
-	return &MenuInfo{
-		Code:        record.Code,
-		Location:    record.Location,
-		Description: record.Description,
-	}, nil
+	return toPublicMenuInfo(record), nil
 }
 
 func (s *menuService) GetMenuByLocation(ctx context.Context, location string) (*MenuInfo, error) {
@@ -269,11 +335,37 @@ func (s *menuService) GetMenuByLocation(ctx context.Context, location string) (*
 		return nil, ErrMenuNotFound
 	}
 
-	return &MenuInfo{
-		Code:        record.Code,
-		Location:    record.Location,
-		Description: record.Description,
-	}, nil
+	return toPublicMenuInfo(record), nil
+}
+
+func (s *menuService) ResolveMenuByCode(ctx context.Context, code string, locale string, opts MenuResolveOptions) (*ResolvedMenuInfo, error) {
+	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
+		return nil, errNilModule
+	}
+	code = CanonicalMenuCode(code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
+	}
+	resolved, err := s.svc.MenuByCode(ctx, code, locale, toInternalResolveOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+	return toPublicResolvedMenu(resolved), nil
+}
+
+func (s *menuService) ResolveMenuByLocation(ctx context.Context, location string, locale string, opts MenuResolveOptions) (*ResolvedMenuInfo, error) {
+	if s == nil || s.module == nil || s.module.container == nil || s.svc == nil {
+		return nil, errNilModule
+	}
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return nil, ErrMenuCodeRequired
+	}
+	resolved, err := s.svc.MenuByLocation(ctx, location, locale, toInternalResolveOptions(opts))
+	if err != nil {
+		return nil, err
+	}
+	return toPublicResolvedMenu(resolved), nil
 }
 
 func (s *menuService) ListMenuItemsByCode(ctx context.Context, menuCode string) ([]*MenuItemInfo, error) {
@@ -706,24 +798,146 @@ func (s *menuService) UpsertMenuItemTranslationByPath(ctx context.Context, menuC
 	return err
 }
 
+func toInternalResolveOptions(opts MenuResolveOptions) menus.MenuQueryOptions {
+	return menus.MenuQueryOptions{
+		IncludeDrafts:               opts.IncludeDrafts,
+		PreviewToken:                strings.TrimSpace(opts.PreviewToken),
+		Status:                      strings.TrimSpace(opts.Status),
+		ViewProfile:                 strings.TrimSpace(opts.ViewProfile),
+		BindingPolicy:               strings.TrimSpace(opts.BindingPolicy),
+		IncludeContributions:        opts.IncludeContributions,
+		ContributionMergeMode:       strings.TrimSpace(opts.ContributionMergeMode),
+		ContributionDuplicatePolicy: strings.TrimSpace(opts.ContributionDuplicatePolicy),
+	}
+}
+
+func toPublicMenuInfo(record *menus.Menu) *MenuInfo {
+	if record == nil {
+		return nil
+	}
+	out := &MenuInfo{
+		Code:        record.Code,
+		Location:    record.Location,
+		Description: record.Description,
+		Status:      record.Status,
+		Locale:      record.Locale,
+		PublishedAt: record.PublishedAt,
+	}
+	if record.TranslationGroupID != nil {
+		groupID := *record.TranslationGroupID
+		out.TranslationGroupID = &groupID
+	}
+	return out
+}
+
+func toPublicResolvedMenu(resolved *menus.ResolvedMenu) *ResolvedMenuInfo {
+	if resolved == nil {
+		return nil
+	}
+	out := &ResolvedMenuInfo{
+		Location:        resolved.Location,
+		RequestedLocale: resolved.RequestedLocale,
+		ResolvedLocale:  resolved.ResolvedLocale,
+		Menu:            toPublicMenuInfo(resolved.Menu),
+		Preview: ResolvedMenuPreviewInfo{
+			IncludeDrafts:       resolved.Preview.IncludeDrafts,
+			PreviewTokenPresent: resolved.Preview.PreviewTokenPresent,
+			MenuStatus:          resolved.Preview.MenuStatus,
+			BindingStatus:       resolved.Preview.BindingStatus,
+			ViewProfileStatus:   resolved.Preview.ViewProfileStatus,
+		},
+	}
+	if resolved.Binding != nil {
+		out.Binding = &MenuLocationBindingInfo{
+			Location:        resolved.Binding.Location,
+			MenuCode:        resolved.Binding.MenuCode,
+			ViewProfileCode: resolved.Binding.ViewProfileCode,
+			Locale:          resolved.Binding.Locale,
+			Priority:        resolved.Binding.Priority,
+			Status:          resolved.Binding.Status,
+		}
+	}
+	if len(resolved.Bindings) > 0 {
+		out.Bindings = make([]MenuLocationBindingInfo, 0, len(resolved.Bindings))
+		for _, binding := range resolved.Bindings {
+			if binding == nil {
+				continue
+			}
+			out.Bindings = append(out.Bindings, MenuLocationBindingInfo{
+				Location:        binding.Location,
+				MenuCode:        binding.MenuCode,
+				ViewProfileCode: binding.ViewProfileCode,
+				Locale:          binding.Locale,
+				Priority:        binding.Priority,
+				Status:          binding.Status,
+			})
+		}
+	}
+	if resolved.ViewProfile != nil {
+		out.ViewProfile = &MenuViewProfileInfo{
+			Code:           resolved.ViewProfile.Code,
+			Name:           resolved.ViewProfile.Name,
+			Mode:           resolved.ViewProfile.Mode,
+			MaxTopLevel:    resolved.ViewProfile.MaxTopLevel,
+			MaxDepth:       resolved.ViewProfile.MaxDepth,
+			IncludeItemIDs: append([]string{}, resolved.ViewProfile.IncludeItemIDs...),
+			ExcludeItemIDs: append([]string{}, resolved.ViewProfile.ExcludeItemIDs...),
+			Status:         resolved.ViewProfile.Status,
+		}
+	}
+	if resolved.TranslationGroupID != nil {
+		groupID := *resolved.TranslationGroupID
+		out.TranslationGroupID = &groupID
+	}
+	if len(resolved.Items) > 0 {
+		out.Items = make([]NavigationNode, 0, len(resolved.Items))
+		for _, node := range resolved.Items {
+			out.Items = append(out.Items, toPublicNavigationNode(node))
+		}
+	}
+	if len(resolved.ContentMembership) > 0 {
+		out.ContentMembership = make([]ContentMenuMembershipInfo, 0, len(resolved.ContentMembership))
+		for _, membership := range resolved.ContentMembership {
+			out.ContentMembership = append(out.ContentMembership, ContentMenuMembershipInfo{
+				ContentID:       membership.ContentID,
+				ContentTypeID:   membership.ContentTypeID,
+				ContentTypeSlug: membership.ContentTypeSlug,
+				ContentSlug:     membership.ContentSlug,
+				Location:        membership.Location,
+				Visible:         membership.Visible,
+				Origin:          membership.Origin,
+				VisibilityState: membership.VisibilityState,
+				MergeMode:       membership.MergeMode,
+				DuplicatePolicy: membership.DuplicatePolicy,
+				URL:             membership.URL,
+				Label:           membership.Label,
+				SortOrder:       membership.SortOrder,
+			})
+		}
+	}
+	return out
+}
+
 func toPublicNavigationNode(node menus.NavigationNode) NavigationNode {
 	out := NavigationNode{
-		Position:      node.Position,
-		Type:          node.Type,
-		Label:         node.Label,
-		LabelKey:      node.LabelKey,
-		GroupTitle:    node.GroupTitle,
-		GroupTitleKey: node.GroupTitleKey,
-		URL:           node.URL,
-		Target:        node.Target,
-		Icon:          node.Icon,
-		Badge:         node.Badge,
-		Permissions:   node.Permissions,
-		Classes:       node.Classes,
-		Styles:        node.Styles,
-		Collapsible:   node.Collapsible,
-		Collapsed:     node.Collapsed,
-		Metadata:      node.Metadata,
+		Position:           node.Position,
+		Type:               node.Type,
+		Label:              node.Label,
+		LabelKey:           node.LabelKey,
+		GroupTitle:         node.GroupTitle,
+		GroupTitleKey:      node.GroupTitleKey,
+		URL:                node.URL,
+		Target:             node.Target,
+		Icon:               node.Icon,
+		Badge:              node.Badge,
+		Permissions:        node.Permissions,
+		Classes:            node.Classes,
+		Styles:             node.Styles,
+		Collapsible:        node.Collapsible,
+		Collapsed:          node.Collapsed,
+		Metadata:           node.Metadata,
+		Contribution:       node.Contribution,
+		ContributionOrigin: node.ContributionOrigin,
 	}
 	if len(node.Children) > 0 {
 		out.Children = make([]NavigationNode, 0, len(node.Children))
