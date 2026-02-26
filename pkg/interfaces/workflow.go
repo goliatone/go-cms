@@ -2,101 +2,72 @@ package interfaces
 
 import (
 	"context"
-	"time"
+	"strings"
 
-	"github.com/google/uuid"
+	"github.com/goliatone/go-command/flow"
 )
 
-// WorkflowState represents a lifecycle stage understood by workflow engines.
-type WorkflowState string
+const DefaultWorkflowMessageType = "go-cms.workflow"
 
-// WorkflowEngine coordinates lifecycle transitions for domain entities.
+// WorkflowMessage is the canonical workflow payload consumed by FSM envelopes.
+type WorkflowMessage struct {
+	TypeName string         `json:"type,omitempty"`
+	Payload  map[string]any `json:"payload,omitempty"`
+}
+
+// Type satisfies go-command's command.Message contract.
+func (m WorkflowMessage) Type() string {
+	if value := strings.TrimSpace(m.TypeName); value != "" {
+		return value
+	}
+	return DefaultWorkflowMessageType
+}
+
+type (
+	WorkflowState = string
+
+	ExecutionContext   = flow.ExecutionContext
+	ApplyEventRequest  = flow.ApplyEventRequest[WorkflowMessage]
+	ApplyEventResponse = flow.ApplyEventResponse[WorkflowMessage]
+	SnapshotRequest    = flow.SnapshotRequest[WorkflowMessage]
+	Snapshot           = flow.Snapshot
+	TransitionInfo     = flow.TransitionInfo
+	GuardRejection     = flow.GuardRejection
+	TargetInfo         = flow.TargetInfo
+	TransitionResult   = flow.TransitionResult[WorkflowMessage]
+
+	Effect        = flow.Effect
+	CommandEffect = flow.CommandEffect
+	EmitEvent     = flow.EmitEvent
+
+	MachineDefinition            = flow.MachineDefinition
+	StateDefinition              = flow.StateDefinition
+	TransitionDefinition         = flow.TransitionDefinition
+	WorkflowDefinition           = flow.MachineDefinition
+	WorkflowStateDefinition      = flow.StateDefinition
+	WorkflowTransition           = flow.TransitionDefinition
+	DynamicTargetDefinition      = flow.DynamicTargetDefinition
+	GuardDefinition              = flow.GuardDefinition
+	TransitionWorkflowDefinition = flow.TransitionWorkflowDefinition
+	WorkflowNodeDefinition       = flow.WorkflowNodeDefinition
+	StepDefinition               = flow.StepDefinition
+
+	Guard                 = flow.Guard[WorkflowMessage]
+	DynamicTargetResolver = flow.DynamicTargetResolver[WorkflowMessage]
+	Action                = func(context.Context, WorkflowMessage) error
+)
+
+// WorkflowEngine coordinates lifecycle transitions using canonical FSM envelopes.
 type WorkflowEngine interface {
-	// Transition applies the named transition (or explicit state change) to the entity.
-	Transition(ctx context.Context, input TransitionInput) (*TransitionResult, error)
-	// AvailableTransitions lists the possible transitions from the supplied state.
-	AvailableTransitions(ctx context.Context, query TransitionQuery) ([]WorkflowTransition, error)
-	// RegisterWorkflow installs or replaces a workflow definition for the given entity type.
-	RegisterWorkflow(ctx context.Context, definition WorkflowDefinition) error
+	ApplyEvent(ctx context.Context, req ApplyEventRequest) (*ApplyEventResponse, error)
+	Snapshot(ctx context.Context, req SnapshotRequest) (*Snapshot, error)
+	RegisterMachine(ctx context.Context, definition MachineDefinition) error
+	RegisterGuard(name string, guard Guard) error
+	RegisterDynamicTarget(name string, resolver DynamicTargetResolver) error
+	RegisterAction(name string, action Action) error
 }
 
 // WorkflowDefinitionStore exposes workflow definitions sourced from external storage.
 type WorkflowDefinitionStore interface {
-	ListWorkflowDefinitions(ctx context.Context) ([]WorkflowDefinition, error)
-}
-
-// WorkflowAuthorizer evaluates guard expressions attached to workflow transitions.
-// Returning nil authorises the transition; returning an error prevents it.
-type WorkflowAuthorizer interface {
-	AuthorizeTransition(ctx context.Context, input TransitionInput, guard string) error
-}
-
-// TransitionInput captures the data required to run a workflow transition.
-type TransitionInput struct {
-	EntityID     uuid.UUID
-	EntityType   string
-	CurrentState WorkflowState
-	Transition   string
-	TargetState  WorkflowState
-	ActorID      uuid.UUID
-	Metadata     map[string]any
-}
-
-// TransitionResult describes the outcome of a workflow transition.
-type TransitionResult struct {
-	EntityID      uuid.UUID
-	EntityType    string
-	Transition    string
-	FromState     WorkflowState
-	ToState       WorkflowState
-	CompletedAt   time.Time
-	ActorID       uuid.UUID
-	Metadata      map[string]any
-	Events        []WorkflowEvent
-	Notifications []WorkflowNotification
-}
-
-// WorkflowEvent represents an emitted domain event during a transition.
-type WorkflowEvent struct {
-	Name      string
-	Timestamp time.Time
-	Payload   map[string]any
-}
-
-// WorkflowNotification represents a downstream notification request driven by a transition.
-type WorkflowNotification struct {
-	Channel string
-	Message string
-	Data    map[string]any
-}
-
-// TransitionQuery describes the state for which transitions should be listed.
-type TransitionQuery struct {
-	EntityType string
-	State      WorkflowState
-	Context    map[string]any
-}
-
-// WorkflowDefinition describes a state machine for a specific entity type.
-type WorkflowDefinition struct {
-	EntityType   string
-	InitialState WorkflowState
-	States       []WorkflowStateDefinition
-	Transitions  []WorkflowTransition
-}
-
-// WorkflowStateDefinition documents a workflow state.
-type WorkflowStateDefinition struct {
-	Name        WorkflowState
-	Description string
-	Terminal    bool
-}
-
-// WorkflowTransition declares an allowed transition between two states.
-type WorkflowTransition struct {
-	Name        string
-	Description string
-	From        WorkflowState
-	To          WorkflowState
-	Guard       string
+	ListWorkflowDefinitions(ctx context.Context) ([]MachineDefinition, error)
 }
