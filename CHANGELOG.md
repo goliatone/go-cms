@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.37.0](https://github.com/goliatone/go-cms/compare/v0.36.0...v0.37.0) - (2026-02-26)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.37.0 ([4e6024d](https://github.com/goliatone/go-cms/commit/4e6024db2ac5fcd58b3d5991600997ce357802f4))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Update workflow defintion to use state machines ([feceeab](https://github.com/goliatone/go-cms/commit/feceeabc7ad914dc317cd90fc8a32ed22bda3a1b))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.36.0 ([db61418](https://github.com/goliatone/go-cms/commit/db61418c32fc8cfd89caccb64fb0bee24cacff8d))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update readme ([b034b4b](https://github.com/goliatone/go-cms/commit/b034b4b4f4fee6c509f84d68b6cbefbdc48e5827))  - (goliatone)
+- Update deps ([0b52cda](https://github.com/goliatone/go-cms/commit/0b52cda3ac09e88b5a8d69997db12e7ea4d0b99c))  - (goliatone)
+- Update test ([a7ebfe1](https://github.com/goliatone/go-cms/commit/a7ebfe1660fbe0f57b1ff02e0ce58dfd3019acad))  - (goliatone)
+
 # [0.36.0](https://github.com/goliatone/go-cms/compare/v0.35.0...v0.36.0) - (2026-02-13)
 
 ## <!-- 1 -->🐛 Bug Fixes
