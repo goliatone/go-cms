@@ -708,30 +708,22 @@ container := di.NewContainer(cfg,
 pageSvc := container.PageService()
 ```
 
-For go-command/flow-powered state machines, wrap the external engine with the CMS adapter in `internal/workflow/adapter` to preserve DTOs, guard hooks, and action-generated events/notifications:
+The workflow contract now aligns with canonical `go-command/flow` envelopes (`ApplyEventRequest`, `ApplyEventResponse`, `SnapshotRequest`, `Snapshot`, and machine definitions). A custom engine should implement `interfaces.WorkflowEngine` directly:
 
 ```go
-import (
-	cmsadapter "github.com/goliatone/go-cms/internal/workflow/adapter"
-)
-
-flowEngine := buildFlowStateMachine() // engine exposing Transition/AvailableTransitions/RegisterWorkflow
-
-workflowEngine, _ := cmsadapter.NewEngine(flowEngine,
-	cmsadapter.WithAuthorizer(myAuthorizer{}), // evaluates guard strings on transitions
-	cmsadapter.WithActionRegistry(cmsadapter.ActionRegistry{
-		"page::publish": publishAction, // actions can emit events/notifications into TransitionResult
-	}),
-)
-
-cfg.Workflow.Provider = "custom"
-container := di.NewContainer(cfg,
-	di.WithWorkflowEngine(workflowEngine),
-)
+type WorkflowEngine interface {
+	ApplyEvent(ctx context.Context, req interfaces.ApplyEventRequest) (*interfaces.ApplyEventResponse, error)
+	Snapshot(ctx context.Context, req interfaces.SnapshotRequest) (*interfaces.Snapshot, error)
+	RegisterMachine(ctx context.Context, definition interfaces.MachineDefinition) error
+	RegisterGuard(name string, guard interfaces.Guard) error
+	RegisterDynamicTarget(name string, resolver interfaces.DynamicTargetResolver) error
+	RegisterAction(name string, action interfaces.Action) error
+}
 ```
 
 Additional guides:
 
+- Workflow clean-break migration: `docs/GUIDE_WORKFLOW_CLEAN_BREAK.md`
 - Observability & logging: `docs/LOGGING_GUIDE.md`
 - Static bootstrapper: `cmd/static/internal/bootstrap`
 - DI wiring options: `internal/di/options.go`
