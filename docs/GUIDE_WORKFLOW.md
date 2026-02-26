@@ -1,5 +1,8 @@
 # Workflow Guide
 
+> Note: this guide predates the Phase 25 clean-break API.
+> For canonical `ApplyEvent`/`Snapshot` workflow contracts, see [GUIDE_WORKFLOW_CLEAN_BREAK.md](GUIDE_WORKFLOW_CLEAN_BREAK.md).
+
 This guide covers content lifecycle orchestration using the workflow engine in `go-cms`. The workflow module provides state machine management for domain entities such as content entries (pages/posts) and legacy pages, enabling editorial review flows, scheduled publishing, and custom lifecycle transitions.
 
 ## Workflow Architecture Overview
