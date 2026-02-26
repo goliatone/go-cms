@@ -1323,9 +1323,18 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			return ctx.JSON(503, map[string]string{"error": "workflow engine unavailable"})
 		}
 
-		transitions, err := workflowEngine.AvailableTransitions(ctx.Context(), interfaces.TransitionQuery{
-			EntityType: "page",
-			State:      interfaces.WorkflowState(page.Status),
+		snapshot, err := workflowEngine.Snapshot(ctx.Context(), interfaces.SnapshotRequest{
+			MachineID:      "page",
+			EntityID:       page.ID.String(),
+			EvaluateGuards: true,
+			IncludeBlocked: true,
+			Msg: interfaces.WorkflowMessage{
+				TypeName: "example.web.page.snapshot",
+				Payload: map[string]any{
+					"page_id":       page.ID.String(),
+					"current_state": page.Status,
+				},
+			},
 		})
 		if err != nil {
 			return ctx.JSON(500, map[string]any{"error": err.Error()})
@@ -1335,7 +1344,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			"page_id":     page.ID,
 			"slug":        page.Slug,
 			"status":      page.Status,
-			"transitions": transitions,
+			"transitions": snapshot.AllowedTransitions,
 		})
 	})
 
@@ -1367,24 +1376,76 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			return ctx.JSON(503, map[string]string{"error": "workflow engine unavailable"})
 		}
 
+		event := strings.TrimSpace(strings.ToLower(req.Transition))
+		targetState := strings.TrimSpace(strings.ToLower(req.TargetState))
+		if event == "" && targetState != "" {
+			snapshot, err := workflowEngine.Snapshot(ctx.Context(), interfaces.SnapshotRequest{
+				MachineID:      "page",
+				EntityID:       pageID.String(),
+				EvaluateGuards: true,
+				IncludeBlocked: true,
+				Msg: interfaces.WorkflowMessage{
+					TypeName: "example.web.page.snapshot",
+					Payload: map[string]any{
+						"page_id":       pageID.String(),
+						"current_state": page.Status,
+						"target_state":  targetState,
+					},
+				},
+			})
+			if err != nil {
+				return ctx.JSON(400, map[string]any{"error": err.Error()})
+			}
+			for _, transition := range snapshot.AllowedTransitions {
+				if !transition.Allowed {
+					continue
+				}
+				resolved := strings.TrimSpace(transition.Target.ResolvedTo)
+				if resolved == "" {
+					resolved = strings.TrimSpace(transition.Target.To)
+				}
+				if resolved == targetState {
+					event = transition.Event
+					break
+				}
+			}
+		}
+		if event == "" {
+			return ctx.JSON(400, map[string]string{"error": "transition event or resolvable target_state required"})
+		}
+
 		// Perform workflow transition
-		result, err := workflowEngine.Transition(ctx.Context(), interfaces.TransitionInput{
-			EntityID:     pageID,
-			EntityType:   "page",
-			CurrentState: interfaces.WorkflowState(page.Status),
-			Transition:   req.Transition,
-			TargetState:  interfaces.WorkflowState(req.TargetState),
-			ActorID:      demoAuthorID,
-			Metadata:     map[string]any{},
+		result, err := workflowEngine.ApplyEvent(ctx.Context(), interfaces.ApplyEventRequest{
+			MachineID:     "page",
+			EntityID:      pageID.String(),
+			Event:         event,
+			ExpectedState: page.Status,
+			ExecCtx: interfaces.ExecutionContext{
+				ActorID: demoAuthorID.String(),
+			},
+			Metadata: map[string]any{
+				"actorId": demoAuthorID.String(),
+			},
+			Msg: interfaces.WorkflowMessage{
+				TypeName: "example.web.page.apply_event",
+				Payload: map[string]any{
+					"page_id":       pageID.String(),
+					"current_state": page.Status,
+					"target_state":  targetState,
+				},
+			},
 		})
 		if err != nil {
 			return ctx.JSON(400, map[string]any{"error": err.Error()})
+		}
+		if result == nil || result.Transition == nil {
+			return ctx.JSON(500, map[string]any{"error": "workflow transition returned empty response"})
 		}
 
 		// Update the page with the new status
 		_, err = pageSvc.Update(ctx.Context(), pages.UpdatePageRequest{
 			ID:                       pageID,
-			Status:                   string(result.ToState),
+			Status:                   result.Transition.CurrentState,
 			UpdatedBy:                demoAuthorID,
 			AllowMissingTranslations: true,
 		})
@@ -1402,9 +1463,11 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			"success":    true,
 			"page_id":    updatedPage.ID,
 			"slug":       updatedPage.Slug,
-			"from_state": result.FromState,
-			"to_state":   result.ToState,
-			"transition": result.Transition,
+			"from_state": result.Transition.PreviousState,
+			"to_state":   result.Transition.CurrentState,
+			"transition": event,
+			"version":    result.Version,
+			"event_id":   result.EventID,
 			"status":     updatedPage.Status,
 		})
 	})
