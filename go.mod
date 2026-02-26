@@ -7,10 +7,10 @@ toolchain go1.24.12
 require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/goliatone/go-command v0.13.0
+	github.com/goliatone/go-command v0.16.1
 	github.com/goliatone/go-crud v0.20.0
 	github.com/goliatone/go-errors v0.10.0
-	github.com/goliatone/go-logger v0.7.0
+	github.com/goliatone/go-logger v0.8.0
 	github.com/goliatone/go-repository-bun v0.12.0
 	github.com/goliatone/go-repository-cache v0.6.0
 	github.com/goliatone/go-slug v0.1.0

@@ -10,13 +10,15 @@ require (
 require (
 	github.com/BurntSushi/toml v0.3.1 // indirect
 	github.com/adrg/frontmatter v0.2.0 // indirect
+	github.com/alecthomas/kong v1.13.0 // indirect
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/flosch/pongo2/v6 v6.0.0 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
+	github.com/goliatone/go-command v0.16.1 // indirect
 	github.com/goliatone/go-errors v0.10.0 // indirect
-	github.com/goliatone/go-logger v0.7.0 // indirect
+	github.com/goliatone/go-logger v0.8.0 // indirect
 	github.com/goliatone/go-repository-bun v0.12.0 // indirect
 	github.com/goliatone/go-repository-cache v0.6.0 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
