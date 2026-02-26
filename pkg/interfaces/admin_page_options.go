@@ -40,6 +40,7 @@ type AdminPageListOptions struct {
 	SortDesc                 bool
 	Search                   string
 	Filters                  map[string]any
+	Fields                   []string
 }
 
 // AdminPageGetOptions defines the admin page detail read contract.
