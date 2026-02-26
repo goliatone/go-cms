@@ -2376,22 +2376,52 @@ func (s *pageService) applyPageWorkflow(ctx context.Context, page *Page, opts pa
 	}
 
 	context := buildPageContext(page)
-	metadata := mergeMetadata(context.Metadata(), opts.Metadata)
+	execCtx, execMeta := buildWorkflowExecutionContext(ctx, opts.ActorID)
+	metadata := mergeMetadata(context.Metadata(), execMeta)
+	metadata = mergeMetadata(metadata, opts.Metadata)
 
-	result, err := s.workflow.Transition(ctx, interfaces.TransitionInput{
-		EntityID:     page.ID,
-		EntityType:   workflow.EntityTypePage,
-		CurrentState: interfaces.WorkflowState(context.WorkflowState),
-		Transition:   opts.Transition,
-		TargetState:  opts.TargetState,
-		ActorID:      opts.ActorID,
-		Metadata:     metadata,
+	event := strings.TrimSpace(strings.ToLower(opts.Transition))
+	if event == "" {
+		if desiredState == currentState {
+			status := domain.StatusFromWorkflowState(desiredState)
+			if strings.TrimSpace(string(status)) == "" {
+				status = domain.StatusDraft
+			}
+			return status, desiredState, nil
+		}
+		resolvedEvent, err := s.resolveTransitionEvent(ctx, page, currentState, desiredState, metadata, execCtx)
+		if err != nil {
+			return "", "", err
+		}
+		event = resolvedEvent
+	}
+
+	result, err := s.workflow.ApplyEvent(ctx, interfaces.ApplyEventRequest{
+		MachineID:     workflow.EntityTypePage,
+		EntityID:      page.ID.String(),
+		Event:         event,
+		ExpectedState: string(currentState),
+		ExecCtx:       execCtx,
+		Metadata:      metadata,
+		Msg: interfaces.WorkflowMessage{
+			TypeName: "page.workflow",
+			Payload: map[string]any{
+				"page_id":       page.ID.String(),
+				"current_state": string(currentState),
+				"target_state":  string(desiredState),
+				"slug":          page.Slug,
+			},
+		},
 	})
 	if err != nil {
 		return "", "", err
 	}
 
-	newState := domain.WorkflowState(result.ToState)
+	if result == nil || result.Transition == nil {
+		return "", "", fmt.Errorf("pages: workflow apply event returned no transition")
+	}
+
+	newState := domain.WorkflowState(domain.NormalizeWorkflowState(result.Transition.CurrentState))
 	status := domain.StatusFromWorkflowState(newState)
 	if strings.TrimSpace(string(status)) == "" {
 		status = domain.Status(newState)
@@ -2403,29 +2433,22 @@ func (s *pageService) applyPageWorkflow(ctx context.Context, page *Page, opts pa
 	return status, newState, nil
 }
 
-func (s *pageService) recordWorkflowEvents(ctx context.Context, page *Page, result *interfaces.TransitionResult, metadata map[string]any) {
-	if result == nil || len(result.Events) == 0 {
+func (s *pageService) recordWorkflowEvents(ctx context.Context, page *Page, result *interfaces.ApplyEventResponse, metadata map[string]any) {
+	if result == nil || result.Transition == nil || len(result.Transition.Effects) == 0 {
 		return
 	}
 
 	logger := s.log(ctx)
 	fields := map[string]any{
-		"page_id":             result.EntityID,
-		"workflow_from":       result.FromState,
-		"workflow_to":         result.ToState,
-		"workflow_transition": result.Transition,
+		"page_id":             page.ID,
+		"workflow_from":       result.Transition.PreviousState,
+		"workflow_to":         result.Transition.CurrentState,
+		"workflow_event_id":   result.EventID,
+		"workflow_version":    result.Version,
+		"workflow_transition": "apply_event",
 	}
 	if page != nil && strings.TrimSpace(page.Slug) != "" {
 		fields["page_slug"] = page.Slug
-	}
-	if strings.TrimSpace(result.EntityType) != "" {
-		fields["workflow_entity"] = result.EntityType
-	}
-	if result.ActorID != uuid.Nil {
-		fields["actor_id"] = result.ActorID
-	}
-	if !result.CompletedAt.IsZero() {
-		fields["workflow_completed_at"] = result.CompletedAt
 	}
 	if metadata != nil {
 		if op, ok := metadata["operation"]; ok {
@@ -2433,17 +2456,123 @@ func (s *pageService) recordWorkflowEvents(ctx context.Context, page *Page, resu
 		}
 	}
 
-	for _, event := range result.Events {
-		eventFields := maps.Clone(fields)
-		eventFields["workflow_event"] = event.Name
-		if !event.Timestamp.IsZero() {
-			eventFields["workflow_event_time"] = event.Timestamp
+	for _, effect := range result.Transition.Effects {
+		effectFields := maps.Clone(fields)
+		effectFields["workflow_effect"] = fmt.Sprintf("%T", effect)
+		switch typed := effect.(type) {
+		case interfaces.CommandEffect:
+			effectFields["workflow_action_id"] = typed.ActionID
+			effectFields["workflow_effect_async"] = typed.Async
+			if typed.Delay > 0 {
+				effectFields["workflow_effect_delay"] = typed.Delay.String()
+			}
+			if typed.Timeout > 0 {
+				effectFields["workflow_effect_timeout"] = typed.Timeout.String()
+			}
+			if len(typed.Metadata) > 0 {
+				effectFields["workflow_effect_metadata"] = typed.Metadata
+			}
+		case interfaces.EmitEvent:
+			effectFields["workflow_emit_event"] = typed.Event
+			if typed.Msg != nil {
+				effectFields["workflow_emit_payload"] = typed.Msg
+			}
+			if len(typed.Metadata) > 0 {
+				effectFields["workflow_effect_metadata"] = typed.Metadata
+			}
 		}
-		if len(event.Payload) > 0 {
-			eventFields["workflow_event_payload"] = event.Payload
-		}
-		logging.WithFields(logger, eventFields).Info("workflow event emitted")
+		logging.WithFields(logger, effectFields).Info("workflow effect emitted")
 	}
+}
+
+func (s *pageService) resolveTransitionEvent(
+	ctx context.Context,
+	page *Page,
+	current domain.WorkflowState,
+	target domain.WorkflowState,
+	metadata map[string]any,
+	execCtx interfaces.ExecutionContext,
+) (string, error) {
+	snapshot, err := s.workflow.Snapshot(ctx, interfaces.SnapshotRequest{
+		MachineID:      workflow.EntityTypePage,
+		EntityID:       page.ID.String(),
+		EvaluateGuards: true,
+		IncludeBlocked: true,
+		ExecCtx:        execCtx,
+		Msg: interfaces.WorkflowMessage{
+			TypeName: "page.workflow.snapshot",
+			Payload: map[string]any{
+				"page_id":       page.ID.String(),
+				"current_state": string(current),
+				"target_state":  string(target),
+				"slug":          page.Slug,
+				"metadata":      metadata,
+			},
+		},
+	})
+	if err != nil {
+		return "", err
+	}
+	for _, transition := range snapshot.AllowedTransitions {
+		if !transition.Allowed {
+			continue
+		}
+		resolvedTarget := strings.TrimSpace(transition.Target.ResolvedTo)
+		if resolvedTarget == "" {
+			resolvedTarget = strings.TrimSpace(transition.Target.To)
+		}
+		if resolvedTarget == string(target) {
+			return strings.TrimSpace(transition.Event), nil
+		}
+	}
+	return "", fmt.Errorf("pages: no transition from %s to %s", current, target)
+}
+
+func buildWorkflowExecutionContext(ctx context.Context, fallbackActor uuid.UUID) (interfaces.ExecutionContext, map[string]any) {
+	execCtx := interfaces.ExecutionContext{}
+	if fallbackActor != uuid.Nil {
+		execCtx.ActorID = fallbackActor.String()
+	}
+	if actorID := contextStringValue(ctx, "actorId", "actor_id"); actorID != "" {
+		execCtx.ActorID = actorID
+	}
+	if tenant := contextStringValue(ctx, "tenant", "tenantId", "tenant_id"); tenant != "" {
+		execCtx.Tenant = tenant
+	}
+	metadata := map[string]any{}
+	if execCtx.ActorID != "" {
+		metadata["actorId"] = execCtx.ActorID
+	}
+	if execCtx.Tenant != "" {
+		metadata["tenant"] = execCtx.Tenant
+	}
+	if requestID := contextStringValue(ctx, "requestId", "request_id"); requestID != "" {
+		metadata["requestId"] = requestID
+	}
+	if correlationID := contextStringValue(ctx, "correlationId", "correlation_id"); correlationID != "" {
+		metadata["correlationId"] = correlationID
+	}
+	return execCtx, metadata
+}
+
+func contextStringValue(ctx context.Context, keys ...string) string {
+	for _, key := range keys {
+		if key == "" {
+			continue
+		}
+		raw := ctx.Value(key)
+		switch typed := raw.(type) {
+		case string:
+			if value := strings.TrimSpace(typed); value != "" {
+				return value
+			}
+		case fmt.Stringer:
+			if value := strings.TrimSpace(typed.String()); value != "" {
+				return value
+			}
+		}
+	}
+	return ""
 }
 
 func buildPageContext(page *Page) workflow.PageContext {

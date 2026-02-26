@@ -1,24 +1,26 @@
 [
   {
     "level": "INFO",
-    "msg": "workflow event emitted",
+    "msg": "workflow effect emitted",
     "fields": {
-      "actor_id": "11111111-1111-1111-1111-111111111111",
       "logger": "cms.pages",
       "module": "cms.pages",
       "operation": "schedule",
       "page_id": "22222222-2222-2222-2222-222222222222",
       "page_slug": "schedule-integration",
-      "workflow_completed_at": "2024-12-01T09:00:00Z",
-      "workflow_entity": "page",
-      "workflow_event": "page.scheduled",
-      "workflow_event_payload": {
+      "workflow_effect": "flow.EmitEvent",
+      "workflow_effect_metadata": {
+        "scheduled_at": "2024-12-01T09:00:00Z"
+      },
+      "workflow_emit_event": "page.scheduled",
+      "workflow_emit_payload": {
         "scheduled_by": "11111111-1111-1111-1111-111111111111"
       },
-      "workflow_event_time": "2024-12-01T09:00:00Z",
+      "workflow_event_id": "evt_1733043600000000000",
       "workflow_from": "draft",
       "workflow_to": "scheduled",
-      "workflow_transition": "schedule"
+      "workflow_transition": "apply_event",
+      "workflow_version": 1
     }
   },
   {

@@ -1909,8 +1909,8 @@ func (c *Container) configureWorkflowEngine() error {
 	}
 
 	for _, definition := range definitions {
-		if err := c.workflowEngine.RegisterWorkflow(ctx, definition); err != nil {
-			return fmt.Errorf("register workflow definition %s: %w", definition.EntityType, err)
+		if err := c.workflowEngine.RegisterMachine(ctx, definition); err != nil {
+			return fmt.Errorf("register workflow definition %s: %w", definition.ID, err)
 		}
 	}
 

@@ -8,6 +8,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-command/flow"
 )
 
 var (
@@ -47,9 +48,9 @@ func CompileDefinitionConfigs(configs []runtimeconfig.WorkflowDefinitionConfig) 
 			return nil, err
 		}
 
-		entityKey := strings.ToLower(strings.TrimSpace(definition.EntityType))
+		entityKey := strings.ToLower(strings.TrimSpace(definition.ID))
 		if _, exists := seenEntities[entityKey]; exists {
-			return nil, fmt.Errorf("%w: %s", ErrDuplicateDefinition, definition.EntityType)
+			return nil, fmt.Errorf("%w: %s", ErrDuplicateDefinition, definition.ID)
 		}
 		seenEntities[entityKey] = struct{}{}
 		definitions = append(definitions, definition)
@@ -68,7 +69,7 @@ func compileDefinitionConfig(cfg runtimeconfig.WorkflowDefinitionConfig) (interf
 		return interfaces.WorkflowDefinition{}, fmt.Errorf("%w: %s", ErrDefinitionStatesRequired, entity)
 	}
 
-	stateMap, stateDefs, initialState, err := compileStates(cfg.States)
+	stateMap, stateDefs, _, err := compileStates(cfg.States)
 	if err != nil {
 		return interfaces.WorkflowDefinition{}, err
 	}
@@ -79,10 +80,11 @@ func compileDefinitionConfig(cfg runtimeconfig.WorkflowDefinitionConfig) (interf
 	}
 
 	return interfaces.WorkflowDefinition{
-		EntityType:   strings.ToLower(entity),
-		InitialState: interfaces.WorkflowState(initialState),
-		States:       stateDefs,
-		Transitions:  transitions,
+		ID:          strings.ToLower(entity),
+		Name:        strings.TrimSpace(cfg.Description),
+		Version:     "v1",
+		States:      stateDefs,
+		Transitions: transitions,
 	}, nil
 }
 
@@ -121,9 +123,12 @@ func compileStates(configs []runtimeconfig.WorkflowStateConfig) (map[string]comp
 			terminal:    cfg.Terminal,
 		}
 		ordered = append(ordered, interfaces.WorkflowStateDefinition{
-			Name:        normalized,
-			Description: strings.TrimSpace(cfg.Description),
-			Terminal:    cfg.Terminal,
+			Name:     string(normalized),
+			Terminal: cfg.Terminal,
+			Initial:  cfg.Initial,
+			Metadata: map[string]any{
+				"description": strings.TrimSpace(cfg.Description),
+			},
 		})
 	}
 
@@ -131,6 +136,9 @@ func compileStates(configs []runtimeconfig.WorkflowStateConfig) (map[string]comp
 		first := configs[0]
 		firstName := interfaces.WorkflowState(domain.NormalizeWorkflowState(strings.TrimSpace(first.Name)))
 		initial = firstName
+		if len(ordered) > 0 {
+			ordered[0].Initial = true
+		}
 	}
 
 	if _, ok := result[string(initial)]; !ok {
@@ -175,13 +183,25 @@ func compileTransitions(configs []runtimeconfig.WorkflowTransitionConfig, states
 		}
 		seen[key] = struct{}{}
 
-		result = append(result, interfaces.WorkflowTransition{
-			Name:        name,
-			Description: strings.TrimSpace(cfg.Description),
-			From:        from,
-			To:          to,
-			Guard:       strings.TrimSpace(cfg.Guard),
-		})
+		definition := interfaces.WorkflowTransition{
+			ID:       transitionID(strings.ToLower(strings.TrimSpace(cfg.Name)), string(from), string(to)),
+			Event:    strings.ToLower(strings.TrimSpace(cfg.Name)),
+			From:     string(from),
+			To:       string(to),
+			Metadata: map[string]any{},
+			Workflow: flow.TransitionWorkflowDefinition{},
+		}
+		if desc := strings.TrimSpace(cfg.Description); desc != "" {
+			definition.Metadata = map[string]any{
+				"description": desc,
+			}
+		}
+		if guard := strings.TrimSpace(cfg.Guard); guard != "" {
+			definition.Guards = []flow.GuardDefinition{{
+				Ref: guard,
+			}}
+		}
+		result = append(result, definition)
 	}
 
 	return result, nil
@@ -189,4 +209,11 @@ func compileTransitions(configs []runtimeconfig.WorkflowTransitionConfig, states
 
 func transitionKey(name string, from interfaces.WorkflowState) string {
 	return strings.ToLower(strings.TrimSpace(name)) + "::" + string(from)
+}
+
+func transitionID(event, from, to string) string {
+	cleanFrom := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(from)), " ", "_")
+	cleanTo := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(to)), " ", "_")
+	event = strings.ReplaceAll(strings.ToLower(strings.TrimSpace(event)), " ", "_")
+	return event + "::" + cleanFrom + "->" + cleanTo
 }
