@@ -106,6 +106,38 @@ func TestNormalizeContentTypeCapabilitiesSupportsSearchPassThrough(t *testing.T)
 	}
 }
 
+func TestNormalizeContentTypeCapabilitiesRemovesLegacyAliasKeys(t *testing.T) {
+	normalized, validation := content.NormalizeContentTypeCapabilities(map[string]any{
+		"navigation_enabled": true,
+		"navigation_eligible_locations": []any{
+			"site.main",
+		},
+		"delivery_enabled": true,
+		"search_enabled":   true,
+	})
+	if len(validation) != 0 {
+		t.Fatalf("expected no validation errors, got %#v", validation)
+	}
+
+	if _, ok := normalized["navigation_enabled"]; ok {
+		t.Fatalf("expected navigation_enabled alias to be removed")
+	}
+	if _, ok := normalized["navigation_eligible_locations"]; ok {
+		t.Fatalf("expected navigation_eligible_locations alias to be removed")
+	}
+	if _, ok := normalized["delivery_enabled"]; ok {
+		t.Fatalf("expected delivery_enabled alias to be removed")
+	}
+	if _, ok := normalized["search_enabled"]; ok {
+		t.Fatalf("expected search_enabled alias to be removed")
+	}
+
+	navigation, _ := normalized["navigation"].(map[string]any)
+	if navigation == nil || navigation["enabled"] != true {
+		t.Fatalf("expected canonical navigation.enabled=true, got %#v", navigation)
+	}
+}
+
 func TestBackfillContentTypeNavigationDefaultsMigratesLegacyCapabilities(t *testing.T) {
 	idLegacy := uuid.New()
 	idCanonical := uuid.New()

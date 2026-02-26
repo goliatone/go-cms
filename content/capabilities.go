@@ -141,6 +141,7 @@ func normalizeContentTypeCapabilitiesInternal(capabilities map[string]any) (map[
 	} else {
 		delete(normalized, "search")
 	}
+	removeLegacyCapabilityAliases(normalized)
 
 	if len(normalized) == 0 && sourceWasNil {
 		normalized = nil
@@ -149,6 +150,60 @@ func normalizeContentTypeCapabilitiesInternal(capabilities map[string]any) (map[
 		validation = nil
 	}
 	return normalized, validation, legacyDeliveryMenu
+}
+
+func removeLegacyCapabilityAliases(capabilities map[string]any) {
+	if len(capabilities) == 0 {
+		return
+	}
+	for _, key := range legacyCapabilityAliasKeys {
+		delete(capabilities, key)
+	}
+}
+
+var legacyCapabilityAliasKeys = []string{
+	"delivery_enabled",
+	"deliveryEnabled",
+	"delivery_kind",
+	"deliveryKind",
+	"delivery_list_route",
+	"deliveryListRoute",
+	"delivery_detail_route",
+	"deliveryDetailRoute",
+	"delivery_list_template",
+	"deliveryListTemplate",
+	"delivery_detail_template",
+	"deliveryDetailTemplate",
+	"delivery_menu_location",
+	"deliveryMenuLocation",
+	"delivery_menu_label_key",
+	"deliveryMenuLabelKey",
+
+	"navigation_enabled",
+	"navigationEnabled",
+	"navigation_eligible_locations",
+	"navigationEligibleLocations",
+	"navigation_default_locations",
+	"navigationDefaultLocations",
+	"navigation_default_visible",
+	"navigationDefaultVisible",
+	"allow_instance_override",
+	"allowInstanceOverride",
+	"navigation_merge_mode",
+	"navigationMergeMode",
+
+	"search_enabled",
+	"searchEnabled",
+	"search_collection",
+	"searchCollection",
+	"search_facets",
+	"searchFacets",
+	"search_filters",
+	"searchFilters",
+	"search_published_only",
+	"searchPublishedOnly",
+	"search_fields",
+	"searchFields",
 }
 
 func cloneCapabilityMap(src map[string]any) map[string]any {
