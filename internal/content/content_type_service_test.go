@@ -108,6 +108,78 @@ func TestContentTypeServiceCreateDefaultsStatusAndSchemaVersion(t *testing.T) {
 	}
 }
 
+func TestContentTypeServiceCreateNormalizesCapabilities(t *testing.T) {
+	repo := content.NewMemoryContentTypeRepository()
+	svc := content.NewContentTypeService(repo)
+
+	ct, err := svc.Create(context.Background(), content.CreateContentTypeRequest{
+		Name:   "Landing Page",
+		Schema: map[string]any{"fields": []any{"title"}},
+		Capabilities: map[string]any{
+			"delivery": map[string]any{
+				"menu": map[string]any{
+					"location": "site.main",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+	delivery, _ := ct.Capabilities["delivery"].(map[string]any)
+	if _, exists := delivery["menu"]; exists {
+		t.Fatalf("expected legacy delivery.menu to be migrated out of canonical payload")
+	}
+	navigation, _ := ct.Capabilities["navigation"].(map[string]any)
+	if navigation == nil {
+		t.Fatalf("expected navigation capability after migration")
+	}
+}
+
+func TestContentTypeServiceCreateRejectsInvalidNavigationCapability(t *testing.T) {
+	repo := content.NewMemoryContentTypeRepository()
+	svc := content.NewContentTypeService(repo)
+
+	_, err := svc.Create(context.Background(), content.CreateContentTypeRequest{
+		Name:   "Landing Page",
+		Schema: map[string]any{"fields": []any{"title"}},
+		Capabilities: map[string]any{
+			"navigation": map[string]any{
+				"eligible_locations": []any{"site.main"},
+				"default_locations":  []any{"site.footer"},
+			},
+		},
+	})
+	if !errors.Is(err, content.ErrContentTypeCapabilitiesInvalid) {
+		t.Fatalf("expected ErrContentTypeCapabilitiesInvalid, got %v", err)
+	}
+}
+
+func TestContentTypeServiceUpdateRejectsInvalidCapabilityBoolean(t *testing.T) {
+	repo := content.NewMemoryContentTypeRepository()
+	svc := content.NewContentTypeService(repo)
+
+	created, err := svc.Create(context.Background(), content.CreateContentTypeRequest{
+		Name:   "Landing Page",
+		Schema: map[string]any{"fields": []any{"title"}},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	_, err = svc.Update(context.Background(), content.UpdateContentTypeRequest{
+		ID: created.ID,
+		Capabilities: map[string]any{
+			"navigation": map[string]any{
+				"allow_instance_override": "banana",
+			},
+		},
+	})
+	if !errors.Is(err, content.ErrContentTypeCapabilitiesInvalid) {
+		t.Fatalf("expected ErrContentTypeCapabilitiesInvalid, got %v", err)
+	}
+}
+
 func TestContentTypeServiceGetBySlugNormalizesInput(t *testing.T) {
 	repo := content.NewMemoryContentTypeRepository()
 	svc := content.NewContentTypeService(repo)

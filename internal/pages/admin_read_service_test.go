@@ -131,6 +131,9 @@ func TestAdminPageReadServiceHydration(t *testing.T) {
 	expectDataString(t, record.Data, "meta_description", fixture.expected.metaDescription)
 	expectDataString(t, record.Data, "requested_locale", fixture.expected.requestedLocale)
 	expectDataString(t, record.Data, "resolved_locale", fixture.expected.resolvedLocale)
+	expectDataString(t, record.Data, "translation_group_id", fixture.translationGroupID.String())
+	expectDataBool(t, record.Data, "missing_requested_locale", false)
+	expectDataLocales(t, record.Data, "available_locales", []string{"en"})
 	expectDataTags(t, record.Data, fixture.expected.tags)
 }
 
@@ -153,6 +156,37 @@ func TestAdminPageReadServiceMetaFallbackWithoutDataInclude(t *testing.T) {
 	}
 	if record.Data != nil {
 		t.Fatalf("expected data payload to be nil when IncludeData=false, got %#v", record.Data)
+	}
+}
+
+func TestAdminPageReadServiceListFieldProjection(t *testing.T) {
+	fixture := newAdminReadFixture(t)
+
+	records, total, err := fixture.svc.List(fixture.ctx, interfaces.AdminPageListOptions{
+		Locale: "en",
+		Fields: []string{"title", "slug"},
+	})
+	if err != nil {
+		t.Fatalf("list admin records: %v", err)
+	}
+	if total != 1 || len(records) != 1 {
+		t.Fatalf("expected one projected record total=%d len=%d", total, len(records))
+	}
+	record := records[0]
+	if record.ID == uuid.Nil {
+		t.Fatalf("expected id to be preserved in projected record")
+	}
+	if record.Title != fixture.expected.title {
+		t.Fatalf("expected projected title %q, got %q", fixture.expected.title, record.Title)
+	}
+	if record.Slug != "home" {
+		t.Fatalf("expected projected slug home, got %q", record.Slug)
+	}
+	if record.Status != "" {
+		t.Fatalf("expected status to be omitted by projection, got %q", record.Status)
+	}
+	if record.Path != "" {
+		t.Fatalf("expected path to be omitted by projection, got %q", record.Path)
 	}
 }
 
@@ -680,6 +714,36 @@ func expectDataString(t *testing.T, data map[string]any, key, want string) {
 	}
 	if text != want {
 		t.Fatalf("expected data key %q to be %q, got %q", key, want, text)
+	}
+}
+
+func expectDataBool(t *testing.T, data map[string]any, key string, want bool) {
+	t.Helper()
+	value, ok := data[key]
+	if !ok {
+		t.Fatalf("expected data key %q", key)
+	}
+	got, ok := value.(bool)
+	if !ok {
+		t.Fatalf("expected data key %q to be bool, got %T", key, value)
+	}
+	if got != want {
+		t.Fatalf("expected data key %q to be %v, got %v", key, want, got)
+	}
+}
+
+func expectDataLocales(t *testing.T, data map[string]any, key string, want []string) {
+	t.Helper()
+	value, ok := data[key]
+	if !ok {
+		t.Fatalf("expected data key %q", key)
+	}
+	locales, ok := value.([]string)
+	if !ok {
+		t.Fatalf("expected data key %q to be []string, got %T", key, value)
+	}
+	if !reflect.DeepEqual(locales, want) {
+		t.Fatalf("expected data key %q to be %#v, got %#v", key, want, locales)
 	}
 }
 

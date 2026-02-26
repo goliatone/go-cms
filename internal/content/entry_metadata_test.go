@@ -21,6 +21,15 @@ func TestContentEntryMetadataPersistsStructuralFields(t *testing.T) {
 		Schema: map[string]any{
 			"fields": []any{map[string]any{"name": "body"}},
 		},
+		Capabilities: map[string]any{
+			"navigation": map[string]any{
+				"enabled":                 true,
+				"eligible_locations":      []any{"site.main", "site.footer"},
+				"default_locations":       []any{"site.main"},
+				"default_visible":         true,
+				"allow_instance_override": true,
+			},
+		},
 	})
 
 	localeStore.Put(&content.Locale{
@@ -46,7 +55,11 @@ func TestContentEntryMetadataPersistsStructuralFields(t *testing.T) {
 			"template_id": templateID.String(),
 			"path":        " /about ",
 			"order":       7,
-			"legacy":      "keep",
+			"_navigation": map[string]any{
+				"site.main":   " show ",
+				"site.footer": "hide",
+			},
+			"legacy": "keep",
 		},
 		Translations: []content.ContentTranslationInput{
 			{
@@ -67,6 +80,15 @@ func TestContentEntryMetadataPersistsStructuralFields(t *testing.T) {
 	if _, ok := created.Metadata["order"]; ok {
 		t.Fatalf("expected order to be normalized to sort_order")
 	}
+	assertNavigationMetadata(t, created.Metadata, map[string]string{
+		"site.main":   "show",
+		"site.footer": "hide",
+	})
+	assertStringSlice(t, created.Metadata["effective_menu_locations"], []string{"site.main"})
+	assertNavigationVisibilityMetadata(t, created.Metadata, map[string]bool{
+		"site.main":   true,
+		"site.footer": false,
+	})
 
 	if _, err := svc.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
 		ContentID: created.ID,
@@ -92,6 +114,10 @@ func TestContentEntryMetadataPersistsStructuralFields(t *testing.T) {
 		"template_id": templateID.String(),
 		"path":        "/about-updated",
 		"sort_order":  12,
+		"_navigation": map[string]any{
+			"site.main": "inherit",
+		},
+		"effective_menu_locations": []any{"site.footer", "site.main", "site.footer"},
 	}
 	updatedContent, err := svc.Update(ctx, content.UpdateContentRequest{
 		ID:        created.ID,
@@ -112,6 +138,120 @@ func TestContentEntryMetadataPersistsStructuralFields(t *testing.T) {
 	if _, ok := updatedContent.Metadata["legacy"]; ok {
 		t.Fatalf("expected metadata to be replaced on update")
 	}
+	assertNavigationMetadata(t, updatedContent.Metadata, map[string]string{
+		"site.main": "inherit",
+	})
+	assertStringSlice(t, updatedContent.Metadata["effective_menu_locations"], []string{"site.main"})
+	assertNavigationVisibilityMetadata(t, updatedContent.Metadata, map[string]bool{
+		"site.main":   true,
+		"site.footer": false,
+	})
+}
+
+func TestContentEntryMetadataRejectsInvalidNavigationState(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Slug: "page",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "body"}},
+		},
+	})
+	localeStore.Put(&content.Locale{
+		ID:      uuid.New(),
+		Code:    "en",
+		Display: "English",
+	})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	_, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "invalid-navigation",
+		Status:        "draft",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Metadata: map[string]any{
+			"_navigation": map[string]any{
+				"site.main": "invalid",
+			},
+		},
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "About",
+				Content: map[string]any{"body": "content"},
+			},
+		},
+	})
+	if err == nil {
+		t.Fatalf("expected metadata validation error")
+	}
+}
+
+func TestContentEntryMetadataIgnoresOverridesWhenInstanceOverridesDisabled(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Slug: "page",
+		Schema: map[string]any{
+			"fields": []any{map[string]any{"name": "body"}},
+		},
+		Capabilities: map[string]any{
+			"navigation": map[string]any{
+				"enabled":                 true,
+				"eligible_locations":      []any{"site.main", "site.footer"},
+				"default_locations":       []any{"site.main"},
+				"default_visible":         true,
+				"allow_instance_override": false,
+			},
+		},
+	})
+	localeStore.Put(&content.Locale{
+		ID:      uuid.New(),
+		Code:    "en",
+		Display: "English",
+	})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	created, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "override-disabled",
+		Status:        "draft",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Metadata: map[string]any{
+			"_navigation": map[string]any{
+				"site.main":   "hide",
+				"site.footer": "show",
+			},
+		},
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Override Disabled",
+				Content: map[string]any{"body": "content"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	assertStringSlice(t, created.Metadata["effective_menu_locations"], []string{"site.main"})
+	assertNavigationVisibilityMetadata(t, created.Metadata, map[string]bool{
+		"site.main":   true,
+		"site.footer": false,
+	})
 }
 
 func assertEntryMetadata(t *testing.T, metadata map[string]any, parentID, templateID uuid.UUID, path string, sortOrder int) {
@@ -157,4 +297,52 @@ func requireInt(t *testing.T, value any) int {
 		t.Fatalf("expected integer value, got %T", value)
 	}
 	return 0
+}
+
+func assertNavigationMetadata(t *testing.T, metadata map[string]any, expected map[string]string) {
+	t.Helper()
+	raw, ok := metadata["_navigation"].(map[string]string)
+	if !ok {
+		t.Fatalf("expected _navigation map[string]string, got %T", metadata["_navigation"])
+	}
+	if len(raw) != len(expected) {
+		t.Fatalf("expected %d _navigation entries, got %d", len(expected), len(raw))
+	}
+	for key, value := range expected {
+		if raw[key] != value {
+			t.Fatalf("expected _navigation[%q]=%q got %q", key, value, raw[key])
+		}
+	}
+}
+
+func assertStringSlice(t *testing.T, value any, expected []string) {
+	t.Helper()
+	actual, ok := value.([]string)
+	if !ok {
+		t.Fatalf("expected []string, got %T", value)
+	}
+	if len(actual) != len(expected) {
+		t.Fatalf("expected slice len %d got %d (%#v)", len(expected), len(actual), actual)
+	}
+	for idx := range expected {
+		if actual[idx] != expected[idx] {
+			t.Fatalf("expected[%d]=%q got %q", idx, expected[idx], actual[idx])
+		}
+	}
+}
+
+func assertNavigationVisibilityMetadata(t *testing.T, metadata map[string]any, expected map[string]bool) {
+	t.Helper()
+	raw, ok := metadata["effective_navigation_visibility"].(map[string]bool)
+	if !ok {
+		t.Fatalf("expected effective_navigation_visibility map[string]bool, got %T", metadata["effective_navigation_visibility"])
+	}
+	if len(raw) != len(expected) {
+		t.Fatalf("expected %d visibility entries, got %d", len(expected), len(raw))
+	}
+	for key, value := range expected {
+		if raw[key] != value {
+			t.Fatalf("expected effective_navigation_visibility[%q]=%t got %t", key, value, raw[key])
+		}
+	}
 }

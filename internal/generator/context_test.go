@@ -516,6 +516,30 @@ func (s *stubMenusService) UpsertMenu(context.Context, menus.UpsertMenuInput) (*
 	return nil, errUnsupported
 }
 
+func (s *stubMenusService) MenuByCode(context.Context, string, string, menus.MenuQueryOptions, ...string) (*menus.ResolvedMenu, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) MenuByLocation(context.Context, string, string, menus.MenuQueryOptions, ...string) (*menus.ResolvedMenu, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) ResolveLocationBinding(context.Context, string, string, menus.MenuQueryOptions, ...string) (*menus.MenuLocationBinding, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) ApplyViewProfile(context.Context, *menus.Menu, string, menus.MenuQueryOptions, ...string) (*menus.Menu, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) UpsertMenuLocationBinding(context.Context, menus.UpsertMenuLocationBindingInput) (*menus.MenuLocationBinding, error) {
+	return nil, errUnsupported
+}
+
+func (s *stubMenusService) UpsertMenuViewProfile(context.Context, menus.UpsertMenuViewProfileInput) (*menus.MenuViewProfile, error) {
+	return nil, errUnsupported
+}
+
 func (s *stubMenusService) GetMenu(context.Context, uuid.UUID) (*menus.Menu, error) {
 	return nil, errUnsupported
 }
