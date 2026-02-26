@@ -12,22 +12,29 @@ const (
 	MenuItemTypeItem      = "item"
 	MenuItemTypeGroup     = "group"
 	MenuItemTypeSeparator = "separator"
+
+	MenuStatusDraft     = "draft"
+	MenuStatusPublished = "published"
 )
 
 // Menu represents a navigational container that groups hierarchical items.
 type Menu struct {
 	bun.BaseModel `bun:"table:menus,alias:m"`
 
-	ID            uuid.UUID   `bun:",pk,type:uuid" json:"id"`
-	Code          string      `bun:"code,notnull" json:"code"`
-	Location      string      `bun:"location" json:"location,omitempty"`
-	Description   *string     `bun:"description" json:"description,omitempty"`
-	EnvironmentID uuid.UUID   `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
-	CreatedBy     uuid.UUID   `bun:"created_by,notnull,type:uuid" json:"created_by"`
-	UpdatedBy     uuid.UUID   `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
-	CreatedAt     time.Time   `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt     time.Time   `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
-	Items         []*MenuItem `bun:"rel:has-many,join:id=menu_id" json:"items,omitempty"`
+	ID                 uuid.UUID   `bun:",pk,type:uuid" json:"id"`
+	Code               string      `bun:"code,notnull" json:"code"`
+	Location           string      `bun:"location" json:"location,omitempty"`
+	Description        *string     `bun:"description" json:"description,omitempty"`
+	Status             string      `bun:"status,notnull,default:'published'" json:"status"`
+	Locale             *string     `bun:"locale" json:"locale,omitempty"`
+	TranslationGroupID *uuid.UUID  `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
+	PublishedAt        *time.Time  `bun:"published_at,nullzero" json:"published_at,omitempty"`
+	EnvironmentID      uuid.UUID   `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
+	CreatedBy          uuid.UUID   `bun:"created_by,notnull,type:uuid" json:"created_by"`
+	UpdatedBy          uuid.UUID   `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
+	CreatedAt          time.Time   `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt          time.Time   `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	Items              []*MenuItem `bun:"rel:has-many,join:id=menu_id" json:"items,omitempty"`
 }
 
 // MenuItem describes a single navigational entry with optional hierarchy.
@@ -80,4 +87,44 @@ type MenuItemTranslation struct {
 	UpdatedAt     time.Time       `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 	MenuItem      *MenuItem       `bun:"rel:belongs-to,join:menu_item_id=id" json:"menu_item,omitempty"`
 	Locale        *content.Locale `bun:"rel:belongs-to,join:locale_id=id" json:"locale,omitempty"`
+}
+
+// MenuLocationBinding maps a location to a source menu and optional view profile.
+type MenuLocationBinding struct {
+	bun.BaseModel `bun:"table:menu_location_bindings,alias:mlb"`
+
+	ID              uuid.UUID  `bun:",pk,type:uuid" json:"id"`
+	Location        string     `bun:"location,notnull" json:"location"`
+	MenuCode        string     `bun:"menu_code,notnull" json:"menu_code"`
+	ViewProfileCode *string    `bun:"view_profile_code" json:"view_profile_code,omitempty"`
+	Locale          *string    `bun:"locale" json:"locale,omitempty"`
+	Priority        int        `bun:"priority,notnull,default:0" json:"priority"`
+	Status          string     `bun:"status,notnull,default:'published'" json:"status"`
+	PublishedAt     *time.Time `bun:"published_at,nullzero" json:"published_at,omitempty"`
+	EnvironmentID   uuid.UUID  `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
+	CreatedBy       uuid.UUID  `bun:"created_by,notnull,type:uuid" json:"created_by"`
+	UpdatedBy       uuid.UUID  `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
+	CreatedAt       time.Time  `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt       time.Time  `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+}
+
+// MenuViewProfile defines projection rules applied to a menu at read time.
+type MenuViewProfile struct {
+	bun.BaseModel `bun:"table:menu_view_profiles,alias:mvp"`
+
+	ID             uuid.UUID  `bun:",pk,type:uuid" json:"id"`
+	Code           string     `bun:"code,notnull" json:"code"`
+	Name           string     `bun:"name,notnull" json:"name"`
+	Mode           string     `bun:"mode,notnull,default:'full'" json:"mode"`
+	MaxTopLevel    *int       `bun:"max_top_level" json:"max_top_level,omitempty"`
+	MaxDepth       *int       `bun:"max_depth" json:"max_depth,omitempty"`
+	IncludeItemIDs []string   `bun:"include_item_ids,type:jsonb" json:"include_item_ids,omitempty"`
+	ExcludeItemIDs []string   `bun:"exclude_item_ids,type:jsonb" json:"exclude_item_ids,omitempty"`
+	Status         string     `bun:"status,notnull,default:'published'" json:"status"`
+	PublishedAt    *time.Time `bun:"published_at,nullzero" json:"published_at,omitempty"`
+	EnvironmentID  uuid.UUID  `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
+	CreatedBy      uuid.UUID  `bun:"created_by,notnull,type:uuid" json:"created_by"`
+	UpdatedBy      uuid.UUID  `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
+	CreatedAt      time.Time  `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt      time.Time  `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
 }
