@@ -79,6 +79,23 @@ func TestService_MenuByLocation_PerEntryOverridesAcrossLocations(t *testing.T) {
 	}
 }
 
+func TestService_MenuByLocation_PerEntryOverridesNormalizeLocationCase(t *testing.T) {
+	fixture := newPhase3MenuFixture(t, navigationCapabilities(true, content.NavigationMergeAppend))
+	fixture.createMenuWithBinding(t, "site-main", "site.main", "Main", "/main")
+
+	fixture.createContent(t, "home", "Home", "/home", map[string]any{
+		"_navigation": map[string]any{
+			"SITE.MAIN": "hide",
+		},
+	})
+
+	mainResolved, err := fixture.menuSvc.MenuByLocation(context.Background(), "site.main", "en", menus.MenuQueryOptions{})
+	if err != nil {
+		t.Fatalf("resolve site.main: %v", err)
+	}
+	assertLabels(t, mainResolved.Items, []string{"Main"})
+}
+
 func TestService_MenuByLocation_DuplicatePolicies(t *testing.T) {
 	fixture := newPhase3MenuFixture(t, navigationCapabilities(true, content.NavigationMergeAppend))
 	fixture.createMenuWithBinding(t, "site-main", "site.main", "Manual", "/same")

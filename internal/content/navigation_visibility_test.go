@@ -74,3 +74,45 @@ func TestResolveNavigationVisibility_OverrideGuardrail(t *testing.T) {
 		t.Fatalf("expected inherit effective state, got %#v", result.EffectiveState)
 	}
 }
+
+func TestResolveNavigationVisibility_NormalizesLocationOverrideCase(t *testing.T) {
+	contentType := &ContentType{
+		ID:   uuid.New(),
+		Name: "page",
+		Slug: "page",
+		Capabilities: map[string]any{
+			"navigation": map[string]any{
+				"enabled":                 true,
+				"eligible_locations":      []any{"site.main"},
+				"default_locations":       []any{"site.main"},
+				"default_visible":         true,
+				"allow_instance_override": true,
+			},
+		},
+	}
+	result := ResolveNavigationVisibility(contentType, map[string]any{
+		"_navigation": map[string]any{
+			"SITE.MAIN": "hide",
+		},
+	})
+
+	if result.EffectiveVisibility["site.main"] {
+		t.Fatalf("expected site.main hidden by case-insensitive override")
+	}
+	if result.Origins["site.main"] != NavigationOriginOverride {
+		t.Fatalf("expected override origin for site.main, got %#v", result.Origins)
+	}
+	if result.EffectiveState["site.main"] != NavigationStateHide {
+		t.Fatalf("expected hide state for site.main, got %#v", result.EffectiveState)
+	}
+}
+
+func TestNormalizeNavigationOverridesRejectsCaseInsensitiveDuplicates(t *testing.T) {
+	_, err := NormalizeNavigationOverrides(map[string]any{
+		"site.main": "show",
+		"SITE.MAIN": "hide",
+	})
+	if err == nil {
+		t.Fatalf("expected duplicate-location error")
+	}
+}

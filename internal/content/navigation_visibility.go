@@ -110,9 +110,17 @@ func NormalizeNavigationOverrides(raw any) (map[string]string, error) {
 		return nil, fmt.Errorf("%s must be an object", entryFieldNavigation)
 	}
 
+	keys := make([]string, 0, len(source))
+	for location := range source {
+		keys = append(keys, location)
+	}
+	sort.Strings(keys)
+
 	normalized := make(map[string]string, len(source))
-	for location, value := range source {
-		locationKey := strings.TrimSpace(location)
+	seenLocations := make(map[string]string, len(source))
+	for _, location := range keys {
+		value := source[location]
+		locationKey := normalizeNavigationLocation(location)
 		if locationKey == "" {
 			continue
 		}
@@ -122,6 +130,10 @@ func NormalizeNavigationOverrides(raw any) (map[string]string, error) {
 		}
 		switch state {
 		case NavigationStateInherit, NavigationStateShow, NavigationStateHide:
+			if existing, exists := seenLocations[locationKey]; exists && existing != location {
+				return nil, fmt.Errorf("%s has duplicate location key %q", entryFieldNavigation, locationKey)
+			}
+			seenLocations[locationKey] = location
 			normalized[locationKey] = state
 		default:
 			return nil, fmt.Errorf("%s.%s must be inherit|show|hide", entryFieldNavigation, locationKey)
@@ -298,23 +310,38 @@ func normalizeNavigationDuplicatePolicy(value string) string {
 func normalizeLocationList(raw any) []string {
 	switch typed := raw.(type) {
 	case []string:
-		return dedupeStringList(typed)
+		out := make([]string, 0, len(typed))
+		for _, value := range typed {
+			location := normalizeNavigationLocation(value)
+			if location != "" {
+				out = append(out, location)
+			}
+		}
+		return dedupeStringList(out)
 	case []any:
 		out := make([]string, 0, len(typed))
 		for _, value := range typed {
-			location := strings.TrimSpace(toString(value))
+			location := normalizeNavigationLocation(toString(value))
 			if location != "" {
 				out = append(out, location)
 			}
 		}
 		return dedupeStringList(out)
 	default:
-		location := strings.TrimSpace(toString(raw))
+		location := normalizeNavigationLocation(toString(raw))
 		if location == "" {
 			return nil
 		}
 		return []string{location}
 	}
+}
+
+func normalizeNavigationLocation(value string) string {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return ""
+	}
+	return strings.ToLower(trimmed)
 }
 
 func firstNonEmptyString(values ...any) string {
