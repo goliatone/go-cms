@@ -54,32 +54,45 @@ func (p *singleLoggerProvider) GetLogger(string) interfaces.Logger {
 }
 
 type stubWorkflowEngine struct {
-	inputs []interfaces.TransitionInput
+	inputs []interfaces.ApplyEventRequest
 }
 
-func (s *stubWorkflowEngine) Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
+func (s *stubWorkflowEngine) ApplyEvent(ctx context.Context, input interfaces.ApplyEventRequest) (*interfaces.ApplyEventResponse, error) {
 	s.inputs = append(s.inputs, input)
-	to := input.TargetState
-	if strings.TrimSpace(string(to)) == "" {
-		to = input.CurrentState
+	to := strings.TrimSpace(input.ExpectedState)
+	if payloadTarget, ok := input.Msg.Payload["target_state"].(string); ok && strings.TrimSpace(payloadTarget) != "" {
+		to = strings.TrimSpace(payloadTarget)
 	}
-	return &interfaces.TransitionResult{
-		EntityID:    input.EntityID,
-		EntityType:  input.EntityType,
-		Transition:  input.Transition,
-		FromState:   input.CurrentState,
-		ToState:     to,
-		CompletedAt: time.Unix(0, 0),
-		ActorID:     input.ActorID,
-		Metadata:    input.Metadata,
+	if to == "" {
+		to = "draft"
+	}
+	return &interfaces.ApplyEventResponse{
+		EventID: "evt-test",
+		Version: 1,
+		Transition: &interfaces.TransitionResult{
+			PreviousState: input.ExpectedState,
+			CurrentState:  to,
+		},
 	}, nil
 }
 
-func (s *stubWorkflowEngine) AvailableTransitions(context.Context, interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
+func (s *stubWorkflowEngine) Snapshot(context.Context, interfaces.SnapshotRequest) (*interfaces.Snapshot, error) {
 	return nil, nil
 }
 
-func (s *stubWorkflowEngine) RegisterWorkflow(context.Context, interfaces.WorkflowDefinition) error {
+func (s *stubWorkflowEngine) RegisterMachine(context.Context, interfaces.WorkflowDefinition) error {
+	return nil
+}
+
+func (s *stubWorkflowEngine) RegisterGuard(string, interfaces.Guard) error {
+	return nil
+}
+
+func (s *stubWorkflowEngine) RegisterDynamicTarget(string, interfaces.DynamicTargetResolver) error {
+	return nil
+}
+
+func (s *stubWorkflowEngine) RegisterAction(string, interfaces.Action) error {
 	return nil
 }
 
@@ -159,18 +172,24 @@ func TestContainerRegistersWorkflowDefinitionsFromConfig(t *testing.T) {
 		t.Fatalf("expected workflow engine")
 	}
 
-	transitions, err := engine.AvailableTransitions(context.Background(), interfaces.TransitionQuery{
-		EntityType: "page",
-		State:      interfaces.WorkflowState("review"),
+	snapshot, err := engine.Snapshot(context.Background(), interfaces.SnapshotRequest{
+		MachineID: "page",
+		EntityID:  "test-page-review",
+		Msg: interfaces.WorkflowMessage{
+			TypeName: "container.test.snapshot",
+			Payload: map[string]any{
+				"current_state": "review",
+			},
+		},
 	})
 	if err != nil {
-		t.Fatalf("available transitions: %v", err)
+		t.Fatalf("snapshot transitions: %v", err)
 	}
-	if len(transitions) != 1 {
-		t.Fatalf("expected 1 transition, got %d", len(transitions))
+	if len(snapshot.AllowedTransitions) != 1 {
+		t.Fatalf("expected 1 transition, got %d", len(snapshot.AllowedTransitions))
 	}
-	if transitions[0].Name != "translate" {
-		t.Fatalf("expected translate transition, got %s", transitions[0].Name)
+	if snapshot.AllowedTransitions[0].Event != "translate" {
+		t.Fatalf("expected translate transition, got %s", snapshot.AllowedTransitions[0].Event)
 	}
 }
 
@@ -180,14 +199,13 @@ func TestContainerRegistersWorkflowDefinitionsFromStore(t *testing.T) {
 	store := &staticWorkflowDefinitionStore{
 		definitions: []interfaces.WorkflowDefinition{
 			{
-				EntityType:   "page",
-				InitialState: interfaces.WorkflowState("draft"),
+				ID: "page",
 				States: []interfaces.WorkflowStateDefinition{
-					{Name: interfaces.WorkflowState("draft")},
-					{Name: interfaces.WorkflowState("localized")},
+					{Name: "draft", Initial: true},
+					{Name: "localized"},
 				},
 				Transitions: []interfaces.WorkflowTransition{
-					{Name: "localize", From: interfaces.WorkflowState("draft"), To: interfaces.WorkflowState("localized")},
+					{ID: "localize", Event: "localize", From: "draft", To: "localized"},
 				},
 			},
 		},
@@ -203,15 +221,21 @@ func TestContainerRegistersWorkflowDefinitionsFromStore(t *testing.T) {
 		t.Fatalf("expected workflow engine")
 	}
 
-	transitions, err := engine.AvailableTransitions(context.Background(), interfaces.TransitionQuery{
-		EntityType: "page",
-		State:      interfaces.WorkflowState("draft"),
+	snapshot, err := engine.Snapshot(context.Background(), interfaces.SnapshotRequest{
+		MachineID: "page",
+		EntityID:  "test-page-draft",
+		Msg: interfaces.WorkflowMessage{
+			TypeName: "container.test.snapshot",
+			Payload: map[string]any{
+				"current_state": "draft",
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("available transitions: %v", err)
 	}
-	if len(transitions) != 1 || transitions[0].Name != "localize" {
-		t.Fatalf("expected store-provided transition, got %+v", transitions)
+	if len(snapshot.AllowedTransitions) != 1 || snapshot.AllowedTransitions[0].Event != "localize" {
+		t.Fatalf("expected store-provided transition, got %+v", snapshot.AllowedTransitions)
 	}
 }
 

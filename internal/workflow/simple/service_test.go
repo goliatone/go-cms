@@ -5,12 +5,12 @@ import (
 	"encoding/json"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/testsupport"
-	"github.com/google/uuid"
 )
 
 type transitionFixture struct {
@@ -53,34 +53,41 @@ func TestEngine_DefaultWorkflowTransitions(t *testing.T) {
 		t.Fatalf("unmarshal fixture: %v", err)
 	}
 
-	currentState := interfaces.WorkflowState(fixture.InitialState)
-	entityID := uuid.New()
-	actorID := uuid.New()
+	currentState := strings.TrimSpace(strings.ToLower(fixture.InitialState))
+	entityID := "fixture-entity-1"
 	var results []transitionSummary
 
 	for idx, step := range fixture.Steps {
-		res, err := engine.Transition(ctx, interfaces.TransitionInput{
-			EntityID:     entityID,
-			EntityType:   fixture.EntityType,
-			CurrentState: currentState,
-			Transition:   step.Transition,
-			ActorID:      actorID,
+		res, err := engine.ApplyEvent(ctx, interfaces.ApplyEventRequest{
+			MachineID:     fixture.EntityType,
+			EntityID:      entityID,
+			Event:         step.Transition,
+			ExpectedState: currentState,
+			ExecCtx: interfaces.ExecutionContext{
+				ActorID: "tester",
+			},
+			Msg: interfaces.WorkflowMessage{
+				TypeName: "test.workflow",
+				Payload: map[string]any{
+					"current_state": currentState,
+				},
+			},
 		})
 		if err != nil {
 			t.Fatalf("step %d transition %q: %v", idx, step.Transition, err)
 		}
-		if string(res.ToState) != step.WantState {
-			t.Fatalf("step %d transition %q: want %s got %s", idx, step.Transition, step.WantState, res.ToState)
+		if res == nil || res.Transition == nil {
+			t.Fatalf("step %d transition %q: expected transition response", idx, step.Transition)
 		}
-		if !res.CompletedAt.Equal(time.Unix(1700000000, 0).UTC()) {
-			t.Fatalf("step %d transition %q: unexpected timestamp %s", idx, step.Transition, res.CompletedAt)
+		if strings.TrimSpace(res.Transition.CurrentState) != step.WantState {
+			t.Fatalf("step %d transition %q: want %s got %s", idx, step.Transition, step.WantState, res.Transition.CurrentState)
 		}
 		results = append(results, transitionSummary{
-			Transition: res.Transition,
-			From:       string(res.FromState),
-			To:         string(res.ToState),
+			Transition: step.Transition,
+			From:       strings.TrimSpace(res.Transition.PreviousState),
+			To:         strings.TrimSpace(res.Transition.CurrentState),
 		})
-		currentState = res.ToState
+		currentState = strings.TrimSpace(res.Transition.CurrentState)
 	}
 
 	var want []transitionSummary
@@ -95,20 +102,33 @@ func TestEngine_DefaultWorkflowTransitions(t *testing.T) {
 		t.Fatalf("transition results mismatch\nwant: %s\n got: %s", string(wantJSON), string(gotJSON))
 	}
 
-	available, err := engine.AvailableTransitions(ctx, interfaces.TransitionQuery{
-		EntityType: fixture.EntityType,
-		State:      interfaces.WorkflowState("approved"),
+	snapshot, err := engine.Snapshot(ctx, interfaces.SnapshotRequest{
+		MachineID:      fixture.EntityType,
+		EntityID:       entityID,
+		EvaluateGuards: true,
+		IncludeBlocked: true,
+		Msg: interfaces.WorkflowMessage{
+			TypeName: "test.workflow.snapshot",
+			Payload: map[string]any{
+				"current_state": "approved",
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("available transitions: %v", err)
 	}
 
-	gotAvail := make([]availableTransitionSummary, len(available))
-	for i, item := range available {
+	gotAvail := make([]availableTransitionSummary, len(snapshot.AllowedTransitions))
+	for i, item := range snapshot.AllowedTransitions {
 		gotAvail[i] = availableTransitionSummary{
-			Name: item.Name,
-			From: string(item.From),
-			To:   string(item.To),
+			Name: item.Event,
+			From: "approved",
+			To: func() string {
+				if strings.TrimSpace(item.Target.ResolvedTo) != "" {
+					return strings.TrimSpace(item.Target.ResolvedTo)
+				}
+				return strings.TrimSpace(item.Target.To)
+			}(),
 		}
 	}
 

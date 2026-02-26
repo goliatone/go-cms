@@ -4,10 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/internal/runtimeconfig"
 	"github.com/goliatone/go-cms/internal/workflow"
-	"github.com/goliatone/go-cms/pkg/interfaces"
 )
 
 func TestCompileDefinitionConfigs_Success(t *testing.T) {
@@ -37,20 +35,23 @@ func TestCompileDefinitionConfigs_Success(t *testing.T) {
 	}
 
 	def := defs[0]
-	if def.EntityType != "page" {
-		t.Fatalf("expected entity 'page', got %q", def.EntityType)
-	}
-	if def.InitialState != interfaces.WorkflowState(domain.WorkflowStateDraft) {
-		t.Fatalf("expected initial state 'draft', got %q", def.InitialState)
+	if def.ID != "page" {
+		t.Fatalf("expected entity 'page', got %q", def.ID)
 	}
 	if len(def.States) != 4 {
 		t.Fatalf("expected 4 states, got %d", len(def.States))
 	}
-	if def.States[0].Name != interfaces.WorkflowState(domain.WorkflowStateDraft) {
+	if def.States[0].Name != "draft" {
 		t.Fatalf("expected first state to remain in input order, got %q", def.States[0].Name)
+	}
+	if !def.States[0].Initial {
+		t.Fatalf("expected first state to be initial")
 	}
 	if len(def.Transitions) != 3 {
 		t.Fatalf("expected 3 transitions, got %d", len(def.Transitions))
+	}
+	if def.Transitions[0].Event != "submit_review" {
+		t.Fatalf("expected event submit_review, got %s", def.Transitions[0].Event)
 	}
 }
 

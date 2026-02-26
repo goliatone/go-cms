@@ -20,48 +20,88 @@ import (
 )
 
 type fakeWorkflowEngine struct {
-	states []interfaces.WorkflowState
-	calls  []interfaces.TransitionInput
-	events [][]interfaces.WorkflowEvent
+	states  []interfaces.WorkflowState
+	calls   []interfaces.ApplyEventRequest
+	effects [][]interfaces.Effect
 }
 
-func (f *fakeWorkflowEngine) Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
+func (f *fakeWorkflowEngine) ApplyEvent(ctx context.Context, input interfaces.ApplyEventRequest) (*interfaces.ApplyEventResponse, error) {
 	f.calls = append(f.calls, input)
 
 	var target interfaces.WorkflowState
 	if len(f.states) > 0 {
 		target = f.states[0]
 		f.states = f.states[1:]
-	} else if strings.TrimSpace(string(input.TargetState)) != "" {
-		target = interfaces.WorkflowState(domain.NormalizeWorkflowState(string(input.TargetState)))
+	} else if payloadTarget, ok := input.Msg.Payload["target_state"].(string); ok && strings.TrimSpace(payloadTarget) != "" {
+		target = interfaces.WorkflowState(domain.NormalizeWorkflowState(payloadTarget))
 	} else {
-		target = input.CurrentState
+		target = interfaces.WorkflowState(domain.NormalizeWorkflowState(input.ExpectedState))
 	}
 
-	var emitted []interfaces.WorkflowEvent
-	if len(f.events) > 0 {
-		emitted = f.events[0]
-		f.events = f.events[1:]
+	var emitted []interfaces.Effect
+	if len(f.effects) > 0 {
+		emitted = f.effects[0]
+		f.effects = f.effects[1:]
 	}
 
-	return &interfaces.TransitionResult{
-		EntityID:    input.EntityID,
-		EntityType:  input.EntityType,
-		Transition:  input.Transition,
-		FromState:   input.CurrentState,
-		ToState:     target,
-		CompletedAt: time.Unix(0, 0).UTC(),
-		ActorID:     input.ActorID,
-		Metadata:    input.Metadata,
-		Events:      emitted,
+	return &interfaces.ApplyEventResponse{
+		EventID:  "evt-test",
+		Version:  1,
+		Snapshot: nil,
+		Transition: &interfaces.TransitionResult{
+			PreviousState: input.ExpectedState,
+			CurrentState:  string(target),
+			Effects:       emitted,
+		},
 	}, nil
 }
 
-func (f *fakeWorkflowEngine) AvailableTransitions(ctx context.Context, query interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
-	return nil, nil
+func (f *fakeWorkflowEngine) Snapshot(ctx context.Context, req interfaces.SnapshotRequest) (*interfaces.Snapshot, error) {
+	target := ""
+	if req.Msg.Payload != nil {
+		if raw, ok := req.Msg.Payload["target_state"].(string); ok {
+			target = strings.TrimSpace(strings.ToLower(raw))
+		}
+	}
+	if target == "" {
+		target = "draft"
+	}
+	current := "draft"
+	if req.Msg.Payload != nil {
+		if raw, ok := req.Msg.Payload["current_state"].(string); ok {
+			current = strings.TrimSpace(strings.ToLower(raw))
+		}
+	}
+	return &interfaces.Snapshot{
+		EntityID:     req.EntityID,
+		CurrentState: current,
+		AllowedTransitions: []interfaces.TransitionInfo{
+			{
+				ID:      "transition::" + target,
+				Event:   target,
+				Allowed: true,
+				Target: interfaces.TargetInfo{
+					Kind: "static",
+					To:   target,
+				},
+			},
+		},
+	}, nil
 }
 
-func (f *fakeWorkflowEngine) RegisterWorkflow(ctx context.Context, definition interfaces.WorkflowDefinition) error {
+func (f *fakeWorkflowEngine) RegisterMachine(ctx context.Context, definition interfaces.WorkflowDefinition) error {
+	return nil
+}
+
+func (f *fakeWorkflowEngine) RegisterGuard(name string, guard interfaces.Guard) error {
+	return nil
+}
+
+func (f *fakeWorkflowEngine) RegisterDynamicTarget(name string, resolver interfaces.DynamicTargetResolver) error {
+	return nil
+}
+
+func (f *fakeWorkflowEngine) RegisterAction(name string, action interfaces.Action) error {
 	return nil
 }
 
@@ -1131,17 +1171,17 @@ func TestPageServiceWorkflowCustomEngine(t *testing.T) {
 	if len(fake.calls) != 3 {
 		t.Fatalf("expected 3 workflow calls got %d", len(fake.calls))
 	}
-	if fake.calls[0].EntityType != workflow.EntityTypePage {
-		t.Fatalf("expected entity type %s got %s", workflow.EntityTypePage, fake.calls[0].EntityType)
+	if fake.calls[0].MachineID != workflow.EntityTypePage {
+		t.Fatalf("expected machine id %s got %s", workflow.EntityTypePage, fake.calls[0].MachineID)
 	}
 	if op, ok := fake.calls[0].Metadata["operation"]; !ok || op != "create" {
 		t.Fatalf("expected first metadata operation create got %v", op)
 	}
-	if fake.calls[1].CurrentState != interfaces.WorkflowState("review") {
-		t.Fatalf("expected second call from review got %s", fake.calls[1].CurrentState)
+	if fake.calls[1].ExpectedState != "review" {
+		t.Fatalf("expected second call from review got %s", fake.calls[1].ExpectedState)
 	}
-	if fake.calls[2].CurrentState != interfaces.WorkflowState("approved") {
-		t.Fatalf("expected third call from approved got %s", fake.calls[2].CurrentState)
+	if fake.calls[2].ExpectedState != "approved" {
+		t.Fatalf("expected third call from approved got %s", fake.calls[2].ExpectedState)
 	}
 	if slug, ok := fake.calls[0].Metadata["slug"].(string); !ok || slug != "workflow-page" {
 		t.Fatalf("expected slug metadata workflow-page got %v", slug)
@@ -1667,12 +1707,11 @@ func TestPageServiceLogsWorkflowEvents(t *testing.T) {
 	}
 
 	fake := &fakeWorkflowEngine{
-		events: [][]interfaces.WorkflowEvent{
+		effects: [][]interfaces.Effect{
 			{
-				{
-					Name:      "audit.recorded",
-					Timestamp: time.Unix(123, 0).UTC(),
-					Payload:   map[string]any{"scope": "pages"},
+				interfaces.EmitEvent{
+					Event: "audit.recorded",
+					Msg:   map[string]any{"scope": "pages"},
 				},
 			},
 		},
@@ -1688,6 +1727,7 @@ func TestPageServiceLogsWorkflowEvents(t *testing.T) {
 		ContentID:  createdContent.ID,
 		TemplateID: uuid.New(),
 		Slug:       "workflow-events",
+		Status:     "review",
 		CreatedBy:  uuid.New(),
 		UpdatedBy:  uuid.New(),
 		Translations: []pages.PageTranslationInput{
@@ -1701,13 +1741,13 @@ func TestPageServiceLogsWorkflowEvents(t *testing.T) {
 
 	found := false
 	for _, entry := range logger.entries() {
-		if entry.msg != "workflow event emitted" {
+		if entry.msg != "workflow effect emitted" {
 			continue
 		}
-		if entry.fields["workflow_event"] == "audit.recorded" {
-			payload, ok := entry.fields["workflow_event_payload"].(map[string]any)
+		if entry.fields["workflow_emit_event"] == "audit.recorded" {
+			payload, ok := entry.fields["workflow_emit_payload"].(map[string]any)
 			if !ok || payload["scope"] != "pages" {
-				t.Fatalf("expected payload scope pages, got %+v", entry.fields["workflow_event_payload"])
+				t.Fatalf("expected payload scope pages, got %+v", entry.fields["workflow_emit_payload"])
 			}
 			found = true
 			break

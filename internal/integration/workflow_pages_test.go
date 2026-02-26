@@ -336,6 +336,7 @@ func TestWorkflowIntegration_SchedulingLogsDeterministic(t *testing.T) {
 	var captured []recordedEntry
 	allowedMessages := map[string]struct{}{
 		"workflow event emitted":      {},
+		"workflow effect emitted":     {},
 		"page publish job enqueued":   {},
 		"page unpublish job enqueued": {},
 		"page schedule updated":       {},
@@ -473,31 +474,43 @@ func newDeterministicWorkflowEngine(clock func() time.Time) *deterministicWorkfl
 	}
 }
 
-func (e *deterministicWorkflowEngine) Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
-	result, err := e.inner.Transition(ctx, input)
+func (e *deterministicWorkflowEngine) ApplyEvent(ctx context.Context, input interfaces.ApplyEventRequest) (*interfaces.ApplyEventResponse, error) {
+	result, err := e.inner.ApplyEvent(ctx, input)
 	if err != nil || result == nil {
 		return result, err
 	}
-	if domain.NormalizeWorkflowState(string(result.ToState)) == domain.WorkflowStateScheduled {
+	if result.Transition != nil && domain.NormalizeWorkflowState(result.Transition.CurrentState) == domain.WorkflowStateScheduled {
 		payload := map[string]any{}
-		if input.ActorID != uuid.Nil {
-			payload["scheduled_by"] = input.ActorID.String()
+		if input.ExecCtx.ActorID != "" {
+			payload["scheduled_by"] = input.ExecCtx.ActorID
 		}
-		result.Events = append(result.Events, interfaces.WorkflowEvent{
-			Name:      "page.scheduled",
-			Timestamp: e.clock(),
-			Payload:   payload,
+		result.Transition.Effects = append(result.Transition.Effects, interfaces.EmitEvent{
+			Event:    "page.scheduled",
+			Msg:      payload,
+			Metadata: map[string]any{"scheduled_at": e.clock().UTC().Format(time.RFC3339)},
 		})
 	}
 	return result, nil
 }
 
-func (e *deterministicWorkflowEngine) AvailableTransitions(ctx context.Context, query interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
-	return e.inner.AvailableTransitions(ctx, query)
+func (e *deterministicWorkflowEngine) Snapshot(ctx context.Context, req interfaces.SnapshotRequest) (*interfaces.Snapshot, error) {
+	return e.inner.Snapshot(ctx, req)
 }
 
-func (e *deterministicWorkflowEngine) RegisterWorkflow(ctx context.Context, definition interfaces.WorkflowDefinition) error {
-	return e.inner.RegisterWorkflow(ctx, definition)
+func (e *deterministicWorkflowEngine) RegisterMachine(ctx context.Context, definition interfaces.WorkflowDefinition) error {
+	return e.inner.RegisterMachine(ctx, definition)
+}
+
+func (e *deterministicWorkflowEngine) RegisterGuard(name string, guard interfaces.Guard) error {
+	return e.inner.RegisterGuard(name, guard)
+}
+
+func (e *deterministicWorkflowEngine) RegisterDynamicTarget(name string, resolver interfaces.DynamicTargetResolver) error {
+	return e.inner.RegisterDynamicTarget(name, resolver)
+}
+
+func (e *deterministicWorkflowEngine) RegisterAction(name string, action interfaces.Action) error {
+	return e.inner.RegisterAction(name, action)
 }
 
 type logGoldenEntry struct {
@@ -665,6 +678,26 @@ func sanitizeValue(value any) any {
 			cloned[i] = sanitizeValue(item)
 		}
 		return cloned
+	case int:
+		return float64(v)
+	case int8:
+		return float64(v)
+	case int16:
+		return float64(v)
+	case int32:
+		return float64(v)
+	case int64:
+		return float64(v)
+	case uint:
+		return float64(v)
+	case uint8:
+		return float64(v)
+	case uint16:
+		return float64(v)
+	case uint32:
+		return float64(v)
+	case uint64:
+		return float64(v)
 	default:
 		return v
 	}

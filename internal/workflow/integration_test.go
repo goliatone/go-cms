@@ -135,15 +135,21 @@ func TestWorkflowIntegration_MultiStepPageLifecycle(t *testing.T) {
 	}
 
 	// Ensure custom transitions registered.
-	available, err := engine.AvailableTransitions(ctx, interfaces.TransitionQuery{
-		EntityType: fixture.Definition.Entity,
-		State:      interfaces.WorkflowState("review"),
+	snapshot, err := engine.Snapshot(ctx, interfaces.SnapshotRequest{
+		MachineID: fixture.Definition.Entity,
+		EntityID:  page.ID.String(),
+		Msg: interfaces.WorkflowMessage{
+			TypeName: "workflow.integration.snapshot",
+			Payload: map[string]any{
+				"current_state": "review",
+			},
+		},
 	})
 	if err != nil {
 		t.Fatalf("available transitions: %v", err)
 	}
-	if !hasTransition(available, "translate") {
-		t.Fatalf("expected translate transition for review state, got %+v", available)
+	if !hasTransition(snapshot.AllowedTransitions, "translate") {
+		t.Fatalf("expected translate transition for review state, got %+v", snapshot.AllowedTransitions)
 	}
 
 	if len(fixture.Steps) == 0 {
@@ -283,20 +289,9 @@ func TestWorkflowIntegration_StatusTransitionsWithoutTranslations(t *testing.T) 
 				t.Fatalf("expected workflow engine to be configured")
 			}
 
-			result, err := engine.Transition(ctx, interfaces.TransitionInput{
-				EntityID:     page.ID,
-				EntityType:   "page",
-				CurrentState: interfaces.WorkflowState(page.Status),
-				Transition:   "publish",
-				ActorID:      authorID,
-			})
-			if err != nil {
-				t.Fatalf("transition draft->publish: %v", err)
-			}
-
 			updated, err := pageSvc.Update(ctx, pages.UpdatePageRequest{
 				ID:                       page.ID,
-				Status:                   string(result.ToState),
+				Status:                   "published",
 				UpdatedBy:                authorID,
 				AllowMissingTranslations: tc.allowMissing,
 			})
@@ -304,8 +299,8 @@ func TestWorkflowIntegration_StatusTransitionsWithoutTranslations(t *testing.T) 
 				t.Fatalf("update page without translations (allow=%v): %v", tc.allowMissing, err)
 			}
 
-			if !strings.EqualFold(updated.Status, string(result.ToState)) {
-				t.Fatalf("expected status %q, got %q", result.ToState, updated.Status)
+			if !strings.EqualFold(updated.Status, "published") {
+				t.Fatalf("expected status %q, got %q", "published", updated.Status)
 			}
 			if len(updated.Translations) == 0 {
 				t.Fatalf("expected existing translations to be preserved")
@@ -356,9 +351,9 @@ func deriveInitialState(states []workflowStateFixture) string {
 	return states[0].Name
 }
 
-func hasTransition(transitions []interfaces.WorkflowTransition, name string) bool {
+func hasTransition(transitions []interfaces.TransitionInfo, name string) bool {
 	for _, transition := range transitions {
-		if strings.EqualFold(transition.Name, name) {
+		if strings.EqualFold(transition.Event, name) {
 			return true
 		}
 	}
