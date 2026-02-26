@@ -544,6 +544,8 @@ func registerMenuModels(t *testing.T, db *bun.DB) {
 		(*menus.Menu)(nil),
 		(*menus.MenuItem)(nil),
 		(*menus.MenuItemTranslation)(nil),
+		(*menus.MenuLocationBinding)(nil),
+		(*menus.MenuViewProfile)(nil),
 	}
 
 	for _, model := range models {

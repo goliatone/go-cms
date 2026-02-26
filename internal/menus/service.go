@@ -3,6 +3,7 @@ package menus
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -25,6 +26,12 @@ type Service interface {
 	CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
 	GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*Menu, error)
 	UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu, error)
+	MenuByCode(ctx context.Context, code string, locale string, opts MenuQueryOptions, env ...string) (*ResolvedMenu, error)
+	MenuByLocation(ctx context.Context, location string, locale string, opts MenuQueryOptions, env ...string) (*ResolvedMenu, error)
+	ResolveLocationBinding(ctx context.Context, location, locale string, opts MenuQueryOptions, env ...string) (*MenuLocationBinding, error)
+	ApplyViewProfile(ctx context.Context, menu *Menu, profileCode string, opts MenuQueryOptions, env ...string) (*Menu, error)
+	UpsertMenuLocationBinding(ctx context.Context, input UpsertMenuLocationBindingInput) (*MenuLocationBinding, error)
+	UpsertMenuViewProfile(ctx context.Context, input UpsertMenuViewProfileInput) (*MenuViewProfile, error)
 	GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error)
 	GetMenuByCode(ctx context.Context, code string, env ...string) (*Menu, error)
 	GetMenuByLocation(ctx context.Context, location string, env ...string) (*Menu, error)
@@ -51,6 +58,9 @@ type CreateMenuInput struct {
 	Code           string
 	Location       string
 	Description    *string
+	Status         string
+	Locale         *string
+	TranslationID  *uuid.UUID
 	CreatedBy      uuid.UUID
 	UpdatedBy      uuid.UUID
 	EnvironmentKey string
@@ -61,6 +71,35 @@ type UpsertMenuInput struct {
 	Code           string
 	Location       string
 	Description    *string
+	Status         string
+	Locale         *string
+	TranslationID  *uuid.UUID
+	Actor          uuid.UUID
+	EnvironmentKey string
+}
+
+type UpsertMenuLocationBindingInput struct {
+	ID              *uuid.UUID
+	Location        string
+	MenuCode        string
+	ViewProfileCode *string
+	Locale          *string
+	Priority        int
+	Status          string
+	Actor           uuid.UUID
+	EnvironmentKey  string
+}
+
+type UpsertMenuViewProfileInput struct {
+	ID             *uuid.UUID
+	Code           string
+	Name           string
+	Mode           string
+	MaxTopLevel    *int
+	MaxDepth       *int
+	IncludeItemIDs []string
+	ExcludeItemIDs []string
+	Status         string
 	Actor          uuid.UUID
 	EnvironmentKey string
 }
@@ -228,6 +267,56 @@ type ReconcileResult struct {
 	Remaining int
 }
 
+const (
+	MenuViewModeFull          = "full"
+	MenuViewModeTopLevelLimit = "top_level_limit"
+	MenuViewModeMaxDepth      = "max_depth"
+	MenuViewModeIncludeIDs    = "include_ids"
+	MenuViewModeExcludeIDs    = "exclude_ids"
+	MenuViewModeComposed      = "composed"
+
+	MenuBindingPolicySingle        = "single"
+	MenuBindingPolicyPriorityMulti = "priority_multi"
+
+	MenuContributionDuplicateByURL    = content.NavigationDuplicateByURL
+	MenuContributionDuplicateByTarget = content.NavigationDuplicateByTarget
+	MenuContributionDuplicateNone     = content.NavigationDuplicateNone
+)
+
+type MenuQueryOptions struct {
+	IncludeDrafts               bool
+	PreviewToken                string
+	Status                      string
+	ViewProfile                 string
+	BindingPolicy               string
+	IncludeContributions        *bool
+	ContributionMergeMode       string
+	ContributionDuplicatePolicy string
+}
+
+type ResolvedMenuPreview struct {
+	IncludeDrafts       bool   `json:"include_drafts"`
+	PreviewTokenPresent bool   `json:"preview_token_present"`
+	MenuStatus          string `json:"menu_status,omitempty"`
+	BindingStatus       string `json:"binding_status,omitempty"`
+	ViewProfileStatus   string `json:"view_profile_status,omitempty"`
+}
+
+type ResolvedMenu struct {
+	Location           string                  `json:"location"`
+	RequestedLocale    string                  `json:"requested_locale,omitempty"`
+	ResolvedLocale     string                  `json:"resolved_locale,omitempty"`
+	Menu               *Menu                   `json:"menu,omitempty"`
+	Menus              []*Menu                 `json:"menus,omitempty"`
+	Binding            *MenuLocationBinding    `json:"binding,omitempty"`
+	Bindings           []*MenuLocationBinding  `json:"bindings,omitempty"`
+	ViewProfile        *MenuViewProfile        `json:"view_profile,omitempty"`
+	Items              []NavigationNode        `json:"items,omitempty"`
+	ContentMembership  []ContentMenuMembership `json:"content_membership,omitempty"`
+	Preview            ResolvedMenuPreview     `json:"preview"`
+	TranslationGroupID *uuid.UUID              `json:"translation_group_id,omitempty"`
+}
+
 var (
 	ErrMenuCodeRequired                    = errors.New("menus: code is required")
 	ErrMenuCodeInvalid                     = errors.New("menus: code must contain only letters, numbers, hyphen, or underscore")
@@ -254,6 +343,11 @@ var (
 	ErrMenuItemCollapsibleWithoutChildren  = errors.New("menus: collapsible menus require children")
 	ErrMenuItemCollapsedWithoutCollapsible = errors.New("menus: collapsed menus must be marked collapsible")
 	ErrMenuItemTranslationTextRequired     = errors.New("menus: translation requires label or translation key")
+	ErrMenuItemDepthExceeded               = errors.New("menus: hierarchy exceeds maximum depth")
+	ErrMenuLocationBindingNotFound         = errors.New("menus: menu location binding not found")
+	ErrMenuViewProfileNotFound             = errors.New("menus: menu view profile not found")
+	ErrMenuStatusInvalid                   = errors.New("menus: menu status is invalid")
+	ErrMenuViewModeInvalid                 = errors.New("menus: menu view profile mode is invalid")
 )
 
 // LocaleRepository resolves locales by code.
@@ -267,26 +361,55 @@ type PageRepository interface {
 	GetBySlug(ctx context.Context, slug string, env ...string) (*pages.Page, error)
 }
 
+// ContentRepository reads content entries used for content-driven menu contributions.
+type ContentRepository interface {
+	List(ctx context.Context, env ...content.ContentListOption) ([]*content.Content, error)
+}
+
+// ContentTypeRepository reads content type metadata used for navigation capabilities.
+type ContentTypeRepository interface {
+	List(ctx context.Context, env ...string) ([]*content.ContentType, error)
+}
+
 // NavigationNode represents a localized menu item ready for presentation.
 type NavigationNode struct {
-	ID            uuid.UUID         `json:"id"`
-	Position      int               `json:"position"`
-	Type          string            `json:"type,omitempty"`
-	Label         string            `json:"label,omitempty"`
-	LabelKey      string            `json:"label_key,omitempty"`
-	GroupTitle    string            `json:"group_title,omitempty"`
-	GroupTitleKey string            `json:"group_title_key,omitempty"`
-	URL           string            `json:"url"`
-	Target        map[string]any    `json:"target,omitempty"`
-	Icon          string            `json:"icon,omitempty"`
-	Badge         map[string]any    `json:"badge,omitempty"`
-	Permissions   []string          `json:"permissions,omitempty"`
-	Classes       []string          `json:"classes,omitempty"`
-	Styles        map[string]string `json:"styles,omitempty"`
-	Collapsible   bool              `json:"collapsible,omitempty"`
-	Collapsed     bool              `json:"collapsed,omitempty"`
-	Metadata      map[string]any    `json:"metadata,omitempty"`
-	Children      []NavigationNode  `json:"children,omitempty"`
+	ID                 uuid.UUID         `json:"id"`
+	Position           int               `json:"position"`
+	Type               string            `json:"type,omitempty"`
+	Label              string            `json:"label,omitempty"`
+	LabelKey           string            `json:"label_key,omitempty"`
+	GroupTitle         string            `json:"group_title,omitempty"`
+	GroupTitleKey      string            `json:"group_title_key,omitempty"`
+	URL                string            `json:"url"`
+	Target             map[string]any    `json:"target,omitempty"`
+	Icon               string            `json:"icon,omitempty"`
+	Badge              map[string]any    `json:"badge,omitempty"`
+	Permissions        []string          `json:"permissions,omitempty"`
+	Classes            []string          `json:"classes,omitempty"`
+	Styles             map[string]string `json:"styles,omitempty"`
+	Collapsible        bool              `json:"collapsible,omitempty"`
+	Collapsed          bool              `json:"collapsed,omitempty"`
+	Metadata           map[string]any    `json:"metadata,omitempty"`
+	Contribution       bool              `json:"contribution,omitempty"`
+	ContributionOrigin string            `json:"contribution_origin,omitempty"`
+	Children           []NavigationNode  `json:"children,omitempty"`
+}
+
+// ContentMenuMembership reports computed content contribution membership for a location.
+type ContentMenuMembership struct {
+	ContentID       uuid.UUID `json:"content_id"`
+	ContentTypeID   uuid.UUID `json:"content_type_id"`
+	ContentTypeSlug string    `json:"content_type_slug,omitempty"`
+	ContentSlug     string    `json:"content_slug,omitempty"`
+	Location        string    `json:"location"`
+	Visible         bool      `json:"visible"`
+	Origin          string    `json:"origin,omitempty"`
+	VisibilityState string    `json:"visibility_state,omitempty"`
+	MergeMode       string    `json:"merge_mode,omitempty"`
+	DuplicatePolicy string    `json:"duplicate_policy,omitempty"`
+	URL             string    `json:"url,omitempty"`
+	Label           string    `json:"label,omitempty"`
+	SortOrder       *int      `json:"sort_order,omitempty"`
 }
 
 // MenuUsageResolver reports whether menus are currently bound to active themes/locations.
@@ -376,6 +499,20 @@ func WithPageRepository(repo PageRepository) ServiceOption {
 	}
 }
 
+// WithContentRepository wires the content repository used for content-driven contributions.
+func WithContentRepository(repo ContentRepository) ServiceOption {
+	return func(s *service) {
+		s.contentRepo = repo
+	}
+}
+
+// WithContentTypeRepository wires the content-type repository used for contribution capability lookup.
+func WithContentTypeRepository(repo ContentTypeRepository) ServiceOption {
+	return func(s *service) {
+		s.contentTypeRepo = repo
+	}
+}
+
 // WithRequireTranslations controls whether menu items must include translations.
 func WithRequireTranslations(required bool) ServiceOption {
 	return func(s *service) {
@@ -411,6 +548,24 @@ func WithMenuUsageResolver(resolver MenuUsageResolver) ServiceOption {
 	return func(s *service) {
 		if resolver != nil {
 			s.usageResolver = resolver
+		}
+	}
+}
+
+// WithMenuLocationBindingRepository wires persistent location bindings used by runtime reads.
+func WithMenuLocationBindingRepository(repo MenuLocationBindingRepository) ServiceOption {
+	return func(s *service) {
+		if repo != nil {
+			s.bindings = repo
+		}
+	}
+}
+
+// WithMenuViewProfileRepository wires persistent view profiles used for menu projections.
+func WithMenuViewProfileRepository(repo MenuViewProfileRepository) ServiceOption {
+	return func(s *service) {
+		if repo != nil {
+			s.viewProfiles = repo
 		}
 	}
 }
@@ -465,6 +620,20 @@ func WithRequireActiveEnvironment(required bool) ServiceOption {
 	}
 }
 
+// WithMaxMenuDepth controls menu hierarchy guard rails. Zero or negative disables depth checks.
+func WithMaxMenuDepth(depth int) ServiceOption {
+	return func(s *service) {
+		s.maxDepth = depth
+	}
+}
+
+// WithBindingDuplicatePolicy configures how duplicate location bindings are handled.
+func WithBindingDuplicatePolicy(policy string) ServiceOption {
+	return func(s *service) {
+		s.duplicateBindingPolicy = normalizeBindingPolicy(policy)
+	}
+}
+
 // WithMenuIDDeriver overrides menu ID derivation so callers can generate stable UUIDs from menu codes.
 func WithMenuIDDeriver(deriver MenuIDDeriver) ServiceOption {
 	return func(s *service) {
@@ -494,29 +663,35 @@ func WithReconcileOnResolveNavigation(enabled bool) ServiceOption {
 }
 
 type service struct {
-	menus               MenuRepository
-	items               MenuItemRepository
-	translations        MenuItemTranslationRepository
-	locales             LocaleRepository
-	pageRepo            PageRepository
-	usageResolver       MenuUsageResolver
-	parentResolver      ParentResolver
-	audit               jobs.AuditRecorder
-	now                 func() time.Time
-	id                  IDGenerator
-	newID               func() uuid.UUID
-	urlResolver         URLResolver
-	requireTranslations bool
-	translationsEnabled bool
-	translationState    *translationconfig.State
-	activity            *activity.Emitter
-	forgivingBootstrap  bool
-	reconcileOnResolve  bool
-	menuIDDeriver       MenuIDDeriver
-	envSvc              cmsenv.Service
-	defaultEnvKey       string
-	requireExplicitEnv  bool
-	requireActiveEnv    bool
+	menus                  MenuRepository
+	items                  MenuItemRepository
+	translations           MenuItemTranslationRepository
+	bindings               MenuLocationBindingRepository
+	viewProfiles           MenuViewProfileRepository
+	locales                LocaleRepository
+	pageRepo               PageRepository
+	contentRepo            ContentRepository
+	contentTypeRepo        ContentTypeRepository
+	usageResolver          MenuUsageResolver
+	parentResolver         ParentResolver
+	audit                  jobs.AuditRecorder
+	now                    func() time.Time
+	id                     IDGenerator
+	newID                  func() uuid.UUID
+	urlResolver            URLResolver
+	requireTranslations    bool
+	translationsEnabled    bool
+	translationState       *translationconfig.State
+	activity               *activity.Emitter
+	forgivingBootstrap     bool
+	reconcileOnResolve     bool
+	menuIDDeriver          MenuIDDeriver
+	envSvc                 cmsenv.Service
+	defaultEnvKey          string
+	requireExplicitEnv     bool
+	requireActiveEnv       bool
+	maxDepth               int
+	duplicateBindingPolicy string
 }
 
 type cacheInvalidator interface {
@@ -526,17 +701,21 @@ type cacheInvalidator interface {
 // NewService constructs a menu service instance.
 func NewService(menuRepo MenuRepository, itemRepo MenuItemRepository, trRepo MenuItemTranslationRepository, localeRepo LocaleRepository, opts ...ServiceOption) Service {
 	s := &service{
-		menus:               menuRepo,
-		items:               itemRepo,
-		translations:        trRepo,
-		locales:             localeRepo,
-		now:                 time.Now,
-		id:                  func(AddMenuItemInput) uuid.UUID { return uuid.New() },
-		newID:               uuid.New,
-		requireTranslations: true,
-		translationsEnabled: true,
-		activity:            activity.NewEmitter(nil, activity.Config{}),
-		defaultEnvKey:       cmsenv.DefaultKey,
+		menus:                  menuRepo,
+		items:                  itemRepo,
+		translations:           trRepo,
+		bindings:               NewMemoryMenuLocationBindingRepository(),
+		viewProfiles:           NewMemoryMenuViewProfileRepository(),
+		locales:                localeRepo,
+		now:                    time.Now,
+		id:                     func(AddMenuItemInput) uuid.UUID { return uuid.New() },
+		newID:                  uuid.New,
+		requireTranslations:    true,
+		translationsEnabled:    true,
+		activity:               activity.NewEmitter(nil, activity.Config{}),
+		defaultEnvKey:          cmsenv.DefaultKey,
+		maxDepth:               16,
+		duplicateBindingPolicy: MenuBindingPolicySingle,
 	}
 
 	s.urlResolver = &defaultURLResolver{service: s}
@@ -717,16 +896,29 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 
 	now := s.now()
 	menuID := s.menuIDForCode(code, envKey)
+	status, err := normalizeMenuStatus(input.Status)
+	if err != nil {
+		return nil, err
+	}
+	var publishedAt *time.Time
+	if status == MenuStatusPublished {
+		published := now
+		publishedAt = &published
+	}
 	menu := &Menu{
-		ID:            menuID,
-		Code:          code,
-		Location:      strings.TrimSpace(input.Location),
-		Description:   input.Description,
-		CreatedBy:     input.CreatedBy,
-		UpdatedBy:     input.UpdatedBy,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		EnvironmentID: envID,
+		ID:                 menuID,
+		Code:               code,
+		Location:           strings.TrimSpace(input.Location),
+		Description:        input.Description,
+		Status:             status,
+		Locale:             normalizeLocalePointer(input.Locale),
+		TranslationGroupID: cloneUUIDPointer(input.TranslationID),
+		PublishedAt:        publishedAt,
+		CreatedBy:          input.CreatedBy,
+		UpdatedBy:          input.UpdatedBy,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		EnvironmentID:      envID,
 	}
 
 	created, err := s.menus.Create(ctx, menu)
@@ -760,10 +952,35 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 
 	existing, err := s.menus.GetByCode(ctx, code, envID.String())
 	if err == nil {
+		changed := false
 		location := strings.TrimSpace(input.Location)
 		if location != "" && existing.Location != location {
 			existing.Location = location
+			changed = true
+		}
+		if input.Description != nil || existing.Description != nil {
 			existing.Description = input.Description
+			changed = true
+		}
+		if input.Locale != nil {
+			existing.Locale = normalizeLocalePointer(input.Locale)
+			changed = true
+		}
+		if input.TranslationID != nil {
+			existing.TranslationGroupID = cloneUUIDPointer(input.TranslationID)
+			changed = true
+		}
+		if status, statusErr := normalizeMenuStatus(input.Status); statusErr == nil {
+			if existing.Status != status {
+				existing.Status = status
+				if status == MenuStatusPublished {
+					published := s.now()
+					existing.PublishedAt = &published
+				}
+				changed = true
+			}
+		}
+		if changed {
 			existing.UpdatedBy = input.UpdatedBy
 			existing.UpdatedAt = s.now()
 			if _, updateErr := s.menus.Update(ctx, existing); updateErr == nil {
@@ -779,16 +996,29 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 
 	now := s.now()
 	menuID := s.menuIDForCode(code, envKey)
+	status, err := normalizeMenuStatus(input.Status)
+	if err != nil {
+		return nil, err
+	}
+	var publishedAt *time.Time
+	if status == MenuStatusPublished {
+		published := now
+		publishedAt = &published
+	}
 	menu := &Menu{
-		ID:            menuID,
-		Code:          code,
-		Location:      strings.TrimSpace(input.Location),
-		Description:   input.Description,
-		CreatedBy:     input.CreatedBy,
-		UpdatedBy:     input.UpdatedBy,
-		CreatedAt:     now,
-		UpdatedAt:     now,
-		EnvironmentID: envID,
+		ID:                 menuID,
+		Code:               code,
+		Location:           strings.TrimSpace(input.Location),
+		Description:        input.Description,
+		Status:             status,
+		Locale:             normalizeLocalePointer(input.Locale),
+		TranslationGroupID: cloneUUIDPointer(input.TranslationID),
+		PublishedAt:        publishedAt,
+		CreatedBy:          input.CreatedBy,
+		UpdatedBy:          input.UpdatedBy,
+		CreatedAt:          now,
+		UpdatedAt:          now,
+		EnvironmentID:      envID,
 	}
 
 	created, err := s.menus.Create(ctx, menu)
@@ -837,6 +1067,9 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 			Code:           code,
 			Location:       input.Location,
 			Description:    input.Description,
+			Status:         input.Status,
+			Locale:         input.Locale,
+			TranslationID:  input.TranslationID,
 			CreatedBy:      input.Actor,
 			UpdatedBy:      input.Actor,
 			EnvironmentKey: input.EnvironmentKey,
@@ -852,6 +1085,21 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 	if location := strings.TrimSpace(input.Location); location != "" {
 		existing.Location = location
 	}
+	if input.Locale != nil {
+		existing.Locale = normalizeLocalePointer(input.Locale)
+	}
+	if input.TranslationID != nil {
+		existing.TranslationGroupID = cloneUUIDPointer(input.TranslationID)
+	}
+	if status, statusErr := normalizeMenuStatus(input.Status); statusErr != nil {
+		return nil, statusErr
+	} else if status != "" {
+		existing.Status = status
+		if status == MenuStatusPublished {
+			published := s.now()
+			existing.PublishedAt = &published
+		}
+	}
 	existing.UpdatedBy = input.Actor
 	existing.UpdatedAt = s.now()
 	updated, err := s.menus.Update(ctx, existing)
@@ -866,6 +1114,372 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 	}
 	s.emitActivity(ctx, input.Actor, "update", "menu", updated.ID, meta)
 	return updated, nil
+}
+
+func (s *service) UpsertMenuLocationBinding(ctx context.Context, input UpsertMenuLocationBindingInput) (*MenuLocationBinding, error) {
+	location := strings.TrimSpace(input.Location)
+	if location == "" {
+		return nil, ErrMenuLocationBindingNotFound
+	}
+	menuCode := strings.TrimSpace(input.MenuCode)
+	if menuCode == "" {
+		return nil, ErrMenuCodeRequired
+	}
+	if input.Priority < 0 {
+		return nil, ErrMenuItemPosition
+	}
+
+	envID, _, err := s.resolveEnvironment(ctx, input.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+	status, err := normalizeMenuStatus(input.Status)
+	if err != nil {
+		return nil, err
+	}
+
+	// Ensure bound menu exists.
+	if _, err := s.menus.GetByCode(ctx, menuCode, envID.String()); err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, ErrMenuNotFound
+		}
+		return nil, err
+	}
+
+	now := s.now()
+	var record *MenuLocationBinding
+	exists := false
+	if input.ID != nil && *input.ID != uuid.Nil {
+		existing, err := s.bindings.GetByID(ctx, *input.ID)
+		if err == nil {
+			record = existing
+			exists = true
+		}
+	}
+	if record == nil {
+		existing, err := s.bindings.ListByLocation(ctx, location, envID.String())
+		if err != nil {
+			return nil, err
+		}
+		locale := normalizeLocalePointer(input.Locale)
+		policy := s.effectiveBindingPolicy(MenuQueryOptions{})
+		for _, candidate := range existing {
+			if candidate == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(candidate.MenuCode), menuCode) &&
+				localePointerEqual(candidate.Locale, locale) &&
+				stringPointerEqual(candidate.ViewProfileCode, normalizeCodePointer(input.ViewProfileCode)) {
+				record = candidate
+				exists = true
+				break
+			}
+			if policy == MenuBindingPolicySingle && localePointerEqual(candidate.Locale, locale) {
+				record = candidate
+				exists = true
+				break
+			}
+		}
+	}
+	if record == nil {
+		record = &MenuLocationBinding{
+			ID:            s.nextID(),
+			CreatedBy:     input.Actor,
+			CreatedAt:     now,
+			Location:      location,
+			EnvironmentID: envID,
+		}
+	}
+
+	record.Location = location
+	record.MenuCode = menuCode
+	record.ViewProfileCode = normalizeCodePointer(input.ViewProfileCode)
+	record.Locale = normalizeLocalePointer(input.Locale)
+	record.Priority = input.Priority
+	record.Status = status
+	record.UpdatedBy = input.Actor
+	record.UpdatedAt = now
+	record.EnvironmentID = envID
+	if status == MenuStatusPublished {
+		published := now
+		record.PublishedAt = &published
+	}
+
+	if exists {
+		updated, err := s.bindings.Update(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		return updated, nil
+	}
+	return s.bindings.Create(ctx, record)
+}
+
+func (s *service) UpsertMenuViewProfile(ctx context.Context, input UpsertMenuViewProfileInput) (*MenuViewProfile, error) {
+	code := strings.TrimSpace(input.Code)
+	if code == "" {
+		return nil, ErrMenuCodeRequired
+	}
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		name = code
+	}
+	mode, err := normalizeMenuViewMode(input.Mode)
+	if err != nil {
+		return nil, err
+	}
+	status, err := normalizeMenuStatus(input.Status)
+	if err != nil {
+		return nil, err
+	}
+	envID, _, err := s.resolveEnvironment(ctx, input.EnvironmentKey)
+	if err != nil {
+		return nil, err
+	}
+
+	now := s.now()
+	var record *MenuViewProfile
+	exists := false
+	if input.ID != nil && *input.ID != uuid.Nil {
+		existing, err := s.viewProfiles.GetByID(ctx, *input.ID)
+		if err == nil {
+			record = existing
+			exists = true
+		}
+	}
+	if record == nil {
+		existing, err := s.viewProfiles.GetByCode(ctx, code, envID.String())
+		if err == nil {
+			record = existing
+			exists = true
+		}
+	}
+	if record == nil {
+		record = &MenuViewProfile{
+			ID:            s.nextID(),
+			CreatedBy:     input.Actor,
+			CreatedAt:     now,
+			EnvironmentID: envID,
+		}
+	}
+
+	record.Code = code
+	record.Name = name
+	record.Mode = mode
+	record.MaxTopLevel = normalizePositiveIntPointer(input.MaxTopLevel)
+	record.MaxDepth = normalizePositiveIntPointer(input.MaxDepth)
+	record.IncludeItemIDs = normalizeCodeList(input.IncludeItemIDs)
+	record.ExcludeItemIDs = normalizeCodeList(input.ExcludeItemIDs)
+	record.Status = status
+	record.UpdatedBy = input.Actor
+	record.UpdatedAt = now
+	record.EnvironmentID = envID
+	if status == MenuStatusPublished {
+		published := now
+		record.PublishedAt = &published
+	}
+
+	if exists {
+		updated, err := s.viewProfiles.Update(ctx, record)
+		if err != nil {
+			return nil, err
+		}
+		return updated, nil
+	}
+	return s.viewProfiles.Create(ctx, record)
+}
+
+func (s *service) ResolveLocationBinding(ctx context.Context, location, locale string, opts MenuQueryOptions, env ...string) (*MenuLocationBinding, error) {
+	candidates, err := s.resolveLocationBindings(ctx, location, locale, opts, env...)
+	if err != nil {
+		return nil, err
+	}
+	if len(candidates) == 0 {
+		return nil, ErrMenuLocationBindingNotFound
+	}
+	return candidates[0], nil
+}
+
+func (s *service) MenuByCode(ctx context.Context, code string, locale string, opts MenuQueryOptions, env ...string) (*ResolvedMenu, error) {
+	menu, err := s.GetMenuByCode(ctx, code, env...)
+	if err != nil {
+		return nil, err
+	}
+	if !s.statusAllowed(menu.Status, opts) {
+		return nil, ErrMenuNotFound
+	}
+
+	projected, profile, err := s.applyViewProfileWithRecord(ctx, menu, opts.ViewProfile, opts, env...)
+	if err != nil {
+		return nil, err
+	}
+	nodes, err := s.navigationNodesForMenu(ctx, projected, locale)
+	if err != nil {
+		return nil, err
+	}
+
+	out := &ResolvedMenu{
+		Location:        menu.Location,
+		RequestedLocale: strings.TrimSpace(locale),
+		ResolvedLocale:  strings.TrimSpace(locale),
+		Menu:            projected,
+		Menus:           []*Menu{projected},
+		ViewProfile:     profile,
+		Items:           nodes,
+		Preview: ResolvedMenuPreview{
+			IncludeDrafts:       opts.IncludeDrafts,
+			PreviewTokenPresent: strings.TrimSpace(opts.PreviewToken) != "",
+			MenuStatus:          strings.TrimSpace(menu.Status),
+		},
+		TranslationGroupID: cloneUUIDPointer(menu.TranslationGroupID),
+	}
+	if profile != nil {
+		out.Preview.ViewProfileStatus = profile.Status
+	}
+	return out, nil
+}
+
+func (s *service) MenuByLocation(ctx context.Context, location string, locale string, opts MenuQueryOptions, env ...string) (*ResolvedMenu, error) {
+	location = strings.TrimSpace(location)
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	candidates, err := s.resolveLocationBindings(ctx, location, locale, opts, env...)
+	if err != nil {
+		return nil, err
+	}
+
+	var (
+		bindings       []*MenuLocationBinding
+		merged         []NavigationNode
+		menusOut       []*Menu
+		primaryMenu    *Menu
+		primaryBinding *MenuLocationBinding
+		primaryProfile *MenuViewProfile
+		groupID        *uuid.UUID
+	)
+
+	if len(candidates) == 0 {
+		// Backwards-compatible fallback to direct menu.location lookups.
+		if menu, menuErr := s.GetMenuByLocation(ctx, location, env...); menuErr == nil {
+			resolved, resolveErr := s.MenuByCode(ctx, menu.Code, locale, opts, env...)
+			if resolveErr != nil {
+				return nil, resolveErr
+			}
+			if resolved != nil {
+				merged = append(merged, resolved.Items...)
+				menusOut = append(menusOut, resolved.Menus...)
+				primaryMenu = resolved.Menu
+				primaryBinding = resolved.Binding
+				primaryProfile = resolved.ViewProfile
+				groupID = cloneUUIDPointer(resolved.TranslationGroupID)
+			}
+		} else if !errors.Is(menuErr, ErrMenuNotFound) {
+			return nil, menuErr
+		}
+	} else {
+		bindings = candidates
+		if s.effectiveBindingPolicy(opts) == MenuBindingPolicySingle && len(bindings) > 1 {
+			bindings = bindings[:1]
+		}
+
+		seen := map[string]struct{}{}
+		merged = make([]NavigationNode, 0)
+		menusOut = make([]*Menu, 0, len(bindings))
+		for _, binding := range bindings {
+			menu, err := s.GetMenuByCode(ctx, binding.MenuCode, env...)
+			if err != nil {
+				continue
+			}
+			if !s.statusAllowed(menu.Status, opts) {
+				continue
+			}
+
+			profileCode := opts.ViewProfile
+			if strings.TrimSpace(profileCode) == "" && binding.ViewProfileCode != nil {
+				profileCode = strings.TrimSpace(*binding.ViewProfileCode)
+			}
+			projected, profile, err := s.applyViewProfileWithRecord(ctx, menu, profileCode, opts, env...)
+			if err != nil {
+				return nil, err
+			}
+			nodes, err := s.navigationNodesForMenu(ctx, projected, locale)
+			if err != nil {
+				return nil, err
+			}
+
+			if primaryBinding == nil {
+				primaryBinding = cloneMenuLocationBinding(binding)
+				primaryMenu = projected
+				primaryProfile = profile
+				if menu.TranslationGroupID != nil {
+					groupID = cloneUUIDPointer(menu.TranslationGroupID)
+				}
+			}
+			menusOut = append(menusOut, projected)
+			for _, node := range nodes {
+				key := strings.TrimSpace(node.URL) + "|" + strings.TrimSpace(node.Label)
+				if key == "|" {
+					key = node.ID.String()
+				}
+				if _, exists := seen[key]; exists {
+					continue
+				}
+				seen[key] = struct{}{}
+				merged = append(merged, node)
+			}
+		}
+	}
+
+	var memberships []ContentMenuMembership
+	if s.includeContributions(opts) {
+		contributions, computedMemberships, contributionPolicy, err := s.resolveContentContributions(ctx, location, locale, opts, envID)
+		if err != nil {
+			return nil, err
+		}
+		if len(contributions) > 0 {
+			merged = s.mergeContributionNodes(merged, contributions, opts, contributionPolicy)
+		}
+		memberships = computedMemberships
+	}
+
+	if len(merged) == 0 {
+		return nil, ErrMenuNotFound
+	}
+	out := &ResolvedMenu{
+		Location:          location,
+		RequestedLocale:   strings.TrimSpace(locale),
+		ResolvedLocale:    strings.TrimSpace(locale),
+		Menu:              primaryMenu,
+		Menus:             menusOut,
+		Binding:           primaryBinding,
+		Bindings:          bindings,
+		ViewProfile:       primaryProfile,
+		Items:             merged,
+		ContentMembership: memberships,
+		Preview: ResolvedMenuPreview{
+			IncludeDrafts:       opts.IncludeDrafts,
+			PreviewTokenPresent: strings.TrimSpace(opts.PreviewToken) != "",
+		},
+		TranslationGroupID: groupID,
+	}
+	if primaryMenu != nil {
+		out.Preview.MenuStatus = primaryMenu.Status
+	}
+	if primaryBinding != nil {
+		out.Preview.BindingStatus = primaryBinding.Status
+	}
+	if primaryProfile != nil {
+		out.Preview.ViewProfileStatus = primaryProfile.Status
+	}
+	return out, nil
+}
+
+func (s *service) ApplyViewProfile(ctx context.Context, menu *Menu, profileCode string, opts MenuQueryOptions, env ...string) (*Menu, error) {
+	projected, _, err := s.applyViewProfileWithRecord(ctx, menu, profileCode, opts, env...)
+	return projected, err
 }
 
 // GetMenu retrieves a menu by ID including its hierarchical items.
@@ -1116,6 +1730,23 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 	itemID := s.pickMenuItemID(normalizedInput)
 	if s.forgivingBootstrap && input.ID == nil && canonicalKey != nil {
 		itemID = s.deterministicUUID("go-cms:menu_item:" + menu.ID.String() + ":" + *canonicalKey)
+	}
+	if s.maxDepth > 0 {
+		records, err := s.items.ListByMenu(ctx, menu.ID)
+		if err != nil {
+			return nil, err
+		}
+		parents := make(map[uuid.UUID]*uuid.UUID, len(records)+1)
+		for _, record := range records {
+			if record == nil {
+				continue
+			}
+			parents[record.ID] = normalizeUUIDPtr(record.ParentID)
+		}
+		parents[itemID] = normalizeUUIDPtr(parentID)
+		if hierarchyDepthExceeded(parents, s.maxDepth) {
+			return nil, ErrMenuItemDepthExceeded
+		}
 	}
 
 	if canonicalKey != nil {
@@ -1517,6 +2148,27 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		item.ParentID = parentID
 	}
 
+	if s.maxDepth > 0 {
+		records, err := s.items.ListByMenu(ctx, item.MenuID)
+		if err != nil {
+			return nil, err
+		}
+		parents := make(map[uuid.UUID]*uuid.UUID, len(records))
+		for _, record := range records {
+			if record == nil {
+				continue
+			}
+			parents[record.ID] = normalizeUUIDPtr(record.ParentID)
+		}
+		parents[item.ID] = normalizeUUIDPtr(item.ParentID)
+		if hasCycle(parents) {
+			return nil, ErrMenuItemCycle
+		}
+		if hierarchyDepthExceeded(parents, s.maxDepth) {
+			return nil, ErrMenuItemDepthExceeded
+		}
+	}
+
 	var hasChildren bool
 	if targetType == MenuItemTypeSeparator || item.Collapsible {
 		children, err := s.items.ListChildren(ctx, item.ID)
@@ -1668,6 +2320,9 @@ func (s *service) ReconcileMenu(ctx context.Context, req ReconcileMenuRequest) (
 	if hasCycle(parents) {
 		return nil, ErrMenuItemCycle
 	}
+	if s.maxDepth > 0 && hierarchyDepthExceeded(parents, s.maxDepth) {
+		return nil, ErrMenuItemDepthExceeded
+	}
 
 	dirty := normalizeMenuItemPositionsForParents(items, affectedParents, touched)
 	now := s.now()
@@ -1787,6 +2442,9 @@ func (s *service) BulkReorderMenuItems(ctx context.Context, input BulkReorderMen
 
 	if hasCycle(parentMap) {
 		return nil, ErrMenuItemCycle
+	}
+	if s.maxDepth > 0 && hierarchyDepthExceeded(parentMap, s.maxDepth) {
+		return nil, ErrMenuItemDepthExceeded
 	}
 
 	dirty := make([]*MenuItem, 0, len(items))
@@ -2059,42 +2717,24 @@ func (s *service) ResolveNavigation(ctx context.Context, menuCode string, locale
 		}
 	}
 
-	menu, err := s.GetMenuByCode(ctx, code, env...)
+	resolved, err := s.MenuByCode(ctx, code, locale, MenuQueryOptions{}, env...)
 	if err != nil {
 		return nil, err
 	}
-	if menu == nil || len(menu.Items) == 0 {
+	if resolved == nil || len(resolved.Items) == 0 {
 		return nil, nil
 	}
-	if menu.EnvironmentID != uuid.Nil {
-		envID = menu.EnvironmentID
-	}
-
-	var localeID uuid.UUID
-	if trimmed := strings.TrimSpace(locale); trimmed != "" {
-		if loc, err := s.lookupLocale(ctx, trimmed); err == nil {
-			localeID = loc.ID
-		}
-	}
-
-	nodes := make([]NavigationNode, 0, len(menu.Items))
-	for _, item := range menu.Items {
-		node, err := s.buildNavigationNode(ctx, menu.Code, item, envID, localeID, locale)
-		if err != nil {
-			return nil, err
-		}
-		nodes = append(nodes, node)
-	}
-	return normalizeNavigationNodes(nodes), nil
+	_ = envID
+	return resolved.Items, nil
 }
 
 // ResolveNavigationByLocation resolves navigation for a menu location.
 func (s *service) ResolveNavigationByLocation(ctx context.Context, location string, locale string, env ...string) ([]NavigationNode, error) {
-	menu, err := s.GetMenuByLocation(ctx, location, env...)
+	resolved, err := s.MenuByLocation(ctx, location, locale, MenuQueryOptions{}, env...)
 	if err != nil {
 		return nil, err
 	}
-	return s.ResolveNavigation(ctx, menu.Code, locale, env...)
+	return resolved.Items, nil
 }
 
 func (s *service) InvalidateCache(ctx context.Context) error {
@@ -2111,6 +2751,16 @@ func (s *service) InvalidateCache(ctx context.Context) error {
 		}
 	}
 	if invalidator, ok := s.translations.(cacheInvalidator); ok {
+		if err := invalidator.InvalidateCache(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if invalidator, ok := s.bindings.(cacheInvalidator); ok {
+		if err := invalidator.InvalidateCache(ctx); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if invalidator, ok := s.viewProfiles.(cacheInvalidator); ok {
 		if err := invalidator.InvalidateCache(ctx); err != nil {
 			errs = append(errs, err)
 		}
@@ -3058,6 +3708,39 @@ func hasCycle(parents map[uuid.UUID]*uuid.UUID) bool {
 	return false
 }
 
+func hierarchyDepthExceeded(parents map[uuid.UUID]*uuid.UUID, maxDepth int) bool {
+	if maxDepth <= 0 {
+		return false
+	}
+	memo := make(map[uuid.UUID]int, len(parents))
+	state := make(map[uuid.UUID]int, len(parents))
+
+	var depth func(uuid.UUID) int
+	depth = func(id uuid.UUID) int {
+		if d, ok := memo[id]; ok {
+			return d
+		}
+		if state[id] == 1 {
+			return maxDepth + 1
+		}
+		state[id] = 1
+		d := 1
+		if parent := parents[id]; parent != nil {
+			d = depth(*parent) + 1
+		}
+		state[id] = 2
+		memo[id] = d
+		return d
+	}
+
+	for id := range parents {
+		if depth(id) > maxDepth {
+			return true
+		}
+	}
+	return false
+}
+
 func resolveMenuItemRef(ref string, byID map[uuid.UUID]*MenuItem, byCanonical map[string]*MenuItem, byExternal map[string]*MenuItem) *MenuItem {
 	trimmed := strings.TrimSpace(ref)
 	if trimmed == "" {
@@ -3163,6 +3846,14 @@ func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any, envID 
 	switch typ {
 	case "page":
 		return s.sanitizePageTarget(ctx, normalized, envID)
+	case "content":
+		return s.sanitizeContentTarget(normalized), nil
+	case "route":
+		return s.sanitizeRouteTarget(normalized), nil
+	case "module":
+		return s.sanitizeModuleTarget(normalized), nil
+	case "external":
+		return s.sanitizeExternalTarget(normalized), nil
 	default:
 		if urlVal, ok := normalized["url"]; ok {
 			if url := strings.TrimSpace(fmt.Sprint(urlVal)); url != "" {
@@ -3173,6 +3864,90 @@ func (s *service) sanitizeTarget(ctx context.Context, raw map[string]any, envID 
 		}
 		return normalized, nil
 	}
+}
+
+func (s *service) sanitizeContentTarget(target map[string]any) map[string]any {
+	cloned := maps.Clone(target)
+	if raw, ok := cloned["slug"]; ok {
+		slug := strings.TrimSpace(fmt.Sprint(raw))
+		if slug != "" {
+			cloned["slug"] = slug
+		} else {
+			delete(cloned, "slug")
+		}
+	}
+	if raw, ok := cloned["path"]; ok {
+		path := strings.TrimSpace(fmt.Sprint(raw))
+		if path != "" {
+			cloned["path"] = ensureLeadingSlash(path)
+		} else {
+			delete(cloned, "path")
+		}
+	}
+	if raw, ok := cloned["url"]; ok {
+		url := strings.TrimSpace(fmt.Sprint(raw))
+		if url != "" {
+			cloned["url"] = url
+		} else {
+			delete(cloned, "url")
+		}
+	}
+	return cloned
+}
+
+func (s *service) sanitizeRouteTarget(target map[string]any) map[string]any {
+	cloned := maps.Clone(target)
+	if raw, ok := cloned["path"]; ok {
+		path := strings.TrimSpace(fmt.Sprint(raw))
+		if path != "" {
+			cloned["path"] = ensureLeadingSlash(path)
+		} else {
+			delete(cloned, "path")
+		}
+	}
+	if raw, ok := cloned["route"]; ok {
+		route := strings.TrimSpace(fmt.Sprint(raw))
+		if route != "" {
+			cloned["route"] = route
+		} else {
+			delete(cloned, "route")
+		}
+	}
+	return cloned
+}
+
+func (s *service) sanitizeModuleTarget(target map[string]any) map[string]any {
+	cloned := maps.Clone(target)
+	if raw, ok := cloned["path"]; ok {
+		path := strings.TrimSpace(fmt.Sprint(raw))
+		if path != "" {
+			cloned["path"] = ensureLeadingSlash(path)
+		} else {
+			delete(cloned, "path")
+		}
+	}
+	if raw, ok := cloned["module"]; ok {
+		module := strings.TrimSpace(fmt.Sprint(raw))
+		if module != "" {
+			cloned["module"] = module
+		} else {
+			delete(cloned, "module")
+		}
+	}
+	return cloned
+}
+
+func (s *service) sanitizeExternalTarget(target map[string]any) map[string]any {
+	cloned := maps.Clone(target)
+	if raw, ok := cloned["url"]; ok {
+		url := strings.TrimSpace(fmt.Sprint(raw))
+		if url != "" {
+			cloned["url"] = url
+		} else {
+			delete(cloned, "url")
+		}
+	}
+	return cloned
 }
 
 func (s *service) sanitizePageTarget(ctx context.Context, target map[string]any, envID uuid.UUID) (map[string]any, error) {
@@ -3256,6 +4031,31 @@ func (s *service) resolveURLForTarget(ctx context.Context, target map[string]any
 	switch typ {
 	case "page":
 		return s.resolvePageURL(ctx, target, envID, localeID)
+	case "content":
+		if raw, ok := target["path"]; ok {
+			if path := strings.TrimSpace(fmt.Sprint(raw)); path != "" {
+				return ensureLeadingSlash(path), nil
+			}
+		}
+		if slug, ok := extractSlug(target); ok && slug != "" {
+			return ensureLeadingSlash(slug), nil
+		}
+		if raw, ok := target["url"]; ok {
+			return strings.TrimSpace(fmt.Sprint(raw)), nil
+		}
+	case "route", "module":
+		if raw, ok := target["path"]; ok {
+			if path := strings.TrimSpace(fmt.Sprint(raw)); path != "" {
+				return ensureLeadingSlash(path), nil
+			}
+		}
+		if raw, ok := target["url"]; ok {
+			return strings.TrimSpace(fmt.Sprint(raw)), nil
+		}
+	case "external":
+		if raw, ok := target["url"]; ok {
+			return strings.TrimSpace(fmt.Sprint(raw)), nil
+		}
 	default:
 		if raw, ok := target["url"]; ok {
 			return strings.TrimSpace(fmt.Sprint(raw)), nil
@@ -3453,6 +4253,1024 @@ func isEffectivelyEmptyGroupNode(node NavigationNode) bool {
 		return false
 	}
 	return true
+}
+
+type contentContributionCandidate struct {
+	Node            NavigationNode
+	Membership      ContentMenuMembership
+	MergeMode       string
+	DuplicatePolicy string
+	SortOrder       *int
+	PublishedAt     time.Time
+}
+
+func (s *service) includeContributions(opts MenuQueryOptions) bool {
+	if opts.IncludeContributions == nil {
+		return true
+	}
+	return *opts.IncludeContributions
+}
+
+func (s *service) resolveContentContributions(ctx context.Context, location string, locale string, opts MenuQueryOptions, envID uuid.UUID) ([]contentContributionCandidate, []ContentMenuMembership, string, error) {
+	if s.contentRepo == nil || s.contentTypeRepo == nil {
+		return nil, nil, MenuContributionDuplicateByURL, nil
+	}
+	contentTypes, err := s.contentTypeRepo.List(ctx, envID.String())
+	if err != nil {
+		return nil, nil, "", err
+	}
+	if len(contentTypes) == 0 {
+		return nil, nil, MenuContributionDuplicateByURL, nil
+	}
+
+	typeByID := make(map[uuid.UUID]*content.ContentType, len(contentTypes))
+	navByType := make(map[uuid.UUID]content.NavigationConfig, len(contentTypes))
+	for _, contentType := range contentTypes {
+		if contentType == nil {
+			continue
+		}
+		cfg := content.ReadNavigationConfig(contentType)
+		if !cfg.Enabled || !locationEligible(cfg.EligibleLocations, location) {
+			continue
+		}
+		typeByID[contentType.ID] = contentType
+		navByType[contentType.ID] = cfg
+	}
+	if len(typeByID) == 0 {
+		return nil, nil, MenuContributionDuplicateByURL, nil
+	}
+
+	records, err := s.contentRepo.List(ctx, content.ContentListOption(envID.String()), content.WithTranslations())
+	if err != nil {
+		return nil, nil, "", err
+	}
+
+	candidates := make([]contentContributionCandidate, 0)
+	for _, record := range records {
+		if record == nil || !s.contentStatusAllowed(record, opts) {
+			continue
+		}
+		contentType, ok := typeByID[record.ContentTypeID]
+		if !ok {
+			continue
+		}
+		cfg := navByType[record.ContentTypeID]
+		visibility := content.ResolveNavigationVisibility(contentType, record.Metadata)
+		visible, origin, state := locationVisibilityFor(visibility, location)
+		if !visible {
+			continue
+		}
+
+		translation := selectContentTranslation(record, locale)
+		label := resolveContributionLabel(record, translation, cfg.LabelField)
+		url := resolveContributionURL(record, translation, cfg.URLField)
+		if url == "" {
+			url = ensureLeadingSlash(strings.TrimSpace(record.Slug))
+		}
+		if label == "" {
+			label = strings.TrimSpace(record.Slug)
+		}
+		if label == "" {
+			label = record.ID.String()
+		}
+
+		sortOrder, hasSortOrder := extractContentSortOrder(record.Metadata)
+		var sortOrderPtr *int
+		if hasSortOrder {
+			value := sortOrder
+			sortOrderPtr = &value
+		}
+
+		target := map[string]any{
+			"type":              "content",
+			"content_id":        record.ID.String(),
+			"content_type_id":   record.ContentTypeID.String(),
+			"content_type_slug": strings.TrimSpace(contentType.Slug),
+			"slug":              strings.TrimSpace(record.Slug),
+			"url":               url,
+		}
+		metadata := map[string]any{
+			"contribution":        "content",
+			"contribution_origin": origin,
+			"visibility_state":    state,
+			"content_id":          record.ID.String(),
+			"content_type_id":     record.ContentTypeID.String(),
+			"content_type_slug":   strings.TrimSpace(contentType.Slug),
+			"content_slug":        strings.TrimSpace(record.Slug),
+		}
+		node := NavigationNode{
+			ID:                 record.ID,
+			Type:               MenuItemTypeItem,
+			Label:              label,
+			URL:                url,
+			Target:             target,
+			Metadata:           metadata,
+			Contribution:       true,
+			ContributionOrigin: origin,
+		}
+		membership := ContentMenuMembership{
+			ContentID:       record.ID,
+			ContentTypeID:   record.ContentTypeID,
+			ContentTypeSlug: strings.TrimSpace(contentType.Slug),
+			ContentSlug:     strings.TrimSpace(record.Slug),
+			Location:        strings.TrimSpace(location),
+			Visible:         true,
+			Origin:          origin,
+			VisibilityState: state,
+			MergeMode:       cfg.MergeMode,
+			DuplicatePolicy: cfg.DuplicatePolicy,
+			URL:             url,
+			Label:           label,
+			SortOrder:       sortOrderPtr,
+		}
+		publishedAt := time.Time{}
+		if record.PublishedAt != nil {
+			publishedAt = *record.PublishedAt
+		}
+		candidates = append(candidates, contentContributionCandidate{
+			Node:            node,
+			Membership:      membership,
+			MergeMode:       cfg.MergeMode,
+			DuplicatePolicy: cfg.DuplicatePolicy,
+			SortOrder:       sortOrderPtr,
+			PublishedAt:     publishedAt,
+		})
+	}
+
+	if len(candidates) == 0 {
+		return nil, nil, MenuContributionDuplicateByURL, nil
+	}
+	slices.SortStableFunc(candidates, func(a, b contentContributionCandidate) int {
+		if a.SortOrder != nil && b.SortOrder == nil {
+			return -1
+		}
+		if a.SortOrder == nil && b.SortOrder != nil {
+			return 1
+		}
+		if a.SortOrder != nil && b.SortOrder != nil && *a.SortOrder != *b.SortOrder {
+			return *a.SortOrder - *b.SortOrder
+		}
+		if !a.PublishedAt.Equal(b.PublishedAt) {
+			if a.PublishedAt.After(b.PublishedAt) {
+				return -1
+			}
+			return 1
+		}
+		if cmp := strings.Compare(strings.ToLower(strings.TrimSpace(a.Node.Label)), strings.ToLower(strings.TrimSpace(b.Node.Label))); cmp != 0 {
+			return cmp
+		}
+		if cmp := strings.Compare(strings.ToLower(strings.TrimSpace(a.Membership.ContentSlug)), strings.ToLower(strings.TrimSpace(b.Membership.ContentSlug))); cmp != 0 {
+			return cmp
+		}
+		return bytes.Compare(a.Node.ID[:], b.Node.ID[:])
+	})
+	for idx := range candidates {
+		candidates[idx].Node.Position = idx
+	}
+
+	memberships := make([]ContentMenuMembership, 0, len(candidates))
+	for _, candidate := range candidates {
+		memberships = append(memberships, candidate.Membership)
+	}
+
+	policy := MenuContributionDuplicateByURL
+	if strings.TrimSpace(opts.ContributionDuplicatePolicy) != "" {
+		policy = normalizeContributionDuplicatePolicy(opts.ContributionDuplicatePolicy)
+	} else if len(candidates) > 0 {
+		policy = normalizeContributionDuplicatePolicy(candidates[0].DuplicatePolicy)
+		for i := 1; i < len(candidates); i++ {
+			if normalizeContributionDuplicatePolicy(candidates[i].DuplicatePolicy) != policy {
+				policy = MenuContributionDuplicateByURL
+				break
+			}
+		}
+	}
+	return candidates, memberships, policy, nil
+}
+
+func (s *service) mergeContributionNodes(manual []NavigationNode, contributions []contentContributionCandidate, opts MenuQueryOptions, duplicatePolicy string) []NavigationNode {
+	if len(contributions) == 0 {
+		return reindexNavigationRootPositions(manual)
+	}
+	merged := append([]NavigationNode{}, manual...)
+
+	overrideMergeMode := ""
+	if strings.TrimSpace(opts.ContributionMergeMode) != "" {
+		overrideMergeMode = normalizeContributionMergeMode(opts.ContributionMergeMode)
+	}
+
+	replaceStarted := false
+	for _, candidate := range contributions {
+		mode := candidate.MergeMode
+		if overrideMergeMode != "" {
+			mode = overrideMergeMode
+		}
+		switch normalizeContributionMergeMode(mode) {
+		case content.NavigationMergePrepend:
+			merged = append([]NavigationNode{candidate.Node}, merged...)
+		case content.NavigationMergeReplace:
+			if !replaceStarted {
+				merged = nil
+				replaceStarted = true
+			}
+			merged = append(merged, candidate.Node)
+		default:
+			merged = append(merged, candidate.Node)
+		}
+	}
+
+	policy := normalizeContributionDuplicatePolicy(duplicatePolicy)
+	if strings.TrimSpace(opts.ContributionDuplicatePolicy) != "" {
+		policy = normalizeContributionDuplicatePolicy(opts.ContributionDuplicatePolicy)
+	}
+	if policy != content.NavigationDuplicateNone {
+		merged = dedupeNavigationNodesByPolicy(merged, policy)
+	}
+	return reindexNavigationRootPositions(merged)
+}
+
+func dedupeNavigationNodesByPolicy(nodes []NavigationNode, policy string) []NavigationNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	normalizedPolicy := normalizeContributionDuplicatePolicy(policy)
+	if normalizedPolicy == content.NavigationDuplicateNone {
+		return append([]NavigationNode{}, nodes...)
+	}
+	seen := map[string]struct{}{}
+	out := make([]NavigationNode, 0, len(nodes))
+	for _, node := range nodes {
+		key := contributionDuplicateKey(node, normalizedPolicy)
+		if key != "" {
+			if _, ok := seen[key]; ok {
+				continue
+			}
+			seen[key] = struct{}{}
+		}
+		out = append(out, node)
+	}
+	return out
+}
+
+func contributionDuplicateKey(node NavigationNode, policy string) string {
+	switch normalizeContributionDuplicatePolicy(policy) {
+	case content.NavigationDuplicateByTarget:
+		targetKey := canonicalTargetKey(node.Target)
+		if targetKey == "" {
+			return ""
+		}
+		return "target:" + targetKey
+	case content.NavigationDuplicateByURL:
+		fallthrough
+	default:
+		url := strings.ToLower(strings.TrimSpace(node.URL))
+		if url == "" {
+			return ""
+		}
+		return "url:" + url
+	}
+}
+
+func canonicalTargetKey(target map[string]any) string {
+	if len(target) == 0 {
+		return ""
+	}
+	raw, err := json.Marshal(target)
+	if err != nil {
+		return ""
+	}
+	return string(raw)
+}
+
+func locationEligible(eligible []string, location string) bool {
+	needle := strings.TrimSpace(location)
+	if needle == "" {
+		return false
+	}
+	for _, value := range eligible {
+		if strings.EqualFold(strings.TrimSpace(value), needle) {
+			return true
+		}
+	}
+	return false
+}
+
+func locationVisibilityFor(result content.NavigationVisibilityResult, location string) (bool, string, string) {
+	needle := strings.TrimSpace(location)
+	if needle == "" {
+		return false, "", content.NavigationStateInherit
+	}
+	for key, visible := range result.EffectiveVisibility {
+		if !strings.EqualFold(strings.TrimSpace(key), needle) {
+			continue
+		}
+		origin := result.Origins[key]
+		if strings.TrimSpace(origin) == "" {
+			origin = content.NavigationOriginDefault
+		}
+		state := result.EffectiveState[key]
+		if strings.TrimSpace(state) == "" {
+			state = content.NavigationStateInherit
+		}
+		return visible, origin, state
+	}
+	return false, content.NavigationOriginDefault, content.NavigationStateInherit
+}
+
+func normalizeContributionDuplicatePolicy(policy string) string {
+	switch strings.ToLower(strings.TrimSpace(policy)) {
+	case content.NavigationDuplicateByTarget:
+		return content.NavigationDuplicateByTarget
+	case content.NavigationDuplicateNone:
+		return content.NavigationDuplicateNone
+	case content.NavigationDuplicateByURL:
+		fallthrough
+	default:
+		return content.NavigationDuplicateByURL
+	}
+}
+
+func normalizeContributionMergeMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case content.NavigationMergePrepend:
+		return content.NavigationMergePrepend
+	case content.NavigationMergeReplace:
+		return content.NavigationMergeReplace
+	case content.NavigationMergeAppend:
+		fallthrough
+	default:
+		return content.NavigationMergeAppend
+	}
+}
+
+func resolveContributionLabel(record *content.Content, translation *content.ContentTranslation, field string) string {
+	key := strings.TrimSpace(field)
+	if key == "" {
+		key = "title"
+	}
+	switch strings.ToLower(key) {
+	case "title":
+		if translation != nil && strings.TrimSpace(translation.Title) != "" {
+			return strings.TrimSpace(translation.Title)
+		}
+	case "slug":
+		return strings.TrimSpace(record.Slug)
+	}
+	if translation != nil {
+		if value, ok := contributionStringValue(translation.Content, key); ok {
+			return value
+		}
+	}
+	if value, ok := contributionStringValue(record.Metadata, key); ok {
+		return value
+	}
+	if translation != nil && strings.TrimSpace(translation.Title) != "" {
+		return strings.TrimSpace(translation.Title)
+	}
+	return ""
+}
+
+func resolveContributionURL(record *content.Content, translation *content.ContentTranslation, field string) string {
+	key := strings.TrimSpace(field)
+	if key == "" {
+		key = "path"
+	}
+	switch strings.ToLower(key) {
+	case "slug":
+		return ensureLeadingSlash(strings.TrimSpace(record.Slug))
+	case "path":
+		if value, ok := contributionStringValue(record.Metadata, key); ok {
+			return ensureLeadingSlash(value)
+		}
+		if translation != nil {
+			if value, ok := contributionStringValue(translation.Content, key); ok {
+				return ensureLeadingSlash(value)
+			}
+		}
+	default:
+		if translation != nil {
+			if value, ok := contributionStringValue(translation.Content, key); ok {
+				return ensureLeadingSlash(value)
+			}
+		}
+		if value, ok := contributionStringValue(record.Metadata, key); ok {
+			return ensureLeadingSlash(value)
+		}
+	}
+	return ""
+}
+
+func contributionStringValue(payload map[string]any, key string) (string, bool) {
+	if len(payload) == 0 {
+		return "", false
+	}
+	raw, ok := payload[key]
+	if !ok {
+		return "", false
+	}
+	value := strings.TrimSpace(fmt.Sprint(raw))
+	if value == "" {
+		return "", false
+	}
+	return value, true
+}
+
+func extractContentSortOrder(metadata map[string]any) (int, bool) {
+	if len(metadata) == 0 {
+		return 0, false
+	}
+	if value, ok := metadata["sort_order"]; ok {
+		if parsed, ok := parseIntValue(value); ok {
+			return parsed, true
+		}
+	}
+	if value, ok := metadata["order"]; ok {
+		if parsed, ok := parseIntValue(value); ok {
+			return parsed, true
+		}
+	}
+	return 0, false
+}
+
+func parseIntValue(value any) (int, bool) {
+	switch typed := value.(type) {
+	case int:
+		return typed, true
+	case int8:
+		return int(typed), true
+	case int16:
+		return int(typed), true
+	case int32:
+		return int(typed), true
+	case int64:
+		return int(typed), true
+	case uint:
+		return int(typed), true
+	case uint8:
+		return int(typed), true
+	case uint16:
+		return int(typed), true
+	case uint32:
+		return int(typed), true
+	case uint64:
+		return int(typed), true
+	case float32:
+		if float32(int(typed)) != typed {
+			return 0, false
+		}
+		return int(typed), true
+	case float64:
+		if float64(int(typed)) != typed {
+			return 0, false
+		}
+		return int(typed), true
+	default:
+		return 0, false
+	}
+}
+
+func selectContentTranslation(record *content.Content, locale string) *content.ContentTranslation {
+	if record == nil || len(record.Translations) == 0 {
+		return nil
+	}
+	requested := strings.ToLower(strings.TrimSpace(locale))
+	if requested != "" {
+		for _, translation := range record.Translations {
+			if translation == nil || translation.Locale == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(translation.Locale.Code), requested) {
+				return translation
+			}
+		}
+	}
+	primary := strings.ToLower(strings.TrimSpace(record.PrimaryLocale))
+	if primary != "" {
+		for _, translation := range record.Translations {
+			if translation == nil || translation.Locale == nil {
+				continue
+			}
+			if strings.EqualFold(strings.TrimSpace(translation.Locale.Code), primary) {
+				return translation
+			}
+		}
+	}
+	for _, translation := range record.Translations {
+		if translation != nil {
+			return translation
+		}
+	}
+	return nil
+}
+
+func (s *service) contentStatusAllowed(record *content.Content, opts MenuQueryOptions) bool {
+	status := strings.ToLower(strings.TrimSpace(contentEffectiveStatus(record, s.now)))
+	requested := strings.ToLower(strings.TrimSpace(opts.Status))
+	if requested != "" {
+		return status == requested
+	}
+	if opts.IncludeDrafts {
+		return status == MenuStatusPublished || status == MenuStatusDraft
+	}
+	return status == MenuStatusPublished
+}
+
+func contentEffectiveStatus(record *content.Content, now func() time.Time) string {
+	if record == nil {
+		return MenuStatusDraft
+	}
+	current := strings.ToLower(strings.TrimSpace(record.Status))
+	if current == "" {
+		current = MenuStatusDraft
+	}
+	currentTime := time.Now()
+	if now != nil {
+		currentTime = now()
+	}
+	if record.UnpublishAt != nil && !record.UnpublishAt.After(currentTime) {
+		return "archived"
+	}
+	if record.PublishAt != nil {
+		if record.PublishAt.After(currentTime) {
+			return "scheduled"
+		}
+		return MenuStatusPublished
+	}
+	if record.PublishedAt != nil && !record.PublishedAt.After(currentTime) {
+		return MenuStatusPublished
+	}
+	return current
+}
+
+func reindexNavigationRootPositions(nodes []NavigationNode) []NavigationNode {
+	if len(nodes) == 0 {
+		return nil
+	}
+	out := append([]NavigationNode{}, nodes...)
+	for idx := range out {
+		out[idx].Position = idx
+	}
+	return out
+}
+
+func normalizeMenuStatus(status string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(status))
+	if trimmed == "" {
+		return MenuStatusPublished, nil
+	}
+	switch trimmed {
+	case MenuStatusDraft, MenuStatusPublished:
+		return trimmed, nil
+	default:
+		return "", ErrMenuStatusInvalid
+	}
+}
+
+func normalizeMenuViewMode(mode string) (string, error) {
+	trimmed := strings.ToLower(strings.TrimSpace(mode))
+	if trimmed == "" {
+		return MenuViewModeFull, nil
+	}
+	switch trimmed {
+	case MenuViewModeFull, MenuViewModeTopLevelLimit, MenuViewModeMaxDepth, MenuViewModeIncludeIDs, MenuViewModeExcludeIDs, MenuViewModeComposed:
+		return trimmed, nil
+	default:
+		return "", ErrMenuViewModeInvalid
+	}
+}
+
+func normalizeBindingPolicy(policy string) string {
+	trimmed := strings.ToLower(strings.TrimSpace(policy))
+	switch trimmed {
+	case MenuBindingPolicyPriorityMulti:
+		return MenuBindingPolicyPriorityMulti
+	case MenuBindingPolicySingle, "":
+		return MenuBindingPolicySingle
+	default:
+		return MenuBindingPolicySingle
+	}
+}
+
+func (s *service) effectiveBindingPolicy(opts MenuQueryOptions) string {
+	if s == nil {
+		return MenuBindingPolicySingle
+	}
+	if normalized := normalizeBindingPolicy(opts.BindingPolicy); normalized != MenuBindingPolicySingle || strings.TrimSpace(opts.BindingPolicy) != "" {
+		return normalized
+	}
+	return normalizeBindingPolicy(s.duplicateBindingPolicy)
+}
+
+func (s *service) statusAllowed(status string, opts MenuQueryOptions) bool {
+	normalized, err := normalizeMenuStatus(status)
+	if err != nil {
+		normalized = MenuStatusPublished
+	}
+	if strings.TrimSpace(opts.Status) != "" {
+		requested, reqErr := normalizeMenuStatus(opts.Status)
+		if reqErr != nil {
+			return false
+		}
+		return normalized == requested
+	}
+	if opts.IncludeDrafts {
+		return normalized == MenuStatusPublished || normalized == MenuStatusDraft
+	}
+	return normalized == MenuStatusPublished
+}
+
+func normalizeLocalePointer(locale *string) *string {
+	if locale == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*locale)
+	if trimmed == "" {
+		return nil
+	}
+	normalized := strings.ToLower(trimmed)
+	return &normalized
+}
+
+func normalizeCodePointer(code *string) *string {
+	if code == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*code)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
+}
+
+func cloneUUIDPointer(id *uuid.UUID) *uuid.UUID {
+	if id == nil {
+		return nil
+	}
+	copy := *id
+	return &copy
+}
+
+func normalizePositiveIntPointer(value *int) *int {
+	if value == nil {
+		return nil
+	}
+	if *value <= 0 {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func normalizeCodeList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, 0, len(values))
+	seen := make(map[string]struct{}, len(values))
+	for _, raw := range values {
+		trimmed := strings.TrimSpace(raw)
+		if trimmed == "" {
+			continue
+		}
+		if _, exists := seen[trimmed]; exists {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func localePointerEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.EqualFold(strings.TrimSpace(*a), strings.TrimSpace(*b))
+}
+
+func stringPointerEqual(a, b *string) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	return strings.TrimSpace(*a) == strings.TrimSpace(*b)
+}
+
+func (s *service) resolveLocationBindings(ctx context.Context, location, locale string, opts MenuQueryOptions, env ...string) ([]*MenuLocationBinding, error) {
+	if s.bindings == nil {
+		return nil, nil
+	}
+	location = strings.TrimSpace(location)
+	if location == "" {
+		return nil, nil
+	}
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, err
+	}
+	records, err := s.bindings.ListByLocation(ctx, location, envID.String())
+	if err != nil {
+		return nil, err
+	}
+	if len(records) == 0 {
+		return nil, nil
+	}
+	requestedLocale := strings.ToLower(strings.TrimSpace(locale))
+	filtered := make([]*MenuLocationBinding, 0, len(records))
+	for _, binding := range records {
+		if binding == nil {
+			continue
+		}
+		if !s.statusAllowed(binding.Status, opts) {
+			continue
+		}
+		if requestedLocale != "" && binding.Locale != nil {
+			if normalized := strings.ToLower(strings.TrimSpace(*binding.Locale)); normalized != "" && normalized != requestedLocale {
+				continue
+			}
+		}
+		filtered = append(filtered, binding)
+	}
+	slices.SortStableFunc(filtered, func(a, b *MenuLocationBinding) int {
+		aLocaleRank := bindingLocaleRank(a, requestedLocale)
+		bLocaleRank := bindingLocaleRank(b, requestedLocale)
+		if aLocaleRank != bLocaleRank {
+			return aLocaleRank - bLocaleRank
+		}
+		aStatusRank := bindingStatusRank(a, opts)
+		bStatusRank := bindingStatusRank(b, opts)
+		if aStatusRank != bStatusRank {
+			return aStatusRank - bStatusRank
+		}
+		if a.Priority != b.Priority {
+			return b.Priority - a.Priority
+		}
+		if !a.UpdatedAt.Equal(b.UpdatedAt) {
+			if a.UpdatedAt.After(b.UpdatedAt) {
+				return -1
+			}
+			return 1
+		}
+		return bytes.Compare(a.ID[:], b.ID[:])
+	})
+	return filtered, nil
+}
+
+func bindingLocaleRank(binding *MenuLocationBinding, locale string) int {
+	if binding == nil {
+		return 3
+	}
+	if strings.TrimSpace(locale) == "" {
+		return 0
+	}
+	if binding.Locale == nil || strings.TrimSpace(*binding.Locale) == "" {
+		return 1
+	}
+	if strings.EqualFold(strings.TrimSpace(*binding.Locale), strings.TrimSpace(locale)) {
+		return 0
+	}
+	return 2
+}
+
+func bindingStatusRank(binding *MenuLocationBinding, opts MenuQueryOptions) int {
+	if binding == nil {
+		return 2
+	}
+	status, err := normalizeMenuStatus(binding.Status)
+	if err != nil {
+		status = MenuStatusPublished
+	}
+	if opts.IncludeDrafts && strings.TrimSpace(opts.PreviewToken) != "" {
+		if status == MenuStatusDraft {
+			return 0
+		}
+		return 1
+	}
+	if status == MenuStatusPublished {
+		return 0
+	}
+	return 1
+}
+
+func (s *service) applyViewProfileWithRecord(ctx context.Context, menu *Menu, profileCode string, opts MenuQueryOptions, env ...string) (*Menu, *MenuViewProfile, error) {
+	if menu == nil {
+		return nil, nil, ErrMenuNotFound
+	}
+	projected := cloneMenu(menu)
+	code := strings.TrimSpace(profileCode)
+	if code == "" {
+		return projected, nil, nil
+	}
+	envID, _, err := s.resolveEnvironment(ctx, pickEnvironmentKey(env...))
+	if err != nil {
+		return nil, nil, err
+	}
+	profile, err := s.viewProfiles.GetByCode(ctx, code, envID.String())
+	if err != nil {
+		var notFound *NotFoundError
+		if errors.As(err, &notFound) {
+			return nil, nil, ErrMenuViewProfileNotFound
+		}
+		return nil, nil, err
+	}
+	if !s.statusAllowed(profile.Status, opts) {
+		return nil, nil, ErrMenuViewProfileNotFound
+	}
+	mode, err := normalizeMenuViewMode(profile.Mode)
+	if err != nil {
+		return nil, nil, err
+	}
+	profile.Mode = mode
+	projected = applyMenuProjection(projected, profile)
+	return projected, profile, nil
+}
+
+func applyMenuProjection(menu *Menu, profile *MenuViewProfile) *Menu {
+	if menu == nil {
+		return nil
+	}
+	if profile == nil {
+		return cloneMenu(menu)
+	}
+	projected := cloneMenu(menu)
+	items := projected.Items
+	includeSet := make(map[string]struct{}, len(profile.IncludeItemIDs))
+	for _, id := range profile.IncludeItemIDs {
+		key := strings.TrimSpace(id)
+		if key != "" {
+			includeSet[key] = struct{}{}
+		}
+	}
+	excludeSet := make(map[string]struct{}, len(profile.ExcludeItemIDs))
+	for _, id := range profile.ExcludeItemIDs {
+		key := strings.TrimSpace(id)
+		if key != "" {
+			excludeSet[key] = struct{}{}
+		}
+	}
+
+	switch profile.Mode {
+	case MenuViewModeTopLevelLimit:
+		items = projectTopLevelLimit(items, profile.MaxTopLevel)
+	case MenuViewModeMaxDepth:
+		items = projectMaxDepth(items, profile.MaxDepth, 1)
+	case MenuViewModeIncludeIDs:
+		items = projectIncludeIDs(items, includeSet)
+	case MenuViewModeExcludeIDs:
+		items = projectExcludeIDs(items, excludeSet)
+	case MenuViewModeComposed:
+		if len(includeSet) > 0 {
+			items = projectIncludeIDs(items, includeSet)
+		}
+		if len(excludeSet) > 0 {
+			items = projectExcludeIDs(items, excludeSet)
+		}
+		items = projectMaxDepth(items, profile.MaxDepth, 1)
+		items = projectTopLevelLimit(items, profile.MaxTopLevel)
+	default:
+		// full mode keeps source items.
+	}
+	projected.Items = normalizeProjectedPositions(items)
+	return projected
+}
+
+func projectTopLevelLimit(items []*MenuItem, max *int) []*MenuItem {
+	if max == nil || *max <= 0 || len(items) <= *max {
+		return items
+	}
+	return slices.Clone(items[:*max])
+}
+
+func projectMaxDepth(items []*MenuItem, max *int, depth int) []*MenuItem {
+	if max == nil || *max <= 0 {
+		return items
+	}
+	if depth >= *max {
+		out := make([]*MenuItem, 0, len(items))
+		for _, item := range items {
+			if item == nil {
+				continue
+			}
+			clone := cloneMenuItem(item)
+			clone.Children = nil
+			out = append(out, clone)
+		}
+		return out
+	}
+	out := make([]*MenuItem, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		clone := cloneMenuItem(item)
+		clone.Children = projectMaxDepth(clone.Children, max, depth+1)
+		out = append(out, clone)
+	}
+	return out
+}
+
+func projectIncludeIDs(items []*MenuItem, include map[string]struct{}) []*MenuItem {
+	if len(include) == 0 {
+		return items
+	}
+	out := make([]*MenuItem, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		children := projectIncludeIDs(item.Children, include)
+		_, keepSelf := include[itemProjectionID(item)]
+		if !keepSelf && len(children) == 0 {
+			continue
+		}
+		clone := cloneMenuItem(item)
+		clone.Children = children
+		out = append(out, clone)
+	}
+	return out
+}
+
+func projectExcludeIDs(items []*MenuItem, exclude map[string]struct{}) []*MenuItem {
+	if len(exclude) == 0 {
+		return items
+	}
+	out := make([]*MenuItem, 0, len(items))
+	for _, item := range items {
+		if item == nil {
+			continue
+		}
+		if _, excluded := exclude[itemProjectionID(item)]; excluded {
+			continue
+		}
+		clone := cloneMenuItem(item)
+		clone.Children = projectExcludeIDs(clone.Children, exclude)
+		out = append(out, clone)
+	}
+	return out
+}
+
+func normalizeProjectedPositions(items []*MenuItem) []*MenuItem {
+	if len(items) == 0 {
+		return nil
+	}
+	out := make([]*MenuItem, 0, len(items))
+	for idx, item := range items {
+		if item == nil {
+			continue
+		}
+		clone := cloneMenuItem(item)
+		clone.Position = idx
+		clone.Children = normalizeProjectedPositions(clone.Children)
+		out = append(out, clone)
+	}
+	return out
+}
+
+func itemProjectionID(item *MenuItem) string {
+	if item == nil {
+		return ""
+	}
+	if code := strings.TrimSpace(item.ExternalCode); code != "" {
+		return code
+	}
+	return item.ID.String()
+}
+
+func (s *service) navigationNodesForMenu(ctx context.Context, menu *Menu, locale string) ([]NavigationNode, error) {
+	if menu == nil || len(menu.Items) == 0 {
+		return nil, nil
+	}
+	envID := menu.EnvironmentID
+	if envID == uuid.Nil {
+		resolvedID, _, err := s.resolveEnvironment(ctx, "")
+		if err != nil {
+			return nil, err
+		}
+		envID = resolvedID
+	}
+	var localeID uuid.UUID
+	if trimmed := strings.TrimSpace(locale); trimmed != "" {
+		if loc, err := s.lookupLocale(ctx, trimmed); err == nil {
+			localeID = loc.ID
+		}
+	}
+	nodes := make([]NavigationNode, 0, len(menu.Items))
+	for _, item := range menu.Items {
+		node, err := s.buildNavigationNode(ctx, menu.Code, item, envID, localeID, locale)
+		if err != nil {
+			return nil, err
+		}
+		nodes = append(nodes, node)
+	}
+	return normalizeNavigationNodes(nodes), nil
 }
 
 func parseUUIDValue(value any) (uuid.UUID, bool, error) {

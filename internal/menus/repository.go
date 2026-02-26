@@ -62,3 +62,41 @@ func NewMenuItemTranslationRepository(db *bun.DB) repository.Repository[*MenuIte
 		},
 	})
 }
+
+// NewMenuLocationBindingRepository creates a repository for MenuLocationBinding entities.
+func NewMenuLocationBindingRepository(db *bun.DB) repository.Repository[*MenuLocationBinding] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*MenuLocationBinding]{
+		NewRecord: func() *MenuLocationBinding { return &MenuLocationBinding{} },
+		GetID: func(item *MenuLocationBinding) uuid.UUID {
+			return item.ID
+		},
+		SetID: func(item *MenuLocationBinding, id uuid.UUID) {
+			item.ID = id
+		},
+		GetIdentifier: func() string {
+			return "id"
+		},
+		GetIdentifierValue: func(item *MenuLocationBinding) string {
+			return item.ID.String()
+		},
+	})
+}
+
+// NewMenuViewProfileRepository creates a repository for MenuViewProfile entities.
+func NewMenuViewProfileRepository(db *bun.DB) repository.Repository[*MenuViewProfile] {
+	return repository.MustNewRepository(db, repository.ModelHandlers[*MenuViewProfile]{
+		NewRecord: func() *MenuViewProfile { return &MenuViewProfile{} },
+		GetID: func(item *MenuViewProfile) uuid.UUID {
+			return item.ID
+		},
+		SetID: func(item *MenuViewProfile, id uuid.UUID) {
+			item.ID = id
+		},
+		GetIdentifier: func() string {
+			return "code"
+		},
+		GetIdentifierValue: func(item *MenuViewProfile) string {
+			return item.Code
+		},
+	})
+}

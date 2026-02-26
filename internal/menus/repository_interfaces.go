@@ -43,6 +43,26 @@ type MenuItemTranslationRepository interface {
 	Delete(ctx context.Context, id uuid.UUID) error
 }
 
+// MenuLocationBindingRepository persists menu location binding records.
+type MenuLocationBindingRepository interface {
+	Create(ctx context.Context, binding *MenuLocationBinding) (*MenuLocationBinding, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*MenuLocationBinding, error)
+	ListByLocation(ctx context.Context, location string, env ...string) ([]*MenuLocationBinding, error)
+	List(ctx context.Context, env ...string) ([]*MenuLocationBinding, error)
+	Update(ctx context.Context, binding *MenuLocationBinding) (*MenuLocationBinding, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
+// MenuViewProfileRepository persists menu view projection profiles.
+type MenuViewProfileRepository interface {
+	Create(ctx context.Context, profile *MenuViewProfile) (*MenuViewProfile, error)
+	GetByID(ctx context.Context, id uuid.UUID) (*MenuViewProfile, error)
+	GetByCode(ctx context.Context, code string, env ...string) (*MenuViewProfile, error)
+	List(ctx context.Context, env ...string) ([]*MenuViewProfile, error)
+	Update(ctx context.Context, profile *MenuViewProfile) (*MenuViewProfile, error)
+	Delete(ctx context.Context, id uuid.UUID) error
+}
+
 // NotFoundError is returned when a menu resource cannot be located.
 type NotFoundError struct {
 	Resource string

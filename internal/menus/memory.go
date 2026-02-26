@@ -189,6 +189,22 @@ func menuLocationKey(envID uuid.UUID, location string) string {
 	return envID.String() + "|" + strings.TrimSpace(location)
 }
 
+func locationBindingLocationKey(envID uuid.UUID, location string) string {
+	return envID.String() + "|" + strings.TrimSpace(location)
+}
+
+func locationBindingMenuCodeKey(envID uuid.UUID, code string) string {
+	return envID.String() + "|" + strings.TrimSpace(code)
+}
+
+func locationBindingProfileKey(envID uuid.UUID, code string) string {
+	return envID.String() + "|" + strings.TrimSpace(code)
+}
+
+func menuViewProfileCodeKey(envID uuid.UUID, code string) string {
+	return envID.String() + "|" + strings.TrimSpace(code)
+}
+
 // NewMemoryMenuItemRepository constructs an in-memory repository for menu items.
 func NewMemoryMenuItemRepository() MenuItemRepository {
 	return &memoryMenuItemRepository{
@@ -496,11 +512,286 @@ func (m *memoryMenuItemTranslationRepository) Delete(_ context.Context, id uuid.
 	return nil
 }
 
+// NewMemoryMenuLocationBindingRepository constructs an in-memory location binding repository.
+func NewMemoryMenuLocationBindingRepository() MenuLocationBindingRepository {
+	return &memoryMenuLocationBindingRepository{
+		byID:         make(map[uuid.UUID]*MenuLocationBinding),
+		byLocation:   make(map[string][]uuid.UUID),
+		byMenuCode:   make(map[string][]uuid.UUID),
+		byProfileKey: make(map[string][]uuid.UUID),
+	}
+}
+
+type memoryMenuLocationBindingRepository struct {
+	mu           sync.RWMutex
+	byID         map[uuid.UUID]*MenuLocationBinding
+	byLocation   map[string][]uuid.UUID
+	byMenuCode   map[string][]uuid.UUID
+	byProfileKey map[string][]uuid.UUID
+}
+
+func (m *memoryMenuLocationBindingRepository) Create(_ context.Context, binding *MenuLocationBinding) (*MenuLocationBinding, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneMenuLocationBinding(binding)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
+	m.byID[cloned.ID] = cloned
+	locKey := locationBindingLocationKey(cloned.EnvironmentID, cloned.Location)
+	m.byLocation[locKey] = appendUniqueUUID(m.byLocation[locKey], cloned.ID)
+	menuKey := locationBindingMenuCodeKey(cloned.EnvironmentID, cloned.MenuCode)
+	m.byMenuCode[menuKey] = appendUniqueUUID(m.byMenuCode[menuKey], cloned.ID)
+	if cloned.ViewProfileCode != nil && strings.TrimSpace(*cloned.ViewProfileCode) != "" {
+		profileKey := locationBindingProfileKey(cloned.EnvironmentID, *cloned.ViewProfileCode)
+		m.byProfileKey[profileKey] = appendUniqueUUID(m.byProfileKey[profileKey], cloned.ID)
+	}
+	return cloneMenuLocationBinding(cloned), nil
+}
+
+func (m *memoryMenuLocationBindingRepository) GetByID(_ context.Context, id uuid.UUID) (*MenuLocationBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_location_binding", Key: id.String()}
+	}
+	return cloneMenuLocationBinding(record), nil
+}
+
+func (m *memoryMenuLocationBindingRepository) ListByLocation(_ context.Context, location string, env ...string) ([]*MenuLocationBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	ids := m.byLocation[locationBindingLocationKey(envID, location)]
+	out := make([]*MenuLocationBinding, 0, len(ids))
+	for _, id := range ids {
+		if record := m.byID[id]; record != nil {
+			out = append(out, cloneMenuLocationBinding(record))
+		}
+	}
+	return out, nil
+}
+
+func (m *memoryMenuLocationBindingRepository) List(_ context.Context, env ...string) ([]*MenuLocationBinding, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	out := make([]*MenuLocationBinding, 0, len(m.byID))
+	for _, record := range m.byID {
+		if record == nil || !matchesEnvironment(record.EnvironmentID, envID) {
+			continue
+		}
+		out = append(out, cloneMenuLocationBinding(record))
+	}
+	return out, nil
+}
+
+func (m *memoryMenuLocationBindingRepository) Update(_ context.Context, binding *MenuLocationBinding) (*MenuLocationBinding, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[binding.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_location_binding", Key: binding.ID.String()}
+	}
+	old := cloneMenuLocationBinding(existing)
+	cloned := cloneMenuLocationBinding(binding)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
+	m.byID[cloned.ID] = cloned
+	m.reindexBinding(old, cloned)
+	return cloneMenuLocationBinding(cloned), nil
+}
+
+func (m *memoryMenuLocationBindingRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "menu_location_binding", Key: id.String()}
+	}
+	delete(m.byID, id)
+	locKey := locationBindingLocationKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.Location)
+	m.byLocation[locKey] = removeUUID(m.byLocation[locKey], id)
+	menuKey := locationBindingMenuCodeKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.MenuCode)
+	m.byMenuCode[menuKey] = removeUUID(m.byMenuCode[menuKey], id)
+	if existing.ViewProfileCode != nil && strings.TrimSpace(*existing.ViewProfileCode) != "" {
+		profileKey := locationBindingProfileKey(resolveEnvironmentID(existing.EnvironmentID, ""), *existing.ViewProfileCode)
+		m.byProfileKey[profileKey] = removeUUID(m.byProfileKey[profileKey], id)
+	}
+	return nil
+}
+
+func (m *memoryMenuLocationBindingRepository) reindexBinding(old, updated *MenuLocationBinding) {
+	if old == nil || updated == nil {
+		return
+	}
+	oldEnv := resolveEnvironmentID(old.EnvironmentID, "")
+	newEnv := resolveEnvironmentID(updated.EnvironmentID, "")
+	if old.Location != updated.Location || oldEnv != newEnv {
+		m.byLocation[locationBindingLocationKey(oldEnv, old.Location)] = removeUUID(
+			m.byLocation[locationBindingLocationKey(oldEnv, old.Location)],
+			old.ID,
+		)
+	}
+	m.byLocation[locationBindingLocationKey(newEnv, updated.Location)] = appendUniqueUUID(
+		m.byLocation[locationBindingLocationKey(newEnv, updated.Location)],
+		updated.ID,
+	)
+
+	if old.MenuCode != updated.MenuCode || oldEnv != newEnv {
+		m.byMenuCode[locationBindingMenuCodeKey(oldEnv, old.MenuCode)] = removeUUID(
+			m.byMenuCode[locationBindingMenuCodeKey(oldEnv, old.MenuCode)],
+			old.ID,
+		)
+	}
+	m.byMenuCode[locationBindingMenuCodeKey(newEnv, updated.MenuCode)] = appendUniqueUUID(
+		m.byMenuCode[locationBindingMenuCodeKey(newEnv, updated.MenuCode)],
+		updated.ID,
+	)
+
+	oldProfile := ""
+	if old.ViewProfileCode != nil {
+		oldProfile = strings.TrimSpace(*old.ViewProfileCode)
+	}
+	newProfile := ""
+	if updated.ViewProfileCode != nil {
+		newProfile = strings.TrimSpace(*updated.ViewProfileCode)
+	}
+	if oldProfile != "" && (oldProfile != newProfile || oldEnv != newEnv) {
+		m.byProfileKey[locationBindingProfileKey(oldEnv, oldProfile)] = removeUUID(
+			m.byProfileKey[locationBindingProfileKey(oldEnv, oldProfile)],
+			old.ID,
+		)
+	}
+	if newProfile != "" {
+		m.byProfileKey[locationBindingProfileKey(newEnv, newProfile)] = appendUniqueUUID(
+			m.byProfileKey[locationBindingProfileKey(newEnv, newProfile)],
+			updated.ID,
+		)
+	}
+}
+
+// NewMemoryMenuViewProfileRepository constructs an in-memory view profile repository.
+func NewMemoryMenuViewProfileRepository() MenuViewProfileRepository {
+	return &memoryMenuViewProfileRepository{
+		byID:   make(map[uuid.UUID]*MenuViewProfile),
+		byCode: make(map[string]uuid.UUID),
+	}
+}
+
+type memoryMenuViewProfileRepository struct {
+	mu     sync.RWMutex
+	byID   map[uuid.UUID]*MenuViewProfile
+	byCode map[string]uuid.UUID
+}
+
+func (m *memoryMenuViewProfileRepository) Create(_ context.Context, profile *MenuViewProfile) (*MenuViewProfile, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	cloned := cloneMenuViewProfile(profile)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
+	m.byID[cloned.ID] = cloned
+	m.byCode[menuViewProfileCodeKey(cloned.EnvironmentID, cloned.Code)] = cloned.ID
+	return cloneMenuViewProfile(cloned), nil
+}
+
+func (m *memoryMenuViewProfileRepository) GetByID(_ context.Context, id uuid.UUID) (*MenuViewProfile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	record, ok := m.byID[id]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_view_profile", Key: id.String()}
+	}
+	return cloneMenuViewProfile(record), nil
+}
+
+func (m *memoryMenuViewProfileRepository) GetByCode(_ context.Context, code string, env ...string) (*MenuViewProfile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	id, ok := m.byCode[menuViewProfileCodeKey(envID, code)]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_view_profile", Key: code}
+	}
+	return cloneMenuViewProfile(m.byID[id]), nil
+}
+
+func (m *memoryMenuViewProfileRepository) List(_ context.Context, env ...string) ([]*MenuViewProfile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	envID := resolveEnvironmentID(uuid.Nil, resolveEnvironmentKey(env...))
+	out := make([]*MenuViewProfile, 0, len(m.byID))
+	for _, record := range m.byID {
+		if record == nil || !matchesEnvironment(record.EnvironmentID, envID) {
+			continue
+		}
+		out = append(out, cloneMenuViewProfile(record))
+	}
+	return out, nil
+}
+
+func (m *memoryMenuViewProfileRepository) Update(_ context.Context, profile *MenuViewProfile) (*MenuViewProfile, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[profile.ID]
+	if !ok {
+		return nil, &NotFoundError{Resource: "menu_view_profile", Key: profile.ID.String()}
+	}
+	oldCodeKey := menuViewProfileCodeKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.Code)
+	cloned := cloneMenuViewProfile(profile)
+	cloned.EnvironmentID = resolveEnvironmentID(cloned.EnvironmentID, "")
+	m.byID[cloned.ID] = cloned
+	newCodeKey := menuViewProfileCodeKey(cloned.EnvironmentID, cloned.Code)
+	if oldCodeKey != newCodeKey {
+		delete(m.byCode, oldCodeKey)
+	}
+	m.byCode[newCodeKey] = cloned.ID
+	return cloneMenuViewProfile(cloned), nil
+}
+
+func (m *memoryMenuViewProfileRepository) Delete(_ context.Context, id uuid.UUID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	existing, ok := m.byID[id]
+	if !ok {
+		return &NotFoundError{Resource: "menu_view_profile", Key: id.String()}
+	}
+	delete(m.byID, id)
+	delete(m.byCode, menuViewProfileCodeKey(resolveEnvironmentID(existing.EnvironmentID, ""), existing.Code))
+	return nil
+}
+
 func cloneMenu(src *Menu) *Menu {
 	if src == nil {
 		return nil
 	}
 	cloned := *src
+	if src.Description != nil {
+		description := *src.Description
+		cloned.Description = &description
+	}
+	if src.Locale != nil {
+		locale := *src.Locale
+		cloned.Locale = &locale
+	}
+	if src.TranslationGroupID != nil {
+		groupID := *src.TranslationGroupID
+		cloned.TranslationGroupID = &groupID
+	}
+	if src.PublishedAt != nil {
+		publishedAt := *src.PublishedAt
+		cloned.PublishedAt = &publishedAt
+	}
 	if len(src.Items) > 0 {
 		cloned.Items = make([]*MenuItem, len(src.Items))
 		for i, item := range src.Items {
@@ -567,6 +858,52 @@ func cloneMenuItemTranslation(src *MenuItemTranslation) *MenuItemTranslation {
 	if src.Locale != nil {
 		local := *src.Locale
 		cloned.Locale = &local
+	}
+	return &cloned
+}
+
+func cloneMenuLocationBinding(src *MenuLocationBinding) *MenuLocationBinding {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.ViewProfileCode != nil {
+		code := *src.ViewProfileCode
+		cloned.ViewProfileCode = &code
+	}
+	if src.Locale != nil {
+		locale := *src.Locale
+		cloned.Locale = &locale
+	}
+	if src.PublishedAt != nil {
+		publishedAt := *src.PublishedAt
+		cloned.PublishedAt = &publishedAt
+	}
+	return &cloned
+}
+
+func cloneMenuViewProfile(src *MenuViewProfile) *MenuViewProfile {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	if src.MaxTopLevel != nil {
+		topLevel := *src.MaxTopLevel
+		cloned.MaxTopLevel = &topLevel
+	}
+	if src.MaxDepth != nil {
+		maxDepth := *src.MaxDepth
+		cloned.MaxDepth = &maxDepth
+	}
+	if len(src.IncludeItemIDs) > 0 {
+		cloned.IncludeItemIDs = slices.Clone(src.IncludeItemIDs)
+	}
+	if len(src.ExcludeItemIDs) > 0 {
+		cloned.ExcludeItemIDs = slices.Clone(src.ExcludeItemIDs)
+	}
+	if src.PublishedAt != nil {
+		publishedAt := *src.PublishedAt
+		cloned.PublishedAt = &publishedAt
 	}
 	return &cloned
 }
