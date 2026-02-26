@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	cmscontent "github.com/goliatone/go-cms/content"
 	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/permissions"
 	"github.com/goliatone/go-cms/internal/schema"
@@ -155,6 +156,10 @@ func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRe
 	if err != nil {
 		return nil, err
 	}
+	capabilities, err := cmscontent.ValidateAndNormalizeContentTypeCapabilities(req.Capabilities)
+	if err != nil {
+		return nil, err
+	}
 
 	record := &ContentType{
 		ID:           s.id(),
@@ -163,7 +168,7 @@ func (s *contentTypeService) Create(ctx context.Context, req CreateContentTypeRe
 		Description:  req.Description,
 		Schema:       cloneMap(req.Schema),
 		UISchema:     cloneMap(req.UISchema),
-		Capabilities: cloneMap(req.Capabilities),
+		Capabilities: cloneMap(capabilities),
 		Icon:         req.Icon,
 		Status:       status,
 		CreatedAt:    s.now(),
@@ -265,7 +270,11 @@ func (s *contentTypeService) Update(ctx context.Context, req UpdateContentTypeRe
 		record.UISchema = cloneMap(req.UISchema)
 	}
 	if req.Capabilities != nil {
-		record.Capabilities = cloneMap(req.Capabilities)
+		capabilities, err := cmscontent.ValidateAndNormalizeContentTypeCapabilities(req.Capabilities)
+		if err != nil {
+			return nil, err
+		}
+		record.Capabilities = cloneMap(capabilities)
 	}
 	if req.Icon != nil {
 		record.Icon = req.Icon
