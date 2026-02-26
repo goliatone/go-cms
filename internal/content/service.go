@@ -510,6 +510,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	if err != nil {
 		return nil, err
 	}
+	entryMetadata = ApplyNavigationVisibilityToMetadata(contentType, entryMetadata)
 
 	if existing, err := s.contents.GetBySlug(ctx, slugValue, req.ContentTypeID, envID.String()); err == nil && existing != nil {
 		return nil, ErrSlugExists
@@ -794,6 +795,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		if err != nil {
 			return nil, err
 		}
+		entryMetadata = ApplyNavigationVisibilityToMetadata(contentType, entryMetadata)
 		existing.Metadata = entryMetadata
 	}
 
@@ -1803,6 +1805,7 @@ func (s *service) decorateContent(record *Content) *Content {
 	status := effectiveContentStatus(record, s.now())
 	record.EffectiveStatus = status
 	record.IsVisible = status == domain.StatusPublished
+	ApplyNavigationVisibilityMetadata(record)
 	return record
 }
 

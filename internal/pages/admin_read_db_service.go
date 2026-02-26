@@ -154,7 +154,7 @@ func (s *adminPageDBReadService) List(ctx context.Context, opts interfaces.Admin
 		records = append(records, record)
 	}
 
-	return records, total, nil
+	return projectAdminPageRecords(records, opts.Fields), total, nil
 }
 
 // Get delegates to the default admin page read service implementation.

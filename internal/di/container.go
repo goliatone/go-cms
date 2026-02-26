@@ -121,6 +121,8 @@ type Container struct {
 	memoryMenuRepo              menus.MenuRepository
 	memoryMenuItemRepo          menus.MenuItemRepository
 	memoryMenuTranslationRepo   menus.MenuItemTranslationRepository
+	memoryMenuBindingRepo       menus.MenuLocationBindingRepository
+	memoryMenuViewProfileRepo   menus.MenuViewProfileRepository
 	memoryWidgetDefinitionRepo  widgets.DefinitionRepository
 	memoryWidgetInstanceRepo    widgets.InstanceRepository
 	memoryWidgetTranslationRepo widgets.TranslationRepository
@@ -132,6 +134,8 @@ type Container struct {
 	menuRepo            menus.MenuRepository
 	menuItemRepo        menus.MenuItemRepository
 	menuTranslationRepo menus.MenuItemTranslationRepository
+	menuBindingRepo     menus.MenuLocationBindingRepository
+	menuViewProfileRepo menus.MenuViewProfileRepository
 	menuURLResolver     menus.URLResolver
 	routeManager        *urlkit.RouteManager
 	permissionStrategy  permissions.Strategy
@@ -515,6 +519,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 	memoryMenuRepo := menus.NewMemoryMenuRepository()
 	memoryMenuItemRepo := menus.NewMemoryMenuItemRepository()
 	memoryMenuTranslationRepo := menus.NewMemoryMenuItemTranslationRepository()
+	memoryMenuBindingRepo := menus.NewMemoryMenuLocationBindingRepository()
+	memoryMenuViewProfileRepo := menus.NewMemoryMenuViewProfileRepository()
 
 	memoryWidgetDefinitionRepo := widgets.NewMemoryDefinitionRepository()
 	memoryWidgetInstanceRepo := widgets.NewMemoryInstanceRepository()
@@ -568,6 +574,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		memoryMenuRepo:              memoryMenuRepo,
 		memoryMenuItemRepo:          memoryMenuItemRepo,
 		memoryMenuTranslationRepo:   memoryMenuTranslationRepo,
+		memoryMenuBindingRepo:       memoryMenuBindingRepo,
+		memoryMenuViewProfileRepo:   memoryMenuViewProfileRepo,
 		memoryWidgetDefinitionRepo:  memoryWidgetDefinitionRepo,
 		memoryWidgetInstanceRepo:    memoryWidgetInstanceRepo,
 		memoryWidgetTranslationRepo: memoryWidgetTranslationRepo,
@@ -585,6 +593,8 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		menuRepo:              memoryMenuRepo,
 		menuItemRepo:          memoryMenuItemRepo,
 		menuTranslationRepo:   memoryMenuTranslationRepo,
+		menuBindingRepo:       memoryMenuBindingRepo,
+		menuViewProfileRepo:   memoryMenuViewProfileRepo,
 		widgetDefinitionRepo:  memoryWidgetDefinitionRepo,
 		widgetInstanceRepo:    memoryWidgetInstanceRepo,
 		widgetTranslationRepo: memoryWidgetTranslationRepo,
@@ -853,8 +863,20 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		if c.pageRepo != nil {
 			menuOpts = append(menuOpts, menus.WithPageRepository(c.pageRepo))
 		}
+		if c.contentRepo != nil {
+			menuOpts = append(menuOpts, menus.WithContentRepository(c.contentRepo))
+		}
+		if c.contentTypeRepo != nil {
+			menuOpts = append(menuOpts, menus.WithContentTypeRepository(c.contentTypeRepo))
+		}
 		if c.menuURLResolver != nil {
 			menuOpts = append(menuOpts, menus.WithURLResolver(c.menuURLResolver))
+		}
+		if c.menuBindingRepo != nil {
+			menuOpts = append(menuOpts, menus.WithMenuLocationBindingRepository(c.menuBindingRepo))
+		}
+		if c.menuViewProfileRepo != nil {
+			menuOpts = append(menuOpts, menus.WithMenuViewProfileRepository(c.menuViewProfileRepo))
 		}
 		c.menuSvc = menus.NewService(
 			c.menuRepo,
@@ -1120,6 +1142,8 @@ func (c *Container) configureRepositories() {
 		c.menuRepo = menus.NewBunMenuRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.menuItemRepo = menus.NewBunMenuItemRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.menuTranslationRepo = menus.NewBunMenuItemTranslationRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.menuBindingRepo = menus.NewBunMenuLocationBindingRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
+		c.menuViewProfileRepo = menus.NewBunMenuViewProfileRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 
 		c.widgetDefinitionRepo = widgets.NewBunDefinitionRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
 		c.widgetInstanceRepo = widgets.NewBunInstanceRepositoryWithCache(c.bunDB, c.cacheService, c.keySerializer)
@@ -1162,6 +1186,12 @@ func (c *Container) configureRepositories() {
 	}
 	if c.blockVersionRepo != nil && c.memoryBlockVersionRepo != nil {
 		c.blockVersionRepo.swap(c.memoryBlockVersionRepo)
+	}
+	if c.memoryMenuBindingRepo != nil {
+		c.menuBindingRepo = c.memoryMenuBindingRepo
+	}
+	if c.memoryMenuViewProfileRepo != nil {
+		c.menuViewProfileRepo = c.memoryMenuViewProfileRepo
 	}
 
 	if c.memoryMenuRepo != nil {

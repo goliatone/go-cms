@@ -3,29 +3,30 @@ package content
 import cmscontent "github.com/goliatone/go-cms/content"
 
 type (
-	Service                            = cmscontent.Service
-	TranslationCreator                 = cmscontent.TranslationCreator
-	TranslationCheckOptions            = cmscontent.TranslationCheckOptions
-	ProjectionTranslationMode          = cmscontent.ProjectionTranslationMode
-	TranslationConflictStrategy        = cmscontent.TranslationConflictStrategy
-	CreateContentRequest               = cmscontent.CreateContentRequest
-	ContentTranslationInput            = cmscontent.ContentTranslationInput
-	UpdateContentRequest               = cmscontent.UpdateContentRequest
-	DeleteContentRequest               = cmscontent.DeleteContentRequest
-	CreateContentTranslationRequest    = cmscontent.CreateContentTranslationRequest
-	UpdateContentTranslationRequest    = cmscontent.UpdateContentTranslationRequest
-	DeleteContentTranslationRequest    = cmscontent.DeleteContentTranslationRequest
-	CreateContentDraftRequest          = cmscontent.CreateContentDraftRequest
-	PublishContentDraftRequest         = cmscontent.PublishContentDraftRequest
-	PreviewContentDraftRequest         = cmscontent.PreviewContentDraftRequest
-	RestoreContentVersionRequest       = cmscontent.RestoreContentVersionRequest
-	ContentPreview                     = cmscontent.ContentPreview
-	ScheduleContentRequest             = cmscontent.ScheduleContentRequest
-	TranslationAlreadyExistsError      = cmscontent.TranslationAlreadyExistsError
-	InvalidLocaleError                 = cmscontent.InvalidLocaleError
-	SourceNotFoundError                = cmscontent.SourceNotFoundError
-	SlugConflictError                  = cmscontent.SlugConflictError
-	TranslationInvariantViolationError = cmscontent.TranslationInvariantViolationError
+	Service                              = cmscontent.Service
+	TranslationCreator                   = cmscontent.TranslationCreator
+	TranslationCheckOptions              = cmscontent.TranslationCheckOptions
+	ProjectionTranslationMode            = cmscontent.ProjectionTranslationMode
+	TranslationConflictStrategy          = cmscontent.TranslationConflictStrategy
+	CreateContentRequest                 = cmscontent.CreateContentRequest
+	ContentTranslationInput              = cmscontent.ContentTranslationInput
+	UpdateContentRequest                 = cmscontent.UpdateContentRequest
+	DeleteContentRequest                 = cmscontent.DeleteContentRequest
+	CreateContentTranslationRequest      = cmscontent.CreateContentTranslationRequest
+	UpdateContentTranslationRequest      = cmscontent.UpdateContentTranslationRequest
+	DeleteContentTranslationRequest      = cmscontent.DeleteContentTranslationRequest
+	CreateContentDraftRequest            = cmscontent.CreateContentDraftRequest
+	PublishContentDraftRequest           = cmscontent.PublishContentDraftRequest
+	PreviewContentDraftRequest           = cmscontent.PreviewContentDraftRequest
+	RestoreContentVersionRequest         = cmscontent.RestoreContentVersionRequest
+	ContentPreview                       = cmscontent.ContentPreview
+	ScheduleContentRequest               = cmscontent.ScheduleContentRequest
+	TranslationAlreadyExistsError        = cmscontent.TranslationAlreadyExistsError
+	InvalidLocaleError                   = cmscontent.InvalidLocaleError
+	SourceNotFoundError                  = cmscontent.SourceNotFoundError
+	SlugConflictError                    = cmscontent.SlugConflictError
+	TranslationInvariantViolationError   = cmscontent.TranslationInvariantViolationError
+	ContentTypeCapabilityValidationError = cmscontent.ContentTypeCapabilityValidationError
 
 	ContentTypeService       = cmscontent.ContentTypeService
 	CreateContentTypeRequest = cmscontent.CreateContentTypeRequest
@@ -79,13 +80,14 @@ var (
 	ErrContentProjectionRequiresTranslations = cmscontent.ErrContentProjectionRequiresTranslations
 	ErrEmbeddedBlocksResolverMissing         = cmscontent.ErrEmbeddedBlocksResolverMissing
 
-	ErrContentTypeNameRequired   = cmscontent.ErrContentTypeNameRequired
-	ErrContentTypeSchemaRequired = cmscontent.ErrContentTypeSchemaRequired
-	ErrContentTypeSchemaInvalid  = cmscontent.ErrContentTypeSchemaInvalid
-	ErrContentTypeIDRequired     = cmscontent.ErrContentTypeIDRequired
-	ErrContentTypeSlugInvalid    = cmscontent.ErrContentTypeSlugInvalid
-	ErrContentTypeSchemaVersion  = cmscontent.ErrContentTypeSchemaVersion
-	ErrContentTypeSchemaBreaking = cmscontent.ErrContentTypeSchemaBreaking
-	ErrContentTypeStatusInvalid  = cmscontent.ErrContentTypeStatusInvalid
-	ErrContentTypeStatusChange   = cmscontent.ErrContentTypeStatusChange
+	ErrContentTypeNameRequired        = cmscontent.ErrContentTypeNameRequired
+	ErrContentTypeSchemaRequired      = cmscontent.ErrContentTypeSchemaRequired
+	ErrContentTypeSchemaInvalid       = cmscontent.ErrContentTypeSchemaInvalid
+	ErrContentTypeIDRequired          = cmscontent.ErrContentTypeIDRequired
+	ErrContentTypeSlugInvalid         = cmscontent.ErrContentTypeSlugInvalid
+	ErrContentTypeSchemaVersion       = cmscontent.ErrContentTypeSchemaVersion
+	ErrContentTypeSchemaBreaking      = cmscontent.ErrContentTypeSchemaBreaking
+	ErrContentTypeStatusInvalid       = cmscontent.ErrContentTypeStatusInvalid
+	ErrContentTypeStatusChange        = cmscontent.ErrContentTypeStatusChange
+	ErrContentTypeCapabilitiesInvalid = cmscontent.ErrContentTypeCapabilitiesInvalid
 )

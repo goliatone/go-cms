@@ -92,22 +92,22 @@ func (s *adminPageReadService) List(ctx context.Context, opts interfaces.AdminPa
 
 	sortAdminPageRecords(filtered, opts.SortBy, opts.SortDesc)
 	total := len(filtered)
-
+	records := filtered
 	pageNum := opts.Page
 	perPage := opts.PerPage
-	if pageNum <= 0 || perPage <= 0 {
-		return filtered, total, nil
+	if pageNum > 0 && perPage > 0 {
+		start := (pageNum - 1) * perPage
+		if start >= total {
+			records = []interfaces.AdminPageRecord{}
+		} else {
+			end := start + perPage
+			if end > total {
+				end = total
+			}
+			records = records[start:end]
+		}
 	}
-
-	start := (pageNum - 1) * perPage
-	if start >= total {
-		return []interfaces.AdminPageRecord{}, total, nil
-	}
-	end := start + perPage
-	if end > total {
-		end = total
-	}
-	return filtered[start:end], total, nil
+	return projectAdminPageRecords(records, opts.Fields), total, nil
 }
 
 // Get returns a single admin page record by identifier.
@@ -278,7 +278,15 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 	}
 
 	if state.includes.IncludeData {
-		record.Data = buildTranslationData(pageTranslation, contentTranslation, record.RequestedLocale, record.ResolvedLocale)
+		record.Data = buildTranslationData(
+			pageTranslation,
+			contentTranslation,
+			record.RequestedLocale,
+			record.ResolvedLocale,
+			record.Translation.Meta,
+			record.ContentTranslation.Meta,
+			record.TranslationGroupID,
+		)
 		if record.MetaTitle == "" {
 			record.MetaTitle = stringFromData(record.Data, "meta_title")
 		}
@@ -500,7 +508,14 @@ func adminLocaleCodeByID(ctx context.Context, locales content.LocaleRepository, 
 	return strings.TrimSpace(locale.Code)
 }
 
-func buildTranslationData(pageTranslation *PageTranslation, contentTranslation *content.ContentTranslation, requestedLocale, resolvedLocale string) map[string]any {
+func buildTranslationData(
+	pageTranslation *PageTranslation,
+	contentTranslation *content.ContentTranslation,
+	requestedLocale, resolvedLocale string,
+	pageMeta interfaces.TranslationMeta,
+	contentMeta interfaces.TranslationMeta,
+	translationGroupID *uuid.UUID,
+) map[string]any {
 	var data map[string]any
 	if contentTranslation != nil {
 		data = cloneAdminMap(contentTranslation.Content)
@@ -535,6 +550,21 @@ func buildTranslationData(pageTranslation *PageTranslation, contentTranslation *
 	}
 	if strings.TrimSpace(resolvedLocale) != "" {
 		data["resolved_locale"] = resolvedLocale
+	}
+	if translationGroupID != nil {
+		data["translation_group_id"] = translationGroupID.String()
+	}
+	missingRequested := pageMeta.MissingRequestedLocale
+	if !missingRequested {
+		missingRequested = contentMeta.MissingRequestedLocale
+	}
+	data["missing_requested_locale"] = missingRequested
+	availableLocales := cloneAdminStringSlice(pageMeta.AvailableLocales)
+	if len(availableLocales) == 0 {
+		availableLocales = cloneAdminStringSlice(contentMeta.AvailableLocales)
+	}
+	if len(availableLocales) > 0 {
+		data["available_locales"] = availableLocales
 	}
 	return data
 }
@@ -626,6 +656,15 @@ func cloneAdminMap(input map[string]any) map[string]any {
 		return nil
 	}
 	return maps.Clone(input)
+}
+
+func cloneAdminStringSlice(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	out := make([]string, len(values))
+	copy(out, values)
+	return out
 }
 
 func buildAdminPageTranslationBundle(requestedLocale, resolvedLocale string, translation *PageTranslation, availableLocales []string, primaryLocale string) interfaces.TranslationBundle[interfaces.PageTranslation] {
@@ -854,4 +893,94 @@ func timePtrValue(value *time.Time) time.Time {
 		return time.Time{}
 	}
 	return *value
+}
+
+func projectAdminPageRecords(records []interfaces.AdminPageRecord, fields []string) []interfaces.AdminPageRecord {
+	selected := normalizeAdminPageFields(fields)
+	if len(selected) == 0 || len(records) == 0 {
+		return records
+	}
+	out := make([]interfaces.AdminPageRecord, len(records))
+	for idx := range records {
+		out[idx] = projectAdminPageRecord(records[idx], selected)
+	}
+	return out
+}
+
+func normalizeAdminPageFields(fields []string) map[string]struct{} {
+	if len(fields) == 0 {
+		return nil
+	}
+	selected := make(map[string]struct{}, len(fields)+1)
+	selected["id"] = struct{}{}
+	for _, raw := range fields {
+		field := strings.TrimSpace(strings.ToLower(raw))
+		if field == "" {
+			continue
+		}
+		selected[field] = struct{}{}
+	}
+	return selected
+}
+
+func projectAdminPageRecord(record interfaces.AdminPageRecord, selected map[string]struct{}) interfaces.AdminPageRecord {
+	if len(selected) == 0 {
+		return record
+	}
+	out := interfaces.AdminPageRecord{ID: record.ID}
+	for field := range selected {
+		switch field {
+		case "id":
+			out.ID = record.ID
+		case "content_id":
+			out.ContentID = record.ContentID
+		case "translation_group_id":
+			out.TranslationGroupID = record.TranslationGroupID
+		case "template_id":
+			out.TemplateID = record.TemplateID
+		case "title":
+			out.Title = record.Title
+		case "slug":
+			out.Slug = record.Slug
+		case "path":
+			out.Path = record.Path
+		case "requested_locale":
+			out.RequestedLocale = record.RequestedLocale
+		case "resolved_locale":
+			out.ResolvedLocale = record.ResolvedLocale
+		case "translation":
+			out.Translation = record.Translation
+		case "content_translation":
+			out.ContentTranslation = record.ContentTranslation
+		case "status":
+			out.Status = record.Status
+		case "parent_id":
+			out.ParentID = record.ParentID
+		case "meta_title":
+			out.MetaTitle = record.MetaTitle
+		case "meta_description":
+			out.MetaDescription = record.MetaDescription
+		case "summary":
+			out.Summary = record.Summary
+		case "tags":
+			out.Tags = append([]string(nil), record.Tags...)
+		case "schema_version":
+			out.SchemaVersion = record.SchemaVersion
+		case "data":
+			out.Data = cloneAdminMap(record.Data)
+		case "content":
+			out.Content = record.Content
+		case "blocks":
+			out.Blocks = record.Blocks
+		case "preview_url":
+			out.PreviewURL = record.PreviewURL
+		case "published_at":
+			out.PublishedAt = cloneTimePtr(record.PublishedAt)
+		case "created_at":
+			out.CreatedAt = cloneTimePtr(record.CreatedAt)
+		case "updated_at":
+			out.UpdatedAt = cloneTimePtr(record.UpdatedAt)
+		}
+	}
+	return out
 }

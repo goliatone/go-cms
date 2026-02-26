@@ -10,11 +10,14 @@ import (
 )
 
 const (
-	entryFieldParentID   = "parent_id"
-	entryFieldTemplateID = "template_id"
-	entryFieldPath       = "path"
-	entryFieldSortOrder  = "sort_order"
-	entryFieldOrder      = "order"
+	entryFieldParentID                      = "parent_id"
+	entryFieldTemplateID                    = "template_id"
+	entryFieldPath                          = "path"
+	entryFieldSortOrder                     = "sort_order"
+	entryFieldOrder                         = "order"
+	entryFieldNavigation                    = "_navigation"
+	entryFieldEffectiveMenuLocations        = "effective_menu_locations"
+	entryFieldEffectiveNavigationVisibility = "effective_navigation_visibility"
 )
 
 const (
@@ -37,6 +40,15 @@ func normalizeEntryMetadata(metadata map[string]any) (map[string]any, error) {
 		return nil, err
 	}
 	if err := normalizeSortOrderField(normalized); err != nil {
+		return nil, err
+	}
+	if err := normalizeNavigationField(normalized); err != nil {
+		return nil, err
+	}
+	if err := normalizeEffectiveMenuLocationsField(normalized); err != nil {
+		return nil, err
+	}
+	if err := normalizeEffectiveNavigationVisibilityField(normalized); err != nil {
 		return nil, err
 	}
 	return normalized, nil
@@ -114,6 +126,171 @@ func normalizeSortOrderField(metadata map[string]any) error {
 	}
 	metadata[entryFieldSortOrder] = normalized
 	return nil
+}
+
+func normalizeNavigationField(metadata map[string]any) error {
+	raw, ok := metadata[entryFieldNavigation]
+	if !ok {
+		return nil
+	}
+	if raw == nil {
+		delete(metadata, entryFieldNavigation)
+		return nil
+	}
+	normalized, err := NormalizeNavigationOverrides(raw)
+	if err != nil {
+		return fmt.Errorf("%w: %s", ErrContentMetadataInvalid, err)
+	}
+	if len(normalized) == 0 {
+		delete(metadata, entryFieldNavigation)
+		return nil
+	}
+	metadata[entryFieldNavigation] = normalized
+	return nil
+}
+
+func normalizeEffectiveMenuLocationsField(metadata map[string]any) error {
+	raw, ok := metadata[entryFieldEffectiveMenuLocations]
+	if !ok {
+		return nil
+	}
+	if raw == nil {
+		delete(metadata, entryFieldEffectiveMenuLocations)
+		return nil
+	}
+	locations, ok := normalizeStringList(raw)
+	if !ok {
+		return fmt.Errorf("%w: %s must be a string list", ErrContentMetadataInvalid, entryFieldEffectiveMenuLocations)
+	}
+	if len(locations) == 0 {
+		delete(metadata, entryFieldEffectiveMenuLocations)
+		return nil
+	}
+	metadata[entryFieldEffectiveMenuLocations] = locations
+	return nil
+}
+
+func normalizeEffectiveNavigationVisibilityField(metadata map[string]any) error {
+	raw, ok := metadata[entryFieldEffectiveNavigationVisibility]
+	if !ok {
+		return nil
+	}
+	if raw == nil {
+		delete(metadata, entryFieldEffectiveNavigationVisibility)
+		return nil
+	}
+
+	normalized := map[string]bool{}
+	switch typed := raw.(type) {
+	case map[string]bool:
+		for key, value := range typed {
+			location := strings.TrimSpace(key)
+			if location == "" {
+				continue
+			}
+			normalized[location] = value
+		}
+	case map[string]any:
+		for key, value := range typed {
+			location := strings.TrimSpace(key)
+			if location == "" {
+				continue
+			}
+			switch visible := value.(type) {
+			case bool:
+				normalized[location] = visible
+			default:
+				return fmt.Errorf("%w: %s.%s must be a boolean", ErrContentMetadataInvalid, entryFieldEffectiveNavigationVisibility, location)
+			}
+		}
+	default:
+		return fmt.Errorf("%w: %s must be an object", ErrContentMetadataInvalid, entryFieldEffectiveNavigationVisibility)
+	}
+
+	if len(normalized) == 0 {
+		delete(metadata, entryFieldEffectiveNavigationVisibility)
+		return nil
+	}
+	metadata[entryFieldEffectiveNavigationVisibility] = normalized
+	return nil
+}
+
+func normalizeStringList(raw any) ([]string, bool) {
+	switch typed := raw.(type) {
+	case []string:
+		return dedupeStringList(typed), true
+	case []any:
+		entries := make([]string, 0, len(typed))
+		for _, value := range typed {
+			text, ok := value.(string)
+			if !ok {
+				return nil, false
+			}
+			trimmed := strings.TrimSpace(text)
+			if trimmed != "" {
+				entries = append(entries, trimmed)
+			}
+		}
+		return dedupeStringList(entries), true
+	case string:
+		trimmed := strings.TrimSpace(typed)
+		if trimmed == "" {
+			return nil, true
+		}
+		parts := strings.Split(trimmed, ",")
+		entries := make([]string, 0, len(parts))
+		for _, part := range parts {
+			value := strings.TrimSpace(part)
+			if value != "" {
+				entries = append(entries, value)
+			}
+		}
+		return dedupeStringList(entries), true
+	default:
+		return nil, false
+	}
+}
+
+func dedupeStringList(values []string) []string {
+	if len(values) == 0 {
+		return nil
+	}
+	seen := map[string]struct{}{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		trimmed := strings.TrimSpace(value)
+		if trimmed == "" {
+			continue
+		}
+		if _, ok := seen[trimmed]; ok {
+			continue
+		}
+		seen[trimmed] = struct{}{}
+		out = append(out, trimmed)
+	}
+	return out
+}
+
+func computeEffectiveMenuLocations(navigation map[string]string) []string {
+	if len(navigation) == 0 {
+		return nil
+	}
+	locations := make([]string, 0, len(navigation))
+	for location, state := range navigation {
+		if strings.EqualFold(strings.TrimSpace(state), "show") {
+			locations = append(locations, strings.TrimSpace(location))
+		}
+	}
+	return dedupeStringList(locations)
+}
+
+func toString(raw any) string {
+	switch typed := raw.(type) {
+	case string:
+		return typed
+	default:
+		return fmt.Sprintf("%v", raw)
+	}
 }
 
 func normalizeIntValue(value any) (int, bool) {
