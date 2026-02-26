@@ -1,5 +1,30 @@
 # Changelog
 
+# [0.38.0](https://github.com/goliatone/go-cms/compare/v0.37.0...v0.38.0) - (2026-02-26)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.38.0 ([8bd56dc](https://github.com/goliatone/go-cms/commit/8bd56dc19dcfce2c6a988fdc55001acdcb856a30))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Menu bun models ([57ed3f4](https://github.com/goliatone/go-cms/commit/57ed3f49b342dc71109d67a0a1aef5e3cf87e224))  - (goliatone)
+- Menu public info structs ([895fc39](https://github.com/goliatone/go-cms/commit/895fc39b9940c534117fbe1874a73733e239f34d))  - (goliatone)
+- Updated content errors ([dd3156b](https://github.com/goliatone/go-cms/commit/dd3156be30f6d749f79a2610e1f9ee284b99d500))  - (goliatone)
+- Content metadata and public contracts ([ba11ea9](https://github.com/goliatone/go-cms/commit/ba11ea97d91fd2e81dc2330ae94feeb4d08ba293))  - (goliatone)
+- Cms validate and normalize type capabilities ([eff1d23](https://github.com/goliatone/go-cms/commit/eff1d239722f9d2ed5d230861ac70880f059a7f6))  - (goliatone)
+- Content capabilities ([02113b0](https://github.com/goliatone/go-cms/commit/02113b072d6d9760599f5bf32f6a40cbc09e39a8))  - (goliatone)
+- Menu membership and bindngs ([8a0de6a](https://github.com/goliatone/go-cms/commit/8a0de6a9bbffe43cb8409778c6e4895af3393166))  - (goliatone)
+- Migrations for menu bindings ([9055ab5](https://github.com/goliatone/go-cms/commit/9055ab5e6c07a30f385f299266bad1468d6e3d64))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.37.0 ([fc1df3d](https://github.com/goliatone/go-cms/commit/fc1df3d4c66a40c5e0d449ef3f06032a8a4a830a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update test ([f989d07](https://github.com/goliatone/go-cms/commit/f989d07f7dfa387f479e4490817632941bc256f7))  - (goliatone)
+
 # [0.37.0](https://github.com/goliatone/go-cms/compare/v0.36.0...v0.37.0) - (2026-02-26)
 
 ## <!-- 13 -->📦 Bumps
