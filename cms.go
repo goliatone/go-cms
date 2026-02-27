@@ -75,7 +75,7 @@ type Module struct {
 }
 
 // New constructs a CMS module using the provided configuration and optional DI overrides.
-func New(cfg Config, opts ...di.Option) (*Module, error) {
+func New(cfg Config, opts ...Option) (*Module, error) {
 	container, err := di.NewContainer(cfg, opts...)
 	if err != nil {
 		return nil, err
