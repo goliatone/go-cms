@@ -6,51 +6,29 @@ import (
 	"fmt"
 	"strings"
 
+	cmsthemes "github.com/goliatone/go-cms/themes"
 	"github.com/google/uuid"
 )
 
-type RegisterThemeInput struct {
-	Name        string
-	Description *string
-	Version     string
-	Author      *string
-	ThemePath   string
-	Config      ThemeConfig
-	Activate    bool
-}
-
-type RegisterTemplateInput struct {
-	ThemeID      uuid.UUID
-	Name         string
-	Slug         string
-	Description  *string
-	TemplatePath string
-	Regions      map[string]TemplateRegion
-	Metadata     map[string]any
-}
-
-type UpdateTemplateInput struct {
-	TemplateID   uuid.UUID
-	Name         *string
-	Description  *string
-	TemplatePath *string
-	Regions      map[string]TemplateRegion
-	Metadata     map[string]any
-}
+type (
+	RegisterThemeInput    = cmsthemes.RegisterThemeInput
+	RegisterTemplateInput = cmsthemes.RegisterTemplateInput
+	UpdateTemplateInput   = cmsthemes.UpdateTemplateInput
+)
 
 var (
 	// ErrTemplateThemeRequired indicates the theme ID is missing.
-	ErrTemplateThemeRequired = errors.New("themes: theme id required")
+	ErrTemplateThemeRequired = cmsthemes.ErrTemplateThemeRequired
 	// ErrTemplateNameRequired indicates the template name is missing.
-	ErrTemplateNameRequired = errors.New("themes: template name required")
+	ErrTemplateNameRequired = cmsthemes.ErrTemplateNameRequired
 	// ErrTemplateSlugRequired indicates the slug is missing.
-	ErrTemplateSlugRequired = errors.New("themes: template slug required")
+	ErrTemplateSlugRequired = cmsthemes.ErrTemplateSlugRequired
 	// ErrTemplatePathRequired indicates the file path is missing.
-	ErrTemplatePathRequired = errors.New("themes: template path required")
+	ErrTemplatePathRequired = cmsthemes.ErrTemplatePathRequired
 	// ErrTemplateSlugConflict indicates a duplicate slug within a theme.
-	ErrTemplateSlugConflict = errors.New("themes: template slug already exists for theme")
+	ErrTemplateSlugConflict = cmsthemes.ErrTemplateSlugConflict
 	// ErrTemplateRegionsInvalid indicates malformed region metadata.
-	ErrTemplateRegionsInvalid = errors.New("themes: template regions invalid")
+	ErrTemplateRegionsInvalid = cmsthemes.ErrTemplateRegionsInvalid
 )
 
 // ValidateRegisterTemplate ensures new template inputs are well formed.
