@@ -1,5 +1,31 @@
 # Changelog
 
+# [0.39.0](https://github.com/goliatone/go-cms/compare/v0.38.0...v0.39.0) - (2026-02-27)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Modue constructor ([1db4bc6](https://github.com/goliatone/go-cms/commit/1db4bc63a254a113d8a815c60d0b98a55df0d57a))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.39.0 ([b25320a](https://github.com/goliatone/go-cms/commit/b25320ac947789b8e22889c9ebf4e5787d8ea0a9))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Shortcode ([50438de](https://github.com/goliatone/go-cms/commit/50438decb5b377aa13a50a2634906702b3240aa7))  - (goliatone)
+- Expose markdown ([5f8f58a](https://github.com/goliatone/go-cms/commit/5f8f58a496755c9029c306448a563b40cc9ed7a6))  - (goliatone)
+- Expose generator ([87596a4](https://github.com/goliatone/go-cms/commit/87596a4ce8f9c973f22f085d02c464d1e4dbbe8c))  - (goliatone)
+- Themes service ([6c67590](https://github.com/goliatone/go-cms/commit/6c67590a0db8f37796fad45c7b874c121c0ab237))  - (goliatone)
+- Manifest theme ([ebfe2e1](https://github.com/goliatone/go-cms/commit/ebfe2e14eff0323ea95aa42dc0e7e233fad78541))  - (goliatone)
+- Options public ([fb3ff72](https://github.com/goliatone/go-cms/commit/fb3ff72918be5098e1a9f4d35973bdd2c52f269d))  - (goliatone)
+- Refactor theme dto ([cf9003a](https://github.com/goliatone/go-cms/commit/cf9003af02a425644bb3d7aec286a5f7c8140a72))  - (goliatone)
+- Content navigation visibility ([aff0da2](https://github.com/goliatone/go-cms/commit/aff0da20995ccbb55ad602826259f3a76bdc8261))  - (goliatone)
+- Content capabilities and navigation visibility implementaiton ([1ed96c5](https://github.com/goliatone/go-cms/commit/1ed96c513d35b2bb5dee3a04c11ad1c43359702b))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.38.0 ([2d355d9](https://github.com/goliatone/go-cms/commit/2d355d94f5aad43ab8b4b9171dd6cc9f833ba04e))  - (goliatone)
+
 # [0.38.0](https://github.com/goliatone/go-cms/compare/v0.37.0...v0.38.0) - (2026-02-26)
 
 ## <!-- 13 -->📦 Bumps
