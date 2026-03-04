@@ -2,6 +2,7 @@ package usersink
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -32,11 +33,13 @@ func (h Hook) Notify(ctx context.Context, event activity.Event) error {
 	record := usertypes.ActivityRecord{
 		ActorID:    parseUUID(normalized.ActorID),
 		UserID:     parseUUID(normalized.UserID),
-		TenantID:   parseUUID(normalized.TenantID),
+		TenantID:   parseUUID(firstNonEmpty(normalized.TenantID, readString(normalized.Metadata, "tenant_id"))),
+		OrgID:      parseUUID(readString(normalized.Metadata, "org_id")),
 		Verb:       normalized.Verb,
 		ObjectType: normalized.ObjectType,
 		ObjectID:   normalized.ObjectID,
 		Channel:    normalized.Channel,
+		IP:         strings.TrimSpace(readString(normalized.Metadata, "ip")),
 		Data:       cloneMap(normalized.Metadata),
 		OccurredAt: normalized.OccurredAt,
 	}
@@ -57,6 +60,35 @@ func (h Hook) Notify(ctx context.Context, event activity.Event) error {
 	}
 
 	return h.Sink.Log(ctx, record)
+}
+
+func readString(metadata map[string]any, key string) string {
+	if len(metadata) == 0 {
+		return ""
+	}
+	value, ok := metadata[key]
+	if !ok || value == nil {
+		return ""
+	}
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case uuid.UUID:
+		return typed.String()
+	case fmt.Stringer:
+		return strings.TrimSpace(typed.String())
+	default:
+		return strings.TrimSpace(fmt.Sprint(typed))
+	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if trimmed := strings.TrimSpace(value); trimmed != "" {
+			return trimmed
+		}
+	}
+	return ""
 }
 
 func parseUUID(input string) uuid.UUID {
