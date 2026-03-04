@@ -1,24 +1,24 @@
 module github.com/goliatone/go-cms
 
-go 1.24.10
-
-toolchain go1.24.12
+go 1.26.0
 
 require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/goliatone/go-command v0.16.1
-	github.com/goliatone/go-crud v0.20.0
+	github.com/goliatone/go-crud v0.23.0
 	github.com/goliatone/go-errors v0.10.0
 	github.com/goliatone/go-logger v0.8.0
-	github.com/goliatone/go-repository-bun v0.12.0
-	github.com/goliatone/go-repository-cache v0.6.0
+	github.com/goliatone/go-persistence-bun v0.12.0
+	github.com/goliatone/go-repository-bun v0.15.1
+	github.com/goliatone/go-repository-cache v0.7.1
 	github.com/goliatone/go-slug v0.1.0
-	github.com/goliatone/go-theme v0.2.0
-	github.com/goliatone/go-urlkit v0.3.0
-	github.com/goliatone/go-users v0.15.0
+	github.com/goliatone/go-theme v0.3.0
+	github.com/goliatone/go-urlkit v0.5.0
+	github.com/goliatone/go-users v0.17.0
 	github.com/goliatone/hashid v0.2.0
 	github.com/google/uuid v1.6.0
+	github.com/lib/pq v1.10.9
 	github.com/mattn/go-sqlite3 v1.14.32
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/uptrace/bun v1.2.16
@@ -51,14 +51,12 @@ require (
 	github.com/gofiber/template/django/v3 v3.1.14 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
-	github.com/goliatone/go-persistence-bun v0.10.0 // indirect
-	github.com/goliatone/go-router v0.44.1 // indirect
+	github.com/goliatone/go-router v0.50.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/julienschmidt/httprouter v1.3.0 // indirect
 	github.com/klauspost/compress v1.18.2 // indirect
-	github.com/lib/pq v1.10.9 // indirect
 	github.com/lithammer/shortuuid v3.0.0+incompatible // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
