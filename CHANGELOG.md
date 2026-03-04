@@ -1,20 +1,23 @@
 # Changelog
 
-# [Unreleased]
+# [0.40.0](https://github.com/goliatone/go-cms/compare/v0.39.0...v0.40.0) - (2026-03-04)
 
 ## <!-- 13 -->📦 Bumps
 
-- Align dependency baseline with release-train versions (`go-users v0.16.0`, `go-persistence-bun v0.11.0`, `go-repository-bun v0.15.1`, `go-repository-cache v0.7.1`, Bun `v1.2.16`).
+- Bump version: v0.40.0 ([558c529](https://github.com/goliatone/go-cms/commit/558c5290d5651996a464de392487f547d56f12f8))  - (goliatone)
 
 ## <!-- 16 -->➕ Add
 
-- Add migration registration integration matrix coverage for canonical source label `go-cms` with dialect validation targets (`postgres`, `sqlite`) and apply -> rollback -> reapply lifecycle checks.
-- Expand go-users activity sink adapter compatibility mapping (`tenant_id`, `org_id`, `ip`) with regression tests.
+- Update go-user activity adapter compat ([bd9a3c2](https://github.com/goliatone/go-cms/commit/bd9a3c2b30c7d6ce4b444769bf2295207810107a))  - (goliatone)
 
 ## <!-- 3 -->📚 Documentation
 
-- Update migration registration examples in `README.md` and `docs/GUIDE_MIGRATIONS.md` to use canonical source label `go-cms`.
-- Document migration matrix test gate for Postgres (`GO_CMS_TEST_POSTGRES_DSN`).
+- Update changelog for v0.39.0 ([d8c1377](https://github.com/goliatone/go-cms/commit/d8c1377293e7fb22824a39d894e97f12732c35f4))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([8662853](https://github.com/goliatone/go-cms/commit/866285393f1fbe0e10aeeac7266d01b5af725416))  - (goliatone)
+- Update docs ([6754534](https://github.com/goliatone/go-cms/commit/6754534a58af55fcfc315236148fe0fb923e174a))  - (goliatone)
 
 # [0.39.0](https://github.com/goliatone/go-cms/compare/v0.38.0...v0.39.0) - (2026-02-27)
 
@@ -1207,4 +1210,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
