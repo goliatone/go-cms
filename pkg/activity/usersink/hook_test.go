@@ -29,6 +29,7 @@ func TestHookNotifyMapsEvent(t *testing.T) {
 	actorID := uuid.New()
 	userID := uuid.New()
 	tenantID := uuid.New()
+	orgID := uuid.New()
 	objectID := uuid.New().String()
 
 	event := activity.Event{
@@ -42,7 +43,11 @@ func TestHookNotifyMapsEvent(t *testing.T) {
 		DefinitionCode: "content:update",
 		Recipients:     []string{"recipient@example.com"},
 		Metadata: map[string]any{
-			"locale": "en",
+			"locale":  "en",
+			"org_id":  orgID.String(),
+			"ip":      "203.0.113.10",
+			"unused":  "value",
+			"numeric": 7,
 		},
 		OccurredAt: now,
 	}
@@ -64,11 +69,17 @@ func TestHookNotifyMapsEvent(t *testing.T) {
 	if record.TenantID != tenantID {
 		t.Fatalf("expected tenant %s got %s", tenantID, record.TenantID)
 	}
+	if record.OrgID != orgID {
+		t.Fatalf("expected org %s got %s", orgID, record.OrgID)
+	}
 	if record.Verb != "update" || record.ObjectType != "content" || record.ObjectID != objectID {
 		t.Fatalf("unexpected record payload: %+v", record)
 	}
 	if record.Channel != "cms" {
 		t.Fatalf("expected channel cms got %q", record.Channel)
+	}
+	if record.IP != "203.0.113.10" {
+		t.Fatalf("expected ip 203.0.113.10 got %q", record.IP)
 	}
 	if record.OccurredAt != now {
 		t.Fatalf("expected occurred_at %v got %v", now, record.OccurredAt)
@@ -82,6 +93,40 @@ func TestHookNotifyMapsEvent(t *testing.T) {
 	recipients, ok := record.Data["recipients"].([]string)
 	if !ok || len(recipients) != 1 || recipients[0] != "recipient@example.com" {
 		t.Fatalf("expected recipients metadata got %v", record.Data["recipients"])
+	}
+}
+
+func TestHookNotifyMetadataFallbackTenantID(t *testing.T) {
+	sink := &recordingSink{}
+	hook := usersink.Hook{Sink: sink}
+
+	tenantID := uuid.New()
+	orgID := uuid.New()
+	if err := hook.Notify(context.Background(), activity.Event{
+		Verb:       "create",
+		ObjectType: "content",
+		ObjectID:   "cnt_1",
+		Metadata: map[string]any{
+			"tenant_id": tenantID.String(),
+			"org_id":    orgID,
+			"ip":        "198.51.100.20",
+		},
+	}); err != nil {
+		t.Fatalf("notify: %v", err)
+	}
+
+	if len(sink.records) != 1 {
+		t.Fatalf("expected 1 record, got %d", len(sink.records))
+	}
+	record := sink.records[0]
+	if record.TenantID != tenantID {
+		t.Fatalf("expected tenant fallback %s got %s", tenantID, record.TenantID)
+	}
+	if record.OrgID != orgID {
+		t.Fatalf("expected org fallback %s got %s", orgID, record.OrgID)
+	}
+	if record.IP != "198.51.100.20" {
+		t.Fatalf("expected ip fallback got %q", record.IP)
 	}
 }
 
