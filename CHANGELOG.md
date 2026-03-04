@@ -1,5 +1,21 @@
 # Changelog
 
+# [Unreleased]
+
+## <!-- 13 -->📦 Bumps
+
+- Align dependency baseline with release-train versions (`go-users v0.16.0`, `go-persistence-bun v0.11.0`, `go-repository-bun v0.15.1`, `go-repository-cache v0.7.1`, Bun `v1.2.16`).
+
+## <!-- 16 -->➕ Add
+
+- Add migration registration integration matrix coverage for canonical source label `go-cms` with dialect validation targets (`postgres`, `sqlite`) and apply -> rollback -> reapply lifecycle checks.
+- Expand go-users activity sink adapter compatibility mapping (`tenant_id`, `org_id`, `ip`) with regression tests.
+
+## <!-- 3 -->📚 Documentation
+
+- Update migration registration examples in `README.md` and `docs/GUIDE_MIGRATIONS.md` to use canonical source label `go-cms`.
+- Document migration matrix test gate for Postgres (`GO_CMS_TEST_POSTGRES_DSN`).
+
 # [0.39.0](https://github.com/goliatone/go-cms/compare/v0.38.0...v0.39.0) - (2026-02-27)
 
 ## <!-- 1 -->🐛 Bug Fixes
@@ -1191,5 +1207,4 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
-
 

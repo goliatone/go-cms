@@ -795,7 +795,7 @@ if err != nil {
 }
 client.RegisterDialectMigrations(
 	migrationsFS,
-	persistence.WithDialectSourceLabel("data/sql/migrations"),
+	persistence.WithDialectSourceLabel("go-cms"),
 	persistence.WithValidationTargets("postgres", "sqlite"),
 )
 if err := client.ValidateDialects(context.Background()); err != nil {
@@ -822,6 +822,11 @@ The CMS includes migrations for all core tables:
 - Block definitions, instances, translations, and versions
 - Widget definitions, instances, translations, areas, and placements
 - Menus, menu items, and menu item translations
+
+Migration registration matrix coverage lives in `migrations_registration_integration_test.go`:
+
+- SQLite apply -> rollback -> reapply runs by default.
+- Postgres apply -> rollback -> reapply runs when `GO_CMS_TEST_POSTGRES_DSN` is set.
 
 ## GraphQL Prerequisites
 

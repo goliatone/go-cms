@@ -194,7 +194,7 @@ func setupDatabase() (*bun.DB, error) {
     }
     client.RegisterDialectMigrations(
         migrationsFS,
-        persistence.WithDialectSourceLabel("data/sql/migrations"),
+        persistence.WithDialectSourceLabel("go-cms"),
         persistence.WithValidationTargets("postgres", "sqlite"),
     )
 
@@ -220,7 +220,7 @@ func setupDatabase() (*bun.DB, error) {
 **Key steps:**
 
 1. `fs.Sub()` extracts the `data/sql/migrations` subdirectory from the embedded FS.
-2. `RegisterDialectMigrations()` registers migrations for multiple dialects.
+2. `RegisterDialectMigrations()` registers migrations for multiple dialects and binds them to the canonical source label (`go-cms`).
 3. `WithValidationTargets("postgres", "sqlite")` ensures both variants exist for every timestamp.
 4. `client.Migrate()` executes all pending migrations and records their state in `bun_migrations`.
 
@@ -546,7 +546,7 @@ After adding migration files, validate both dialect variants:
 ```go
 client.RegisterDialectMigrations(
     migrationsFS,
-    persistence.WithDialectSourceLabel("data/sql/migrations"),
+    persistence.WithDialectSourceLabel("go-cms"),
     persistence.WithValidationTargets("postgres", "sqlite"),
 )
 if err := client.ValidateDialects(ctx); err != nil {
@@ -635,6 +635,12 @@ CREATE INDEX idx_menus_location ON menus(location)
 ---
 
 ## Testing Migrations
+
+Canonical migration registration lifecycle coverage is implemented in
+`migrations_registration_integration_test.go`:
+
+- SQLite apply -> rollback -> reapply runs by default.
+- Postgres apply -> rollback -> reapply is opt-in via `GO_CMS_TEST_POSTGRES_DSN`.
 
 ### In-Memory SQLite
 
