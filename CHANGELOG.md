@@ -1,5 +1,30 @@
 # Changelog
 
+# [0.41.0](https://github.com/goliatone/go-cms/compare/v0.40.0...v0.41.0) - (2026-03-17)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Code clean up ([5e7472a](https://github.com/goliatone/go-cms/commit/5e7472aca7086c21acb92bdc434cfa054671f876))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.41.0 ([4f3a394](https://github.com/goliatone/go-cms/commit/4f3a3947ed06d564d4cd229a1d198806407b8741))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- To use family_id identifier for content across codebase ([8d113e9](https://github.com/goliatone/go-cms/commit/8d113e9874802db0fc0c22f678ff20f1efa9dd47))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.40.0 ([bb541f1](https://github.com/goliatone/go-cms/commit/bb541f12ba94506840fda1e82004cf92de6ad907))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update examples ([bf09781](https://github.com/goliatone/go-cms/commit/bf0978186e7b89c38f8d5d4a17ccc61dd33e1775))  - (goliatone)
+- Udpate deps ([443366b](https://github.com/goliatone/go-cms/commit/443366bd94ffe275315be7774b640f74cea5cf1f))  - (goliatone)
+- Update docs ([6b64e9e](https://github.com/goliatone/go-cms/commit/6b64e9e87a6bb84575f6ec19d8af2545ff2a1fa6))  - (goliatone)
+- Update tests ([74b1f93](https://github.com/goliatone/go-cms/commit/74b1f931892ce7f1e0238bb10938ede08a549e76))  - (goliatone)
+
 # [0.40.0](https://github.com/goliatone/go-cms/compare/v0.39.0...v0.40.0) - (2026-03-04)
 
 ## <!-- 13 -->📦 Bumps
