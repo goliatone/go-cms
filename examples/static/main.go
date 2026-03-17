@@ -150,7 +150,7 @@ func seedTheme(ctx context.Context, svc themes.Service, themeDir string) (uuid.U
 		ThemePath: filepath.ToSlash(themeDir),
 		Config: themes.ThemeConfig{
 			Assets: &themes.ThemeAssets{
-				BasePath: stringPtr("assets"),
+				BasePath: new("assets"),
 				Styles:   []string{"theme.css"},
 				Images:   []string{"logo.svg"},
 			},
@@ -404,6 +404,7 @@ func seedMenus(ctx context.Context, svc menus.Service, pages map[string]*pages.P
 	return nil
 }
 
+//go:fix inline
 func stringPtr(value string) *string {
-	return &value
+	return new(value)
 }
