@@ -124,12 +124,12 @@ type ContentRecord struct {
 
 // ContentTranslation mirrors stored translation fields.
 type ContentTranslation struct {
-	ID                 uuid.UUID
-	TranslationGroupID *uuid.UUID `json:"translation_group_id,omitempty"`
-	Locale             string
-	Title              string
-	Summary            *string
-	Fields             map[string]any
+	ID       uuid.UUID
+	FamilyID *uuid.UUID `json:"family_id,omitempty"`
+	Locale   string
+	Title    string
+	Summary  *string
+	Fields   map[string]any
 }
 
 // ContentTypeService abstracts content type management for adapters.

@@ -10,7 +10,7 @@ import (
 type AdminPageRecord struct {
 	ID                 uuid.UUID
 	ContentID          uuid.UUID
-	TranslationGroupID *uuid.UUID
+	FamilyID           *uuid.UUID
 	TemplateID         uuid.UUID
 	Title              string
 	Slug               string
