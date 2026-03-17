@@ -444,7 +444,7 @@ func TestServiceCreateTranslationHappyPath(t *testing.T) {
 	if len(source.Translations) != 1 {
 		t.Fatalf("expected one source translation, got %d", len(source.Translations))
 	}
-	sourceGroup := source.Translations[0].TranslationGroupID
+	sourceGroup := source.Translations[0].FamilyID
 
 	updated, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
 		SourceID:     source.ID,
@@ -474,7 +474,7 @@ func TestServiceCreateTranslationHappyPath(t *testing.T) {
 	if fr == nil {
 		t.Fatalf("expected fr translation to be created")
 	}
-	if sourceGroup == nil || fr.TranslationGroupID == nil || *sourceGroup != *fr.TranslationGroupID {
+	if sourceGroup == nil || fr.FamilyID == nil || *sourceGroup != *fr.FamilyID {
 		t.Fatalf("expected translation group to match source")
 	}
 

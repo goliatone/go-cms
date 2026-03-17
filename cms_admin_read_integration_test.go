@@ -207,7 +207,7 @@ func TestModule_AdminPageRead_LocaleMetadataStableAcrossFallback(t *testing.T) {
 	}
 	expectString("requested_locale", "en")
 	expectString("resolved_locale", "es")
-	expectString("translation_group_id", record.TranslationGroupID.String())
+	expectString("family_id", record.FamilyID.String())
 
 	missing, ok := record.Data["missing_requested_locale"].(bool)
 	if !ok || !missing {

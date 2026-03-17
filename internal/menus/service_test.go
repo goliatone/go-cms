@@ -1041,7 +1041,7 @@ func TestService_ResolveNavigation_URLKitResolver(t *testing.T) {
 		},
 	})
 
-	manager := urlkit.NewRouteManager(&urlkit.Config{
+	manager, err := urlkit.NewRouteManagerFromConfig(&urlkit.Config{
 		Groups: []urlkit.GroupConfig{
 			{
 				Name:    "frontend",
@@ -1061,6 +1061,9 @@ func TestService_ResolveNavigation_URLKitResolver(t *testing.T) {
 			},
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewRouteManagerFromConfig returned error: %v", err)
+	}
 
 	resolver := menus.NewURLKitResolver(menus.URLKitResolverOptions{
 		Manager:      manager,

@@ -334,7 +334,7 @@ func registerContentModels(t *testing.T, db *bun.DB) {
 	if _, err := db.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_translations_content_locale_unique ON content_translations(content_id, locale_id)"); err != nil {
 		t.Fatalf("create index idx_content_translations_content_locale_unique: %v", err)
 	}
-	if _, err := db.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_translations_group_locale_unique ON content_translations(translation_group_id, locale_id) WHERE translation_group_id IS NOT NULL"); err != nil {
+	if _, err := db.ExecContext(ctx, "CREATE UNIQUE INDEX IF NOT EXISTS idx_content_translations_group_locale_unique ON content_translations(family_id, locale_id) WHERE family_id IS NOT NULL"); err != nil {
 		t.Fatalf("create index idx_content_translations_group_locale_unique: %v", err)
 	}
 }

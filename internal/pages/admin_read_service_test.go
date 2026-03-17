@@ -109,8 +109,8 @@ func TestAdminPageReadServiceHydration(t *testing.T) {
 	if record.SchemaVersion != fixture.expected.schemaVersion {
 		t.Fatalf("expected schema version %q, got %q", fixture.expected.schemaVersion, record.SchemaVersion)
 	}
-	if record.TranslationGroupID == nil || *record.TranslationGroupID != fixture.translationGroupID {
-		t.Fatalf("expected translation group %q, got %#v", fixture.translationGroupID, record.TranslationGroupID)
+	if record.FamilyID == nil || *record.FamilyID != fixture.translationGroupID {
+		t.Fatalf("expected translation group %q, got %#v", fixture.translationGroupID, record.FamilyID)
 	}
 
 	payload, ok := record.Content.(map[string]any)
@@ -131,7 +131,7 @@ func TestAdminPageReadServiceHydration(t *testing.T) {
 	expectDataString(t, record.Data, "meta_description", fixture.expected.metaDescription)
 	expectDataString(t, record.Data, "requested_locale", fixture.expected.requestedLocale)
 	expectDataString(t, record.Data, "resolved_locale", fixture.expected.resolvedLocale)
-	expectDataString(t, record.Data, "translation_group_id", fixture.translationGroupID.String())
+	expectDataString(t, record.Data, "family_id", fixture.translationGroupID.String())
 	expectDataBool(t, record.Data, "missing_requested_locale", false)
 	expectDataLocales(t, record.Data, "available_locales", []string{"en"})
 	expectDataTags(t, record.Data, fixture.expected.tags)
@@ -525,12 +525,12 @@ func newAdminReadFixture(t *testing.T) adminReadFixture {
 	translationGroupID := uuid.New()
 	contentSummary := "Content summary"
 	contentTranslation := &content.ContentTranslation{
-		ID:                 uuid.New(),
-		ContentID:          contentID,
-		LocaleID:           localeID,
-		TranslationGroupID: &translationGroupID,
-		Title:              "Content Title",
-		Summary:            &contentSummary,
+		ID:        uuid.New(),
+		ContentID: contentID,
+		LocaleID:  localeID,
+		FamilyID:  &translationGroupID,
+		Title:     "Content Title",
+		Summary:   &contentSummary,
 		Locale: &content.Locale{
 			ID:   localeID,
 			Code: "en",

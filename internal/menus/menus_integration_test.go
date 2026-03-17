@@ -52,7 +52,7 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 
 	contentSvc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
 	pageSvc := pages.NewService(pageRepo, contentRepo, localeRepo)
-	routeManager := urlkit.NewRouteManager(&urlkit.Config{
+	routeManager, err := urlkit.NewRouteManagerFromConfig(&urlkit.Config{
 		Groups: []urlkit.GroupConfig{
 			{
 				Name:    "frontend",
@@ -72,6 +72,9 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 			},
 		},
 	})
+	if err != nil {
+		t.Fatalf("NewRouteManagerFromConfig returned error: %v", err)
+	}
 
 	urlResolver := menus.NewURLKitResolver(menus.URLKitResolverOptions{
 		Manager:      routeManager,
