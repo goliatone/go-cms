@@ -8,6 +8,7 @@ import (
 	"html/template"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -96,9 +97,7 @@ func (r *goTemplateRenderer) ensureTemplates() (*template.Template, error) {
 						continue
 					}
 					cloned := make(map[string]any, len(tr.Content))
-					for k, v := range tr.Content {
-						cloned[k] = v
-					}
+					maps.Copy(cloned, tr.Content)
 					return cloned
 				}
 				return map[string]any{}
@@ -114,16 +113,12 @@ func (r *goTemplateRenderer) ensureTemplates() (*template.Template, error) {
 				if resolved == nil || resolved.Instance == nil {
 					return merged
 				}
-				for k, v := range resolved.Instance.Configuration {
-					merged[k] = v
-				}
+				maps.Copy(merged, resolved.Instance.Configuration)
 				for _, tr := range resolved.Instance.Translations {
 					if tr == nil || tr.LocaleID != localeID {
 						continue
 					}
-					for k, v := range tr.Content {
-						merged[k] = v
-					}
+					maps.Copy(merged, tr.Content)
 					break
 				}
 				return merged
