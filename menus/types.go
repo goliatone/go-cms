@@ -21,20 +21,20 @@ const (
 type Menu struct {
 	bun.BaseModel `bun:"table:menus,alias:m"`
 
-	ID                 uuid.UUID   `bun:",pk,type:uuid" json:"id"`
-	Code               string      `bun:"code,notnull" json:"code"`
-	Location           string      `bun:"location" json:"location,omitempty"`
-	Description        *string     `bun:"description" json:"description,omitempty"`
-	Status             string      `bun:"status,notnull,default:'published'" json:"status"`
-	Locale             *string     `bun:"locale" json:"locale,omitempty"`
-	TranslationGroupID *uuid.UUID  `bun:"translation_group_id,type:uuid,nullzero" json:"translation_group_id,omitempty"`
-	PublishedAt        *time.Time  `bun:"published_at,nullzero" json:"published_at,omitempty"`
-	EnvironmentID      uuid.UUID   `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
-	CreatedBy          uuid.UUID   `bun:"created_by,notnull,type:uuid" json:"created_by"`
-	UpdatedBy          uuid.UUID   `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
-	CreatedAt          time.Time   `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
-	UpdatedAt          time.Time   `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
-	Items              []*MenuItem `bun:"rel:has-many,join:id=menu_id" json:"items,omitempty"`
+	ID            uuid.UUID   `bun:",pk,type:uuid" json:"id"`
+	Code          string      `bun:"code,notnull" json:"code"`
+	Location      string      `bun:"location" json:"location,omitempty"`
+	Description   *string     `bun:"description" json:"description,omitempty"`
+	Status        string      `bun:"status,notnull,default:'published'" json:"status"`
+	Locale        *string     `bun:"locale" json:"locale,omitempty"`
+	FamilyID      *uuid.UUID  `bun:"family_id,type:uuid,nullzero" json:"family_id,omitempty"`
+	PublishedAt   *time.Time  `bun:"published_at,nullzero" json:"published_at,omitempty"`
+	EnvironmentID uuid.UUID   `bun:"environment_id,type:uuid" json:"environment_id,omitempty"`
+	CreatedBy     uuid.UUID   `bun:"created_by,notnull,type:uuid" json:"created_by"`
+	UpdatedBy     uuid.UUID   `bun:"updated_by,notnull,type:uuid" json:"updated_by"`
+	CreatedAt     time.Time   `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
+	UpdatedAt     time.Time   `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
+	Items         []*MenuItem `bun:"rel:has-many,join:id=menu_id" json:"items,omitempty"`
 }
 
 // MenuItem describes a single navigational entry with optional hierarchy.
