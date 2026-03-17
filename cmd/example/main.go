@@ -463,8 +463,8 @@ func main() {
 		Defaults: map[string]any{
 			"cta_text": "Learn more",
 		},
-		Category: strPtr("marketing"),
-		Icon:     strPtr("sparkles"),
+		Category: new("marketing"),
+		Icon:     new("sparkles"),
 	})
 	if err != nil {
 		log.Fatalf("ensure widget definition: %v", err)
@@ -507,7 +507,7 @@ func main() {
 	if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
 		AreaCode:   "sidebar.primary",
 		InstanceID: guestWidget.ID,
-		Position:   intPtr(0),
+		Position:   new(0),
 	}); err != nil {
 		log.Fatalf("assign guest widget: %v", err)
 	}
@@ -515,7 +515,7 @@ func main() {
 	if _, err := widgetSvc.AssignWidgetToArea(ctx, widgets.AssignWidgetToAreaInput{
 		AreaCode:   "sidebar.primary",
 		InstanceID: memberWidget.ID,
-		Position:   intPtr(1),
+		Position:   new(1),
 	}); err != nil {
 		log.Fatalf("assign member widget: %v", err)
 	}
@@ -544,7 +544,7 @@ func main() {
 		Items: []cms.SeedMenuItem{
 			{
 				Path:     "primary.company",
-				Position: intPtr(0),
+				Position: new(0),
 				Type:     "item",
 				Target: map[string]any{
 					"type": "page",
@@ -766,12 +766,14 @@ func prettyPrint(label string, payload any) {
 	}
 }
 
+//go:fix inline
 func intPtr(v int) *int {
-	return &v
+	return new(v)
 }
 
+//go:fix inline
 func strPtr(value string) *string {
-	return &value
+	return new(value)
 }
 
 func resolveLocaleCodes(ctx context.Context, container *di.Container, codes []string) (map[uuid.UUID]string, error) {
