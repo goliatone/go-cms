@@ -78,7 +78,7 @@ func exerciseBlockCRUD(t *testing.T, ctx context.Context, svc cms.BlockService) 
 
 	if _, err := svc.UpdateDefinition(ctx, blocks.UpdateDefinitionInput{
 		ID:          definition.ID,
-		Description: stringPtr("Updated hero block"),
+		Description: new("Updated hero block"),
 		Defaults:    map[string]any{"headline": "Updated hero"},
 	}); err != nil {
 		t.Fatalf("update block definition: %v", err)
@@ -87,7 +87,7 @@ func exerciseBlockCRUD(t *testing.T, ctx context.Context, svc cms.BlockService) 
 	if _, err := svc.UpdateInstance(ctx, blocks.UpdateInstanceInput{
 		InstanceID:    instance.ID,
 		Configuration: map[string]any{"headline": "Updated configuration"},
-		Position:      intPtr(1),
+		Position:      new(1),
 		UpdatedBy:     actor,
 	}); err != nil {
 		t.Fatalf("update block instance: %v", err)
@@ -132,7 +132,7 @@ func exerciseWidgetCRUD(t *testing.T, ctx context.Context, svc cms.WidgetService
 
 	definition, err := svc.RegisterDefinition(ctx, widgets.RegisterDefinitionInput{
 		Name:        "announcement-" + uuid.NewString(),
-		Description: stringPtr("Used for hero banners"),
+		Description: new("Used for hero banners"),
 		Schema: map[string]any{
 			"fields": []any{
 				map[string]any{"name": "headline", "type": "text"},
@@ -271,10 +271,12 @@ func exerciseMenuCRUD(t *testing.T, ctx context.Context, svc menus.Service) {
 	}
 }
 
+//go:fix inline
 func stringPtr(v string) *string {
-	return &v
+	return new(v)
 }
 
+//go:fix inline
 func intPtr(v int) *int {
-	return &v
+	return new(v)
 }

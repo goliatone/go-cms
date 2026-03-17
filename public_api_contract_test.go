@@ -31,73 +31,73 @@ func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
 	t.Parallel()
 
 	types := map[string]reflect.Type{
-		"content.Service":                         reflect.TypeOf((*content.Service)(nil)).Elem(),
-		"content.ContentTypeService":              reflect.TypeOf((*content.ContentTypeService)(nil)).Elem(),
-		"content.CreateContentRequest":            reflect.TypeOf(content.CreateContentRequest{}),
-		"content.ContentTranslationInput":         reflect.TypeOf(content.ContentTranslationInput{}),
-		"content.UpdateContentRequest":            reflect.TypeOf(content.UpdateContentRequest{}),
-		"content.DeleteContentRequest":            reflect.TypeOf(content.DeleteContentRequest{}),
-		"content.UpdateContentTranslationRequest": reflect.TypeOf(content.UpdateContentTranslationRequest{}),
-		"content.DeleteContentTranslationRequest": reflect.TypeOf(content.DeleteContentTranslationRequest{}),
-		"content.CreateContentDraftRequest":       reflect.TypeOf(content.CreateContentDraftRequest{}),
-		"content.PublishContentDraftRequest":      reflect.TypeOf(content.PublishContentDraftRequest{}),
-		"content.PreviewContentDraftRequest":      reflect.TypeOf(content.PreviewContentDraftRequest{}),
-		"content.RestoreContentVersionRequest":    reflect.TypeOf(content.RestoreContentVersionRequest{}),
-		"content.ContentPreview":                  reflect.TypeOf(content.ContentPreview{}),
-		"content.ScheduleContentRequest":          reflect.TypeOf(content.ScheduleContentRequest{}),
-		"content.CreateContentTypeRequest":        reflect.TypeOf(content.CreateContentTypeRequest{}),
-		"content.UpdateContentTypeRequest":        reflect.TypeOf(content.UpdateContentTypeRequest{}),
-		"content.DeleteContentTypeRequest":        reflect.TypeOf(content.DeleteContentTypeRequest{}),
+		"content.Service":                         reflect.TypeFor[content.Service](),
+		"content.ContentTypeService":              reflect.TypeFor[content.ContentTypeService](),
+		"content.CreateContentRequest":            reflect.TypeFor[content.CreateContentRequest](),
+		"content.ContentTranslationInput":         reflect.TypeFor[content.ContentTranslationInput](),
+		"content.UpdateContentRequest":            reflect.TypeFor[content.UpdateContentRequest](),
+		"content.DeleteContentRequest":            reflect.TypeFor[content.DeleteContentRequest](),
+		"content.UpdateContentTranslationRequest": reflect.TypeFor[content.UpdateContentTranslationRequest](),
+		"content.DeleteContentTranslationRequest": reflect.TypeFor[content.DeleteContentTranslationRequest](),
+		"content.CreateContentDraftRequest":       reflect.TypeFor[content.CreateContentDraftRequest](),
+		"content.PublishContentDraftRequest":      reflect.TypeFor[content.PublishContentDraftRequest](),
+		"content.PreviewContentDraftRequest":      reflect.TypeFor[content.PreviewContentDraftRequest](),
+		"content.RestoreContentVersionRequest":    reflect.TypeFor[content.RestoreContentVersionRequest](),
+		"content.ContentPreview":                  reflect.TypeFor[content.ContentPreview](),
+		"content.ScheduleContentRequest":          reflect.TypeFor[content.ScheduleContentRequest](),
+		"content.CreateContentTypeRequest":        reflect.TypeFor[content.CreateContentTypeRequest](),
+		"content.UpdateContentTypeRequest":        reflect.TypeFor[content.UpdateContentTypeRequest](),
+		"content.DeleteContentTypeRequest":        reflect.TypeFor[content.DeleteContentTypeRequest](),
 
-		"pages.Service":                      reflect.TypeOf((*pages.Service)(nil)).Elem(),
-		"pages.CreatePageRequest":            reflect.TypeOf(pages.CreatePageRequest{}),
-		"pages.PageTranslationInput":         reflect.TypeOf(pages.PageTranslationInput{}),
-		"pages.UpdatePageRequest":            reflect.TypeOf(pages.UpdatePageRequest{}),
-		"pages.DeletePageRequest":            reflect.TypeOf(pages.DeletePageRequest{}),
-		"pages.UpdatePageTranslationRequest": reflect.TypeOf(pages.UpdatePageTranslationRequest{}),
-		"pages.DeletePageTranslationRequest": reflect.TypeOf(pages.DeletePageTranslationRequest{}),
-		"pages.MovePageRequest":              reflect.TypeOf(pages.MovePageRequest{}),
-		"pages.DuplicatePageRequest":         reflect.TypeOf(pages.DuplicatePageRequest{}),
-		"pages.CreatePageDraftRequest":       reflect.TypeOf(pages.CreatePageDraftRequest{}),
-		"pages.PublishPageDraftRequest":      reflect.TypeOf(pages.PublishPageDraftRequest{}),
-		"pages.PreviewPageDraftRequest":      reflect.TypeOf(pages.PreviewPageDraftRequest{}),
-		"pages.RestorePageVersionRequest":    reflect.TypeOf(pages.RestorePageVersionRequest{}),
-		"pages.PagePreview":                  reflect.TypeOf(pages.PagePreview{}),
-		"pages.SchedulePageRequest":          reflect.TypeOf(pages.SchedulePageRequest{}),
+		"pages.Service":                      reflect.TypeFor[pages.Service](),
+		"pages.CreatePageRequest":            reflect.TypeFor[pages.CreatePageRequest](),
+		"pages.PageTranslationInput":         reflect.TypeFor[pages.PageTranslationInput](),
+		"pages.UpdatePageRequest":            reflect.TypeFor[pages.UpdatePageRequest](),
+		"pages.DeletePageRequest":            reflect.TypeFor[pages.DeletePageRequest](),
+		"pages.UpdatePageTranslationRequest": reflect.TypeFor[pages.UpdatePageTranslationRequest](),
+		"pages.DeletePageTranslationRequest": reflect.TypeFor[pages.DeletePageTranslationRequest](),
+		"pages.MovePageRequest":              reflect.TypeFor[pages.MovePageRequest](),
+		"pages.DuplicatePageRequest":         reflect.TypeFor[pages.DuplicatePageRequest](),
+		"pages.CreatePageDraftRequest":       reflect.TypeFor[pages.CreatePageDraftRequest](),
+		"pages.PublishPageDraftRequest":      reflect.TypeFor[pages.PublishPageDraftRequest](),
+		"pages.PreviewPageDraftRequest":      reflect.TypeFor[pages.PreviewPageDraftRequest](),
+		"pages.RestorePageVersionRequest":    reflect.TypeFor[pages.RestorePageVersionRequest](),
+		"pages.PagePreview":                  reflect.TypeFor[pages.PagePreview](),
+		"pages.SchedulePageRequest":          reflect.TypeFor[pages.SchedulePageRequest](),
 
-		"blocks.Service":                       reflect.TypeOf((*blocks.Service)(nil)).Elem(),
-		"blocks.RegisterDefinitionInput":       reflect.TypeOf(blocks.RegisterDefinitionInput{}),
-		"blocks.UpdateDefinitionInput":         reflect.TypeOf(blocks.UpdateDefinitionInput{}),
-		"blocks.CreateDefinitionVersionInput":  reflect.TypeOf(blocks.CreateDefinitionVersionInput{}),
-		"blocks.DeleteDefinitionRequest":       reflect.TypeOf(blocks.DeleteDefinitionRequest{}),
-		"blocks.CreateInstanceInput":           reflect.TypeOf(blocks.CreateInstanceInput{}),
-		"blocks.UpdateInstanceInput":           reflect.TypeOf(blocks.UpdateInstanceInput{}),
-		"blocks.DeleteInstanceRequest":         reflect.TypeOf(blocks.DeleteInstanceRequest{}),
-		"blocks.AddTranslationInput":           reflect.TypeOf(blocks.AddTranslationInput{}),
-		"blocks.UpdateTranslationInput":        reflect.TypeOf(blocks.UpdateTranslationInput{}),
-		"blocks.DeleteTranslationRequest":      reflect.TypeOf(blocks.DeleteTranslationRequest{}),
-		"blocks.CreateInstanceDraftRequest":    reflect.TypeOf(blocks.CreateInstanceDraftRequest{}),
-		"blocks.PublishInstanceDraftRequest":   reflect.TypeOf(blocks.PublishInstanceDraftRequest{}),
-		"blocks.RestoreInstanceVersionRequest": reflect.TypeOf(blocks.RestoreInstanceVersionRequest{}),
+		"blocks.Service":                       reflect.TypeFor[blocks.Service](),
+		"blocks.RegisterDefinitionInput":       reflect.TypeFor[blocks.RegisterDefinitionInput](),
+		"blocks.UpdateDefinitionInput":         reflect.TypeFor[blocks.UpdateDefinitionInput](),
+		"blocks.CreateDefinitionVersionInput":  reflect.TypeFor[blocks.CreateDefinitionVersionInput](),
+		"blocks.DeleteDefinitionRequest":       reflect.TypeFor[blocks.DeleteDefinitionRequest](),
+		"blocks.CreateInstanceInput":           reflect.TypeFor[blocks.CreateInstanceInput](),
+		"blocks.UpdateInstanceInput":           reflect.TypeFor[blocks.UpdateInstanceInput](),
+		"blocks.DeleteInstanceRequest":         reflect.TypeFor[blocks.DeleteInstanceRequest](),
+		"blocks.AddTranslationInput":           reflect.TypeFor[blocks.AddTranslationInput](),
+		"blocks.UpdateTranslationInput":        reflect.TypeFor[blocks.UpdateTranslationInput](),
+		"blocks.DeleteTranslationRequest":      reflect.TypeFor[blocks.DeleteTranslationRequest](),
+		"blocks.CreateInstanceDraftRequest":    reflect.TypeFor[blocks.CreateInstanceDraftRequest](),
+		"blocks.PublishInstanceDraftRequest":   reflect.TypeFor[blocks.PublishInstanceDraftRequest](),
+		"blocks.RestoreInstanceVersionRequest": reflect.TypeFor[blocks.RestoreInstanceVersionRequest](),
 
-		"cms.MenuService":               reflect.TypeOf((*cms.MenuService)(nil)).Elem(),
-		"cms.MenuInfo":                  reflect.TypeOf(cms.MenuInfo{}),
-		"cms.NavigationNode":            reflect.TypeOf(cms.NavigationNode{}),
-		"cms.MenuItemInfo":              reflect.TypeOf(cms.MenuItemInfo{}),
-		"cms.MenuItemTranslationInput":  reflect.TypeOf(cms.MenuItemTranslationInput{}),
-		"cms.ReconcileMenuResult":       reflect.TypeOf(cms.ReconcileMenuResult{}),
-		"cms.UpsertMenuItemByPathInput": reflect.TypeOf(cms.UpsertMenuItemByPathInput{}),
-		"cms.UpdateMenuItemByPathInput": reflect.TypeOf(cms.UpdateMenuItemByPathInput{}),
+		"cms.MenuService":               reflect.TypeFor[cms.MenuService](),
+		"cms.MenuInfo":                  reflect.TypeFor[cms.MenuInfo](),
+		"cms.NavigationNode":            reflect.TypeFor[cms.NavigationNode](),
+		"cms.MenuItemInfo":              reflect.TypeFor[cms.MenuItemInfo](),
+		"cms.MenuItemTranslationInput":  reflect.TypeFor[cms.MenuItemTranslationInput](),
+		"cms.ReconcileMenuResult":       reflect.TypeFor[cms.ReconcileMenuResult](),
+		"cms.UpsertMenuItemByPathInput": reflect.TypeFor[cms.UpsertMenuItemByPathInput](),
+		"cms.UpdateMenuItemByPathInput": reflect.TypeFor[cms.UpdateMenuItemByPathInput](),
 
-		"cms.AdminPageReadService":     reflect.TypeOf((*cms.AdminPageReadService)(nil)).Elem(),
-		"cms.AdminPageRecord":          reflect.TypeOf(cms.AdminPageRecord{}),
-		"cms.AdminPageListOptions":     reflect.TypeOf(cms.AdminPageListOptions{}),
-		"cms.AdminPageGetOptions":      reflect.TypeOf(cms.AdminPageGetOptions{}),
-		"cms.AdminPageIncludeOptions":  reflect.TypeOf(cms.AdminPageIncludeOptions{}),
-		"cms.AdminPageIncludeDefaults": reflect.TypeOf(cms.AdminPageIncludeDefaults{}),
+		"cms.AdminPageReadService":     reflect.TypeFor[cms.AdminPageReadService](),
+		"cms.AdminPageRecord":          reflect.TypeFor[cms.AdminPageRecord](),
+		"cms.AdminPageListOptions":     reflect.TypeFor[cms.AdminPageListOptions](),
+		"cms.AdminPageGetOptions":      reflect.TypeFor[cms.AdminPageGetOptions](),
+		"cms.AdminPageIncludeOptions":  reflect.TypeFor[cms.AdminPageIncludeOptions](),
+		"cms.AdminPageIncludeDefaults": reflect.TypeFor[cms.AdminPageIncludeDefaults](),
 
-		"cms.LocaleService": reflect.TypeOf((*cms.LocaleService)(nil)).Elem(),
-		"cms.LocaleInfo":    reflect.TypeOf(cms.LocaleInfo{}),
+		"cms.LocaleService": reflect.TypeFor[cms.LocaleService](),
+		"cms.LocaleInfo":    reflect.TypeFor[cms.LocaleInfo](),
 	}
 
 	for name, typ := range types {
@@ -105,7 +105,7 @@ func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
 	}
 
 	for _, methodName := range []string{"Content", "ContentTypes", "Pages", "Blocks", "Menus", "AdminPageRead", "Locales"} {
-		method, ok := reflect.TypeOf((*cms.Module)(nil)).MethodByName(methodName)
+		method, ok := reflect.TypeFor[*cms.Module]().MethodByName(methodName)
 		if !ok {
 			t.Fatalf("expected cms.Module.%s method", methodName)
 		}
@@ -138,20 +138,20 @@ func assertNoInternalTypeRefs(t *testing.T, name string, typ reflect.Type, seen 
 		assertNoInternalTypeRefs(t, name, typ.Key(), seen)
 		assertNoInternalTypeRefs(t, name, typ.Elem(), seen)
 	case reflect.Struct:
-		for i := 0; i < typ.NumField(); i++ {
-			assertNoInternalTypeRefs(t, name+"."+typ.Field(i).Name, typ.Field(i).Type, seen)
+		for field := range typ.Fields() {
+			assertNoInternalTypeRefs(t, name+"."+field.Name, field.Type, seen)
 		}
 	case reflect.Interface:
-		for i := 0; i < typ.NumMethod(); i++ {
-			method := typ.Method(i)
+		for method := range typ.Methods() {
+			method := method
 			assertNoInternalTypeRefs(t, name+"."+method.Name, method.Type, seen)
 		}
 	case reflect.Func:
-		for i := 0; i < typ.NumIn(); i++ {
-			assertNoInternalTypeRefs(t, name, typ.In(i), seen)
+		for in := range typ.Ins() {
+			assertNoInternalTypeRefs(t, name, in, seen)
 		}
-		for i := 0; i < typ.NumOut(); i++ {
-			assertNoInternalTypeRefs(t, name, typ.Out(i), seen)
+		for out := range typ.Outs() {
+			assertNoInternalTypeRefs(t, name, out, seen)
 		}
 	}
 }

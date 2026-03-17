@@ -3,6 +3,7 @@ package content_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms/content"
@@ -235,8 +236,6 @@ func cloneAnyMap(src map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
+	maps.Copy(out, src)
 	return out
 }
