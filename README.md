@@ -358,10 +358,10 @@ When using BunDB, these migrations are embedded and registered via `cms.GetMigra
 
 Locales, translations, and fallbacks are available across services. `cfg.I18N.Locales` drives validation, and helpers such as `generator.TemplateContext.Helpers.WithBaseURL` simplify template routing. Use `cfg.I18N.RequireTranslations` (defaults to `true`) to keep the legacy "at least one translation" guard, or flip it to `false` for staged rollouts; pair it with `cfg.I18N.DefaultLocaleRequired` when you need to relax the fallback locale constraint. Both flags are ignored when `cfg.I18N.Enabled` is `false`. Every create/update DTO exposes `AllowMissingTranslations` so workflow transitions or importers can bypass enforcement for a single operation while global defaults remain strict.
 
-Translation grouping: content/page translations store `TranslationGroupID` (backed by `translation_group_id` in SQL). The services default it to the owning content/page ID and preserve it across updates so export pipelines or translation workflows can treat locales as a single group.
+Translation families: content/page translations store `FamilyID` (backed by `family_id` in SQL). The services default it to the owning content/page ID and preserve it across updates so export pipelines or translation workflows can treat locales as a single family.
 
-Migration note: `data/sql/migrations/20260301000000_translation_grouping.up.sql` (content/page translation group columns + indexes).
-`data/sql/migrations/20260501000000_translation_group_locale_unique.up.sql` adds a uniqueness invariant for active `(translation_group_id, locale_id)` rows.
+Migration note: `data/sql/migrations/20260301000000_family_identity.up.sql` (content/page family columns + indexes).
+`data/sql/migrations/20260501000000_family_locale_unique.up.sql` adds a uniqueness invariant for active `(family_id, locale_id)` rows.
 
 Translation create capability: content services now expose an additive `content.TranslationCreator` capability. Use `module.ContentTranslations()` and call `CreateTranslation` to clone an existing locale into a target locale atomically with typed conflicts (`ErrTranslationAlreadyExists`, `ErrInvalidLocale`, `ErrSourceNotFound`).
 
@@ -906,7 +906,7 @@ When using the built-in engine, the environment variables can be omitted.
 
 ## Requirements & Dependencies
 
-- Go 1.24+
+- Go 1.26+
 - Optional SQL backend supported by uptrace/bun (PostgreSQL, MySQL, SQLite)
 
 Key modules:
