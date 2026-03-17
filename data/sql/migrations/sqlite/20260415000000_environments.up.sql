@@ -29,6 +29,7 @@ ALTER TABLE block_definitions ADD COLUMN slug TEXT;
 
 -- Rebuild menus to drop the global unique constraint on code and add environment_id.
 PRAGMA foreign_keys = OFF;
+PRAGMA legacy_alter_table = ON;
 ALTER TABLE menus RENAME TO menus_old;
 CREATE TABLE menus (
     id TEXT PRIMARY KEY,
@@ -45,6 +46,7 @@ INSERT INTO menus (id, code, description, location, environment_id, created_by, 
 SELECT id, code, description, location, '00000000-0000-0000-0000-000000000001', created_by, updated_by, created_at, updated_at
 FROM menus_old;
 DROP TABLE menus_old;
+PRAGMA legacy_alter_table = OFF;
 PRAGMA foreign_keys = ON;
 
 -- Backfill environment_id to the default environment.
