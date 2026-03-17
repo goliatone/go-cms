@@ -22,13 +22,13 @@ var errNilModule = errors.New("cms: module is nil")
 
 // MenuInfo is a stable public view of a menu record.
 type MenuInfo struct {
-	Code               string     `json:"code"`
-	Location           string     `json:"location,omitempty"`
-	Description        *string    `json:"description,omitempty"`
-	Status             string     `json:"status"`
-	Locale             *string    `json:"locale,omitempty"`
-	TranslationGroupID *uuid.UUID `json:"translation_group_id,omitempty"`
-	PublishedAt        *time.Time `json:"published_at,omitempty"`
+	Code        string     `json:"code"`
+	Location    string     `json:"location,omitempty"`
+	Description *string    `json:"description,omitempty"`
+	Status      string     `json:"status"`
+	Locale      *string    `json:"locale,omitempty"`
+	FamilyID    *uuid.UUID `json:"family_id,omitempty"`
+	PublishedAt *time.Time `json:"published_at,omitempty"`
 }
 
 type MenuResolveOptions struct {
@@ -71,17 +71,17 @@ type ResolvedMenuPreviewInfo struct {
 }
 
 type ResolvedMenuInfo struct {
-	Location           string                      `json:"location"`
-	RequestedLocale    string                      `json:"requested_locale,omitempty"`
-	ResolvedLocale     string                      `json:"resolved_locale,omitempty"`
-	Menu               *MenuInfo                   `json:"menu,omitempty"`
-	Binding            *MenuLocationBindingInfo    `json:"binding,omitempty"`
-	Bindings           []MenuLocationBindingInfo   `json:"bindings,omitempty"`
-	ViewProfile        *MenuViewProfileInfo        `json:"view_profile,omitempty"`
-	Items              []NavigationNode            `json:"items,omitempty"`
-	ContentMembership  []ContentMenuMembershipInfo `json:"content_membership,omitempty"`
-	Preview            ResolvedMenuPreviewInfo     `json:"preview"`
-	TranslationGroupID *uuid.UUID                  `json:"translation_group_id,omitempty"`
+	Location          string                      `json:"location"`
+	RequestedLocale   string                      `json:"requested_locale,omitempty"`
+	ResolvedLocale    string                      `json:"resolved_locale,omitempty"`
+	Menu              *MenuInfo                   `json:"menu,omitempty"`
+	Binding           *MenuLocationBindingInfo    `json:"binding,omitempty"`
+	Bindings          []MenuLocationBindingInfo   `json:"bindings,omitempty"`
+	ViewProfile       *MenuViewProfileInfo        `json:"view_profile,omitempty"`
+	Items             []NavigationNode            `json:"items,omitempty"`
+	ContentMembership []ContentMenuMembershipInfo `json:"content_membership,omitempty"`
+	Preview           ResolvedMenuPreviewInfo     `json:"preview"`
+	FamilyID          *uuid.UUID                  `json:"family_id,omitempty"`
 }
 
 // NavigationNode is a localized, presentation-ready navigation node.
@@ -823,9 +823,9 @@ func toPublicMenuInfo(record *menus.Menu) *MenuInfo {
 		Locale:      record.Locale,
 		PublishedAt: record.PublishedAt,
 	}
-	if record.TranslationGroupID != nil {
-		groupID := *record.TranslationGroupID
-		out.TranslationGroupID = &groupID
+	if record.FamilyID != nil {
+		groupID := *record.FamilyID
+		out.FamilyID = &groupID
 	}
 	return out
 }
@@ -885,9 +885,9 @@ func toPublicResolvedMenu(resolved *menus.ResolvedMenu) *ResolvedMenuInfo {
 			Status:         resolved.ViewProfile.Status,
 		}
 	}
-	if resolved.TranslationGroupID != nil {
-		groupID := *resolved.TranslationGroupID
-		out.TranslationGroupID = &groupID
+	if resolved.FamilyID != nil {
+		groupID := *resolved.FamilyID
+		out.FamilyID = &groupID
 	}
 	if len(resolved.Items) > 0 {
 		out.Items = make([]NavigationNode, 0, len(resolved.Items))
