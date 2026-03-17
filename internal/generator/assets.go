@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"path"
 	"path/filepath"
 	"strings"
@@ -76,12 +77,8 @@ func collectManifestAssets(selection *gotheme.Selection) []string {
 	if variant := strings.TrimSpace(selection.Variant); variant != "" {
 		if v, ok := selection.Manifest.Variants[variant]; ok && len(v.Assets.Files) > 0 {
 			merged := make(map[string]string, len(selection.Manifest.Assets.Files)+len(v.Assets.Files))
-			for key, path := range selection.Manifest.Assets.Files {
-				merged[key] = path
-			}
-			for key, path := range v.Assets.Files {
-				merged[key] = path
-			}
+			maps.Copy(merged, selection.Manifest.Assets.Files)
+			maps.Copy(merged, v.Assets.Files)
 			assets = merged
 		}
 	}

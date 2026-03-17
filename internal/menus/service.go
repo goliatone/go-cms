@@ -303,18 +303,18 @@ type ResolvedMenuPreview struct {
 }
 
 type ResolvedMenu struct {
-	Location           string                  `json:"location"`
-	RequestedLocale    string                  `json:"requested_locale,omitempty"`
-	ResolvedLocale     string                  `json:"resolved_locale,omitempty"`
-	Menu               *Menu                   `json:"menu,omitempty"`
-	Menus              []*Menu                 `json:"menus,omitempty"`
-	Binding            *MenuLocationBinding    `json:"binding,omitempty"`
-	Bindings           []*MenuLocationBinding  `json:"bindings,omitempty"`
-	ViewProfile        *MenuViewProfile        `json:"view_profile,omitempty"`
-	Items              []NavigationNode        `json:"items,omitempty"`
-	ContentMembership  []ContentMenuMembership `json:"content_membership,omitempty"`
-	Preview            ResolvedMenuPreview     `json:"preview"`
-	TranslationGroupID *uuid.UUID              `json:"translation_group_id,omitempty"`
+	Location          string                  `json:"location"`
+	RequestedLocale   string                  `json:"requested_locale,omitempty"`
+	ResolvedLocale    string                  `json:"resolved_locale,omitempty"`
+	Menu              *Menu                   `json:"menu,omitempty"`
+	Menus             []*Menu                 `json:"menus,omitempty"`
+	Binding           *MenuLocationBinding    `json:"binding,omitempty"`
+	Bindings          []*MenuLocationBinding  `json:"bindings,omitempty"`
+	ViewProfile       *MenuViewProfile        `json:"view_profile,omitempty"`
+	Items             []NavigationNode        `json:"items,omitempty"`
+	ContentMembership []ContentMenuMembership `json:"content_membership,omitempty"`
+	Preview           ResolvedMenuPreview     `json:"preview"`
+	FamilyID          *uuid.UUID              `json:"family_id,omitempty"`
 }
 
 var (
@@ -906,19 +906,19 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 		publishedAt = &published
 	}
 	menu := &Menu{
-		ID:                 menuID,
-		Code:               code,
-		Location:           strings.TrimSpace(input.Location),
-		Description:        input.Description,
-		Status:             status,
-		Locale:             normalizeLocalePointer(input.Locale),
-		TranslationGroupID: cloneUUIDPointer(input.TranslationID),
-		PublishedAt:        publishedAt,
-		CreatedBy:          input.CreatedBy,
-		UpdatedBy:          input.UpdatedBy,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-		EnvironmentID:      envID,
+		ID:            menuID,
+		Code:          code,
+		Location:      strings.TrimSpace(input.Location),
+		Description:   input.Description,
+		Status:        status,
+		Locale:        normalizeLocalePointer(input.Locale),
+		FamilyID:      cloneUUIDPointer(input.TranslationID),
+		PublishedAt:   publishedAt,
+		CreatedBy:     input.CreatedBy,
+		UpdatedBy:     input.UpdatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		EnvironmentID: envID,
 	}
 
 	created, err := s.menus.Create(ctx, menu)
@@ -967,7 +967,7 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 			changed = true
 		}
 		if input.TranslationID != nil {
-			existing.TranslationGroupID = cloneUUIDPointer(input.TranslationID)
+			existing.FamilyID = cloneUUIDPointer(input.TranslationID)
 			changed = true
 		}
 		if status, statusErr := normalizeMenuStatus(input.Status); statusErr == nil {
@@ -1006,19 +1006,19 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 		publishedAt = &published
 	}
 	menu := &Menu{
-		ID:                 menuID,
-		Code:               code,
-		Location:           strings.TrimSpace(input.Location),
-		Description:        input.Description,
-		Status:             status,
-		Locale:             normalizeLocalePointer(input.Locale),
-		TranslationGroupID: cloneUUIDPointer(input.TranslationID),
-		PublishedAt:        publishedAt,
-		CreatedBy:          input.CreatedBy,
-		UpdatedBy:          input.UpdatedBy,
-		CreatedAt:          now,
-		UpdatedAt:          now,
-		EnvironmentID:      envID,
+		ID:            menuID,
+		Code:          code,
+		Location:      strings.TrimSpace(input.Location),
+		Description:   input.Description,
+		Status:        status,
+		Locale:        normalizeLocalePointer(input.Locale),
+		FamilyID:      cloneUUIDPointer(input.TranslationID),
+		PublishedAt:   publishedAt,
+		CreatedBy:     input.CreatedBy,
+		UpdatedBy:     input.UpdatedBy,
+		CreatedAt:     now,
+		UpdatedAt:     now,
+		EnvironmentID: envID,
 	}
 
 	created, err := s.menus.Create(ctx, menu)
@@ -1089,7 +1089,7 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 		existing.Locale = normalizeLocalePointer(input.Locale)
 	}
 	if input.TranslationID != nil {
-		existing.TranslationGroupID = cloneUUIDPointer(input.TranslationID)
+		existing.FamilyID = cloneUUIDPointer(input.TranslationID)
 	}
 	if status, statusErr := normalizeMenuStatus(input.Status); statusErr != nil {
 		return nil, statusErr
@@ -1332,7 +1332,7 @@ func (s *service) MenuByCode(ctx context.Context, code string, locale string, op
 			PreviewTokenPresent: strings.TrimSpace(opts.PreviewToken) != "",
 			MenuStatus:          strings.TrimSpace(menu.Status),
 		},
-		TranslationGroupID: cloneUUIDPointer(menu.TranslationGroupID),
+		FamilyID: cloneUUIDPointer(menu.FamilyID),
 	}
 	if profile != nil {
 		out.Preview.ViewProfileStatus = profile.Status
@@ -1374,7 +1374,7 @@ func (s *service) MenuByLocation(ctx context.Context, location string, locale st
 				primaryMenu = resolved.Menu
 				primaryBinding = resolved.Binding
 				primaryProfile = resolved.ViewProfile
-				groupID = cloneUUIDPointer(resolved.TranslationGroupID)
+				groupID = cloneUUIDPointer(resolved.FamilyID)
 			}
 		} else if !errors.Is(menuErr, ErrMenuNotFound) {
 			return nil, menuErr
@@ -1414,8 +1414,8 @@ func (s *service) MenuByLocation(ctx context.Context, location string, locale st
 				primaryBinding = cloneMenuLocationBinding(binding)
 				primaryMenu = projected
 				primaryProfile = profile
-				if menu.TranslationGroupID != nil {
-					groupID = cloneUUIDPointer(menu.TranslationGroupID)
+				if menu.FamilyID != nil {
+					groupID = cloneUUIDPointer(menu.FamilyID)
 				}
 			}
 			menusOut = append(menusOut, projected)
@@ -1463,7 +1463,7 @@ func (s *service) MenuByLocation(ctx context.Context, location string, locale st
 			IncludeDrafts:       opts.IncludeDrafts,
 			PreviewTokenPresent: strings.TrimSpace(opts.PreviewToken) != "",
 		},
-		TranslationGroupID: groupID,
+		FamilyID: groupID,
 	}
 	if primaryMenu != nil {
 		out.Preview.MenuStatus = primaryMenu.Status
@@ -1769,10 +1769,7 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 	if err != nil {
 		return nil, err
 	}
-	insertAt := input.Position
-	if insertAt > len(siblings) {
-		insertAt = len(siblings)
-	}
+	insertAt := min(input.Position, len(siblings))
 	if err := s.shiftSiblings(ctx, siblings, insertAt); err != nil {
 		return nil, err
 	}
@@ -2117,10 +2114,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		if err != nil {
 			return nil, err
 		}
-		desired := *input.Position
-		if desired > len(siblings) {
-			desired = len(siblings)
-		}
+		desired := min(*input.Position, len(siblings))
 		if err := s.repositionItem(ctx, item, siblings, desired); err != nil {
 			return nil, err
 		}

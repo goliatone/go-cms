@@ -2,6 +2,7 @@ package schema
 
 import (
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -580,12 +581,7 @@ func toSet(values []string) map[string]struct{} {
 }
 
 func containsType(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 func isSuperset(superset, subset map[string]struct{}) bool {

@@ -3,6 +3,7 @@ package widgets
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"reflect"
 	"testing"
 	"time"
@@ -273,12 +274,8 @@ func mustParseUUID(t *testing.T, value string) uuid.UUID {
 
 func expectedConfiguration(defaults map[string]any, configuration map[string]any) map[string]any {
 	out := make(map[string]any)
-	for key, value := range defaults {
-		out[key] = value
-	}
-	for key, value := range configuration {
-		out[key] = value
-	}
+	maps.Copy(out, defaults)
+	maps.Copy(out, configuration)
 	if len(out) == 0 {
 		return nil
 	}

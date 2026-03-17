@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"sort"
 	"strconv"
@@ -130,12 +131,8 @@ func (l *consoleLogger) WithFields(fields map[string]any) interfaces.Logger {
 		return l
 	}
 	cloned := make(map[string]any, len(l.fields)+len(fields))
-	for key, value := range l.fields {
-		cloned[key] = value
-	}
-	for key, value := range fields {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, l.fields)
+	maps.Copy(cloned, fields)
 	return &consoleLogger{
 		provider: l.provider,
 		fields:   cloned,
@@ -166,9 +163,7 @@ func (l *consoleLogger) log(level Level, msg string, args ...any) {
 		if fields == nil {
 			fields = ctxFields
 		} else {
-			for key, value := range ctxFields {
-				fields[key] = value
-			}
+			maps.Copy(fields, ctxFields)
 		}
 	}
 
@@ -177,9 +172,7 @@ func (l *consoleLogger) log(level Level, msg string, args ...any) {
 		if fields == nil {
 			fields = argFields
 		} else {
-			for key, value := range argFields {
-				fields[key] = value
-			}
+			maps.Copy(fields, argFields)
 		}
 	}
 
@@ -200,9 +193,7 @@ func cloneMap(src map[string]any) map[string]any {
 		return nil
 	}
 	cloned := make(map[string]any, len(src))
-	for key, value := range src {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, src)
 	return cloned
 }
 

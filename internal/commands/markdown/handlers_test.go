@@ -3,6 +3,7 @@ package markdowncmd
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms/internal/logging"
@@ -96,9 +97,7 @@ func (c *captureLogger) WithFields(fields map[string]any) interfaces.Logger {
 		return c
 	}
 	copied := make(map[string]any, len(fields))
-	for k, v := range fields {
-		copied[k] = v
-	}
+	maps.Copy(copied, fields)
 	c.fields = append(c.fields, copied)
 	return c
 }

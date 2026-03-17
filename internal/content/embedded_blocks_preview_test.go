@@ -2,6 +2,7 @@ package content_test
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms/internal/blocks"
@@ -45,9 +46,7 @@ func TestPreviewDraftMigratesEmbeddedBlocksWithoutPersistence(t *testing.T) {
 	migrator := blocks.NewMigrator()
 	if err := migrator.Register("hero", "hero@v1.0.0", "hero@v2.0.0", func(payload map[string]any) (map[string]any, error) {
 		out := map[string]any{}
-		for k, v := range payload {
-			out[k] = v
-		}
+		maps.Copy(out, payload)
 		if headline, ok := out["headline"]; ok {
 			out["title"] = headline
 			delete(out, "headline")

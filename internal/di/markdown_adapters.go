@@ -3,6 +3,7 @@ package di
 import (
 	"context"
 	"errors"
+	"maps"
 	"strings"
 
 	"github.com/goliatone/go-cms/internal/content"
@@ -257,12 +258,12 @@ func toContentRecordWithOptions(record *content.Content, opts interfaces.Content
 			locale = tr.Locale.Code
 		}
 		translations = append(translations, interfaces.ContentTranslation{
-			ID:                 tr.ID,
-			TranslationGroupID: tr.TranslationGroupID,
-			Locale:             locale,
-			Title:              tr.Title,
-			Summary:            tr.Summary,
-			Fields:             cloneFieldMap(tr.Content),
+			ID:       tr.ID,
+			FamilyID: tr.FamilyID,
+			Locale:   locale,
+			Title:    tr.Title,
+			Summary:  tr.Summary,
+			Fields:   cloneFieldMap(tr.Content),
 		})
 	}
 	return &interfaces.ContentRecord{
@@ -285,12 +286,12 @@ func toInterfacesContentTranslation(record *content.ContentTranslation) *interfa
 		locale = record.Locale.Code
 	}
 	return &interfaces.ContentTranslation{
-		ID:                 record.ID,
-		TranslationGroupID: record.TranslationGroupID,
-		Locale:             locale,
-		Title:              record.Title,
-		Summary:            record.Summary,
-		Fields:             cloneFieldMap(record.Content),
+		ID:       record.ID,
+		FamilyID: record.FamilyID,
+		Locale:   locale,
+		Title:    record.Title,
+		Summary:  record.Summary,
+		Fields:   cloneFieldMap(record.Content),
 	}
 }
 
@@ -299,9 +300,7 @@ func cloneFieldMap(fields map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(fields))
-	for k, v := range fields {
-		out[k] = v
-	}
+	maps.Copy(out, fields)
 	return out
 }
 

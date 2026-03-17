@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"html/template"
+	"maps"
 	"sort"
 	"strings"
 
@@ -141,9 +142,7 @@ func (r *Renderer) RenderAsync(ctx interfaces.ShortcodeContext, shortcode string
 
 func (r *Renderer) renderTemplate(def interfaces.ShortcodeDefinition, params map[string]any, inner string) (string, error) {
 	data := make(map[string]any, len(params)+1)
-	for key, value := range params {
-		data[key] = value
-	}
+	maps.Copy(data, params)
 	data["Inner"] = template.HTML(inner)
 
 	tmpl, err := template.New(def.Name).Parse(def.Template)

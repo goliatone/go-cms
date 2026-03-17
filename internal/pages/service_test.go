@@ -149,9 +149,7 @@ func (l *recordingLogger) Info(msg string, kv ...any) {
 
 func (l *recordingLogger) WithFields(fields map[string]any) interfaces.Logger {
 	merged := maps.Clone(l.fields)
-	for k, v := range fields {
-		merged[k] = v
-	}
+	maps.Copy(merged, fields)
 	return &recordingLogger{
 		store:  l.store,
 		fields: merged,
@@ -390,7 +388,7 @@ func TestPageServiceUpdateTranslation(t *testing.T) {
 		Locale:    "en",
 		Title:     "Updated Title",
 		Path:      "/hello-updated",
-		Summary:   ptr("Updated summary"),
+		Summary:   new("Updated summary"),
 		UpdatedBy: editor,
 	})
 	if err != nil {
@@ -591,8 +589,9 @@ func TestPageServiceDuplicateCreatesUniqueSlug(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func ptr(value string) *string {
-	return &value
+	return new(value)
 }
 
 func TestPageServiceCreateWithoutTranslationsWhenOptional(t *testing.T) {

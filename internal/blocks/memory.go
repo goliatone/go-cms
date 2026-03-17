@@ -3,6 +3,7 @@ package blocks
 import (
 	"context"
 	"maps"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -704,10 +705,8 @@ func removeUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
 }
 
 func appendUniqueUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
-	for _, item := range list {
-		if item == id {
-			return list
-		}
+	if slices.Contains(list, id) {
+		return list
 	}
 	return append(list, id)
 }

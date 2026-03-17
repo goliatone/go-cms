@@ -77,7 +77,7 @@ func BenchmarkResolveAreaVisibility(b *testing.B) {
 	}
 
 	editorID := uuid.MustParse("00000000-0000-0000-0000-00000000beef")
-	for i := 0; i < 64; i++ {
+	for i := range 64 {
 		rules := map[string]any{
 			"segments": []any{"beta"},
 		}

@@ -380,18 +380,18 @@ func pageFromContentEntry(record *content.Content) *pages.Page {
 			title = strings.TrimSpace(record.Slug)
 		}
 		translations = append(translations, &pages.PageTranslation{
-			ID:                 tr.ID,
-			PageID:             record.ID,
-			LocaleID:           tr.LocaleID,
-			TranslationGroupID: tr.TranslationGroupID,
-			Title:              title,
-			Path:               translationPath,
-			SEOTitle:           seoTitle,
-			SEODescription:     seoDesc,
-			Summary:            summary,
-			Locale:             localeCode,
-			CreatedAt:          tr.CreatedAt,
-			UpdatedAt:          tr.UpdatedAt,
+			ID:             tr.ID,
+			PageID:         record.ID,
+			LocaleID:       tr.LocaleID,
+			FamilyID:       tr.FamilyID,
+			Title:          title,
+			Path:           translationPath,
+			SEOTitle:       seoTitle,
+			SEODescription: seoDesc,
+			Summary:        summary,
+			Locale:         localeCode,
+			CreatedAt:      tr.CreatedAt,
+			UpdatedAt:      tr.UpdatedAt,
 		})
 	}
 

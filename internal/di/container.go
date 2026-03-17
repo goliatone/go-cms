@@ -1634,7 +1634,10 @@ func (c *Container) configureNavigation() {
 		return
 	}
 
-	manager := urlkit.NewRouteManager(navCfg.RouteConfig)
+	manager, err := urlkit.NewRouteManagerFromConfig(navCfg.RouteConfig)
+	if err != nil {
+		panic(fmt.Sprintf("di: invalid navigation route config: %v", err))
+	}
 	c.routeManager = manager
 
 	resolver := menus.NewURLKitResolver(menus.URLKitResolverOptions{
@@ -2387,17 +2390,18 @@ func buildWidgetDefinitionInput(definition runtimeconfig.WidgetDefinitionConfig)
 		Defaults: definition.Defaults,
 	}
 	if description := strings.TrimSpace(definition.Description); description != "" {
-		input.Description = strPtr(description)
+		input.Description = new(description)
 	}
 	if category := strings.TrimSpace(definition.Category); category != "" {
-		input.Category = strPtr(category)
+		input.Category = new(category)
 	}
 	if icon := strings.TrimSpace(definition.Icon); icon != "" {
-		input.Icon = strPtr(icon)
+		input.Icon = new(icon)
 	}
 	return input
 }
 
+//go:fix inline
 func strPtr(value string) *string {
-	return &value
+	return new(value)
 }

@@ -338,7 +338,7 @@ func applyMigrationFileEnv(t *testing.T, db *sql.DB, name string) {
 	content := string(raw)
 	content = strings.ReplaceAll(content, "::jsonb", "")
 	content = strings.ReplaceAll(content, "::JSONB", "")
-	for _, chunk := range strings.Split(content, "---bun:split") {
+	for chunk := range strings.SplitSeq(content, "---bun:split") {
 		statement := strings.TrimSpace(chunk)
 		if statement == "" {
 			continue

@@ -2,6 +2,7 @@ package themes
 
 import (
 	"fmt"
+	"maps"
 	"strings"
 )
 
@@ -21,9 +22,7 @@ func mergeMetadata(a, b map[string]any) map[string]any {
 	if out == nil {
 		out = map[string]any{}
 	}
-	for key, value := range b {
-		out[key] = value
-	}
+	maps.Copy(out, b)
 	return out
 }
 

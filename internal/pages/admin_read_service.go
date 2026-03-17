@@ -100,10 +100,7 @@ func (s *adminPageReadService) List(ctx context.Context, opts interfaces.AdminPa
 		if start >= total {
 			records = []interfaces.AdminPageRecord{}
 		} else {
-			end := start + perPage
-			if end > total {
-				end = total
-			}
+			end := min(start+perPage, total)
 			records = records[start:end]
 		}
 	}
@@ -227,7 +224,7 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 			return interfaces.AdminPageRecord{}, errors.Join(interfaces.ErrTranslationMissing, ErrPageTranslationNotFound)
 		}
 	} else {
-		record.TranslationGroupID = pageTranslation.TranslationGroupID
+		record.FamilyID = pageTranslation.FamilyID
 		record.Title = pageTranslation.Title
 		record.Path = pageTranslation.Path
 		record.MetaTitle = stringValue(pageTranslation.SEOTitle)
@@ -266,8 +263,8 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 
 	if contentTranslation != nil {
 		record.Tags = extractTags(contentTranslation.Content)
-		if record.TranslationGroupID == nil && contentTranslation.TranslationGroupID != nil {
-			record.TranslationGroupID = contentTranslation.TranslationGroupID
+		if record.FamilyID == nil && contentTranslation.FamilyID != nil {
+			record.FamilyID = contentTranslation.FamilyID
 		}
 		if record.MetaTitle == "" {
 			record.MetaTitle = stringFromData(contentTranslation.Content, "meta_title")
@@ -285,7 +282,7 @@ func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, stat
 			record.ResolvedLocale,
 			record.Translation.Meta,
 			record.ContentTranslation.Meta,
-			record.TranslationGroupID,
+			record.FamilyID,
 		)
 		if record.MetaTitle == "" {
 			record.MetaTitle = stringFromData(record.Data, "meta_title")
@@ -552,7 +549,7 @@ func buildTranslationData(
 		data["resolved_locale"] = resolvedLocale
 	}
 	if translationGroupID != nil {
-		data["translation_group_id"] = translationGroupID.String()
+		data["family_id"] = translationGroupID.String()
 	}
 	missingRequested := pageMeta.MissingRequestedLocale
 	if !missingRequested {
@@ -738,12 +735,12 @@ func toInterfacesPageTranslation(translation *PageTranslation, locale string) *i
 		resolvedLocale = strings.TrimSpace(translation.Locale)
 	}
 	return &interfaces.PageTranslation{
-		ID:                 translation.ID,
-		TranslationGroupID: translation.TranslationGroupID,
-		Locale:             resolvedLocale,
-		Title:              translation.Title,
-		Path:               translation.Path,
-		Summary:            cloneStringPtr(translation.Summary),
+		ID:       translation.ID,
+		FamilyID: translation.FamilyID,
+		Locale:   resolvedLocale,
+		Title:    translation.Title,
+		Path:     translation.Path,
+		Summary:  cloneStringPtr(translation.Summary),
 	}
 }
 
@@ -756,12 +753,12 @@ func toInterfacesContentTranslation(translation *content.ContentTranslation, loc
 		resolvedLocale = strings.TrimSpace(translation.Locale.Code)
 	}
 	return &interfaces.ContentTranslation{
-		ID:                 translation.ID,
-		TranslationGroupID: translation.TranslationGroupID,
-		Locale:             resolvedLocale,
-		Title:              translation.Title,
-		Summary:            cloneStringPtr(translation.Summary),
-		Fields:             cloneAdminMap(translation.Content),
+		ID:       translation.ID,
+		FamilyID: translation.FamilyID,
+		Locale:   resolvedLocale,
+		Title:    translation.Title,
+		Summary:  cloneStringPtr(translation.Summary),
+		Fields:   cloneAdminMap(translation.Content),
 	}
 }
 
@@ -934,8 +931,8 @@ func projectAdminPageRecord(record interfaces.AdminPageRecord, selected map[stri
 			out.ID = record.ID
 		case "content_id":
 			out.ContentID = record.ContentID
-		case "translation_group_id":
-			out.TranslationGroupID = record.TranslationGroupID
+		case "family_id":
+			out.FamilyID = record.FamilyID
 		case "template_id":
 			out.TemplateID = record.TemplateID
 		case "title":

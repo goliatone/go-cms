@@ -4,6 +4,7 @@ import (
 	"context"
 	stdErrors "errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 	"strings"
@@ -654,9 +655,7 @@ func cloneMetadata(src map[string]any) map[string]any {
 		return nil
 	}
 	dst := make(map[string]any, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
+	maps.Copy(dst, src)
 	return dst
 }
 

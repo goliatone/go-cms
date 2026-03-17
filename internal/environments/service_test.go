@@ -23,7 +23,7 @@ func TestServiceCreateEnvironment(t *testing.T) {
 	env, err := svc.CreateEnvironment(ctx, CreateEnvironmentInput{
 		Key:         "staging",
 		Name:        "Staging",
-		Description: stringPtr("Staging env"),
+		Description: new("Staging env"),
 		IsDefault:   true,
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func TestServiceUpdateEnvironmentDefault(t *testing.T) {
 		t.Fatalf("create prod: %v", err)
 	}
 
-	updated, err := svc.UpdateEnvironment(ctx, UpdateEnvironmentInput{ID: second.ID, IsDefault: boolPtr(true)})
+	updated, err := svc.UpdateEnvironment(ctx, UpdateEnvironmentInput{ID: second.ID, IsDefault: new(true)})
 	if err != nil {
 		t.Fatalf("update default: %v", err)
 	}
@@ -137,10 +137,12 @@ func TestServiceDeleteEnvironment(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func stringPtr(value string) *string {
-	return &value
+	return new(value)
 }
 
+//go:fix inline
 func boolPtr(value bool) *bool {
-	return &value
+	return new(value)
 }

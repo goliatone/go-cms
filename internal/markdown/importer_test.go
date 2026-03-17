@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"maps"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -484,8 +485,6 @@ func cloneMapAny(src map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	dst := make(map[string]any, len(src))
-	for key, value := range src {
-		dst[key] = value
-	}
+	maps.Copy(dst, src)
 	return dst
 }

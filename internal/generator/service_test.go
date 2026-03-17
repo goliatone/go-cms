@@ -1355,7 +1355,7 @@ func newRenderFixtures(now time.Time) renderFixtures {
 		ContentTypeID: pageTypeID,
 		Slug:          "vision",
 		Status:        "published",
-		PublishedAt:   ptrTime(now.Add(-2 * time.Hour)),
+		PublishedAt:   new(now.Add(-2 * time.Hour)),
 		UpdatedAt:     now.Add(-90 * time.Minute),
 		Metadata: map[string]any{
 			"template_id": templateID.String(),

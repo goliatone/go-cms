@@ -102,7 +102,7 @@ func (s *adminPageDBReadService) List(ctx context.Context, opts interfaces.Admin
 		ColumnExpr(expr.metaTitle+" AS meta_title").
 		ColumnExpr(expr.metaDescription+" AS meta_description").
 		ColumnExpr(expr.summary+" AS summary").
-		ColumnExpr(expr.translationGroupID+" AS translation_group_id").
+		ColumnExpr(expr.translationGroupID+" AS family_id").
 		ColumnExpr(expr.contentPayload+" AS content_payload").
 		ColumnExpr(expr.schemaVersion+" AS schema_version").
 		ColumnExpr(expr.pageResolvedLocale+" AS page_resolved_locale", expr.pageResolvedLocaleArgs...).
@@ -168,7 +168,7 @@ func (s *adminPageDBReadService) Get(ctx context.Context, id string, opts interf
 type adminPageDBRow struct {
 	ID                    uuid.UUID      `bun:"id"`
 	ContentID             uuid.UUID      `bun:"content_id"`
-	TranslationGroupID    *uuid.UUID     `bun:"translation_group_id"`
+	FamilyID              *uuid.UUID     `bun:"family_id"`
 	TemplateID            uuid.UUID      `bun:"template_id"`
 	Title                 string         `bun:"title"`
 	Slug                  string         `bun:"slug"`
@@ -247,7 +247,7 @@ func (s *adminPageDBReadService) newAdminPageDBQuery(ctx context.Context, env ad
 		summary:                   "COALESCE(pt_req.summary, pt_fb.summary, ct_req.summary, ct_fb.summary, '')",
 		metaTitle:                 "COALESCE(pt_req.seo_title, pt_fb.seo_title, '')",
 		metaDescription:           "COALESCE(pt_req.seo_description, pt_fb.seo_description, '')",
-		translationGroupID:        "COALESCE(pt_req.translation_group_id, pt_fb.translation_group_id, ct_req.translation_group_id, ct_fb.translation_group_id)",
+		translationGroupID:        "COALESCE(pt_req.family_id, pt_fb.family_id, ct_req.family_id, ct_fb.family_id)",
 		schemaVersion:             "COALESCE(ctype.schema_version, '')",
 		pageResolvedLocale:        "CASE WHEN pt_req.id IS NOT NULL THEN ? WHEN pt_fb.id IS NOT NULL THEN ? ELSE '' END",
 		pageResolvedLocaleArgs:    []any{primaryLocaleCode, fallbackLocaleCode},
@@ -549,7 +549,7 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 		UpdatedAt:   cloneTimePtr(row.UpdatedAt),
 	}
 
-	record.TranslationGroupID = row.TranslationGroupID
+	record.FamilyID = row.FamilyID
 	record.Title = row.Title
 	record.Path = row.Path
 	record.MetaTitle = strings.TrimSpace(row.MetaTitle)
@@ -572,11 +572,11 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 
 	if pageResolvedLocale != "" {
 		pageTranslation := interfaces.PageTranslation{
-			TranslationGroupID: row.TranslationGroupID,
-			Locale:             pageResolvedLocale,
-			Title:              row.Title,
-			Path:               row.Path,
-			Summary:            cloneStringPtr(row.Summary),
+			FamilyID: row.FamilyID,
+			Locale:   pageResolvedLocale,
+			Title:    row.Title,
+			Path:     row.Path,
+			Summary:  cloneStringPtr(row.Summary),
 		}
 		if pageMeta.RequestedLocale != "" && strings.EqualFold(pageMeta.RequestedLocale, pageMeta.ResolvedLocale) {
 			record.Translation.Requested = &pageTranslation
@@ -588,9 +588,9 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 
 	if contentResolvedLocale != "" {
 		contentTranslation := interfaces.ContentTranslation{
-			TranslationGroupID: row.TranslationGroupID,
-			Locale:             contentResolvedLocale,
-			Fields:             cloneAdminMap(row.ContentPayload),
+			FamilyID: row.FamilyID,
+			Locale:   contentResolvedLocale,
+			Fields:   cloneAdminMap(row.ContentPayload),
 		}
 		if contentMeta.RequestedLocale != "" && strings.EqualFold(contentMeta.RequestedLocale, contentMeta.ResolvedLocale) {
 			record.ContentTranslation.Requested = &contentTranslation

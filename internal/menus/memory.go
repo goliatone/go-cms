@@ -784,9 +784,9 @@ func cloneMenu(src *Menu) *Menu {
 		locale := *src.Locale
 		cloned.Locale = &locale
 	}
-	if src.TranslationGroupID != nil {
-		groupID := *src.TranslationGroupID
-		cloned.TranslationGroupID = &groupID
+	if src.FamilyID != nil {
+		groupID := *src.FamilyID
+		cloned.FamilyID = &groupID
 	}
 	if src.PublishedAt != nil {
 		publishedAt := *src.PublishedAt
@@ -926,10 +926,8 @@ func removeUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
 }
 
 func appendUniqueUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
-	for _, item := range list {
-		if item == id {
-			return list
-		}
+	if slices.Contains(list, id) {
+		return list
 	}
 	return append(list, id)
 }

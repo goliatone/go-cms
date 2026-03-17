@@ -3,6 +3,7 @@ package blocks_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms/internal/blocks"
@@ -13,9 +14,7 @@ func TestBlockSchemaMigratorAppliesOrderedSteps(t *testing.T) {
 	migrator := blocks.NewMigrator()
 	if err := migrator.Register("hero", "hero@v1.0.0", "hero@v1.1.0", func(payload map[string]any) (map[string]any, error) {
 		out := map[string]any{}
-		for k, v := range payload {
-			out[k] = v
-		}
+		maps.Copy(out, payload)
 		out["step"] = "one"
 		return out, nil
 	}); err != nil {
@@ -23,9 +22,7 @@ func TestBlockSchemaMigratorAppliesOrderedSteps(t *testing.T) {
 	}
 	if err := migrator.Register("hero", "hero@v1.1.0", "hero@v2.0.0", func(payload map[string]any) (map[string]any, error) {
 		out := map[string]any{}
-		for k, v := range payload {
-			out[k] = v
-		}
+		maps.Copy(out, payload)
 		out["step"] = "one-two"
 		return out, nil
 	}); err != nil {
@@ -46,9 +43,7 @@ func TestPublishDraftRejectsInvalidMigratedPayload(t *testing.T) {
 	migrator := blocks.NewMigrator()
 	if err := migrator.Register("promo", "promo@v1.0.0", "promo@v2.0.0", func(payload map[string]any) (map[string]any, error) {
 		out := map[string]any{}
-		for k, v := range payload {
-			out[k] = v
-		}
+		maps.Copy(out, payload)
 		delete(out, "title")
 		return out, nil
 	}); err != nil {

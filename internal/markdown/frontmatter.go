@@ -3,6 +3,7 @@ package markdown
 import (
 	"bytes"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/adrg/frontmatter"
@@ -62,9 +63,7 @@ func envelopeToFrontMatter(env frontMatterEnvelope) interfaces.FrontMatter {
 	}
 
 	raw := make(map[string]any, len(env.Custom)+8)
-	for key, value := range env.Custom {
-		raw[key] = value
-	}
+	maps.Copy(raw, env.Custom)
 
 	if env.Title != "" {
 		raw["title"] = env.Title
@@ -113,8 +112,6 @@ func cloneMap(input map[string]any) map[string]any {
 	}
 
 	out := make(map[string]any, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
+	maps.Copy(out, input)
 	return out
 }

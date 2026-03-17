@@ -2,6 +2,7 @@ package jobs
 
 import (
 	"context"
+	"maps"
 	"sync"
 	"time"
 )
@@ -44,9 +45,7 @@ func (r *InMemoryAuditRecorder) Record(_ context.Context, event AuditEvent) erro
 	copied := event
 	if copied.Metadata != nil {
 		metadata := make(map[string]any, len(copied.Metadata))
-		for k, v := range copied.Metadata {
-			metadata[k] = v
-		}
+		maps.Copy(metadata, copied.Metadata)
 		copied.Metadata = metadata
 	}
 	r.events = append(r.events, copied)

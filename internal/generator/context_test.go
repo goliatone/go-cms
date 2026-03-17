@@ -75,7 +75,7 @@ func TestLoadContextBuildsLocalizedPages(t *testing.T) {
 		ContentTypeID: pageTypeID,
 		Slug:          "vision",
 		Status:        "published",
-		PublishedAt:   ptrTime(now.Add(-90 * time.Minute)),
+		PublishedAt:   new(now.Add(-90 * time.Minute)),
 		UpdatedAt:     now.Add(-45 * time.Minute),
 		Metadata: map[string]any{
 			"template_id": templateID.String(),
@@ -363,8 +363,9 @@ func TestLoadContextPropagatesMenuErrors(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func ptrTime(t time.Time) *time.Time {
-	return &t
+	return new(t)
 }
 
 type stubContentService struct {

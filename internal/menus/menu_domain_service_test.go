@@ -111,8 +111,8 @@ func TestService_MenuByCode_AppliesViewProfileProjectionAndOrdering(t *testing.T
 		Code:        "footer_compact",
 		Name:        "Footer Compact",
 		Mode:        menus.MenuViewModeComposed,
-		MaxTopLevel: ptrInt(2),
-		MaxDepth:    ptrInt(2),
+		MaxTopLevel: new(2),
+		MaxDepth:    new(2),
 		ExcludeItemIDs: []string{
 			home.ExternalCode,
 		},
@@ -365,6 +365,7 @@ func TestService_MenuDepthLimitGuard(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func ptrInt(v int) *int {
-	return &v
+	return new(v)
 }

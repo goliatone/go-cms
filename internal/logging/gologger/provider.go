@@ -3,6 +3,7 @@ package gologger
 import (
 	"context"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 
@@ -126,9 +127,7 @@ func (l *adapter) WithContext(ctx context.Context) interfaces.Logger {
 
 func cloneFields(fields map[string]any) map[string]any {
 	copied := make(map[string]any, len(fields))
-	for k, v := range fields {
-		copied[k] = v
-	}
+	maps.Copy(copied, fields)
 	return copied
 }
 

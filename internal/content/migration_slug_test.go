@@ -103,7 +103,7 @@ func applyMigrationFile(t *testing.T, db *sql.DB, name string) {
 	// SQLite doesn't understand Postgres JSONB casts in defaults.
 	content = strings.ReplaceAll(content, "::jsonb", "")
 	content = strings.ReplaceAll(content, "::JSONB", "")
-	for _, chunk := range strings.Split(content, "---bun:split") {
+	for chunk := range strings.SplitSeq(content, "---bun:split") {
 		statement := strings.TrimSpace(chunk)
 		if statement == "" {
 			continue

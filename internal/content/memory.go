@@ -155,18 +155,18 @@ func (m *MemoryContentRepository) CreateTranslation(_ context.Context, contentID
 	}
 
 	groupID := contentID
-	if translation.TranslationGroupID != nil && *translation.TranslationGroupID != uuid.Nil {
-		groupID = *translation.TranslationGroupID
+	if translation.FamilyID != nil && *translation.FamilyID != uuid.Nil {
+		groupID = *translation.FamilyID
 	}
 	for _, candidate := range m.contents {
 		if candidate == nil {
 			continue
 		}
 		for _, current := range candidate.Translations {
-			if current == nil || current.TranslationGroupID == nil {
+			if current == nil || current.FamilyID == nil {
 				continue
 			}
-			if *current.TranslationGroupID == groupID && current.LocaleID == translation.LocaleID {
+			if *current.FamilyID == groupID && current.LocaleID == translation.LocaleID {
 				return nil, ErrTranslationAlreadyExists
 			}
 		}
@@ -184,9 +184,9 @@ func (m *MemoryContentRepository) CreateTranslation(_ context.Context, contentID
 	if cloned.UpdatedAt.IsZero() {
 		cloned.UpdatedAt = now
 	}
-	if cloned.TranslationGroupID == nil || *cloned.TranslationGroupID == uuid.Nil {
+	if cloned.FamilyID == nil || *cloned.FamilyID == uuid.Nil {
 		groupID := contentID
-		cloned.TranslationGroupID = &groupID
+		cloned.FamilyID = &groupID
 	}
 
 	record.Translations = append(record.Translations, &cloned)

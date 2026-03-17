@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sort"
 	"strings"
 	"time"
@@ -662,16 +663,16 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, sn
 			return nil, content.ErrUnknownLocale
 		}
 		entry := &content.ContentTranslation{
-			ID:                 s.id(),
-			ContentID:          contentID,
-			LocaleID:           locale.ID,
-			TranslationGroupID: &groupID,
-			Title:              tr.Title,
-			Summary:            cloneString(tr.Summary),
-			Content:            cloneMap(tr.Content),
-			CreatedAt:          now,
-			UpdatedAt:          now,
-			Locale:             locale,
+			ID:        s.id(),
+			ContentID: contentID,
+			LocaleID:  locale.ID,
+			FamilyID:  &groupID,
+			Title:     tr.Title,
+			Summary:   cloneString(tr.Summary),
+			Content:   cloneMap(tr.Content),
+			CreatedAt: now,
+			UpdatedAt: now,
+			Locale:    locale,
 		}
 		out = append(out, entry)
 	}
@@ -1389,9 +1390,7 @@ func cloneMap(src map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }
 

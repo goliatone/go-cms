@@ -578,7 +578,6 @@ func seedMenuIntegrationEntities(t *testing.T, db *bun.DB) {
 		},
 	}
 	for _, locale := range locales {
-		locale := locale
 		if _, err := db.NewInsert().Model(&locale).Exec(ctx); err != nil {
 			t.Fatalf("insert locale: %v", err)
 		}

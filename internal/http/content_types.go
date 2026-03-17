@@ -3,6 +3,7 @@ package http
 import (
 	"errors"
 	"io"
+	"maps"
 	"net/http"
 	"strings"
 
@@ -97,8 +98,8 @@ type schemaPreviewResponse struct {
 
 type contentTypeResponse struct {
 	*content.ContentType
-	Permissions        permissions.PermissionSet `json:"permissions,omitempty"`
-	ContentPermissions permissions.PermissionSet `json:"content_permissions,omitempty"`
+	Permissions        permissions.PermissionSet `json:"permissions"`
+	ContentPermissions permissions.PermissionSet `json:"content_permissions"`
 }
 
 func buildContentTypeResponse(record *content.ContentType) contentTypeResponse {
@@ -697,8 +698,6 @@ func cloneMap(input map[string]any) map[string]any {
 		return nil
 	}
 	copied := make(map[string]any, len(input))
-	for key, value := range input {
-		copied[key] = value
-	}
+	maps.Copy(copied, input)
 	return copied
 }

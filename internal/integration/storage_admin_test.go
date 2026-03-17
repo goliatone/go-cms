@@ -76,7 +76,7 @@ func TestStorageAdminApplyConfigMaintainsContinuity(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		for i := 0; i < 40; i++ {
+		for i := range 40 {
 			select {
 			case <-time.After(5 * time.Second):
 				errCh <- fmt.Errorf("write loop stalled")

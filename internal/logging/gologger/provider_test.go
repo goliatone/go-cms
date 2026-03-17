@@ -2,6 +2,7 @@ package gologger
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	glog "github.com/goliatone/go-logger/glog"
@@ -95,9 +96,7 @@ func (s *stubLogger) WithContext(ctx context.Context) glog.Logger {
 
 func (s *stubLogger) WithFields(fields map[string]any) glog.Logger {
 	copied := make(map[string]any, len(fields))
-	for k, v := range fields {
-		copied[k] = v
-	}
+	maps.Copy(copied, fields)
 	s.fields = append(s.fields, copied)
 	return s
 }

@@ -1,6 +1,7 @@
 package staticcmd
 
 import (
+	"slices"
 	"strings"
 
 	validation "github.com/go-ozzo/ozzo-validation/v4"
@@ -50,11 +51,8 @@ func (m BuildSiteCommand) Validate() error {
 			}
 		}
 	}
-	for _, id := range m.PageIDs {
-		if id == uuid.Nil {
-			errs["page_ids"] = validation.NewError("cms.static.build.page_id_invalid", "page_ids must contain valid identifiers")
-			break
-		}
+	if slices.Contains(m.PageIDs, uuid.Nil) {
+		errs["page_ids"] = validation.NewError("cms.static.build.page_id_invalid", "page_ids must contain valid identifiers")
 	}
 	if len(errs) > 0 {
 		return errs
@@ -76,11 +74,8 @@ func (DiffSiteCommand) Type() string { return diffSiteMessageType }
 // Validate ensures locales and page identifiers are well-formed.
 func (m DiffSiteCommand) Validate() error {
 	errs := validation.Errors{}
-	for _, id := range m.PageIDs {
-		if id == uuid.Nil {
-			errs["page_ids"] = validation.NewError("cms.static.diff.page_id_invalid", "page_ids must contain valid identifiers")
-			break
-		}
+	if slices.Contains(m.PageIDs, uuid.Nil) {
+		errs["page_ids"] = validation.NewError("cms.static.diff.page_id_invalid", "page_ids must contain valid identifiers")
 	}
 	for _, locale := range m.Locales {
 		if strings.TrimSpace(locale) == "" {

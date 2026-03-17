@@ -2,6 +2,8 @@ package content
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"sort"
 	"strings"
 
@@ -254,9 +256,7 @@ func ApplyNavigationVisibilityMetadata(record *Content) {
 	}
 	if len(result.EffectiveVisibility) > 0 {
 		visibility := make(map[string]bool, len(result.EffectiveVisibility))
-		for location, visible := range result.EffectiveVisibility {
-			visibility[location] = visible
-		}
+		maps.Copy(visibility, result.EffectiveVisibility)
 		metadata[entryFieldEffectiveNavigationVisibility] = visibility
 	} else {
 		delete(metadata, entryFieldEffectiveNavigationVisibility)
@@ -394,12 +394,7 @@ func boolValue(raw any, fallback bool) bool {
 }
 
 func containsString(values []string, target string) bool {
-	for _, value := range values {
-		if value == target {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(values, target)
 }
 
 func cloneMapString(src map[string]string) map[string]string {
@@ -407,8 +402,6 @@ func cloneMapString(src map[string]string) map[string]string {
 		return nil
 	}
 	out := make(map[string]string, len(src))
-	for key, value := range src {
-		out[key] = value
-	}
+	maps.Copy(out, src)
 	return out
 }

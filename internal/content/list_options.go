@@ -58,12 +58,12 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 		case contentListWithTranslations:
 			opts.includeTranslations = true
 		default:
-			if strings.HasPrefix(token, string(contentListProjectionPrefix)) {
-				opts.projection = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(token, string(contentListProjectionPrefix))))
+			if after, ok := strings.CutPrefix(token, string(contentListProjectionPrefix)); ok {
+				opts.projection = strings.ToLower(strings.TrimSpace(after))
 				continue
 			}
-			if strings.HasPrefix(token, string(contentListProjectionModePrefix)) {
-				mode := strings.ToLower(strings.TrimSpace(strings.TrimPrefix(token, string(contentListProjectionModePrefix))))
+			if after, ok := strings.CutPrefix(token, string(contentListProjectionModePrefix)); ok {
+				mode := strings.ToLower(strings.TrimSpace(after))
 				if mode != "" {
 					opts.projectionMode = ProjectionTranslationMode(mode)
 					opts.projectionModeSet = true

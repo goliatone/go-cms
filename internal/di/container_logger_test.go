@@ -2,6 +2,7 @@ package di_test
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms"
@@ -88,12 +89,8 @@ func (l *recordingLogger) WithFields(fields map[string]any) interfaces.Logger {
 		return l
 	}
 	merged := make(map[string]any, len(l.fields)+len(fields))
-	for key, value := range l.fields {
-		merged[key] = value
-	}
-	for key, value := range fields {
-		merged[key] = value
-	}
+	maps.Copy(merged, l.fields)
+	maps.Copy(merged, fields)
 	return &recordingLogger{
 		provider: l.provider,
 		fields:   merged,
@@ -131,8 +128,6 @@ func cloneFields(fields map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	copied := make(map[string]any, len(fields))
-	for key, value := range fields {
-		copied[key] = value
-	}
+	maps.Copy(copied, fields)
 	return copied
 }

@@ -1337,8 +1337,8 @@ func TestService_ResolveNavigation_LabelFallbacksAndReferenceTree(t *testing.T) 
 
 	_, err = service.UpdateMenuItem(ctx, menus.UpdateMenuItemInput{
 		ItemID:      myShop.ID,
-		Collapsible: ptrBool(true),
-		Collapsed:   ptrBool(false),
+		Collapsible: new(true),
+		Collapsed:   new(false),
 		UpdatedBy:   uuid.Nil,
 	})
 	if err != nil {
@@ -1445,7 +1445,6 @@ func TestService_ResolveNavigation_IncludesPositionAndOrdersDeterministically(t 
 	trRepo := menus.NewMemoryMenuItemTranslationRepository()
 	localeRepo := content.NewMemoryLocaleRepository()
 	for _, locale := range fixture.locales() {
-		locale := locale
 		localeRepo.Put(&locale)
 	}
 
@@ -2484,6 +2483,7 @@ func assertError(err error, target error) error {
 	return nil
 }
 
+//go:fix inline
 func ptrBool(v bool) *bool {
-	return &v
+	return new(v)
 }

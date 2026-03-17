@@ -3,6 +3,7 @@ package promotions_test
 import (
 	"context"
 	"errors"
+	"maps"
 	"testing"
 	"time"
 
@@ -214,9 +215,7 @@ func TestPromotionService_ContentEntryMigratesSnapshot(t *testing.T) {
 	migrator := schema.NewMigrator()
 	if err := migrator.Register("article", "article@v1.0.0", "article@v2.0.0", func(payload map[string]any) (map[string]any, error) {
 		out := map[string]any{}
-		for key, value := range payload {
-			out[key] = value
-		}
+		maps.Copy(out, payload)
 		if title, ok := out["title"]; ok {
 			out["headline"] = title
 			delete(out, "title")

@@ -1,5 +1,7 @@
 package util
 
+import "maps"
+
 // FirstNonEmpty returns the first non-empty string in values.
 func FirstNonEmpty(values ...string) string {
 	for _, value := range values {
@@ -17,9 +19,7 @@ func CloneStringMap(input map[string]string) map[string]string {
 		return map[string]string{}
 	}
 	out := make(map[string]string, len(input))
-	for key, value := range input {
-		out[key] = value
-	}
+	maps.Copy(out, input)
 	return out
 }
 
@@ -29,9 +29,7 @@ func CloneAnyMap(raw any) map[string]any {
 	result := make(map[string]any)
 	switch values := raw.(type) {
 	case map[string]any:
-		for k, v := range values {
-			result[k] = v
-		}
+		maps.Copy(result, values)
 	case map[string]string:
 		for k, v := range values {
 			result[k] = v

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"strings"
 	"time"
@@ -301,9 +302,7 @@ func (s *service) log(ctx context.Context) interfaces.Logger {
 
 func (s *service) opLogger(ctx context.Context, operation string, extra map[string]any) interfaces.Logger {
 	fields := map[string]any{"operation": operation}
-	for key, value := range extra {
-		fields[key] = value
-	}
+	maps.Copy(fields, extra)
 	return logging.WithFields(s.log(ctx), fields)
 }
 
@@ -578,7 +577,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 				ID:        s.id(),
 				ContentID: record.ID,
 				LocaleID:  loc.ID,
-				TranslationGroupID: func() *uuid.UUID {
+				FamilyID: func() *uuid.UUID {
 					return &groupID
 				}(),
 				Title:     tr.Title,
@@ -942,12 +941,12 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 
 	if existing := findContentTranslationByLocale(record.Translations, target.ID, target.Code); existing != nil {
 		return nil, &TranslationAlreadyExistsError{
-			EntityID:           req.SourceID,
-			SourceLocale:       strings.TrimSpace(req.SourceLocale),
-			TargetLocale:       target.Code,
-			TranslationGroupID: existing.TranslationGroupID,
-			ExistingID:         existing.ID,
-			Environment:        strings.TrimSpace(req.EnvironmentKey),
+			EntityID:     req.SourceID,
+			SourceLocale: strings.TrimSpace(req.SourceLocale),
+			TargetLocale: target.Code,
+			FamilyID:     existing.FamilyID,
+			ExistingID:   existing.ID,
+			Environment:  strings.TrimSpace(req.EnvironmentKey),
 		}
 	}
 
@@ -992,16 +991,16 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 	now := s.now()
 	groupID := translationGroupForContent(record.ID, sourceTranslation)
 	createdTranslation := &ContentTranslation{
-		ID:                 s.id(),
-		ContentID:          record.ID,
-		LocaleID:           target.ID,
-		TranslationGroupID: &groupID,
-		Title:              sourceTranslation.Title,
-		Summary:            cloneString(sourceTranslation.Summary),
-		Content:            applySchemaVersion(sourceContent, version),
-		Locale:             target,
-		CreatedAt:          now,
-		UpdatedAt:          now,
+		ID:        s.id(),
+		ContentID: record.ID,
+		LocaleID:  target.ID,
+		FamilyID:  &groupID,
+		Title:     sourceTranslation.Title,
+		Summary:   cloneString(sourceTranslation.Summary),
+		Content:   applySchemaVersion(sourceContent, version),
+		Locale:    target,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 
 	inserted, err := s.contents.CreateTranslation(ctx, record.ID, createdTranslation)
@@ -1009,12 +1008,12 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 		if isTranslationUniqueViolation(err) || conflictStrategy == string(TranslationConflictStrict) {
 			if current, listErr := s.fetchExistingTranslation(ctx, record.ID, target.ID, target.Code); listErr == nil && current != nil {
 				return nil, &TranslationAlreadyExistsError{
-					EntityID:           req.SourceID,
-					SourceLocale:       sourceLocale,
-					TargetLocale:       target.Code,
-					TranslationGroupID: current.TranslationGroupID,
-					ExistingID:         current.ID,
-					Environment:        strings.TrimSpace(req.EnvironmentKey),
+					EntityID:     req.SourceID,
+					SourceLocale: sourceLocale,
+					TargetLocale: target.Code,
+					FamilyID:     current.FamilyID,
+					ExistingID:   current.ID,
+					Environment:  strings.TrimSpace(req.EnvironmentKey),
 				}
 			}
 		}
@@ -1144,9 +1143,9 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		ID:        target.ID,
 		ContentID: req.ContentID,
 		LocaleID:  loc.ID,
-		TranslationGroupID: func() *uuid.UUID {
-			if target.TranslationGroupID != nil {
-				return target.TranslationGroupID
+		FamilyID: func() *uuid.UUID {
+			if target.FamilyID != nil {
+				return target.FamilyID
 			}
 			groupID := req.ContentID
 			return &groupID
@@ -1934,9 +1933,9 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 		translation := &ContentTranslation{
 			ContentID: contentID,
 			LocaleID:  loc.ID,
-			TranslationGroupID: func() *uuid.UUID {
-				if existingTranslation, ok := existing[loc.ID]; ok && existingTranslation != nil && existingTranslation.TranslationGroupID != nil {
-					return existingTranslation.TranslationGroupID
+			FamilyID: func() *uuid.UUID {
+				if existingTranslation, ok := existing[loc.ID]; ok && existingTranslation != nil && existingTranslation.FamilyID != nil {
+					return existingTranslation.FamilyID
 				}
 				groupID := contentID
 				return &groupID
@@ -1984,16 +1983,16 @@ func (s *service) previewTranslations(ctx context.Context, contentID uuid.UUID, 
 			return nil, ErrUnknownLocale
 		}
 		entry := &ContentTranslation{
-			ID:                 s.id(),
-			ContentID:          contentID,
-			LocaleID:           locale.ID,
-			TranslationGroupID: &groupID,
-			Title:              tr.Title,
-			Summary:            cloneString(tr.Summary),
-			Content:            cloneMap(tr.Content),
-			Locale:             locale,
-			CreatedAt:          now,
-			UpdatedAt:          now,
+			ID:        s.id(),
+			ContentID: contentID,
+			LocaleID:  locale.ID,
+			FamilyID:  &groupID,
+			Title:     tr.Title,
+			Summary:   cloneString(tr.Summary),
+			Content:   cloneMap(tr.Content),
+			Locale:    locale,
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 		out = append(out, entry)
 	}
@@ -2372,8 +2371,8 @@ func resolveContentSourceTranslation(ctx context.Context, locales LocaleReposito
 }
 
 func translationGroupForContent(contentID uuid.UUID, translation *ContentTranslation) uuid.UUID {
-	if translation != nil && translation.TranslationGroupID != nil && *translation.TranslationGroupID != uuid.Nil {
-		return *translation.TranslationGroupID
+	if translation != nil && translation.FamilyID != nil && *translation.FamilyID != uuid.Nil {
+		return *translation.FamilyID
 	}
 	return contentID
 }
@@ -2548,9 +2547,7 @@ func cloneMap(src map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }
 

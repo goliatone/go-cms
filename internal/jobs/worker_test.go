@@ -29,7 +29,7 @@ func TestWorkerProcessContentPublish(t *testing.T) {
 		ContentTypeID: uuid.New(),
 		Status:        string(domain.StatusScheduled),
 		Slug:          "about",
-		PublishAt:     ptrTime(now.Add(-time.Minute)),
+		PublishAt:     new(now.Add(-time.Minute)),
 		UpdatedAt:     now.Add(-time.Hour),
 		UpdatedBy:     userID,
 	}
@@ -103,7 +103,7 @@ func TestWorkerProcessContentUnpublish(t *testing.T) {
 		Status:        string(domain.StatusPublished),
 		Slug:          "news",
 		PublishedAt:   &publishedAt,
-		UnpublishAt:   ptrTime(now.Add(-time.Minute)),
+		UnpublishAt:   new(now.Add(-time.Minute)),
 		UpdatedAt:     now,
 		UpdatedBy:     userID,
 	}
@@ -186,6 +186,7 @@ func TestSchedulingCancellation(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func ptrTime(value time.Time) *time.Time {
-	return &value
+	return new(value)
 }

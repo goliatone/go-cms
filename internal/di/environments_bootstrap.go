@@ -102,7 +102,7 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 				IsActive:    &active,
 			}
 			if def.IsDefault {
-				update.IsDefault = boolPtr(true)
+				update.IsDefault = new(true)
 			}
 			if _, err := svc.UpdateEnvironment(ctx, update); err != nil {
 				return err
@@ -197,8 +197,9 @@ func (c *Container) initializeEnvironments(ctx context.Context) error {
 	return nil
 }
 
+//go:fix inline
 func boolPtr(value bool) *bool {
-	return &value
+	return new(value)
 }
 
 func resolveEnvironmentDefinitions(cfg runtimeconfig.EnvironmentsConfig) ([]environmentDefinition, string) {

@@ -321,9 +321,7 @@ func (s *pageService) log(ctx context.Context) interfaces.Logger {
 
 func (s *pageService) opLogger(ctx context.Context, operation string, extra map[string]any) interfaces.Logger {
 	fields := map[string]any{"operation": operation}
-	for key, value := range extra {
-		fields[key] = value
-	}
+	maps.Copy(fields, extra)
 	return logging.WithFields(s.log(ctx), fields)
 }
 
@@ -630,7 +628,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 				ID:       s.id(),
 				PageID:   page.ID,
 				LocaleID: locale.ID,
-				TranslationGroupID: func() *uuid.UUID {
+				FamilyID: func() *uuid.UUID {
 					return &groupID
 				}(),
 				Locale:        locale.Code,
@@ -1036,9 +1034,9 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		ID:       target.ID,
 		PageID:   req.PageID,
 		LocaleID: locale.ID,
-		TranslationGroupID: func() *uuid.UUID {
-			if target.TranslationGroupID != nil {
-				return target.TranslationGroupID
+		FamilyID: func() *uuid.UUID {
+			if target.FamilyID != nil {
+				return target.FamilyID
 			}
 			groupID := req.PageID
 			return &groupID
@@ -2075,16 +2073,16 @@ func (s *pageService) previewContentTranslations(ctx context.Context, contentID 
 			return nil, ErrUnknownLocale
 		}
 		preview = append(preview, &content.ContentTranslation{
-			ID:                 s.id(),
-			ContentID:          contentID,
-			LocaleID:           locale.ID,
-			TranslationGroupID: &groupID,
-			Title:              tr.Title,
-			Summary:            cloneStringPtr(tr.Summary),
-			Content:            cloneMap(tr.Content),
-			Locale:             locale,
-			CreatedAt:          now,
-			UpdatedAt:          now,
+			ID:        s.id(),
+			ContentID: contentID,
+			LocaleID:  locale.ID,
+			FamilyID:  &groupID,
+			Title:     tr.Title,
+			Summary:   cloneStringPtr(tr.Summary),
+			Content:   cloneMap(tr.Content),
+			Locale:    locale,
+			CreatedAt: now,
+			UpdatedAt: now,
 		})
 	}
 	return preview, nil
@@ -2600,9 +2598,7 @@ func mergeMetadata(base map[string]any, extra map[string]any) map[string]any {
 	if base == nil {
 		base = make(map[string]any, len(extra))
 	}
-	for key, value := range extra {
-		base[key] = value
-	}
+	maps.Copy(base, extra)
 	return base
 }
 
@@ -2804,7 +2800,7 @@ func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fall
 		base = fmt.Sprintf("page-%s", uuid.NewString())
 	}
 
-	for attempt := 0; attempt < 100; attempt++ {
+	for attempt := range 100 {
 		next := appendCopySuffix(base, attempt)
 		if _, err := s.pages.GetBySlug(ctx, next, env); err != nil {
 			var notFound *PageNotFoundError
@@ -2902,9 +2898,9 @@ func (s *pageService) buildPageTranslations(ctx context.Context, pageID uuid.UUI
 		translation := &PageTranslation{
 			PageID:   pageID,
 			LocaleID: locale.ID,
-			TranslationGroupID: func() *uuid.UUID {
-				if existingTranslation, ok := byLocale[locale.ID]; ok && existingTranslation != nil && existingTranslation.TranslationGroupID != nil {
-					return existingTranslation.TranslationGroupID
+			FamilyID: func() *uuid.UUID {
+				if existingTranslation, ok := byLocale[locale.ID]; ok && existingTranslation != nil && existingTranslation.FamilyID != nil {
+					return existingTranslation.FamilyID
 				}
 				groupID := pageID
 				return &groupID

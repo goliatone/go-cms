@@ -3,6 +3,7 @@ package widgets
 import (
 	"context"
 	"fmt"
+	"maps"
 	"time"
 
 	"github.com/goliatone/go-errors"
@@ -354,8 +355,6 @@ func clonePlacementMetadata(src map[string]any) map[string]any {
 		return nil
 	}
 	cloned := make(map[string]any, len(src))
-	for key, value := range src {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, src)
 	return cloned
 }

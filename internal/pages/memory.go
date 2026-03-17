@@ -2,6 +2,7 @@ package pages
 
 import (
 	"context"
+	"maps"
 	"strings"
 	"sync"
 	"time"
@@ -303,9 +304,7 @@ func cloneMap(src map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(src))
-	for k, v := range src {
-		out[k] = v
-	}
+	maps.Copy(out, src)
 	return out
 }
 

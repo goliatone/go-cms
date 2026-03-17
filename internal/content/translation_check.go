@@ -461,8 +461,8 @@ func parseFieldSegment(segment string) fieldSegment {
 	if segment == "" {
 		return fieldSegment{}
 	}
-	if strings.HasSuffix(segment, "[]") {
-		return fieldSegment{name: strings.TrimSuffix(segment, "[]"), isArray: true}
+	if before, ok := strings.CutSuffix(segment, "[]"); ok {
+		return fieldSegment{name: before, isArray: true}
 	}
 	open := strings.Index(segment, "[")
 	close := strings.LastIndex(segment, "]")

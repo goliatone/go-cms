@@ -214,9 +214,9 @@ func (r *BunContentRepository) CreateTranslation(ctx context.Context, contentID 
 	if cloned.UpdatedAt.IsZero() {
 		cloned.UpdatedAt = now
 	}
-	if cloned.TranslationGroupID == nil || *cloned.TranslationGroupID == uuid.Nil {
+	if cloned.FamilyID == nil || *cloned.FamilyID == uuid.Nil {
 		groupID := contentID
-		cloned.TranslationGroupID = &groupID
+		cloned.FamilyID = &groupID
 	}
 
 	if _, err := r.db.NewInsert().Model(&cloned).Exec(ctx); err != nil {

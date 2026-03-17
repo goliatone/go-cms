@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"maps"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -1058,10 +1059,8 @@ func shouldIncludeEmbeddedType(schema map[string]any) bool {
 	if required, ok := normalized["required"]; ok {
 		switch typed := required.(type) {
 		case []string:
-			for _, entry := range typed {
-				if entry == content.EmbeddedBlockTypeKey {
-					return true
-				}
+			if slices.Contains(typed, content.EmbeddedBlockTypeKey) {
+				return true
 			}
 		case []any:
 			for _, entry := range typed {
@@ -1155,10 +1154,8 @@ func ensureRequiredProperty(schema map[string]any, name string) {
 	if raw, ok := schema["required"]; ok {
 		switch typed := raw.(type) {
 		case []string:
-			for _, entry := range typed {
-				if entry == name {
-					return
-				}
+			if slices.Contains(typed, name) {
+				return
 			}
 			schema["required"] = append(typed, name)
 			return
@@ -1450,9 +1447,7 @@ func buildEmbeddedBlock(defName string, tr *Translation, inst *Instance) map[str
 		content.EmbeddedBlockTypeKey: strings.TrimSpace(defName),
 	}
 	if tr != nil {
-		for key, value := range tr.Content {
-			block[key] = value
-		}
+		maps.Copy(block, tr.Content)
 	}
 	meta := map[string]any{}
 	if inst != nil {
@@ -1777,13 +1772,6 @@ func (b *EmbeddedBlockBridge) loadTranslations(ctx context.Context, record *cont
 		return nil, err
 	}
 	return translations, nil
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
 
 func deepEqual(a, b any) bool {

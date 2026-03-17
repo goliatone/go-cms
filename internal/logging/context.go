@@ -1,5 +1,7 @@
 package logging
 
+import "maps"
+
 import "context"
 
 type contextKey string
@@ -17,19 +19,13 @@ func ContextWithFields(ctx context.Context, fields map[string]any) context.Conte
 	existing := ContextFields(ctx)
 	if len(existing) == 0 {
 		copied := make(map[string]any, len(fields))
-		for key, value := range fields {
-			copied[key] = value
-		}
+		maps.Copy(copied, fields)
 		return context.WithValue(ctx, contextFieldsKey, copied)
 	}
 
 	merged := make(map[string]any, len(existing)+len(fields))
-	for key, value := range existing {
-		merged[key] = value
-	}
-	for key, value := range fields {
-		merged[key] = value
-	}
+	maps.Copy(merged, existing)
+	maps.Copy(merged, fields)
 	return context.WithValue(ctx, contextFieldsKey, merged)
 }
 
@@ -51,8 +47,6 @@ func ContextFields(ctx context.Context) map[string]any {
 	}
 
 	copied := make(map[string]any, len(fields))
-	for key, val := range fields {
-		copied[key] = val
-	}
+	maps.Copy(copied, fields)
 	return copied
 }

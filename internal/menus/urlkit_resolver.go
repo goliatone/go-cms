@@ -3,6 +3,7 @@ package menus
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
@@ -152,9 +153,7 @@ func (r *URLKitResolver) collectParams(req ResolveRequest) map[string]any {
 
 	if r.paramsField != "" {
 		if raw, ok := req.Item.Target[r.paramsField]; ok {
-			for key, val := range util.CloneAnyMap(raw) {
-				params[key] = val
-			}
+			maps.Copy(params, util.CloneAnyMap(raw))
 		}
 	}
 

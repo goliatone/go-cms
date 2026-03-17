@@ -2,6 +2,7 @@ package themes
 
 import (
 	"context"
+	"maps"
 	"sync"
 
 	"github.com/google/uuid"
@@ -291,9 +292,7 @@ func deepCloneMap(src map[string]any) map[string]any {
 		return nil
 	}
 	cloned := make(map[string]any, len(src))
-	for key, value := range src {
-		cloned[key] = value
-	}
+	maps.Copy(cloned, src)
 	return cloned
 }
 

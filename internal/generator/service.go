@@ -189,9 +189,7 @@ func (s *service) baseLogger(ctx context.Context) interfaces.Logger {
 
 func (s *service) operationLogger(ctx context.Context, operation string, extra map[string]any) interfaces.Logger {
 	fields := map[string]any{"operation": operation}
-	for key, value := range extra {
-		fields[key] = value
-	}
+	maps.Copy(fields, extra)
 	return logging.WithFields(s.baseLogger(ctx), fields)
 }
 
@@ -480,10 +478,8 @@ func (s *service) renderConcurrently(
 
 	jobs := make(chan []*PageData)
 	var wg sync.WaitGroup
-	for i := 0; i < workers; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+	for range workers {
+		wg.Go(func() {
 			for batch := range jobs {
 				for _, page := range batch {
 					select {
@@ -504,7 +500,7 @@ func (s *service) renderConcurrently(
 					}
 				}
 			}
-		}()
+		})
 	}
 
 	for _, locale := range buildCtx.Locales {
@@ -894,8 +890,8 @@ func (s *service) copyAssets(
 				resolved = strings.TrimLeft(strings.TrimSpace(asset), "/")
 			}
 			normalized := strings.ReplaceAll(resolved, "\\", "/")
-			if strings.HasPrefix(normalized, "assets/") {
-				normalized = strings.TrimPrefix(normalized, "assets/")
+			if after, ok := strings.CutPrefix(normalized, "assets/"); ok {
+				normalized = after
 			}
 			if normalized == "" {
 				normalized = strings.TrimLeft(strings.TrimSpace(asset), "/")

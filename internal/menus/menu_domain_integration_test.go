@@ -92,7 +92,7 @@ func TestMenuService_LocalizedBindingsFallbackIntegration(t *testing.T) {
 		Code:        "top_one",
 		Name:        "Top One",
 		Mode:        menus.MenuViewModeTopLevelLimit,
-		MaxTopLevel: ptrInt(1),
+		MaxTopLevel: new(1),
 		Status:      menus.MenuStatusPublished,
 		Actor:       actor,
 	})
@@ -103,7 +103,7 @@ func TestMenuService_LocalizedBindingsFallbackIntegration(t *testing.T) {
 	_, err = service.UpsertMenuLocationBinding(ctx, menus.UpsertMenuLocationBindingInput{
 		Location:        "site.main",
 		MenuCode:        "site_primary",
-		ViewProfileCode: strPtr("top_one"),
+		ViewProfileCode: new("top_one"),
 		Priority:        5,
 		Status:          menus.MenuStatusPublished,
 		Actor:           actor,
@@ -115,7 +115,7 @@ func TestMenuService_LocalizedBindingsFallbackIntegration(t *testing.T) {
 	_, err = service.UpsertMenuLocationBinding(ctx, menus.UpsertMenuLocationBindingInput{
 		Location: "site.main",
 		MenuCode: "site_primary_es",
-		Locale:   strPtr("es"),
+		Locale:   new("es"),
 		Priority: 10,
 		Status:   menus.MenuStatusDraft,
 		Actor:    actor,
@@ -147,6 +147,7 @@ func TestMenuService_LocalizedBindingsFallbackIntegration(t *testing.T) {
 	}
 }
 
+//go:fix inline
 func strPtr(v string) *string {
-	return &v
+	return new(v)
 }

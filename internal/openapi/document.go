@@ -1,11 +1,13 @@
 package openapi
 
+import "maps"
+
 // Document represents a minimal OpenAPI document.
 type Document struct {
 	OpenAPI    string         `json:"openapi"`
 	Info       Info           `json:"info"`
 	Paths      map[string]any `json:"paths,omitempty"`
-	Components Components     `json:"components,omitempty"`
+	Components Components     `json:"components"`
 	Extensions map[string]any `json:"-"`
 }
 
@@ -78,8 +80,6 @@ func (d *Document) AsMap() map[string]any {
 			"schemas": d.Components.Schemas,
 		}
 	}
-	for key, value := range d.Extensions {
-		out[key] = value
-	}
+	maps.Copy(out, d.Extensions)
 	return out
 }

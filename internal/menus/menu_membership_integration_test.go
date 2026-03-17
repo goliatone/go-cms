@@ -2,6 +2,7 @@ package menus_test
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms/internal/content"
@@ -168,9 +169,7 @@ func (f *phase3IntegrationFixture) createMenuWithBinding(t *testing.T, code, loc
 func (f *phase3IntegrationFixture) createContent(t *testing.T, slug, title, path string, metadata map[string]any) {
 	t.Helper()
 	entryMetadata := map[string]any{"path": path}
-	for key, value := range metadata {
-		entryMetadata[key] = value
-	}
+	maps.Copy(entryMetadata, metadata)
 	_, err := f.contentSvc.Create(context.Background(), content.CreateContentRequest{
 		ContentTypeID: f.contentTy.ID,
 		Slug:          slug,

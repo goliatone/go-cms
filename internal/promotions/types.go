@@ -64,7 +64,7 @@ type PromoteEnvironmentRequest struct {
 	ContentSlugs         []string       `json:"content_slugs,omitempty"`
 	ContentEntryTypeID   *uuid.UUID     `json:"content_entry_type_id,omitempty"`
 	ContentEntryTypeSlug string         `json:"content_entry_type_slug,omitempty"`
-	Options              PromoteOptions `json:"options,omitempty"`
+	Options              PromoteOptions `json:"options"`
 }
 
 // PromoteContentTypeRequest describes a single content type promotion.
@@ -72,7 +72,7 @@ type PromoteContentTypeRequest struct {
 	ContentTypeID       uuid.UUID      `json:"-"`
 	TargetEnvironment   string         `json:"target_environment,omitempty"`
 	TargetEnvironmentID *uuid.UUID     `json:"target_environment_id,omitempty"`
-	Options             PromoteOptions `json:"options,omitempty"`
+	Options             PromoteOptions `json:"options"`
 }
 
 // PromoteContentEntryRequest describes a single content entry promotion.
@@ -80,7 +80,7 @@ type PromoteContentEntryRequest struct {
 	ContentID           uuid.UUID      `json:"-"`
 	TargetEnvironment   string         `json:"target_environment,omitempty"`
 	TargetEnvironmentID *uuid.UUID     `json:"target_environment_id,omitempty"`
-	Options             PromoteOptions `json:"options,omitempty"`
+	Options             PromoteOptions `json:"options"`
 }
 
 // EnvironmentRef references an environment in promotion responses.

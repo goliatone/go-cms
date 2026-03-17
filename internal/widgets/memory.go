@@ -527,10 +527,8 @@ func removeUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
 }
 
 func appendUniqueUUID(list []uuid.UUID, id uuid.UUID) []uuid.UUID {
-	for _, candidate := range list {
-		if candidate == id {
-			return append([]uuid.UUID(nil), list...)
-		}
+	if slices.Contains(list, id) {
+		return append([]uuid.UUID(nil), list...)
 	}
 	return append(append([]uuid.UUID(nil), list...), id)
 }

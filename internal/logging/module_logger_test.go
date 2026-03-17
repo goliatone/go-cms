@@ -2,6 +2,7 @@ package logging
 
 import (
 	"context"
+	"maps"
 	"testing"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
@@ -24,9 +25,7 @@ func (r *recordingLogger) WithFields(fields map[string]any) interfaces.Logger {
 		fields = map[string]any{}
 	}
 	copied := make(map[string]any, len(fields))
-	for k, v := range fields {
-		copied[k] = v
-	}
+	maps.Copy(copied, fields)
 	r.fields = append(r.fields, copied)
 	return r
 }

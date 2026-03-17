@@ -47,7 +47,7 @@ type blockUpdatePayload struct {
 
 type blockDefinitionResponse struct {
 	*blocks.Definition
-	Permissions permissions.PermissionSet `json:"permissions,omitempty"`
+	Permissions permissions.PermissionSet `json:"permissions"`
 }
 
 type blockDefinitionVersionResponse struct {

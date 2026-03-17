@@ -25,7 +25,7 @@ type Resource struct {
 	Duration     time.Duration         `json:"duration,omitempty"`
 	Hash         string                `json:"hash,omitempty"`
 	SignedURL    *interfaces.SignedURL `json:"signed_url,omitempty"`
-	LastModified time.Time             `json:"last_modified,omitempty"`
+	LastModified time.Time             `json:"last_modified"`
 	Metadata     map[string]any        `json:"metadata,omitempty"`
 }
 

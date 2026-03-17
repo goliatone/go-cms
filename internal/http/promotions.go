@@ -18,19 +18,19 @@ type promoteEnvironmentPayload struct {
 	ContentSlugs         []string                  `json:"content_slugs,omitempty"`
 	ContentEntryTypeID   *uuid.UUID                `json:"content_entry_type_id,omitempty"`
 	ContentEntryTypeSlug string                    `json:"content_entry_type_slug,omitempty"`
-	Options              promotions.PromoteOptions `json:"options,omitempty"`
+	Options              promotions.PromoteOptions `json:"options"`
 }
 
 type promoteContentTypePayload struct {
 	TargetEnvironment   string                    `json:"target_environment,omitempty"`
 	TargetEnvironmentID *uuid.UUID                `json:"target_environment_id,omitempty"`
-	Options             promotions.PromoteOptions `json:"options,omitempty"`
+	Options             promotions.PromoteOptions `json:"options"`
 }
 
 type promoteContentPayload struct {
 	TargetEnvironment   string                    `json:"target_environment,omitempty"`
 	TargetEnvironmentID *uuid.UUID                `json:"target_environment_id,omitempty"`
-	Options             promotions.PromoteOptions `json:"options,omitempty"`
+	Options             promotions.PromoteOptions `json:"options"`
 }
 
 func (api *AdminAPI) registerPromotionRoutes(mux *http.ServeMux, base string) {

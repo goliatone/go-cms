@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
 	"reflect"
 	"sort"
@@ -571,9 +572,7 @@ func (l *integrationRecordingLogger) WithFields(fields map[string]any) interface
 		return l
 	}
 	merged := cloneFields(l.fields)
-	for key, value := range fields {
-		merged[key] = value
-	}
+	maps.Copy(merged, fields)
 	return &integrationRecordingLogger{
 		provider: l.provider,
 		fields:   merged,
@@ -611,9 +610,7 @@ func cloneFields(fields map[string]any) map[string]any {
 		return map[string]any{}
 	}
 	copied := make(map[string]any, len(fields))
-	for key, value := range fields {
-		copied[key] = value
-	}
+	maps.Copy(copied, fields)
 	return copied
 }
 
