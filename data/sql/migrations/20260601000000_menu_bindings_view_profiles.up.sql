@@ -1,7 +1,7 @@
 ALTER TABLE menus
   ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'published',
   ADD COLUMN IF NOT EXISTS locale text,
-  ADD COLUMN IF NOT EXISTS translation_group_id uuid,
+  ADD COLUMN IF NOT EXISTS family_id uuid,
   ADD COLUMN IF NOT EXISTS published_at timestamp;
 
 UPDATE menus
@@ -9,7 +9,7 @@ SET status = 'published'
 WHERE status IS NULL OR trim(status) = '';
 
 CREATE INDEX IF NOT EXISTS idx_menus_status ON menus(status);
-CREATE INDEX IF NOT EXISTS idx_menus_translation_group_id ON menus(translation_group_id);
+CREATE INDEX IF NOT EXISTS idx_menus_family_id ON menus(family_id);
 
 CREATE TABLE IF NOT EXISTS menu_view_profiles (
     id UUID PRIMARY KEY,
