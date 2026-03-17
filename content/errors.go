@@ -58,12 +58,12 @@ var (
 
 // TranslationAlreadyExistsError captures duplicate translation conflicts.
 type TranslationAlreadyExistsError struct {
-	EntityID           uuid.UUID
-	SourceLocale       string
-	TargetLocale       string
-	TranslationGroupID *uuid.UUID
-	ExistingID         uuid.UUID
-	Environment        string
+	EntityID     uuid.UUID
+	SourceLocale string
+	TargetLocale string
+	FamilyID     *uuid.UUID
+	ExistingID   uuid.UUID
+	Environment  string
 }
 
 func (e *TranslationAlreadyExistsError) Error() string {
@@ -150,12 +150,12 @@ func (e *SlugConflictError) Unwrap() error {
 
 // TranslationInvariantViolationError captures invariant failures in translation grouping operations.
 type TranslationInvariantViolationError struct {
-	EntityID           uuid.UUID
-	SourceLocale       string
-	TargetLocale       string
-	TranslationGroupID *uuid.UUID
-	Environment        string
-	Message            string
+	EntityID     uuid.UUID
+	SourceLocale string
+	TargetLocale string
+	FamilyID     *uuid.UUID
+	Environment  string
+	Message      string
 }
 
 func (e *TranslationInvariantViolationError) Error() string {
