@@ -143,7 +143,6 @@ func assertNoInternalTypeRefs(t *testing.T, name string, typ reflect.Type, seen 
 		}
 	case reflect.Interface:
 		for method := range typ.Methods() {
-			method := method
 			assertNoInternalTypeRefs(t, name+"."+method.Name, method.Type, seen)
 		}
 	case reflect.Func:
