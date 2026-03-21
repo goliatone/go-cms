@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	sharedi18n "github.com/goliatone/go-i18n"
 )
 
 // LocaleConfig describes a locale definition and its fallback behaviour.
@@ -27,13 +28,13 @@ func FromModuleConfig(defaultLocale string, locales []string) Config {
 	normalized := make([]LocaleConfig, 0, len(locales))
 	seen := map[string]struct{}{}
 
-	defaultCode := normalizeLocale(defaultLocale)
+	defaultCode := sharedi18n.NormalizeLocale(defaultLocale)
 	if defaultCode == "" {
 		defaultCode = "en"
 	}
 
 	for _, lc := range locales {
-		code := normalizeLocale(lc)
+		code := sharedi18n.NormalizeLocale(lc)
 		if code == "" {
 			continue
 		}
@@ -74,23 +75,18 @@ func (c Config) LocaleCodes() []string {
 	}
 
 	codes := make([]string, 0, len(c.Locales))
-	seen := map[string]struct{}{}
-
 	for _, loc := range c.Locales {
-		code := normalizeLocale(loc.Code)
-		if code == "" {
-			continue
-		}
+		codes = append(codes, loc.Code)
+	}
+	codes = sharedi18n.NormalizeLocales(codes)
 
-		if _, ok := seen[code]; ok {
-			continue
+	if c.DefaultLocale != "" {
+		if !containsLocale(codes, c.DefaultLocale) {
+			codes = append([]string{c.DefaultLocale}, codes...)
 		}
-
-		seen[code] = struct{}{}
-		codes = append(codes, code)
 	}
 
-	if _, ok := seen[c.DefaultLocale]; !ok && c.DefaultLocale != "" {
+	if len(codes) == 0 && c.DefaultLocale != "" {
 		codes = append([]string{c.DefaultLocale}, codes...)
 	}
 
@@ -99,13 +95,13 @@ func (c Config) LocaleCodes() []string {
 
 // Fallbacks returns the configured fallback chain for a locale.
 func (c Config) Fallbacks(locale string) []string {
-	code := normalizeLocale(locale)
+	code := sharedi18n.NormalizeLocale(locale)
 	if code == "" {
 		return []string{c.DefaultLocale}
 	}
 
 	for _, loc := range c.Locales {
-		if normalizeLocale(loc.Code) != code {
+		if sharedi18n.NormalizeLocale(loc.Code) != code {
 			continue
 		}
 
@@ -117,42 +113,29 @@ func (c Config) Fallbacks(locale string) []string {
 			return []string{code, c.DefaultLocale}
 		}
 
-		chain := []string{code}
-		for _, fb := range loc.Fallbacks {
-			normalized := normalizeLocale(fb)
-			if normalized == "" {
-				continue
-			}
-			if normalized == code {
-				continue
-			}
-
-			chain = append(chain, normalized)
-		}
-
-		if c.DefaultLocale != "" && chain[len(chain)-1] != c.DefaultLocale {
+		chain := append([]string{code}, loc.Fallbacks...)
+		if c.DefaultLocale != "" {
 			chain = append(chain, c.DefaultLocale)
 		}
-
-		return dedupePreserveOrder(chain)
+		return sharedi18n.NormalizeLocales(chain)
 	}
 
 	if c.DefaultLocale == "" {
 		return []string{code}
 	}
 
-	return dedupePreserveOrder([]string{code, c.DefaultLocale})
+	return sharedi18n.NormalizeLocales([]string{code, c.DefaultLocale})
 }
 
 // WithFallbacks registers fallbacks for the provided locale code.
 func (c *Config) WithFallbacks(locale string, fallbacks ...string) {
-	target := normalizeLocale(locale)
+	target := sharedi18n.NormalizeLocale(locale)
 	if target == "" {
 		return
 	}
 
 	for i := range c.Locales {
-		if normalizeLocale(c.Locales[i].Code) == target {
+		if sharedi18n.NormalizeLocale(c.Locales[i].Code) == target {
 			c.Locales[i].Fallbacks = normalizeSlice(fallbacks)
 			return
 		}
@@ -178,19 +161,19 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("decode i18n config: %w", err)
 	}
 
-	aux.DefaultLocale = normalizeLocale(aux.DefaultLocale)
+	aux.DefaultLocale = sharedi18n.NormalizeLocale(aux.DefaultLocale)
 	aux.TemplateHelperKey = strings.TrimSpace(aux.TemplateHelperKey)
 	aux.LocaleContextKey = strings.TrimSpace(aux.LocaleContextKey)
 
 	if aux.DefaultLocale == "" && len(aux.Locales) > 0 {
-		aux.DefaultLocale = normalizeLocale(aux.Locales[0].Code)
+		aux.DefaultLocale = sharedi18n.NormalizeLocale(aux.Locales[0].Code)
 	}
 
 	codes := map[string]struct{}{}
 	locales := make([]LocaleConfig, 0, len(aux.Locales))
 
 	for _, loc := range aux.Locales {
-		code := normalizeLocale(loc.Code)
+		code := sharedi18n.NormalizeLocale(loc.Code)
 		if code == "" {
 			continue
 		}
@@ -216,32 +199,19 @@ func (c *Config) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-func normalizeLocale(code string) string {
-	return strings.ToLower(strings.TrimSpace(code))
-}
-
-func dedupePreserveOrder(values []string) []string {
-	out := make([]string, 0, len(values))
-	seen := map[string]struct{}{}
-
-	for _, value := range values {
-		v := normalizeLocale(value)
-		if v == "" {
-			continue
-		}
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-
-	return out
-}
-
 func normalizeSlice(input []string) []string {
-	if len(input) == 0 {
-		return nil
+	return sharedi18n.NormalizeLocales(input)
+}
+
+func containsLocale(values []string, candidate string) bool {
+	candidate = sharedi18n.NormalizeLocale(candidate)
+	if candidate == "" {
+		return false
 	}
-	return dedupePreserveOrder(input)
+	for _, value := range values {
+		if sharedi18n.NormalizeLocale(value) == candidate {
+			return true
+		}
+	}
+	return false
 }
