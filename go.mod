@@ -8,6 +8,7 @@ require (
 	github.com/goliatone/go-command v0.18.0
 	github.com/goliatone/go-crud v0.23.0
 	github.com/goliatone/go-errors v0.10.0
+	github.com/goliatone/go-i18n v0.4.0
 	github.com/goliatone/go-logger v0.8.0
 	github.com/goliatone/go-persistence-bun v0.13.0
 	github.com/goliatone/go-repository-bun v0.15.1
@@ -15,7 +16,7 @@ require (
 	github.com/goliatone/go-slug v0.1.0
 	github.com/goliatone/go-theme v0.3.0
 	github.com/goliatone/go-urlkit v0.6.0
-	github.com/goliatone/go-users v0.17.0
+	github.com/goliatone/go-users v0.18.0
 	github.com/goliatone/hashid v0.2.0
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
@@ -51,7 +52,7 @@ require (
 	github.com/gofiber/template/django/v3 v3.1.14 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
-	github.com/goliatone/go-router v0.50.0 // indirect
+	github.com/goliatone/go-router v0.53.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
