@@ -584,6 +584,18 @@ func (r *BunLocaleRepository) GetByID(ctx context.Context, id uuid.UUID) (*Local
 	return result, nil
 }
 
+func (r *BunLocaleRepository) List(ctx context.Context) ([]*Locale, error) {
+	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
+		return q.
+			OrderExpr("is_default DESC").
+			OrderExpr("LOWER(code) ASC")
+	}))
+	if err != nil {
+		return nil, mapRepositoryError(err, "locale", "")
+	}
+	return records, nil
+}
+
 func normalizeEnvironmentKey(env ...string) string {
 	if len(env) == 0 {
 		return ""
