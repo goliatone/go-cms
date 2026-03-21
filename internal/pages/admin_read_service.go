@@ -13,6 +13,7 @@ import (
 	"github.com/goliatone/go-cms/internal/content"
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	sharedi18n "github.com/goliatone/go-i18n"
 	"github.com/google/uuid"
 )
 
@@ -55,7 +56,7 @@ func (s *adminPageReadService) List(ctx context.Context, opts interfaces.AdminPa
 	}
 
 	includes := resolveAdminPageIncludes(true, opts.IncludeContent, opts.IncludeBlocks, opts.IncludeData, opts.DefaultIncludes)
-	requestedLocale := strings.TrimSpace(opts.Locale)
+	requestedLocale := sharedi18n.NormalizeLocale(opts.Locale)
 	primaryLocaleID, primaryLocaleCode, err := s.resolveLocale(ctx, requestedLocale)
 	if err != nil {
 		return nil, 0, err
@@ -118,7 +119,7 @@ func (s *adminPageReadService) Get(ctx context.Context, id string, opts interfac
 	}
 
 	includes := resolveAdminPageIncludes(false, opts.IncludeContent, opts.IncludeBlocks, opts.IncludeData, opts.DefaultIncludes)
-	requestedLocale := strings.TrimSpace(opts.Locale)
+	requestedLocale := sharedi18n.NormalizeLocale(opts.Locale)
 	primaryLocaleID, primaryLocaleCode, err := s.resolveLocale(ctx, requestedLocale)
 	if err != nil {
 		return nil, err
@@ -176,25 +177,25 @@ type adminReadContext struct {
 }
 
 func (s *adminPageReadService) resolveLocale(ctx context.Context, code string) (uuid.UUID, string, error) {
-	trimmed := strings.TrimSpace(code)
-	if trimmed == "" {
+	normalized := sharedi18n.NormalizeLocale(code)
+	if normalized == "" {
 		return uuid.Nil, "", nil
 	}
 	if s == nil || s.locales == nil {
-		return uuid.Nil, trimmed, nil
+		return uuid.Nil, normalized, nil
 	}
-	locale, err := s.locales.GetByCode(ctx, trimmed)
+	locale, err := s.locales.GetByCode(ctx, normalized)
 	if err != nil {
 		var notFound *content.NotFoundError
 		if errors.As(err, &notFound) {
-			return uuid.Nil, trimmed, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", trimmed))
+			return uuid.Nil, normalized, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", normalized))
 		}
-		return uuid.Nil, trimmed, err
+		return uuid.Nil, normalized, err
 	}
 	if locale == nil {
-		return uuid.Nil, trimmed, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", trimmed))
+		return uuid.Nil, normalized, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", normalized))
 	}
-	return locale.ID, locale.Code, nil
+	return locale.ID, sharedi18n.NormalizeLocale(locale.Code), nil
 }
 
 func (s *adminPageReadService) buildRecord(ctx context.Context, page *Page, state adminReadContext) (interfaces.AdminPageRecord, error) {
@@ -349,8 +350,9 @@ func resolvePageTranslation(translations []*PageTranslation, primaryID uuid.UUID
 		}
 	}
 	if primaryCode != "" {
+		primaryCode = sharedi18n.NormalizeLocale(primaryCode)
 		for _, tr := range translations {
-			if tr != nil && strings.EqualFold(tr.Locale, primaryCode) {
+			if tr != nil && sharedi18n.NormalizeLocale(tr.Locale) == primaryCode {
 				return tr, primaryCode
 			}
 		}
@@ -363,8 +365,9 @@ func resolvePageTranslation(translations []*PageTranslation, primaryID uuid.UUID
 		}
 	}
 	if fallbackCode != "" {
+		fallbackCode = sharedi18n.NormalizeLocale(fallbackCode)
 		for _, tr := range translations {
-			if tr != nil && strings.EqualFold(tr.Locale, fallbackCode) {
+			if tr != nil && sharedi18n.NormalizeLocale(tr.Locale) == fallbackCode {
 				return tr, fallbackCode
 			}
 		}
@@ -384,11 +387,12 @@ func resolveContentTranslation(record *content.Content, primaryID uuid.UUID, pri
 		}
 	}
 	if primaryCode != "" {
+		primaryCode = sharedi18n.NormalizeLocale(primaryCode)
 		for _, tr := range record.Translations {
 			if tr == nil {
 				continue
 			}
-			if tr.Locale != nil && strings.EqualFold(tr.Locale.Code, primaryCode) {
+			if tr.Locale != nil && sharedi18n.NormalizeLocale(tr.Locale.Code) == primaryCode {
 				return tr, resolveContentTranslationLocale(tr, primaryCode)
 			}
 		}
@@ -401,11 +405,12 @@ func resolveContentTranslation(record *content.Content, primaryID uuid.UUID, pri
 		}
 	}
 	if fallbackCode != "" {
+		fallbackCode = sharedi18n.NormalizeLocale(fallbackCode)
 		for _, tr := range record.Translations {
 			if tr == nil {
 				continue
 			}
-			if tr.Locale != nil && strings.EqualFold(tr.Locale.Code, fallbackCode) {
+			if tr.Locale != nil && sharedi18n.NormalizeLocale(tr.Locale.Code) == fallbackCode {
 				return tr, resolveContentTranslationLocale(tr, fallbackCode)
 			}
 		}
@@ -415,14 +420,14 @@ func resolveContentTranslation(record *content.Content, primaryID uuid.UUID, pri
 
 func resolveContentTranslationLocale(tr *content.ContentTranslation, fallback string) string {
 	if tr == nil {
-		return strings.TrimSpace(fallback)
+		return sharedi18n.NormalizeLocale(fallback)
 	}
 	if tr.Locale != nil {
-		if code := strings.TrimSpace(tr.Locale.Code); code != "" {
+		if code := sharedi18n.NormalizeLocale(tr.Locale.Code); code != "" {
 			return code
 		}
 	}
-	return strings.TrimSpace(fallback)
+	return sharedi18n.NormalizeLocale(fallback)
 }
 
 func collectAdminPageLocales(ctx context.Context, locales content.LocaleRepository, page *Page) []string {
@@ -435,7 +440,7 @@ func collectAdminPageLocales(ctx context.Context, locales content.LocaleReposito
 		if tr == nil {
 			continue
 		}
-		code := strings.TrimSpace(tr.Locale)
+		code := sharedi18n.NormalizeLocale(tr.Locale)
 		if code == "" && locales != nil && tr.LocaleID != uuid.Nil {
 			code = adminLocaleCodeByID(ctx, locales, tr.LocaleID)
 		}
@@ -445,7 +450,7 @@ func collectAdminPageLocales(ctx context.Context, locales content.LocaleReposito
 		if code == "" {
 			continue
 		}
-		key := strings.ToLower(code)
+		key := sharedi18n.NormalizeLocale(code)
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -470,7 +475,7 @@ func collectAdminContentLocales(ctx context.Context, locales content.LocaleRepos
 		}
 		code := ""
 		if tr.Locale != nil {
-			code = strings.TrimSpace(tr.Locale.Code)
+			code = sharedi18n.NormalizeLocale(tr.Locale.Code)
 		}
 		if code == "" && locales != nil && tr.LocaleID != uuid.Nil {
 			code = adminLocaleCodeByID(ctx, locales, tr.LocaleID)
@@ -481,7 +486,7 @@ func collectAdminContentLocales(ctx context.Context, locales content.LocaleRepos
 		if code == "" {
 			continue
 		}
-		key := strings.ToLower(code)
+		key := sharedi18n.NormalizeLocale(code)
 		if _, ok := seen[key]; ok {
 			continue
 		}
@@ -502,7 +507,7 @@ func adminLocaleCodeByID(ctx context.Context, locales content.LocaleRepository, 
 	if err != nil || locale == nil {
 		return ""
 	}
-	return strings.TrimSpace(locale.Code)
+	return sharedi18n.NormalizeLocale(locale.Code)
 }
 
 func buildTranslationData(
@@ -707,12 +712,12 @@ func buildAdminContentTranslationBundle(requestedLocale, resolvedLocale string, 
 }
 
 func buildAdminTranslationMeta(requestedLocale, resolvedLocale string, availableLocales []string, primaryLocale string) interfaces.TranslationMeta {
-	requested := strings.TrimSpace(requestedLocale)
-	resolved := strings.TrimSpace(resolvedLocale)
+	requested := sharedi18n.NormalizeLocale(requestedLocale)
+	resolved := sharedi18n.NormalizeLocale(resolvedLocale)
 	meta := interfaces.TranslationMeta{
 		RequestedLocale: requested,
 		ResolvedLocale:  resolved,
-		PrimaryLocale:   strings.TrimSpace(primaryLocale),
+		PrimaryLocale:   sharedi18n.NormalizeLocale(primaryLocale),
 	}
 	if len(availableLocales) > 0 {
 		meta.AvailableLocales = append([]string(nil), availableLocales...)
@@ -730,9 +735,9 @@ func toInterfacesPageTranslation(translation *PageTranslation, locale string) *i
 	if translation == nil {
 		return nil
 	}
-	resolvedLocale := strings.TrimSpace(locale)
-	if strings.TrimSpace(translation.Locale) != "" {
-		resolvedLocale = strings.TrimSpace(translation.Locale)
+	resolvedLocale := sharedi18n.NormalizeLocale(locale)
+	if code := sharedi18n.NormalizeLocale(translation.Locale); code != "" {
+		resolvedLocale = code
 	}
 	return &interfaces.PageTranslation{
 		ID:       translation.ID,
@@ -748,9 +753,11 @@ func toInterfacesContentTranslation(translation *content.ContentTranslation, loc
 	if translation == nil {
 		return nil
 	}
-	resolvedLocale := strings.TrimSpace(locale)
-	if translation.Locale != nil && strings.TrimSpace(translation.Locale.Code) != "" {
-		resolvedLocale = strings.TrimSpace(translation.Locale.Code)
+	resolvedLocale := sharedi18n.NormalizeLocale(locale)
+	if translation.Locale != nil {
+		if code := sharedi18n.NormalizeLocale(translation.Locale.Code); code != "" {
+			resolvedLocale = code
+		}
 	}
 	return &interfaces.ContentTranslation{
 		ID:       translation.ID,
