@@ -4,13 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/goliatone/go-cms/internal/content"
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	sharedi18n "github.com/goliatone/go-i18n"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
 )
@@ -48,7 +49,7 @@ func (s *adminPageDBReadService) List(ctx context.Context, opts interfaces.Admin
 	}
 
 	includes := resolveAdminPageIncludes(true, opts.IncludeContent, opts.IncludeBlocks, opts.IncludeData, opts.DefaultIncludes)
-	requestedLocale := strings.TrimSpace(opts.Locale)
+	requestedLocale := sharedi18n.NormalizeLocale(opts.Locale)
 	primaryLocaleID, primaryLocaleCode, err := s.base.resolveLocale(ctx, requestedLocale)
 	if err != nil {
 		return nil, 0, err
@@ -283,7 +284,8 @@ func pageTranslationJoin(alias string, localeID uuid.UUID, localeCode string) (s
 	if localeID != uuid.Nil {
 		return join + fmt.Sprintf(" AND %s.locale_id = ?", alias), []any{localeID}
 	}
-	if strings.TrimSpace(localeCode) == "" {
+	localeCode = sharedi18n.NormalizeLocale(localeCode)
+	if localeCode == "" {
 		return join + " AND 1=0", nil
 	}
 	return join + fmt.Sprintf(" AND %s.locale_id = (SELECT id FROM locales WHERE LOWER(code) = LOWER(?) LIMIT 1)", alias), []any{localeCode}
@@ -294,7 +296,8 @@ func contentTranslationJoin(alias string, localeID uuid.UUID, localeCode string)
 	if localeID != uuid.Nil {
 		return join + fmt.Sprintf(" AND %s.locale_id = ?", alias), []any{localeID}
 	}
-	if strings.TrimSpace(localeCode) == "" {
+	localeCode = sharedi18n.NormalizeLocale(localeCode)
+	if localeCode == "" {
 		return join + " AND 1=0", nil
 	}
 	return join + fmt.Sprintf(" AND %s.locale_id = (SELECT id FROM locales WHERE LOWER(code) = LOWER(?) LIMIT 1)", alias), []any{localeCode}
@@ -308,7 +311,7 @@ func applyAdminPageDBFilters(query *bun.SelectQuery, expr adminPageDBExpressions
 		if !applyAdminPageDBFilterValues(query, "LOWER(p.status)", filters["status"]) {
 			return false
 		}
-		if !applyAdminPageDBFilterValues(query, "LOWER("+expr.pageResolvedLocale+")", filters["locale"], expr.pageResolvedLocaleArgs...) {
+		if !applyAdminPageDBLocaleFilterValues(query, "LOWER("+expr.pageResolvedLocale+")", filters["locale"], expr.pageResolvedLocaleArgs...) {
 			return false
 		}
 		if !applyAdminPageDBFilterValues(query, "LOWER(CAST(p.template_id AS TEXT))", filters["template_id"]) {
@@ -338,7 +341,9 @@ func applyAdminPageDBFilters(query *bun.SelectQuery, expr adminPageDBExpressions
 }
 
 func applyAdminPageDBFilterValues(query *bun.SelectQuery, field string, filter any, extraArgs ...any) bool {
-	values, ok := normalizeAdminPageFilterValues(filter)
+	values, ok := normalizeAdminPageFilterValues(filter, func(value string) string {
+		return strings.ToLower(strings.TrimSpace(value))
+	})
 	if !ok {
 		query.Where("1=0")
 		return false
@@ -352,23 +357,50 @@ func applyAdminPageDBFilterValues(query *bun.SelectQuery, field string, filter a
 	return true
 }
 
-func normalizeAdminPageFilterValues(filter any) ([]string, bool) {
+func applyAdminPageDBLocaleFilterValues(query *bun.SelectQuery, field string, filter any, extraArgs ...any) bool {
+	values, ok := normalizeAdminPageFilterValues(filter, func(value string) string {
+		normalized := sharedi18n.NormalizeLocale(value)
+		if normalized == "" {
+			return ""
+		}
+		return strings.ToLower(normalized)
+	})
+	if !ok {
+		query.Where("1=0")
+		return false
+	}
+	if len(values) == 0 {
+		return true
+	}
+	args := append([]any{}, extraArgs...)
+	args = append(args, bun.In(values))
+	query.Where(field+" IN (?)", args...)
+	return true
+}
+
+func normalizeAdminPageFilterValues(filter any, normalize func(string) string) ([]string, bool) {
 	if filter == nil {
 		return nil, true
+	}
+	if normalize == nil {
+		normalize = func(value string) string {
+			return strings.TrimSpace(value)
+		}
 	}
 	var values []string
 	switch typed := filter.(type) {
 	case string:
-		if text := strings.TrimSpace(typed); text != "" {
-			values = append(values, strings.ToLower(text))
+		if text := normalize(typed); text != "" {
+			values = append(values, text)
 		}
 	case []string:
 		if len(typed) == 0 {
 			return nil, true
 		}
 		for _, entry := range typed {
-			text := strings.TrimSpace(entry)
-			values = append(values, strings.ToLower(text))
+			if text := normalize(entry); text != "" {
+				values = append(values, text)
+			}
 		}
 	case []any:
 		if len(typed) == 0 {
@@ -377,8 +409,9 @@ func normalizeAdminPageFilterValues(filter any) ([]string, bool) {
 		hasString := false
 		for _, entry := range typed {
 			if text, ok := entry.(string); ok {
-				trimmed := strings.TrimSpace(text)
-				values = append(values, strings.ToLower(trimmed))
+				if normalized := normalize(text); normalized != "" {
+					values = append(values, normalized)
+				}
 				hasString = true
 			}
 		}
@@ -493,11 +526,11 @@ func collectAdminLocales(rows []adminTranslationLocaleRow) map[uuid.UUID][]strin
 		if row.OwnerID == uuid.Nil {
 			continue
 		}
-		code := strings.TrimSpace(row.Locale)
+		code := sharedi18n.NormalizeLocale(row.Locale)
 		if code == "" {
 			continue
 		}
-		key := strings.ToLower(code)
+		key := code
 		entry := buckets[row.OwnerID]
 		if entry == nil {
 			entry = map[string]string{}
@@ -516,18 +549,16 @@ func collectAdminLocales(rows []adminTranslationLocaleRow) map[uuid.UUID][]strin
 		for _, code := range entry {
 			locales = append(locales, code)
 		}
-		sort.Slice(locales, func(i, j int) bool {
-			return strings.ToLower(locales[i]) < strings.ToLower(locales[j])
-		})
+		slices.Sort(locales)
 		out[id] = locales
 	}
 	return out
 }
 
 func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailableLocales, contentAvailableLocales []string) interfaces.AdminPageRecord {
-	requestedLocale = strings.TrimSpace(requestedLocale)
-	pageResolvedLocale := strings.TrimSpace(row.PageResolvedLocale)
-	contentResolvedLocale := strings.TrimSpace(row.ContentResolvedLocale)
+	requestedLocale = sharedi18n.NormalizeLocale(requestedLocale)
+	pageResolvedLocale := sharedi18n.NormalizeLocale(row.PageResolvedLocale)
+	contentResolvedLocale := sharedi18n.NormalizeLocale(row.ContentResolvedLocale)
 	pageMeta := buildAdminTranslationMeta(requestedLocale, pageResolvedLocale, pageAvailableLocales, row.PagePrimaryLocale)
 	contentMeta := buildAdminTranslationMeta(requestedLocale, contentResolvedLocale, contentAvailableLocales, row.ContentPrimaryLocale)
 
@@ -604,6 +635,8 @@ func mapAdminPageDBRow(row adminPageDBRow, requestedLocale string, pageAvailable
 }
 
 func dedupeAdminLocales(primaryID uuid.UUID, primaryCode string, fallbackID uuid.UUID, fallbackCode string) (uuid.UUID, string, uuid.UUID, string) {
+	primaryCode = sharedi18n.NormalizeLocale(primaryCode)
+	fallbackCode = sharedi18n.NormalizeLocale(fallbackCode)
 	if primaryID != uuid.Nil && fallbackID == primaryID {
 		return primaryID, primaryCode, uuid.Nil, ""
 	}
