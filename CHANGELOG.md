@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.42.0](https://github.com/goliatone/go-cms/compare/v0.41.0...v0.42.0) - (2026-03-21)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.42.0 ([9d85e40](https://github.com/goliatone/go-cms/commit/9d85e405702ef3af374d025d366530f3faff2c53))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Normalzie locale using i18n ([f2d62f9](https://github.com/goliatone/go-cms/commit/f2d62f92959ca610c923716204a4d27b822721b0))  - (goliatone)
+- List locales ([59eeea3](https://github.com/goliatone/go-cms/commit/59eeea3ac6b31a370da33d6e81fd968c7d21c8bc))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.41.0 ([f5544f4](https://github.com/goliatone/go-cms/commit/f5544f4d66b937a72ba481c5d89807a5ca5b5ba1))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([f26bc0d](https://github.com/goliatone/go-cms/commit/f26bc0d27c3bd87fd8f941be42b67fd2ec8ff3dd))  - (goliatone)
+- Update examples ([1d827c6](https://github.com/goliatone/go-cms/commit/1d827c669786ab805e2395ee33217bbde64e083d))  - (goliatone)
+- Update tests ([acdfabe](https://github.com/goliatone/go-cms/commit/acdfabe2f21c14dbacecee2218c8f94942163454))  - (goliatone)
+
 # [0.41.0](https://github.com/goliatone/go-cms/compare/v0.40.0...v0.41.0) - (2026-03-17)
 
 ## <!-- 1 -->🐛 Bug Fixes
