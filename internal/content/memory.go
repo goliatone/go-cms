@@ -744,3 +744,32 @@ func (m *MemoryLocaleRepository) GetByID(_ context.Context, id uuid.UUID) (*Loca
 	copied := *loc
 	return &copied, nil
 }
+
+// List returns all locales in a stable order with the default locale first.
+func (m *MemoryLocaleRepository) List(_ context.Context) ([]*Locale, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	locales := make([]*Locale, 0, len(m.locales))
+	for _, locale := range m.locales {
+		if locale == nil {
+			continue
+		}
+		copied := *locale
+		locales = append(locales, &copied)
+	}
+
+	sort.SliceStable(locales, func(i, j int) bool {
+		left := locales[i]
+		right := locales[j]
+		if left == nil || right == nil {
+			return left != nil
+		}
+		if left.IsDefault != right.IsDefault {
+			return left.IsDefault
+		}
+		return strings.ToLower(left.Code) < strings.ToLower(right.Code)
+	})
+
+	return locales, nil
+}
