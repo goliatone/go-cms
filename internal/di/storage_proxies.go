@@ -2,6 +2,7 @@ package di
 
 import (
 	"context"
+	"fmt"
 	"sync"
 
 	"github.com/goliatone/go-cms/internal/blocks"
@@ -188,6 +189,16 @@ func (p *localeRepositoryProxy) GetByCode(ctx context.Context, code string) (*co
 
 func (p *localeRepositoryProxy) GetByID(ctx context.Context, id uuid.UUID) (*content.Locale, error) {
 	return p.current().GetByID(ctx, id)
+}
+
+func (p *localeRepositoryProxy) List(ctx context.Context) ([]*content.Locale, error) {
+	current := p.current()
+	if repo, ok := current.(interface {
+		List(context.Context) ([]*content.Locale, error)
+	}); ok && repo != nil {
+		return repo.List(ctx)
+	}
+	return nil, fmt.Errorf("locale repository does not support listing")
 }
 
 func (p *localeRepositoryProxy) Put(locale *content.Locale) {
