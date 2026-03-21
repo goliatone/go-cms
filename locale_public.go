@@ -9,6 +9,7 @@ import (
 
 	"github.com/goliatone/go-cms/content"
 	internalcontent "github.com/goliatone/go-cms/internal/content"
+	sharedi18n "github.com/goliatone/go-i18n"
 	"github.com/google/uuid"
 )
 
@@ -52,12 +53,22 @@ type LocaleService interface {
 	ResolveByCode(ctx context.Context, code string) (LocaleInfo, error)
 }
 
+// ActiveLocaleService exposes the active locale catalog when the underlying
+// repository supports listing locale records.
+type ActiveLocaleService interface {
+	ActiveLocales(ctx context.Context) ([]LocaleInfo, error)
+}
+
 type localeService struct {
 	module *Module
 }
 
 func newLocaleService(m *Module) LocaleService {
 	return &localeService{module: m}
+}
+
+type localeListRepository interface {
+	List(ctx context.Context) ([]*internalcontent.Locale, error)
 }
 
 func (s *localeService) ResolveByCode(ctx context.Context, code string) (LocaleInfo, error) {
@@ -87,15 +98,52 @@ func (s *localeService) ResolveByCode(ctx context.Context, code string) (LocaleI
 		return LocaleInfo{}, &LocaleNotFoundError{Code: code}
 	}
 
+	return localeInfoFromRecord(locale), nil
+}
+
+func (s *localeService) ActiveLocales(ctx context.Context) ([]LocaleInfo, error) {
+	if s == nil || s.module == nil || s.module.container == nil {
+		return nil, errNilModule
+	}
+
+	repo := s.module.container.LocaleRepository()
+	if repo == nil {
+		return nil, errNilModule
+	}
+
+	lister, ok := repo.(localeListRepository)
+	if !ok || lister == nil {
+		return nil, fmt.Errorf("cms: locale repository does not support listing")
+	}
+
+	records, err := lister.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	locales := make([]LocaleInfo, 0, len(records))
+	for _, locale := range records {
+		if locale == nil || !locale.IsActive {
+			continue
+		}
+		locales = append(locales, localeInfoFromRecord(locale))
+	}
+	return locales, nil
+}
+
+func localeInfoFromRecord(locale *internalcontent.Locale) LocaleInfo {
+	if locale == nil {
+		return LocaleInfo{}
+	}
 	return LocaleInfo{
 		ID:         locale.ID,
-		Code:       locale.Code,
+		Code:       sharedi18n.NormalizeLocale(locale.Code),
 		Display:    locale.Display,
 		NativeName: cloneStringPtr(locale.NativeName),
 		IsActive:   locale.IsActive,
 		IsDefault:  locale.IsDefault,
 		Metadata:   cloneMap(locale.Metadata),
-	}, nil
+	}
 }
 
 func cloneMap(src map[string]any) map[string]any {
