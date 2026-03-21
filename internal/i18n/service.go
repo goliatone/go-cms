@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	sharedi18n "github.com/goliatone/go-i18n"
 )
 
 // Service aggregates translator + helper wiring.
@@ -56,7 +57,7 @@ func NewService(opts ServiceOptions) Service {
 		return NewNoOpService()
 	}
 
-	defaultLocale := normalizeLocale(opts.DefaultLocale)
+	defaultLocale := sharedi18n.NormalizeLocale(opts.DefaultLocale)
 	if defaultLocale == "" {
 		defaultLocale = "en"
 	}
@@ -122,12 +123,12 @@ type staticTranslator struct {
 func newStaticTranslator(cfg Config, translations map[string]map[string]string) *staticTranslator {
 	fallbacks := make(map[string][]string, len(cfg.Locales))
 	for _, loc := range cfg.Locales {
-		fallbacks[normalizeLocale(loc.Code)] = cfg.Fallbacks(loc.Code)
+		fallbacks[sharedi18n.NormalizeLocale(loc.Code)] = cfg.Fallbacks(loc.Code)
 	}
 
 	sanitised := make(map[string]map[string]string, len(translations))
 	for rawLocale, entries := range translations {
-		locale := normalizeLocale(rawLocale)
+		locale := sharedi18n.NormalizeLocale(rawLocale)
 		if locale == "" {
 			continue
 		}
@@ -170,7 +171,7 @@ func (t *staticTranslator) Translate(locale, key string, args ...any) (string, e
 }
 
 func (t *staticTranslator) candidateLocales(locale string) []string {
-	normalized := normalizeLocale(locale)
+	normalized := sharedi18n.NormalizeLocale(locale)
 	if normalized == "" {
 		normalized = t.defaultLocale
 	}
@@ -178,17 +179,12 @@ func (t *staticTranslator) candidateLocales(locale string) []string {
 		normalized = "en"
 	}
 
-	sequence := append([]string{}, t.fallbacks[normalized]...)
-	if len(sequence) == 0 || sequence[0] != normalized {
-		sequence = append([]string{normalized}, sequence...)
-	}
-
-	// Always append default locale as final fallback.
+	sequence := append([]string{normalized}, t.fallbacks[normalized]...)
 	if t.defaultLocale != "" {
 		sequence = append(sequence, t.defaultLocale)
 	}
 
-	return dedupePreserveOrder(sequence)
+	return sharedi18n.NormalizeLocales(sequence)
 }
 
 // NoOpService is a placeholder that satisfies the contract without performing translations.
