@@ -301,6 +301,101 @@ func TestAdminPageReadServiceFallbackLocale(t *testing.T) {
 	expectDataString(t, record.Data, "resolved_locale", "es")
 }
 
+func TestAdminPageReadServiceCanonicalizesRequestedAndFallbackLocales(t *testing.T) {
+	ctx := context.Background()
+	localeRepo := content.NewMemoryLocaleRepository()
+	localeEN := uuid.New()
+	localeESMX := uuid.New()
+	localeRepo.Put(&content.Locale{
+		ID:       localeEN,
+		Code:     "en-US",
+		Display:  "English (US)",
+		IsActive: true,
+	})
+	localeRepo.Put(&content.Locale{
+		ID:       localeESMX,
+		Code:     "es-MX",
+		Display:  "Spanish (Mexico)",
+		IsActive: true,
+	})
+
+	contentTypeRepo := content.NewMemoryContentTypeRepository()
+	contentTypeID := uuid.New()
+	seedContentType(t, contentTypeRepo, &content.ContentType{
+		ID:            contentTypeID,
+		Name:          "Page",
+		SchemaVersion: "schema-v1",
+	})
+
+	contentRepo := content.NewMemoryContentRepository()
+	contentID := uuid.New()
+	_, err := contentRepo.Create(ctx, &content.Content{
+		ID:            contentID,
+		ContentTypeID: contentTypeID,
+		Slug:          "content",
+		Status:        "draft",
+		Translations: []*content.ContentTranslation{
+			{
+				ID:        uuid.New(),
+				ContentID: contentID,
+				LocaleID:  localeESMX,
+				Title:     "Contenido",
+				Content: map[string]any{
+					"content": "Hola",
+				},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed content: %v", err)
+	}
+
+	pageRepo := pages.NewMemoryPageRepository()
+	pageID := uuid.New()
+	_, err = pageRepo.Create(ctx, &pages.Page{
+		ID:         pageID,
+		ContentID:  contentID,
+		TemplateID: uuid.New(),
+		Slug:       "home",
+		Status:     "draft",
+		Translations: []*pages.PageTranslation{
+			{
+				ID:       uuid.New(),
+				PageID:   pageID,
+				LocaleID: localeESMX,
+				Locale:   "es_mx",
+				Title:    "Titulo ES",
+				Path:     "/es-mx",
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("seed page: %v", err)
+	}
+
+	contentSvc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	pageSvc := pages.NewService(pageRepo, contentRepo, localeRepo)
+	adminSvc := pages.NewAdminPageReadService(pageSvc, contentSvc, localeRepo)
+
+	record, err := adminSvc.Get(ctx, pageID.String(), interfaces.AdminPageGetOptions{
+		Locale:         " EN_us ",
+		FallbackLocale: " es_mx ",
+		IncludeData:    true,
+	})
+	if err != nil {
+		t.Fatalf("get admin record: %v", err)
+	}
+	if record.RequestedLocale != "en-US" {
+		t.Fatalf("expected canonical requested locale en-US, got %q", record.RequestedLocale)
+	}
+	if record.ResolvedLocale != "es-MX" {
+		t.Fatalf("expected canonical resolved locale es-MX, got %q", record.ResolvedLocale)
+	}
+	expectDataString(t, record.Data, "requested_locale", "en-US")
+	expectDataString(t, record.Data, "resolved_locale", "es-MX")
+	expectDataLocales(t, record.Data, "available_locales", []string{"es-MX"})
+}
+
 func TestAdminPageReadServiceMissingTranslationAllowed(t *testing.T) {
 	ctx := context.Background()
 	localeRepo := content.NewMemoryLocaleRepository()

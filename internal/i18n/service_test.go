@@ -12,7 +12,7 @@ func TestServiceTranslateWithFallback(t *testing.T) {
 	translator := svc.Translator()
 
 	t.Run("falls back to regional parent", func(t *testing.T) {
-		got, err := translator.Translate("es-mx", "landing.headline")
+		got, err := translator.Translate(" ES_mx ", "landing.headline")
 		if err != nil {
 			t.Fatalf("translate: %v", err)
 		}

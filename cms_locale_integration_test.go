@@ -73,3 +73,37 @@ func TestModule_Locales_ResolveByCodeRequiresCode(t *testing.T) {
 		t.Fatalf("expected ErrLocaleCodeRequired, got %v", err)
 	}
 }
+
+func TestModule_Locales_ActiveLocalesReturnsCanonicalActiveCatalog(t *testing.T) {
+	t.Parallel()
+
+	cfg := cms.DefaultConfig()
+	cfg.DefaultLocale = "en"
+	cfg.I18N.Locales = []string{"en", "ES_mx"}
+
+	module, err := cms.New(cfg)
+	if err != nil {
+		t.Fatalf("new module: %v", err)
+	}
+
+	service, ok := module.Locales().(interface {
+		ActiveLocales(context.Context) ([]cms.LocaleInfo, error)
+	})
+	if !ok {
+		t.Fatalf("expected locale service to expose active locale catalog")
+	}
+
+	locales, err := service.ActiveLocales(context.Background())
+	if err != nil {
+		t.Fatalf("active locales: %v", err)
+	}
+	if len(locales) != 2 {
+		t.Fatalf("expected two active locales, got %d", len(locales))
+	}
+	if locales[0].Code != "en" {
+		t.Fatalf("expected default locale first, got %q", locales[0].Code)
+	}
+	if locales[1].Code != "es-MX" {
+		t.Fatalf("expected canonical locale es-MX, got %q", locales[1].Code)
+	}
+}
