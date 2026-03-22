@@ -137,8 +137,8 @@ func (p *contentTypeRepositoryProxy) List(ctx context.Context, env ...string) ([
 	return p.current().List(ctx, env...)
 }
 
-func (p *contentTypeRepositoryProxy) Search(ctx context.Context, query string, env ...string) ([]*content.ContentType, error) {
-	return p.current().Search(ctx, query, env...)
+func (p *contentTypeRepositoryProxy) Find(ctx context.Context, query string, env ...string) ([]*content.ContentType, error) {
+	return p.current().Find(ctx, query, env...)
 }
 
 func (p *contentTypeRepositoryProxy) Update(ctx context.Context, record *content.ContentType) (*content.ContentType, error) {
