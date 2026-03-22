@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	cmsapi "github.com/goliatone/go-cms/content"
 	"github.com/goliatone/go-cms/internal/domain"
 	cmsenv "github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/internal/logging"
@@ -18,6 +19,7 @@ import (
 	"github.com/goliatone/go-cms/internal/validation"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/lifecycle"
 	"github.com/goliatone/go-slug"
 	"github.com/google/uuid"
 )
@@ -45,7 +47,7 @@ type ContentTypeRepository interface {
 	GetByID(ctx context.Context, id uuid.UUID) (*ContentType, error)
 	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentType, error)
 	List(ctx context.Context, env ...string) ([]*ContentType, error)
-	Search(ctx context.Context, query string, env ...string) ([]*ContentType, error)
+	Find(ctx context.Context, query string, env ...string) ([]*ContentType, error)
 	Update(ctx context.Context, record *ContentType) (*ContentType, error)
 	Delete(ctx context.Context, id uuid.UUID, hardDelete bool) error
 }
@@ -189,6 +191,15 @@ func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	}
 }
 
+// WithLifecycleEmitter wires the lifecycle emitter used for root-record lifecycle events.
+func WithLifecycleEmitter(emitter *lifecycle.Emitter) ServiceOption {
+	return func(svc *service) {
+		if emitter != nil {
+			svc.lifecycle = emitter
+		}
+	}
+}
+
 // WithEnvironmentService wires the environment service for env resolution.
 func WithEnvironmentService(envSvc cmsenv.Service) ServiceOption {
 	return func(svc *service) {
@@ -259,6 +270,7 @@ type service struct {
 	defaultLocale             string
 	defaultLocaleRequired     bool
 	activity                  *activity.Emitter
+	lifecycle                 *lifecycle.Emitter
 	schemaMigrator            *cmsschema.Migrator
 	embeddedBlocks            EmbeddedBlocksResolver
 	envSvc                    cmsenv.Service
@@ -282,6 +294,7 @@ func NewService(contents ContentRepository, types ContentTypeRepository, locales
 		requireTranslations:       true,
 		translationsEnabled:       true,
 		activity:                  activity.NewEmitter(nil, activity.Config{}),
+		lifecycle:                 lifecycle.NewEmitter(nil, lifecycle.Config{}),
 		defaultEnvKey:             cmsenv.DefaultKey,
 		projectionTranslationMode: ProjectionTranslationModeAutoLoad,
 	}
@@ -433,6 +446,97 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 	}
 	if err := s.activity.Emit(ctx, event); err != nil {
 		s.log(ctx).Warn("content.activity_emit_failed", "error", err)
+	}
+}
+
+func (s *service) emitLifecycle(ctx context.Context, event lifecycle.Event) {
+	if s.lifecycle == nil || !s.lifecycle.Enabled() {
+		return
+	}
+	if err := s.lifecycle.Emit(ctx, event); err != nil {
+		s.log(ctx).Warn("content.lifecycle_emit_failed", "error", err)
+	}
+}
+
+type lifecycleSearchState struct {
+	Enabled         bool
+	Index           string
+	ContentTypeID   string
+	ContentTypeSlug string
+}
+
+func searchStateForContentType(record *ContentType, status string) lifecycleSearchState {
+	state := lifecycleSearchState{}
+	if record == nil {
+		return state
+	}
+	state.ContentTypeID = record.ID.String()
+	state.ContentTypeSlug = strings.TrimSpace(record.Slug)
+	contracts := cmsapi.ParseContentTypeCapabilityContracts(record.Capabilities)
+	search := contracts.Search
+	if search == nil {
+		return state
+	}
+	state.Index = strings.TrimSpace(asString(search["index"]))
+	enabled, hasEnabled := search["enabled"].(bool)
+	if !hasEnabled {
+		enabled = state.Index != "" || len(search) > 0
+	}
+	state.Enabled = enabled && strings.EqualFold(strings.TrimSpace(status), string(domain.StatusPublished))
+	return state
+}
+
+func contentLifecycleTransition(previousStatus, nextStatus string) string {
+	prevPublished := strings.EqualFold(strings.TrimSpace(previousStatus), string(domain.StatusPublished))
+	nextPublished := strings.EqualFold(strings.TrimSpace(nextStatus), string(domain.StatusPublished))
+	switch {
+	case !prevPublished && nextPublished:
+		return "publish"
+	case prevPublished && !nextPublished:
+		return "unpublish"
+	default:
+		return "update"
+	}
+}
+
+func (s *service) contentLifecycleEvent(ctx context.Context, record *Content, contentType *ContentType, transition string, translationID uuid.UUID, locale string, metadata map[string]any) lifecycle.Event {
+	state := searchStateForContentType(contentType, record.Status)
+	event := lifecycle.Event{
+		ResourceType:    "content",
+		RecordID:        record.ID.String(),
+		Transition:      transition,
+		TranslationID:   uuidString(translationID),
+		Locale:          strings.TrimSpace(locale),
+		Locales:         collectContentLocalesFromTranslations(record.Translations),
+		Status:          strings.TrimSpace(record.Status),
+		ContentTypeID:   state.ContentTypeID,
+		ContentTypeSlug: state.ContentTypeSlug,
+		SearchEnabled:   state.Enabled,
+		SearchIndex:     state.Index,
+		Metadata:        metadata,
+	}
+	if record.EnvironmentID != uuid.Nil {
+		event.EnvironmentKey = s.environmentKeyForID(ctx, record.EnvironmentID)
+	}
+	return event
+}
+
+func uuidString(id uuid.UUID) string {
+	if id == uuid.Nil {
+		return ""
+	}
+	return id.String()
+}
+
+func asString(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch raw := value.(type) {
+	case string:
+		return raw
+	default:
+		return fmt.Sprint(raw)
 	}
 }
 
@@ -619,6 +723,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		meta["environment_id"] = created.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, pickActor(req.CreatedBy, req.UpdatedBy), "create", "content", created.ID, meta)
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, created, contentType, "create", uuid.Nil, "", meta))
 	if err := s.syncEmbeddedBlocks(ctx, created.ID, req.Translations, pickActor(req.CreatedBy, req.UpdatedBy)); err != nil {
 		logger.Error("embedded block sync failed", "error", err)
 		return nil, err
@@ -756,6 +861,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	now := s.now()
 
 	replaceTranslations := len(req.Translations) > 0
+	previousStatus := existing.Status
 	var translations []*ContentTranslation
 	if replaceTranslations {
 		existingLocales := indexTranslationsByLocaleID(existing.Translations)
@@ -817,6 +923,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		meta["locales"] = collectContentLocalesFromInputs(req.Translations)
 	}
 	s.emitActivity(ctx, req.UpdatedBy, "update", "content", existing.ID, meta)
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, existing, contentType, contentLifecycleTransition(previousStatus, existing.Status), uuid.Nil, "", meta))
 	s.attachContentType(ctx, updated)
 	if replaceTranslations {
 		if err := s.syncEmbeddedBlocks(ctx, updated.ID, req.Translations, req.UpdatedBy); err != nil {
@@ -872,6 +979,11 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "content", record.ID, meta)
+	var contentType *ContentType
+	if s.contentTypes != nil {
+		contentType, _ = s.contentTypes.GetByID(ctx, record.ContentTypeID)
+	}
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, record, contentType, "delete", uuid.Nil, "", meta))
 	return nil
 }
 
@@ -1053,6 +1165,19 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 	if err := s.loadTranslations(ctx, updated); err != nil {
 		return nil, err
 	}
+	meta := map[string]any{
+		"content_id": req.SourceID.String(),
+		"locale":     target.Code,
+		"status":     record.Status,
+	}
+	if record.EnvironmentID != uuid.Nil {
+		meta["environment_id"] = record.EnvironmentID.String()
+	}
+	translationID := createdTranslation.ID
+	if inserted != nil {
+		translationID = inserted.ID
+	}
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, record, contentType, "translation_create", translationID, target.Code, meta))
 	return s.decorateContent(updated), nil
 }
 
@@ -1192,6 +1317,7 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.UpdatedBy, "update", "content_translation", updatedTranslation.ID, meta)
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, record, contentType, "translation_update", updatedTranslation.ID, loc.Code, meta))
 	if err := s.syncEmbeddedBlocks(ctx, req.ContentID, []ContentTranslationInput{{
 		Locale:  loc.Code,
 		Title:   req.Title,
@@ -1289,6 +1415,11 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.DeletedBy, "delete", "content_translation", targetID, meta)
+	var contentType *ContentType
+	if s.contentTypes != nil {
+		contentType, _ = s.contentTypes.GetByID(ctx, record.ContentTypeID)
+	}
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, record, contentType, "translation_delete", targetID, loc.Code, meta))
 	return nil
 }
 
@@ -1647,6 +1778,13 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		meta["environment_id"] = contentRecord.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.PublishedBy, "publish", "content", contentRecord.ID, meta)
+	var publishedType *ContentType
+	if contentRecord.Type != nil {
+		publishedType = contentRecord.Type
+	} else if s.contentTypes != nil {
+		publishedType, _ = s.contentTypes.GetByID(ctx, contentRecord.ContentTypeID)
+	}
+	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, contentRecord, publishedType, "publish", uuid.Nil, "", meta))
 
 	return cloneContentVersion(updatedVersion), nil
 }
