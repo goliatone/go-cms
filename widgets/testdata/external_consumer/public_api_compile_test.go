@@ -84,7 +84,7 @@ func compileTypedPublicCalls(
 	_, _ = contentTypeSvc.Get(ctx, contentTypeID)
 	_, _ = contentTypeSvc.GetBySlug(ctx, "article")
 	_, _ = contentTypeSvc.List(ctx)
-	_, _ = contentTypeSvc.Search(ctx, "article")
+	_, _ = contentTypeSvc.Find(ctx, "article")
 
 	_, _ = pageSvc.Create(ctx, pages.CreatePageRequest{
 		ContentID:  contentID,

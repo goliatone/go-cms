@@ -47,7 +47,7 @@ func TestPublicContractsSupportTypedCRUDAndTranslations(t *testing.T) {
 	if records, err := contentTypeSvc.List(ctx); err != nil || len(records) == 0 {
 		t.Fatalf("content types list: len=%d err=%v", len(records), err)
 	}
-	if records, err := contentTypeSvc.Search(ctx, "article"); err != nil || len(records) == 0 {
+	if records, err := contentTypeSvc.Find(ctx, "article"); err != nil || len(records) == 0 {
 		t.Fatalf("content types search: len=%d err=%v", len(records), err)
 	}
 	updatedTypeName := "Article Post"

@@ -16,6 +16,7 @@ import (
 	"github.com/goliatone/go-cms/internal/widgets"
 	"github.com/goliatone/go-cms/internal/workflow"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/lifecycle"
 	"github.com/google/uuid"
 )
 
@@ -54,6 +55,163 @@ func (f *fakeWorkflowEngine) ApplyEvent(ctx context.Context, input interfaces.Ap
 			Effects:       emitted,
 		},
 	}, nil
+}
+
+func TestPageServiceCreateEmitsLifecycleEvent(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	pageStore := pages.NewMemoryPageRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	localeID := uuid.New()
+	contentTypeID := uuid.New()
+	seedContentType(t, contentTypeStore, &content.ContentType{
+		ID:     contentTypeID,
+		Name:   "landing-page",
+		Slug:   "landing-page",
+		Schema: map[string]any{"fields": []any{"headline"}},
+		Capabilities: map[string]any{
+			"search": map[string]any{
+				"enabled": true,
+				"index":   "pages",
+			},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "home-content",
+		Status:        string(domain.StatusPublished),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Home", Content: map[string]any{"headline": "Hello"}}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	hook := &lifecycle.CaptureHook{}
+	emitter := lifecycle.NewEmitter(lifecycle.Hooks{hook}, lifecycle.Config{Enabled: true})
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithLifecycleEmitter(emitter))
+
+	record, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "home",
+		Status:     string(domain.StatusPublished),
+		CreatedBy:  uuid.New(),
+		UpdatedBy:  uuid.New(),
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Home",
+			Path:   "/",
+		}},
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+	if len(hook.Events) != 1 {
+		t.Fatalf("expected 1 lifecycle event, got %d", len(hook.Events))
+	}
+	event := hook.Events[0]
+	if event.ResourceType != "page" || event.RecordID != record.ID.String() {
+		t.Fatalf("unexpected lifecycle target: %+v", event)
+	}
+	if event.Transition != "create" {
+		t.Fatalf("expected transition create, got %q", event.Transition)
+	}
+	if !event.SearchEnabled {
+		t.Fatalf("expected page lifecycle event to be searchable: %+v", event)
+	}
+}
+
+func TestPageServiceUpdateEmitsPublishAndUnpublishLifecycleTransitions(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	contentTypeStore := content.NewMemoryContentTypeRepository()
+	pageStore := pages.NewMemoryPageRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	localeID := uuid.New()
+	contentTypeID := uuid.New()
+	seedContentType(t, contentTypeStore, &content.ContentType{
+		ID:     contentTypeID,
+		Name:   "landing-page",
+		Slug:   "landing-page",
+		Schema: map[string]any{"fields": []any{"headline"}},
+		Capabilities: map[string]any{
+			"search": map[string]any{
+				"enabled": true,
+				"index":   "pages",
+			},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: localeID, Code: "en", Display: "English"})
+
+	actorID := uuid.New()
+	contentSvc := content.NewService(contentStore, contentTypeStore, localeStore)
+	contentRecord, err := contentSvc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "home-content",
+		Status:        string(domain.StatusPublished),
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Home", Content: map[string]any{"headline": "Hello"}}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	hook := &lifecycle.CaptureHook{}
+	emitter := lifecycle.NewEmitter(lifecycle.Hooks{hook}, lifecycle.Config{Enabled: true})
+	pageSvc := pages.NewService(pageStore, contentStore, localeStore, pages.WithLifecycleEmitter(emitter))
+
+	record, err := pageSvc.Create(context.Background(), pages.CreatePageRequest{
+		ContentID:  contentRecord.ID,
+		TemplateID: uuid.New(),
+		Slug:       "home",
+		Status:     string(domain.StatusPublished),
+		CreatedBy:  actorID,
+		UpdatedBy:  actorID,
+		Translations: []pages.PageTranslationInput{{
+			Locale: "en",
+			Title:  "Home",
+			Path:   "/",
+		}},
+		AllowMissingTranslations: true,
+	})
+	if err != nil {
+		t.Fatalf("create page: %v", err)
+	}
+
+	if _, err := pageSvc.Update(context.Background(), pages.UpdatePageRequest{
+		ID:                       record.ID,
+		Status:                   string(domain.StatusDraft),
+		UpdatedBy:                actorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("unpublish page: %v", err)
+	}
+	if _, err := pageSvc.Update(context.Background(), pages.UpdatePageRequest{
+		ID:                       record.ID,
+		Status:                   string(domain.StatusPublished),
+		UpdatedBy:                actorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("publish page: %v", err)
+	}
+
+	if len(hook.Events) != 3 {
+		t.Fatalf("expected 3 lifecycle events, got %d", len(hook.Events))
+	}
+	if hook.Events[1].Transition != "unpublish" || hook.Events[1].SearchEnabled {
+		t.Fatalf("unexpected unpublish event: %+v", hook.Events[1])
+	}
+	if hook.Events[2].Transition != "publish" || !hook.Events[2].SearchEnabled {
+		t.Fatalf("unexpected publish event: %+v", hook.Events[2])
+	}
 }
 
 func (f *fakeWorkflowEngine) Snapshot(ctx context.Context, req interfaces.SnapshotRequest) (*interfaces.Snapshot, error) {

@@ -309,7 +309,7 @@ func TestBunContentTypeRepository_ListAndSearchOrdersBySlugAndCreatedAt(t *testi
 	}
 	assertOrder("list", listed)
 
-	searched, err := repo.Search(ctx, "a", envID.String())
+	searched, err := repo.Find(ctx, "a", envID.String())
 	if err != nil {
 		t.Fatalf("search content types: %v", err)
 	}

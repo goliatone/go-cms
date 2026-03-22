@@ -82,6 +82,7 @@ func TestNormalizeContentTypeCapabilitiesSupportsSearchPassThrough(t *testing.T)
 	normalized, validation := content.NormalizeContentTypeCapabilities(map[string]any{
 		"search": map[string]any{
 			"enabled": true,
+			"collection": "legacy_articles",
 			"fields": map[string]any{
 				"title": map[string]any{"weight": 10},
 			},
@@ -93,6 +94,12 @@ func TestNormalizeContentTypeCapabilitiesSupportsSearchPassThrough(t *testing.T)
 	search, _ := normalized["search"].(map[string]any)
 	if search == nil {
 		t.Fatalf("expected search capability")
+	}
+	if search["index"] != "legacy_articles" {
+		t.Fatalf("expected search.index to be canonicalized, got %#v", search["index"])
+	}
+	if _, ok := search["collection"]; ok {
+		t.Fatalf("expected canonical search payload to omit collection, got %#v", search)
 	}
 	fields, _ := search["fields"].(map[string]any)
 	if fields == nil {
@@ -132,10 +139,33 @@ func TestNormalizeContentTypeCapabilitiesRemovesLegacyAliasKeys(t *testing.T) {
 	if _, ok := normalized["search_enabled"]; ok {
 		t.Fatalf("expected search_enabled alias to be removed")
 	}
+	if _, ok := normalized["search_index"]; ok {
+		t.Fatalf("expected search_index alias to be removed")
+	}
 
 	navigation, _ := normalized["navigation"].(map[string]any)
 	if navigation == nil || navigation["enabled"] != true {
 		t.Fatalf("expected canonical navigation.enabled=true, got %#v", navigation)
+	}
+}
+
+func TestNormalizeContentTypeCapabilitiesCanonicalizesSearchIndexAliases(t *testing.T) {
+	normalized, validation := content.NormalizeContentTypeCapabilities(map[string]any{
+		"search_collection": "articles",
+		"search_index":      "posts",
+	})
+	if len(validation) != 0 {
+		t.Fatalf("expected no validation errors, got %#v", validation)
+	}
+	search, _ := normalized["search"].(map[string]any)
+	if search == nil {
+		t.Fatalf("expected search capability")
+	}
+	if search["index"] != "posts" {
+		t.Fatalf("expected search.index=posts, got %#v", search["index"])
+	}
+	if _, ok := search["collection"]; ok {
+		t.Fatalf("expected collection alias to be removed, got %#v", search)
 	}
 }
 
@@ -227,7 +257,7 @@ func (s *stubContentTypeService) List(_ context.Context, _ ...string) ([]*conten
 	return out, nil
 }
 
-func (s *stubContentTypeService) Search(context.Context, string, ...string) ([]*content.ContentType, error) {
+func (s *stubContentTypeService) Find(context.Context, string, ...string) ([]*content.ContentType, error) {
 	return nil, errors.New("not implemented")
 }
 

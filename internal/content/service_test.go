@@ -11,6 +11,7 @@ import (
 	"github.com/goliatone/go-cms/internal/domain"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/lifecycle"
 	"github.com/google/uuid"
 )
 
@@ -1007,6 +1008,131 @@ func TestServiceCreateEmitsActivityEvent(t *testing.T) {
 	}
 	if metaTypeID, ok := event.Metadata["content_type_id"].(string); !ok || metaTypeID != contentTypeID.String() {
 		t.Fatalf("expected content_type_id %s got %v", contentTypeID, event.Metadata["content_type_id"])
+	}
+}
+
+func TestServiceCreateEmitsLifecycleEvent(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:     contentTypeID,
+		Name:   "article",
+		Slug:   "article",
+		Schema: map[string]any{"fields": []any{"body"}},
+		Capabilities: map[string]any{
+			"search": map[string]any{
+				"enabled": true,
+				"index":   "documents",
+			},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	hook := &lifecycle.CaptureHook{}
+	emitter := lifecycle.NewEmitter(lifecycle.Hooks{hook}, lifecycle.Config{Enabled: true})
+
+	actorID := uuid.New()
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithLifecycleEmitter(emitter),
+	)
+
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "lifecycle-hooks",
+		Status:        string(domain.StatusPublished),
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Hello"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+	if len(hook.Events) != 1 {
+		t.Fatalf("expected 1 lifecycle event, got %d", len(hook.Events))
+	}
+	event := hook.Events[0]
+	if event.ResourceType != "content" || event.RecordID != record.ID.String() {
+		t.Fatalf("unexpected lifecycle target: %+v", event)
+	}
+	if event.Transition != "create" {
+		t.Fatalf("expected transition create, got %q", event.Transition)
+	}
+	if !event.SearchEnabled || event.SearchIndex != "documents" {
+		t.Fatalf("unexpected search state: %+v", event)
+	}
+	if event.ContentTypeSlug != "article" {
+		t.Fatalf("expected content type slug article, got %q", event.ContentTypeSlug)
+	}
+}
+
+func TestServiceUpdateEmitsPublishAndUnpublishLifecycleTransitions(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:     contentTypeID,
+		Name:   "article",
+		Slug:   "article",
+		Schema: map[string]any{"fields": []any{"body"}},
+		Capabilities: map[string]any{
+			"search": map[string]any{
+				"enabled": true,
+				"index":   "documents",
+			},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+
+	hook := &lifecycle.CaptureHook{}
+	emitter := lifecycle.NewEmitter(lifecycle.Hooks{hook}, lifecycle.Config{Enabled: true})
+	actorID := uuid.New()
+	svc := content.NewService(contentStore, typeStore, localeStore, content.WithLifecycleEmitter(emitter))
+
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "publish-unpublish",
+		Status:        string(domain.StatusPublished),
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations:  []content.ContentTranslationInput{{Locale: "en", Title: "Hello"}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	if _, err := svc.Update(context.Background(), content.UpdateContentRequest{
+		ID:                       record.ID,
+		Status:                   string(domain.StatusDraft),
+		UpdatedBy:                actorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("unpublish content: %v", err)
+	}
+	if _, err := svc.Update(context.Background(), content.UpdateContentRequest{
+		ID:                       record.ID,
+		Status:                   string(domain.StatusPublished),
+		UpdatedBy:                actorID,
+		AllowMissingTranslations: true,
+	}); err != nil {
+		t.Fatalf("publish content: %v", err)
+	}
+
+	if len(hook.Events) != 3 {
+		t.Fatalf("expected 3 lifecycle events, got %d", len(hook.Events))
+	}
+	if hook.Events[1].Transition != "unpublish" || hook.Events[1].SearchEnabled {
+		t.Fatalf("unexpected unpublish event: %+v", hook.Events[1])
+	}
+	if hook.Events[2].Transition != "publish" || !hook.Events[2].SearchEnabled {
+		t.Fatalf("unexpected publish event: %+v", hook.Events[2])
 	}
 }
 

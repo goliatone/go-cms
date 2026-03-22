@@ -491,7 +491,7 @@ func (s *stubContentTypeService) List(context.Context, ...string) ([]*content.Co
 	return out, nil
 }
 
-func (s *stubContentTypeService) Search(context.Context, string, ...string) ([]*content.ContentType, error) {
+func (s *stubContentTypeService) Find(context.Context, string, ...string) ([]*content.ContentType, error) {
 	return nil, errUnsupported
 }
 
