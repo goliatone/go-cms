@@ -44,6 +44,7 @@ import (
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/activity/usersink"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/lifecycle"
 	"github.com/goliatone/go-cms/pkg/storage"
 	repocache "github.com/goliatone/go-repository-cache/cache"
 	"github.com/goliatone/go-slug"
@@ -174,6 +175,8 @@ type Container struct {
 
 	activityHooks   activity.Hooks
 	activityEmitter *activity.Emitter
+	lifecycleHooks  lifecycle.Hooks
+	lifecycleEmitter *lifecycle.Emitter
 
 	generatorSvc           generator.Service
 	generatorStorage       interfaces.StorageProvider
@@ -447,6 +450,15 @@ func WithActivityHooks(hooks activity.Hooks) Option {
 	}
 }
 
+// WithLifecycleHooks appends hooks that will receive root-record lifecycle events.
+func WithLifecycleHooks(hooks lifecycle.Hooks) Option {
+	return func(c *Container) {
+		if len(hooks) > 0 {
+			c.lifecycleHooks = append(c.lifecycleHooks, hooks...)
+		}
+	}
+}
+
 // WithSlugNormalizer overrides the default slug normalizer used by services.
 func WithSlugNormalizer(normalizer slug.Normalizer) Option {
 	return func(c *Container) {
@@ -617,6 +629,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 		return nil, err
 	}
 	c.configureActivityEmitter()
+	c.configureLifecycleEmitter()
 	if err := c.configureEnvironmentPermissionScope(); err != nil {
 		return nil, err
 	}
@@ -721,6 +734,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			content.WithSchedulingEnabled(c.Config.Features.Scheduling),
 			content.WithLogger(logging.ContentLogger(c.loggerProvider)),
 			content.WithActivityEmitter(c.activityEmitter),
+			content.WithLifecycleEmitter(c.lifecycleEmitter),
 			content.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
 			content.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
 			content.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
@@ -810,6 +824,7 @@ func NewContainer(cfg runtimeconfig.Config, opts ...Option) (*Container, error) 
 			pages.WithLogger(logging.PagesLogger(c.loggerProvider)),
 			pages.WithWorkflowEngine(c.workflowEngine),
 			pages.WithActivityEmitter(c.activityEmitter),
+			pages.WithLifecycleEmitter(c.lifecycleEmitter),
 			pages.WithDefaultEnvironmentKey(c.Config.Environments.DefaultKey),
 			pages.WithRequireExplicitEnvironment(c.Config.Environments.RequireExplicit),
 			pages.WithRequireActiveEnvironment(c.Config.Environments.RequireActive),
@@ -984,6 +999,11 @@ func (c *Container) configureActivityEmitter() {
 		Channel: c.Config.Activity.Channel,
 	}
 	c.activityEmitter = activity.NewEmitter(hooks, cfg)
+}
+
+func (c *Container) configureLifecycleEmitter() {
+	hooks := append(lifecycle.Hooks{}, c.lifecycleHooks...)
+	c.lifecycleEmitter = lifecycle.NewEmitter(hooks, lifecycle.Config{Enabled: len(hooks) > 0})
 }
 
 func (c *Container) configureEnvironmentPermissionScope() error {
