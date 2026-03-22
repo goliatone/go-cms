@@ -140,7 +140,7 @@ type ContentTypeService interface {
 	Get(ctx context.Context, id uuid.UUID) (*ContentTypeRecord, error)
 	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentTypeRecord, error)
 	List(ctx context.Context, env ...string) ([]*ContentTypeRecord, error)
-	Search(ctx context.Context, query string, env ...string) ([]*ContentTypeRecord, error)
+	Find(ctx context.Context, query string, env ...string) ([]*ContentTypeRecord, error)
 }
 
 // ContentTypeCreateRequest captures fields required to create a content type.
