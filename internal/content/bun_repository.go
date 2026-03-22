@@ -478,7 +478,7 @@ func (r *BunContentTypeRepository) List(ctx context.Context, env ...string) ([]*
 	return filterActiveContentTypes(records), nil
 }
 
-func (r *BunContentTypeRepository) Search(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
+func (r *BunContentTypeRepository) Find(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
 	query = strings.TrimSpace(query)
 	if query == "" {
 		return r.List(ctx, env...)
