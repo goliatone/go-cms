@@ -4,6 +4,7 @@ import (
 	"github.com/goliatone/go-cms/generator"
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/lifecycle"
 )
 
 // Option customises module wiring at construction time.
@@ -22,4 +23,9 @@ func WithGeneratorStorage(sp interfaces.StorageProvider) Option {
 // WithGeneratorAssetResolver overrides the generator asset resolver.
 func WithGeneratorAssetResolver(resolver generator.AssetResolver) Option {
 	return di.WithGeneratorAssetResolver(resolver)
+}
+
+// WithLifecycleHooks appends lifecycle hooks that receive root-record mutation events.
+func WithLifecycleHooks(hooks lifecycle.Hooks) Option {
+	return di.WithLifecycleHooks(hooks)
 }
