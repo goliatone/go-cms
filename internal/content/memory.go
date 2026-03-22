@@ -601,7 +601,7 @@ func (m *MemoryContentTypeRepository) List(_ context.Context, env ...string) ([]
 }
 
 // Search returns content types whose name or slug contains the query.
-func (m *MemoryContentTypeRepository) Search(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
+func (m *MemoryContentTypeRepository) Find(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
 	query = strings.TrimSpace(strings.ToLower(query))
 	if query == "" {
 		return m.List(ctx, env...)
