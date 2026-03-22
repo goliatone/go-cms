@@ -195,6 +195,8 @@ var legacyCapabilityAliasKeys = []string{
 
 	"search_enabled",
 	"searchEnabled",
+	"search_index",
+	"searchIndex",
 	"search_collection",
 	"searchCollection",
 	"search_facets",
@@ -369,11 +371,17 @@ func mergeFlatSearchAliases(capabilities map[string]any, search map[string]any, 
 	if raw, ok := capabilities["searchEnabled"]; ok {
 		out["enabled"] = raw
 	}
-	if raw, ok := capabilities["search_collection"]; ok {
-		out["collection"] = raw
+	if raw, ok := capabilities["search_index"]; ok {
+		out["index"] = raw
 	}
-	if raw, ok := capabilities["searchCollection"]; ok {
-		out["collection"] = raw
+	if raw, ok := capabilities["searchIndex"]; ok {
+		out["index"] = raw
+	}
+	if raw, ok := capabilities["search_collection"]; ok && out["index"] == nil {
+		out["index"] = raw
+	}
+	if raw, ok := capabilities["searchCollection"]; ok && out["index"] == nil {
+		out["index"] = raw
 	}
 	if raw, ok := capabilities["search_facets"]; ok {
 		out["facets"] = raw
@@ -623,11 +631,16 @@ func normalizeSearchContract(search map[string]any, validation map[string]string
 			validation["capabilities.search.published_only"] = "must be a boolean"
 		}
 	}
-	if collection := strings.TrimSpace(toString(out["collection"])); collection != "" {
-		out["collection"] = collection
-	} else {
-		delete(out, "collection")
+	indexName := strings.TrimSpace(toString(out["index"]))
+	if indexName == "" {
+		indexName = strings.TrimSpace(toString(out["collection"]))
 	}
+	if indexName != "" {
+		out["index"] = indexName
+	} else {
+		delete(out, "index")
+	}
+	delete(out, "collection")
 	if facets := dedupeAndSortStrings(normalizeStringListAny(out["facets"])); len(facets) > 0 {
 		out["facets"] = facets
 	} else {
