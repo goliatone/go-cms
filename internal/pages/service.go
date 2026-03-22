@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	cmsapi "github.com/goliatone/go-cms/content"
 	"github.com/goliatone/go-cms/internal/blocks"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
@@ -23,6 +24,7 @@ import (
 	workflowsimple "github.com/goliatone/go-cms/internal/workflow/simple"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
+	"github.com/goliatone/go-cms/pkg/lifecycle"
 	"github.com/google/uuid"
 )
 
@@ -158,6 +160,7 @@ type pageService struct {
 	defaultLocale         string
 	defaultLocaleRequired bool
 	activity              *activity.Emitter
+	lifecycle             *lifecycle.Emitter
 	envSvc                cmsenv.Service
 	defaultEnvKey         string
 	requireExplicitEnv    bool
@@ -270,6 +273,15 @@ func WithActivityEmitter(emitter *activity.Emitter) ServiceOption {
 	}
 }
 
+// WithLifecycleEmitter wires the lifecycle emitter used for root-record lifecycle events.
+func WithLifecycleEmitter(emitter *lifecycle.Emitter) ServiceOption {
+	return func(ps *pageService) {
+		if emitter != nil {
+			ps.lifecycle = emitter
+		}
+	}
+}
+
 // WithPageVersioningEnabled toggles versioning specific capabilities.
 func WithPageVersioningEnabled(enabled bool) ServiceOption {
 	return func(s *pageService) {
@@ -302,6 +314,7 @@ func NewService(pages PageRepository, contentRepo ContentRepository, locales Loc
 		requireTranslations: true,
 		translationsEnabled: true,
 		activity:            activity.NewEmitter(nil, activity.Config{}),
+		lifecycle:           lifecycle.NewEmitter(nil, lifecycle.Config{}),
 		defaultEnvKey:       cmsenv.DefaultKey,
 	}
 
@@ -459,6 +472,91 @@ func (s *pageService) emitActivity(ctx context.Context, actor uuid.UUID, verb, o
 	}
 	if err := s.activity.Emit(ctx, event); err != nil {
 		s.log(ctx).Warn("pages.activity_emit_failed", "error", err)
+	}
+}
+
+func (s *pageService) emitLifecycle(ctx context.Context, event lifecycle.Event) {
+	if s.lifecycle == nil || !s.lifecycle.Enabled() {
+		return
+	}
+	if err := s.lifecycle.Emit(ctx, event); err != nil {
+		s.log(ctx).Warn("pages.lifecycle_emit_failed", "error", err)
+	}
+}
+
+func pageLifecycleSearchState(contentRecord *content.Content, pageStatus string) (enabled bool, indexName, contentTypeID, contentTypeSlug string) {
+	if contentRecord == nil {
+		return strings.EqualFold(strings.TrimSpace(pageStatus), string(domain.StatusPublished)), "", "", ""
+	}
+	contentTypeID = contentRecord.ContentTypeID.String()
+	if contentRecord.Type == nil {
+		return strings.EqualFold(strings.TrimSpace(pageStatus), string(domain.StatusPublished)), "", contentTypeID, ""
+	}
+	contracts := cmsapi.ParseContentTypeCapabilityContracts(contentRecord.Type.Capabilities)
+	search := contracts.Search
+	contentTypeSlug = strings.TrimSpace(contentRecord.Type.Slug)
+	if search == nil {
+		return false, "", contentTypeID, contentTypeSlug
+	}
+	indexName = strings.TrimSpace(lifecycleString(search["index"]))
+	flag, hasFlag := search["enabled"].(bool)
+	if !hasFlag {
+		flag = indexName != "" || len(search) > 0
+	}
+	return flag && strings.EqualFold(strings.TrimSpace(pageStatus), string(domain.StatusPublished)), indexName, contentTypeID, contentTypeSlug
+}
+
+func pageLifecycleTransition(previousStatus, nextStatus string) string {
+	prevPublished := strings.EqualFold(strings.TrimSpace(previousStatus), string(domain.StatusPublished))
+	nextPublished := strings.EqualFold(strings.TrimSpace(nextStatus), string(domain.StatusPublished))
+	switch {
+	case !prevPublished && nextPublished:
+		return "publish"
+	case prevPublished && !nextPublished:
+		return "unpublish"
+	default:
+		return "update"
+	}
+}
+
+func (s *pageService) pageLifecycleEvent(ctx context.Context, record *Page, contentRecord *content.Content, transition string, translationID uuid.UUID, locale string, metadata map[string]any) lifecycle.Event {
+	enabled, indexName, contentTypeID, contentTypeSlug := pageLifecycleSearchState(contentRecord, record.Status)
+	event := lifecycle.Event{
+		ResourceType:    "page",
+		RecordID:        record.ID.String(),
+		Transition:      transition,
+		TranslationID:   lifecycleUUIDString(translationID),
+		Locale:          strings.TrimSpace(locale),
+		Locales:         collectPageLocales(record),
+		Status:          strings.TrimSpace(record.Status),
+		ContentTypeID:   contentTypeID,
+		ContentTypeSlug: contentTypeSlug,
+		SearchEnabled:   enabled,
+		SearchIndex:     indexName,
+		Metadata:        metadata,
+	}
+	if record.EnvironmentID != uuid.Nil {
+		event.EnvironmentKey = s.environmentKeyForID(ctx, record.EnvironmentID)
+	}
+	return event
+}
+
+func lifecycleUUIDString(id uuid.UUID) string {
+	if id == uuid.Nil {
+		return ""
+	}
+	return id.String()
+}
+
+func lifecycleString(value any) string {
+	if value == nil {
+		return ""
+	}
+	switch raw := value.(type) {
+	case string:
+		return raw
+	default:
+		return fmt.Sprint(raw)
 	}
 }
 
@@ -688,6 +786,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, selectActor(req.CreatedBy, req.UpdatedBy), "create", "page", record.ID, meta)
+	s.emitLifecycle(ctx, s.pageLifecycleEvent(ctx, record, contentRecord, "create", uuid.Nil, "", meta))
 	return record, nil
 }
 
@@ -843,6 +942,7 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 		logger.Error("page workflow transition failed", "error", err)
 		return nil, err
 	}
+	previousStatus := existing.Status
 	existing.Status = string(status)
 
 	if replaceTranslations {
@@ -877,6 +977,8 @@ func (s *pageService) Update(ctx context.Context, req UpdatePageRequest) (*Page,
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.UpdatedBy, "update", "page", record.ID, meta)
+	contentRecord, _ := s.content.GetByID(ctx, record.ContentID)
+	s.emitLifecycle(ctx, s.pageLifecycleEvent(ctx, record, contentRecord, pageLifecycleTransition(previousStatus, record.Status), uuid.Nil, "", meta))
 	return record, nil
 }
 
@@ -927,6 +1029,8 @@ func (s *pageService) Delete(ctx context.Context, req DeletePageRequest) error {
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.DeletedBy, "delete", "page", record.ID, meta)
+	contentRecord, _ := s.content.GetByID(ctx, record.ContentID)
+	s.emitLifecycle(ctx, s.pageLifecycleEvent(ctx, record, contentRecord, "delete", uuid.Nil, "", meta))
 	return nil
 }
 
@@ -1087,6 +1191,8 @@ func (s *pageService) UpdateTranslation(ctx context.Context, req UpdatePageTrans
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.UpdatedBy, "update", "page_translation", updatedTranslation.ID, meta)
+	contentRecord, _ := s.content.GetByID(ctx, record.ContentID)
+	s.emitLifecycle(ctx, s.pageLifecycleEvent(ctx, record, contentRecord, "translation_update", updatedTranslation.ID, locale.Code, meta))
 	return updatedTranslation, nil
 }
 
@@ -1177,6 +1283,8 @@ func (s *pageService) DeleteTranslation(ctx context.Context, req DeletePageTrans
 		meta["environment_id"] = record.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.DeletedBy, "delete", "page_translation", targetID, meta)
+	contentRecord, _ := s.content.GetByID(ctx, record.ContentID)
+	s.emitLifecycle(ctx, s.pageLifecycleEvent(ctx, record, contentRecord, "translation_delete", targetID, locale.Code, meta))
 	return nil
 }
 
@@ -1758,6 +1866,8 @@ func (s *pageService) PublishDraft(ctx context.Context, req PublishPagePublishRe
 		meta["environment_id"] = page.EnvironmentID.String()
 	}
 	s.emitActivity(ctx, req.PublishedBy, "publish", "page", page.ID, meta)
+	contentRecord, _ := s.content.GetByID(ctx, page.ContentID)
+	s.emitLifecycle(ctx, s.pageLifecycleEvent(ctx, page, contentRecord, "publish", uuid.Nil, "", meta))
 
 	return clonePageVersion(updatedVersion), nil
 }
