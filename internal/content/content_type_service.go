@@ -497,7 +497,7 @@ func (s *contentTypeService) List(ctx context.Context, env ...string) ([]*Conten
 	return s.repo.List(ctx, envID.String())
 }
 
-func (s *contentTypeService) Search(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
+func (s *contentTypeService) Find(ctx context.Context, query string, env ...string) ([]*ContentType, error) {
 	if s == nil || s.repo == nil {
 		return nil, errors.New("content type service unavailable")
 	}
@@ -512,7 +512,7 @@ func (s *contentTypeService) Search(ctx context.Context, query string, env ...st
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.Search(ctx, query, envID.String())
+	return s.repo.Find(ctx, query, envID.String())
 }
 
 func (s *contentTypeService) emitActivity(ctx context.Context, actor uuid.UUID, verb string, record *ContentType) {
