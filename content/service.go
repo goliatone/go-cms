@@ -45,7 +45,7 @@ type ContentTypeService interface {
 	Get(ctx context.Context, id uuid.UUID) (*ContentType, error)
 	GetBySlug(ctx context.Context, slug string, env ...string) (*ContentType, error)
 	List(ctx context.Context, env ...string) ([]*ContentType, error)
-	Search(ctx context.Context, query string, env ...string) ([]*ContentType, error)
+	Find(ctx context.Context, query string, env ...string) ([]*ContentType, error)
 }
 
 // ContentListOption configures content list behavior. It is an alias to string to
