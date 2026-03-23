@@ -1,5 +1,27 @@
 # Changelog
 
+# [0.43.0](https://github.com/goliatone/go-cms/compare/v0.42.0...v0.43.0) - (2026-03-23)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.43.0 ([8f8e5d6](https://github.com/goliatone/go-cms/commit/8f8e5d6c1f658472f83f116fd312efcc475ec2c0))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- With lifecycle hooks setter ([4cbaf24](https://github.com/goliatone/go-cms/commit/4cbaf244184a8a6946e71ad451f80cbf97226cf7))  - (goliatone)
+
+## <!-- 2 -->🚜 Refactor
+
+- Search setup to rely and align with go-search ([5f6a6b0](https://github.com/goliatone/go-cms/commit/5f6a6b026895bdf8048a2acb42d9de2ea816e263))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.42.0 ([4e04022](https://github.com/goliatone/go-cms/commit/4e04022125d9c34872b40c80b068d5e232b7e7eb))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([bb8eef4](https://github.com/goliatone/go-cms/commit/bb8eef48f70970479127a4dcb669a50ecd4da7e7))  - (goliatone)
+
 # [0.42.0](https://github.com/goliatone/go-cms/compare/v0.41.0...v0.42.0) - (2026-03-21)
 
 ## <!-- 13 -->📦 Bumps
