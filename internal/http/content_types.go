@@ -179,7 +179,7 @@ func (api *AdminAPI) handleContentTypeList(w http.ResponseWriter, r *http.Reques
 	if query == "" {
 		list, err = api.contentTypes.List(r.Context(), envKey)
 	} else {
-		list, err = api.contentTypes.Search(r.Context(), query, envKey)
+		list, err = api.contentTypes.Find(r.Context(), query, envKey)
 	}
 	if err != nil {
 		writeError(w, err)
