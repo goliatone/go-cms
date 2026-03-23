@@ -173,9 +173,9 @@ type Container struct {
 	shortcodeCaches        map[string]interfaces.CacheProvider
 	shortcodeCacheResolved bool
 
-	activityHooks   activity.Hooks
-	activityEmitter *activity.Emitter
-	lifecycleHooks  lifecycle.Hooks
+	activityHooks    activity.Hooks
+	activityEmitter  *activity.Emitter
+	lifecycleHooks   lifecycle.Hooks
 	lifecycleEmitter *lifecycle.Emitter
 
 	generatorSvc           generator.Service

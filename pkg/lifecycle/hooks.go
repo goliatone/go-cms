@@ -10,20 +10,20 @@ import (
 
 // Event describes a root-record lifecycle transition that downstream systems can consume.
 type Event struct {
-	ResourceType   string
-	RecordID       string
-	Transition     string
-	TranslationID  string
-	Locale         string
-	Locales        []string
-	Status         string
-	EnvironmentKey string
-	ContentTypeID  string
+	ResourceType    string
+	RecordID        string
+	Transition      string
+	TranslationID   string
+	Locale          string
+	Locales         []string
+	Status          string
+	EnvironmentKey  string
+	ContentTypeID   string
 	ContentTypeSlug string
-	SearchEnabled  bool
-	SearchIndex    string
-	OccurredAt     time.Time
-	Metadata       map[string]any
+	SearchEnabled   bool
+	SearchIndex     string
+	OccurredAt      time.Time
+	Metadata        map[string]any
 }
 
 // Hook receives normalized lifecycle events.

@@ -81,7 +81,7 @@ func TestValidateAndNormalizeContentTypeCapabilitiesRejectsInvalidBooleanFields(
 func TestNormalizeContentTypeCapabilitiesSupportsSearchPassThrough(t *testing.T) {
 	normalized, validation := content.NormalizeContentTypeCapabilities(map[string]any{
 		"search": map[string]any{
-			"enabled": true,
+			"enabled":    true,
 			"collection": "legacy_articles",
 			"fields": map[string]any{
 				"title": map[string]any{"weight": 10},
