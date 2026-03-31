@@ -155,6 +155,10 @@ type Container struct {
 	environmentSvc         environments.Service
 	pageSvc                pages.Service
 	adminPageReadSvc       interfaces.AdminPageReadService
+	adminContentReadSvc    interfaces.AdminContentReadService
+	adminContentWriteSvc   interfaces.AdminContentWriteService
+	adminBlockReadSvc      interfaces.AdminBlockReadService
+	adminBlockWriteSvc     interfaces.AdminBlockWriteService
 	blockSvc               blocks.Service
 	embeddedBlockBridge    *blocks.EmbeddedBlockBridge
 	i18nSvc                i18n.Service
@@ -2104,6 +2108,67 @@ func (c *Container) AdminPageReadService() interfaces.AdminPageReadService {
 		}
 	}
 	return c.adminPageReadSvc
+}
+
+// AdminContentReadService returns the configured admin content read service.
+func (c *Container) AdminContentReadService() interfaces.AdminContentReadService {
+	if c.adminContentReadSvc == nil {
+		logger := logging.ModuleLogger(c.loggerProvider, "cms.admin.content.read")
+		if c.bunDB != nil {
+			c.adminContentReadSvc = content.NewAdminContentDBReadService(c.bunDB, c.contentSvc, c.contentTypeSvc, c.localeRepo, c.blockSvc, content.WithAdminContentReadLogger(logger))
+		} else {
+			c.adminContentReadSvc = content.NewAdminContentReadService(c.contentSvc, c.contentTypeSvc, c.localeRepo, c.blockSvc, content.WithAdminContentReadLogger(logger))
+		}
+	}
+	return c.adminContentReadSvc
+}
+
+// AdminContentWriteService returns the configured admin content write service.
+func (c *Container) AdminContentWriteService() interfaces.AdminContentWriteService {
+	if c.adminContentWriteSvc == nil {
+		logger := logging.ModuleLogger(c.loggerProvider, "cms.admin.content.write")
+		c.adminContentWriteSvc = content.NewAdminContentWriteService(c.contentSvc, c.contentTypeSvc, c.localeRepo, content.WithAdminContentWriteLogger(logger))
+	}
+	return c.adminContentWriteSvc
+}
+
+// AdminBlockReadService returns the configured admin block read service.
+func (c *Container) AdminBlockReadService() interfaces.AdminBlockReadService {
+	if c.adminBlockReadSvc == nil {
+		logger := logging.ModuleLogger(c.loggerProvider, "cms.admin.blocks.read")
+		c.adminBlockReadSvc = blocks.NewAdminBlockReadService(c.blockSvc, c.contentTypeSvc, c.localeRepo, c.adminBlockPageResolver(), blocks.WithAdminBlockReadLogger(logger))
+	}
+	return c.adminBlockReadSvc
+}
+
+// AdminBlockWriteService returns the configured admin block write service.
+func (c *Container) AdminBlockWriteService() interfaces.AdminBlockWriteService {
+	if c.adminBlockWriteSvc == nil {
+		logger := logging.ModuleLogger(c.loggerProvider, "cms.admin.blocks.write")
+		c.adminBlockWriteSvc = blocks.NewAdminBlockWriteService(c.blockSvc, c.contentTypeSvc, c.localeRepo, c.adminBlockPageResolver(), blocks.WithAdminBlockWriteLogger(logger))
+	}
+	return c.adminBlockWriteSvc
+}
+
+func (c *Container) adminBlockPageResolver() blocks.AdminBlockPageResolver {
+	return func(ctx context.Context, contentID uuid.UUID, envKey string) ([]uuid.UUID, error) {
+		if c == nil || c.pageSvc == nil || contentID == uuid.Nil {
+			return nil, nil
+		}
+		env := strings.TrimSpace(envKey)
+		listed, err := c.pageSvc.List(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]uuid.UUID, 0)
+		for _, page := range listed {
+			if page == nil || page.ContentID != contentID || page.ID == uuid.Nil {
+				continue
+			}
+			out = append(out, page.ID)
+		}
+		return out, nil
+	}
 }
 
 // BlockService returns the configured block service.
