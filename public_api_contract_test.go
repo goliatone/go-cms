@@ -17,6 +17,10 @@ var _ func(*cms.Module) pages.Service = (*cms.Module).Pages
 var _ func(*cms.Module) blocks.Service = (*cms.Module).Blocks
 var _ func(*cms.Module) cms.MenuService = (*cms.Module).Menus
 var _ func(*cms.Module) cms.AdminPageReadService = (*cms.Module).AdminPageRead
+var _ func(*cms.Module) cms.AdminContentReadService = (*cms.Module).AdminContentRead
+var _ func(*cms.Module) cms.AdminContentWriteService = (*cms.Module).AdminContentWrite
+var _ func(*cms.Module) cms.AdminBlockReadService = (*cms.Module).AdminBlockRead
+var _ func(*cms.Module) cms.AdminBlockWriteService = (*cms.Module).AdminBlockWrite
 var _ func(*cms.Module) cms.LocaleService = (*cms.Module).Locales
 
 var _ content.Service = (cms.ContentService)(nil)
@@ -25,6 +29,10 @@ var _ pages.Service = (cms.PageService)(nil)
 var _ blocks.Service = (cms.BlockService)(nil)
 var _ cms.MenuService = (cms.MenuService)(nil)
 var _ cms.AdminPageReadService = (cms.AdminPageReadService)(nil)
+var _ cms.AdminContentReadService = (cms.AdminContentReadService)(nil)
+var _ cms.AdminContentWriteService = (cms.AdminContentWriteService)(nil)
+var _ cms.AdminBlockReadService = (cms.AdminBlockReadService)(nil)
+var _ cms.AdminBlockWriteService = (cms.AdminBlockWriteService)(nil)
 var _ cms.LocaleService = (cms.LocaleService)(nil)
 
 func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
@@ -89,12 +97,36 @@ func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
 		"cms.UpsertMenuItemByPathInput": reflect.TypeFor[cms.UpsertMenuItemByPathInput](),
 		"cms.UpdateMenuItemByPathInput": reflect.TypeFor[cms.UpdateMenuItemByPathInput](),
 
-		"cms.AdminPageReadService":     reflect.TypeFor[cms.AdminPageReadService](),
-		"cms.AdminPageRecord":          reflect.TypeFor[cms.AdminPageRecord](),
-		"cms.AdminPageListOptions":     reflect.TypeFor[cms.AdminPageListOptions](),
-		"cms.AdminPageGetOptions":      reflect.TypeFor[cms.AdminPageGetOptions](),
-		"cms.AdminPageIncludeOptions":  reflect.TypeFor[cms.AdminPageIncludeOptions](),
-		"cms.AdminPageIncludeDefaults": reflect.TypeFor[cms.AdminPageIncludeDefaults](),
+		"cms.AdminPageReadService":                 reflect.TypeFor[cms.AdminPageReadService](),
+		"cms.AdminPageRecord":                      reflect.TypeFor[cms.AdminPageRecord](),
+		"cms.AdminPageListOptions":                 reflect.TypeFor[cms.AdminPageListOptions](),
+		"cms.AdminPageGetOptions":                  reflect.TypeFor[cms.AdminPageGetOptions](),
+		"cms.AdminPageIncludeOptions":              reflect.TypeFor[cms.AdminPageIncludeOptions](),
+		"cms.AdminPageIncludeDefaults":             reflect.TypeFor[cms.AdminPageIncludeDefaults](),
+		"cms.AdminContentReadService":              reflect.TypeFor[cms.AdminContentReadService](),
+		"cms.AdminContentWriteService":             reflect.TypeFor[cms.AdminContentWriteService](),
+		"cms.AdminContentRecord":                   reflect.TypeFor[cms.AdminContentRecord](),
+		"cms.AdminContentListOptions":              reflect.TypeFor[cms.AdminContentListOptions](),
+		"cms.AdminContentGetOptions":               reflect.TypeFor[cms.AdminContentGetOptions](),
+		"cms.AdminContentIncludeOptions":           reflect.TypeFor[cms.AdminContentIncludeOptions](),
+		"cms.AdminContentIncludeDefaults":          reflect.TypeFor[cms.AdminContentIncludeDefaults](),
+		"cms.AdminContentCreateRequest":            reflect.TypeFor[cms.AdminContentCreateRequest](),
+		"cms.AdminContentUpdateRequest":            reflect.TypeFor[cms.AdminContentUpdateRequest](),
+		"cms.AdminContentDeleteRequest":            reflect.TypeFor[cms.AdminContentDeleteRequest](),
+		"cms.AdminContentCreateTranslationRequest": reflect.TypeFor[cms.AdminContentCreateTranslationRequest](),
+		"cms.AdminBlockReadService":                reflect.TypeFor[cms.AdminBlockReadService](),
+		"cms.AdminBlockWriteService":               reflect.TypeFor[cms.AdminBlockWriteService](),
+		"cms.AdminBlockDefinitionRecord":           reflect.TypeFor[cms.AdminBlockDefinitionRecord](),
+		"cms.AdminBlockDefinitionVersionRecord":    reflect.TypeFor[cms.AdminBlockDefinitionVersionRecord](),
+		"cms.AdminBlockRecord":                     reflect.TypeFor[cms.AdminBlockRecord](),
+		"cms.AdminBlockDefinitionListOptions":      reflect.TypeFor[cms.AdminBlockDefinitionListOptions](),
+		"cms.AdminBlockDefinitionGetOptions":       reflect.TypeFor[cms.AdminBlockDefinitionGetOptions](),
+		"cms.AdminBlockListOptions":                reflect.TypeFor[cms.AdminBlockListOptions](),
+		"cms.AdminBlockDefinitionCreateRequest":    reflect.TypeFor[cms.AdminBlockDefinitionCreateRequest](),
+		"cms.AdminBlockDefinitionUpdateRequest":    reflect.TypeFor[cms.AdminBlockDefinitionUpdateRequest](),
+		"cms.AdminBlockDefinitionDeleteRequest":    reflect.TypeFor[cms.AdminBlockDefinitionDeleteRequest](),
+		"cms.AdminBlockSaveRequest":                reflect.TypeFor[cms.AdminBlockSaveRequest](),
+		"cms.AdminBlockDeleteRequest":              reflect.TypeFor[cms.AdminBlockDeleteRequest](),
 
 		"cms.LocaleService": reflect.TypeFor[cms.LocaleService](),
 		"cms.LocaleInfo":    reflect.TypeFor[cms.LocaleInfo](),
@@ -104,7 +136,7 @@ func TestPublicContractsDoNotReferenceInternalPackages(t *testing.T) {
 		assertNoInternalTypeRefs(t, name, typ, map[reflect.Type]bool{})
 	}
 
-	for _, methodName := range []string{"Content", "ContentTypes", "Pages", "Blocks", "Menus", "AdminPageRead", "Locales"} {
+	for _, methodName := range []string{"Content", "ContentTypes", "Pages", "Blocks", "Menus", "AdminPageRead", "AdminContentRead", "AdminContentWrite", "AdminBlockRead", "AdminBlockWrite", "Locales"} {
 		method, ok := reflect.TypeFor[*cms.Module]().MethodByName(methodName)
 		if !ok {
 			t.Fatalf("expected cms.Module.%s method", methodName)
