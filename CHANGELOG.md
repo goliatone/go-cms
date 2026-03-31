@@ -1,5 +1,35 @@
 # Changelog
 
+# [0.45.0](https://github.com/goliatone/go-cms/compare/v0.44.0...v0.45.0) - (2026-03-31)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Test ([32b10db](https://github.com/goliatone/go-cms/commit/32b10db250dace42e22b1e7bacad7e1cb72728e7))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.45.0 ([2589068](https://github.com/goliatone/go-cms/commit/25890685e3bfde80adef9061bcea74ef064ea5ba))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Admin service interface definitions ([41ee6b5](https://github.com/goliatone/go-cms/commit/41ee6b5d99645169eb99a252cad3e55b80678443))  - (goliatone)
+- Content admin services ([79b9367](https://github.com/goliatone/go-cms/commit/79b9367158b3bbaa8319743536142b525635ee45))  - (goliatone)
+- Blocks admin services ([a617c79](https://github.com/goliatone/go-cms/commit/a617c798bac44957c70b6e77839f970614dd9425))  - (goliatone)
+- Admin read helper ([63dd319](https://github.com/goliatone/go-cms/commit/63dd319390b8b908727d29dc2095be7a6ba35713))  - (goliatone)
+- Admin content interfaces to di ([1659013](https://github.com/goliatone/go-cms/commit/1659013d12969a62beef2f63dfe1572e29241eda))  - (goliatone)
+- Admin interfaces ([88e765b](https://github.com/goliatone/go-cms/commit/88e765b21a00634c31eff2f8ee0c93c660d1df62))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.44.0 ([dfa37c7](https://github.com/goliatone/go-cms/commit/dfa37c781f10169229a9b0c2c733a96ae1e7ab83))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([6225678](https://github.com/goliatone/go-cms/commit/622567823a759da4845b681f6429538b0ec10d72))  - (goliatone)
+- Update deps ([46cdef1](https://github.com/goliatone/go-cms/commit/46cdef1ffda6d980c16a9397b2b7b0e6abee41f1))  - (goliatone)
+- Update docs ([ec248fa](https://github.com/goliatone/go-cms/commit/ec248fa4da0dcc74998c7e8b3211d886ef67c96b))  - (goliatone)
+- Fix code ([b805dab](https://github.com/goliatone/go-cms/commit/b805dabb99904b4830aae62a97dc00648d3e46ae))  - (goliatone)
+
 # [0.44.0](https://github.com/goliatone/go-cms/compare/v0.43.0...v0.44.0) - (2026-03-23)
 
 ## <!-- 13 -->📦 Bumps
