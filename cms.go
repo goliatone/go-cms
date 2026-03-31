@@ -30,20 +30,92 @@ type ContentTypeService = content.ContentTypeService
 // AdminPageReadService exports the admin page read service contract.
 type AdminPageReadService = interfaces.AdminPageReadService
 
+// AdminContentReadService exports the admin content read service contract.
+type AdminContentReadService = interfaces.AdminContentReadService
+
+// AdminContentWriteService exports the admin content write service contract.
+type AdminContentWriteService = interfaces.AdminContentWriteService
+
+// AdminBlockReadService exports the admin block read service contract.
+type AdminBlockReadService = interfaces.AdminBlockReadService
+
+// AdminBlockWriteService exports the admin block write service contract.
+type AdminBlockWriteService = interfaces.AdminBlockWriteService
+
 // AdminPageRecord exports the admin page read record DTO.
 type AdminPageRecord = interfaces.AdminPageRecord
+
+// AdminContentRecord exports the admin content read record DTO.
+type AdminContentRecord = interfaces.AdminContentRecord
+
+// AdminBlockDefinitionRecord exports the admin block definition DTO.
+type AdminBlockDefinitionRecord = interfaces.AdminBlockDefinitionRecord
+
+// AdminBlockDefinitionVersionRecord exports the admin block definition version DTO.
+type AdminBlockDefinitionVersionRecord = interfaces.AdminBlockDefinitionVersionRecord
+
+// AdminBlockRecord exports the admin block record DTO.
+type AdminBlockRecord = interfaces.AdminBlockRecord
 
 // AdminPageListOptions exports the admin page list options.
 type AdminPageListOptions = interfaces.AdminPageListOptions
 
+// AdminContentListOptions exports the admin content list options.
+type AdminContentListOptions = interfaces.AdminContentListOptions
+
 // AdminPageGetOptions exports the admin page get options.
 type AdminPageGetOptions = interfaces.AdminPageGetOptions
+
+// AdminContentGetOptions exports the admin content get options.
+type AdminContentGetOptions = interfaces.AdminContentGetOptions
 
 // AdminPageIncludeOptions exports admin include options.
 type AdminPageIncludeOptions = interfaces.AdminPageIncludeOptions
 
+// AdminContentIncludeOptions exports admin content include options.
+type AdminContentIncludeOptions = interfaces.AdminContentIncludeOptions
+
 // AdminPageIncludeDefaults exports admin include defaults.
 type AdminPageIncludeDefaults = interfaces.AdminPageIncludeDefaults
+
+// AdminContentIncludeDefaults exports admin content include defaults.
+type AdminContentIncludeDefaults = interfaces.AdminContentIncludeDefaults
+
+// AdminContentCreateRequest exports the admin content create request.
+type AdminContentCreateRequest = interfaces.AdminContentCreateRequest
+
+// AdminContentUpdateRequest exports the admin content update request.
+type AdminContentUpdateRequest = interfaces.AdminContentUpdateRequest
+
+// AdminContentDeleteRequest exports the admin content delete request.
+type AdminContentDeleteRequest = interfaces.AdminContentDeleteRequest
+
+// AdminContentCreateTranslationRequest exports the admin content translation clone request.
+type AdminContentCreateTranslationRequest = interfaces.AdminContentCreateTranslationRequest
+
+// AdminBlockDefinitionListOptions exports the admin block definition list options.
+type AdminBlockDefinitionListOptions = interfaces.AdminBlockDefinitionListOptions
+
+// AdminBlockDefinitionGetOptions exports the admin block definition get options.
+type AdminBlockDefinitionGetOptions = interfaces.AdminBlockDefinitionGetOptions
+
+// AdminBlockListOptions exports the admin block instance list options.
+type AdminBlockListOptions = interfaces.AdminBlockListOptions
+
+// AdminBlockDefinitionCreateRequest exports the admin block definition create request.
+type AdminBlockDefinitionCreateRequest = interfaces.AdminBlockDefinitionCreateRequest
+
+// AdminBlockDefinitionUpdateRequest exports the admin block definition update request.
+type AdminBlockDefinitionUpdateRequest = interfaces.AdminBlockDefinitionUpdateRequest
+
+// AdminBlockDefinitionDeleteRequest exports the admin block definition delete request.
+type AdminBlockDefinitionDeleteRequest = interfaces.AdminBlockDefinitionDeleteRequest
+
+// AdminBlockSaveRequest exports the admin block save request.
+type AdminBlockSaveRequest = interfaces.AdminBlockSaveRequest
+
+// AdminBlockDeleteRequest exports the admin block delete request.
+type AdminBlockDeleteRequest = interfaces.AdminBlockDeleteRequest
 
 // BlockService exports the blocks service contract.
 type BlockService = blocks.Service
@@ -142,6 +214,38 @@ func (m *Module) AdminPageRead() AdminPageReadService {
 		return nil
 	}
 	return m.container.AdminPageReadService()
+}
+
+// AdminContentRead returns the configured admin content read service.
+func (m *Module) AdminContentRead() AdminContentReadService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.AdminContentReadService()
+}
+
+// AdminContentWrite returns the configured admin content write service.
+func (m *Module) AdminContentWrite() AdminContentWriteService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.AdminContentWriteService()
+}
+
+// AdminBlockRead returns the configured admin block read service.
+func (m *Module) AdminBlockRead() AdminBlockReadService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.AdminBlockReadService()
+}
+
+// AdminBlockWrite returns the configured admin block write service.
+func (m *Module) AdminBlockWrite() AdminBlockWriteService {
+	if m == nil || m.container == nil {
+		return nil
+	}
+	return m.container.AdminBlockWriteService()
 }
 
 // Blocks returns the configured block service.
