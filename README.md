@@ -387,20 +387,42 @@ Schema validation is enforced on write paths:
 
 ### JSON Schema Subset (Draft 2020-12)
 
-go-cms validates JSON Schema payloads using Draft 2020-12, but only accepts a
-focused subset of keywords (vendor `x-*` extensions are allowed):
+go-cms uses a Draft 2020-12 validator.
+It does not support the full Draft 2020-12 keyword set.
+
+`$schema: "https://json-schema.org/draft/2020-12/schema"` does not enable full draft support.
+go-cms first checks schemas against its own supported subset.
+If a schema uses an unsupported keyword, schema registration fails.
+This can stop app startup if the schema is seeded at boot time.
+
+Vendor `x-*` extensions are allowed.
+The supported keywords are:
 
 - `$schema`, `$id`, `$ref`, `$defs`, `$anchor`
 - `type`, `properties`, `required`, `items`, `oneOf`, `allOf`
 - `const`, `enum`, `default`
+- `minLength`, `maxLength`, `minimum`, `maximum`
+- `exclusiveMinimum`, `exclusiveMaximum`
+- `pattern`, `minItems`, `maxItems`
 - `title`, `description`, `format`
 - `additionalProperties`
 - `metadata` and `ui` (normalized into `x-formgen`/`x-admin` hints)
 
-`allOf` is limited to object-merging (properties/required/additionalProperties/title/description).
-If you rely on other Draft 2020-12 features (numeric/string constraints,
-`if/then/else`, `dependentSchemas`, etc.), keep them on the form-generation side
-or downlevel them before validation so go-cms accepts the schema.
+`allOf` is limited to object merge use cases.
+It only supports `properties`, `required`, `additionalProperties`, `title`, and `description`.
+
+Common unsupported keywords include:
+
+- `dependentRequired`
+- `dependentSchemas`
+- `if`, `then`, `else`
+- `anyOf`, `not`
+- `minProperties`, `maxProperties`
+- `patternProperties`, `propertyNames`
+- `contains`, `prefixItems`, `uniqueItems`
+
+If you need rules like "field A requires field B", do not put them in the schema unless go-cms supports that keyword.
+Enforce those rules in app code or another validation layer.
 
 ## Static Site Generation
 
