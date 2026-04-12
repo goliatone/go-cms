@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.47.0](https://github.com/goliatone/go-cms/compare/v0.46.0...v0.47.0) - (2026-04-12)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Translation mutation noralize primary locale ([8a129cb](https://github.com/goliatone/go-cms/commit/8a129cb6537569a7b285e0368785fcaf3c8350e6))  - (goliatone)
+- Bun repo cache coherent fix ([ca41637](https://github.com/goliatone/go-cms/commit/ca416372b79e6365d70dcce21a3c12897b118ff9))  - (goliatone)
+- Memory repo persist primary locale ([4d6bce2](https://github.com/goliatone/go-cms/commit/4d6bce23d13be2e35767ebea29dc200db999793b))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.47.0 ([3e5b13d](https://github.com/goliatone/go-cms/commit/3e5b13df86688a37d3b618f270e82674111998e2))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.46.0 ([451c7e2](https://github.com/goliatone/go-cms/commit/451c7e25768bd77b6fa8953747acc54acaac880a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([ee178e7](https://github.com/goliatone/go-cms/commit/ee178e78a96531b7a73a9f1b56aa90091998c6a7))  - (goliatone)
+
 # [0.46.0](https://github.com/goliatone/go-cms/compare/v0.45.0...v0.46.0) - (2026-04-12)
 
 ## <!-- 1 -->🐛 Bug Fixes
