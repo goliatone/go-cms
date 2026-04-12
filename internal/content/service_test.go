@@ -9,6 +9,7 @@ import (
 
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/domain"
+	"github.com/goliatone/go-cms/internal/environments"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/lifecycle"
@@ -768,6 +769,227 @@ func TestServiceDeleteTranslationOptional(t *testing.T) {
 	}
 	if len(reloaded.Translations) != 0 {
 		t.Fatalf("expected no translations got %d", len(reloaded.Translations))
+	}
+}
+
+func TestServiceDeleteTranslationReassignsPrimaryLocale(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "zh", Display: "Chinese"})
+
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithRequireTranslations(false),
+	)
+
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "delete-translation-primary-locale",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "English"},
+			{Locale: "zh", Title: "Chinese"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+	if record.PrimaryLocale != "en" {
+		t.Fatalf("expected primary locale en, got %q", record.PrimaryLocale)
+	}
+
+	if err := svc.DeleteTranslation(context.Background(), content.DeleteContentTranslationRequest{
+		ContentID: record.ID,
+		Locale:    "en",
+		DeletedBy: uuid.New(),
+	}); err != nil {
+		t.Fatalf("delete translation: %v", err)
+	}
+
+	reloaded, err := svc.Get(context.Background(), record.ID, content.WithTranslations())
+	if err != nil {
+		t.Fatalf("reload content: %v", err)
+	}
+	if reloaded.PrimaryLocale != "zh" {
+		t.Fatalf("expected primary locale zh after delete, got %q", reloaded.PrimaryLocale)
+	}
+	if len(reloaded.Translations) != 1 {
+		t.Fatalf("expected one translation after delete, got %d", len(reloaded.Translations))
+	}
+	if reloaded.Translations[0] == nil || reloaded.Translations[0].Locale == nil || reloaded.Translations[0].Locale.Code != "zh" {
+		t.Fatalf("expected zh translation to remain, got %+v", reloaded.Translations)
+	}
+}
+
+func TestServiceDeleteTranslationRejectsRequiredDefaultLocale(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "zh", Display: "Chinese"})
+
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithDefaultLocale("en", true),
+	)
+
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "delete-required-default-locale",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "English"},
+			{Locale: "zh", Title: "Chinese"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	err = svc.DeleteTranslation(context.Background(), content.DeleteContentTranslationRequest{
+		ContentID: record.ID,
+		Locale:    "en",
+		DeletedBy: uuid.New(),
+	})
+	if !errors.Is(err, content.ErrDefaultLocaleRequired) {
+		t.Fatalf("expected ErrDefaultLocaleRequired, got %v", err)
+	}
+}
+
+func TestServiceUpdateReconcilesPrimaryLocaleWhenReplacingTranslations(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "zh", Display: "Chinese"})
+
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithRequireTranslations(false),
+	)
+
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "update-primary-locale-reconcile",
+		Status:        string(domain.StatusDraft),
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "English"},
+			{Locale: "zh", Title: "Chinese"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	updated, err := svc.Update(context.Background(), content.UpdateContentRequest{
+		ID:        record.ID,
+		UpdatedBy: uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "zh", Title: "Chinese Updated"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("update content: %v", err)
+	}
+	if updated.PrimaryLocale != "zh" {
+		t.Fatalf("expected primary locale zh after replacement, got %q", updated.PrimaryLocale)
+	}
+}
+
+func TestServiceTranslationMutationsRequireActiveEnvironment(t *testing.T) {
+	ctx := context.Background()
+
+	envRepo := environments.NewMemoryRepository()
+	envSvc := environments.NewService(envRepo)
+	envRecord, err := envSvc.CreateEnvironment(ctx, environments.CreateEnvironmentInput{Key: "default", IsDefault: true})
+	if err != nil {
+		t.Fatalf("create environment: %v", err)
+	}
+
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:            contentTypeID,
+		Name:          "page",
+		EnvironmentID: envRecord.ID,
+	})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "zh", Display: "Chinese"})
+
+	svc := content.NewService(
+		contentStore,
+		typeStore,
+		localeStore,
+		content.WithEnvironmentService(envSvc),
+		content.WithRequireActiveEnvironment(true),
+	)
+
+	record, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID:  contentTypeID,
+		Slug:           "inactive-environment-translation-mutations",
+		Status:         string(domain.StatusDraft),
+		EnvironmentKey: "default",
+		CreatedBy:      uuid.New(),
+		UpdatedBy:      uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "English"},
+			{Locale: "zh", Title: "Chinese"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	inactive := false
+	if _, err := envSvc.UpdateEnvironment(ctx, environments.UpdateEnvironmentInput{
+		ID:       envRecord.ID,
+		IsActive: &inactive,
+	}); err != nil {
+		t.Fatalf("deactivate environment: %v", err)
+	}
+
+	if _, err := svc.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
+		ContentID: record.ID,
+		Locale:    "zh",
+		Title:     "Updated",
+	}); !errors.Is(err, environments.ErrEnvironmentNotFound) {
+		t.Fatalf("expected ErrEnvironmentNotFound on update translation, got %v", err)
+	}
+
+	if err := svc.DeleteTranslation(ctx, content.DeleteContentTranslationRequest{
+		ContentID: record.ID,
+		Locale:    "zh",
+	}); !errors.Is(err, environments.ErrEnvironmentNotFound) {
+		t.Fatalf("expected ErrEnvironmentNotFound on delete translation, got %v", err)
 	}
 }
 
