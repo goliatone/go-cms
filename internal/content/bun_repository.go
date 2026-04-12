@@ -79,11 +79,12 @@ func (r *BunContentRepository) Create(ctx context.Context, record *Content) (*Co
 			return nil
 		}
 
-		if _, err := tx.NewInsert().Model(&toInsert).Exec(ctx); err != nil {
+		inserted, err := r.translations.CreateManyTx(ctx, tx, toInsert)
+		if err != nil {
 			return fmt.Errorf("insert translations: %w", err)
 		}
 
-		created.Translations = append([]*ContentTranslation{}, toInsert...)
+		created.Translations = append([]*ContentTranslation{}, inserted...)
 		return nil
 	})
 	if err != nil {
@@ -219,10 +220,11 @@ func (r *BunContentRepository) CreateTranslation(ctx context.Context, contentID 
 		cloned.FamilyID = &groupID
 	}
 
-	if _, err := r.db.NewInsert().Model(&cloned).Exec(ctx); err != nil {
+	inserted, err := r.translations.Create(ctx, &cloned)
+	if err != nil {
 		return nil, fmt.Errorf("insert translation: %w", err)
 	}
-	return &cloned, nil
+	return inserted, nil
 }
 
 func (r *BunContentRepository) ReplaceTranslations(ctx context.Context, contentID uuid.UUID, translations []*ContentTranslation) error {
@@ -231,10 +233,7 @@ func (r *BunContentRepository) ReplaceTranslations(ctx context.Context, contentI
 	}
 
 	return r.db.RunInTx(ctx, nil, func(ctx context.Context, tx bun.Tx) error {
-		if _, err := tx.NewDelete().
-			Model((*ContentTranslation)(nil)).
-			Where("?TableAlias.content_id = ?", contentID).
-			Exec(ctx); err != nil {
+		if err := r.translations.DeleteManyTx(ctx, tx, repository.DeleteBy("content_id", "=", contentID.String())); err != nil {
 			return fmt.Errorf("delete translations: %w", err)
 		}
 
@@ -264,7 +263,7 @@ func (r *BunContentRepository) ReplaceTranslations(ctx context.Context, contentI
 			return nil
 		}
 
-		if _, err := tx.NewInsert().Model(&toInsert).Exec(ctx); err != nil {
+		if _, err := r.translations.CreateManyTx(ctx, tx, toInsert); err != nil {
 			return fmt.Errorf("insert translations: %w", err)
 		}
 		return nil
