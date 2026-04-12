@@ -7,6 +7,8 @@ import (
 
 	"github.com/goliatone/go-cms"
 	"github.com/goliatone/go-cms/internal/content"
+	"github.com/goliatone/go-cms/internal/exampledata"
+	"github.com/goliatone/go-cms/internal/validation"
 )
 
 func TestDemoSeededContentTypesActiveAndSchemaFields(t *testing.T) {
@@ -45,12 +47,12 @@ func TestDemoSeededContentTypesActiveAndSchemaFields(t *testing.T) {
 		t.Fatalf("expected page content type structural_fields capability to be true")
 	}
 
-	blogType, err := typeRepo.GetBySlug(ctx, "blog_post")
+	blogType, err := typeRepo.GetBySlug(ctx, "blog-post")
 	if err != nil {
-		t.Fatalf("get blog_post content type: %v", err)
+		t.Fatalf("get blog-post content type: %v", err)
 	}
 	if blogType.Status != content.ContentTypeStatusActive {
-		t.Fatalf("expected blog_post content type status %q got %q", content.ContentTypeStatusActive, blogType.Status)
+		t.Fatalf("expected blog-post content type status %q got %q", content.ContentTypeStatusActive, blogType.Status)
 	}
 
 	pageFields := collectSchemaFieldNames(pageType.Schema)
@@ -69,7 +71,7 @@ func TestDemoSeededContentTypesActiveAndSchemaFields(t *testing.T) {
 	})
 
 	blogFields := collectSchemaFieldNames(blogType.Schema)
-	assertSchemaFields(t, "blog_post", blogFields, []string{
+	assertSchemaFields(t, "blog-post", blogFields, []string{
 		"title",
 		"slug",
 		"status",
@@ -81,6 +83,14 @@ func TestDemoSeededContentTypesActiveAndSchemaFields(t *testing.T) {
 		"seo",
 		"blocks",
 	})
+}
+
+func TestDemoSeededBlockDefinitionsUseSupportedSchemaSubset(t *testing.T) {
+	for _, definition := range exampledata.DemoBlockDefinitions() {
+		if err := validation.ValidateSchema(definition.Schema); err != nil {
+			t.Fatalf("definition %q schema failed validation: %v", definition.Name, err)
+		}
+	}
 }
 
 func collectSchemaFieldNames(schema map[string]any) map[string]struct{} {

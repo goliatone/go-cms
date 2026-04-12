@@ -211,7 +211,7 @@ func TestRunDiff_UsesCommandHandler(t *testing.T) {
 	if len(got.Locales) != 1 || got.Locales[0] != "fr" {
 		t.Fatalf("expected locale fr, got %#v", got.Locales)
 	}
-	if !strings.Contains(buf.String(), "module=static operation=build summary") {
+	if !strings.Contains(buf.String(), "module=static operation=diff summary") {
 		t.Fatalf("expected diff summary log, got %q", buf.String())
 	}
 }

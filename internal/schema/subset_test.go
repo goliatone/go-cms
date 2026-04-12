@@ -57,3 +57,25 @@ func TestValidateSchemaSubsetRejectsUnsupportedKeyword(t *testing.T) {
 		t.Fatalf("expected ErrUnsupportedKeyword, got %v", err)
 	}
 }
+
+func TestValidateSchemaSubsetRejectsDependentRequired(t *testing.T) {
+	schema := map[string]any{
+		"type": "object",
+		"properties": map[string]any{
+			"secondary_cta_label": map[string]any{"type": "string"},
+			"secondary_cta_href":  map[string]any{"type": "string"},
+		},
+		"dependentRequired": map[string]any{
+			"secondary_cta_label": []any{"secondary_cta_href"},
+			"secondary_cta_href":  []any{"secondary_cta_label"},
+		},
+	}
+
+	err := ValidateSchemaSubset(schema)
+	if err == nil {
+		t.Fatalf("expected unsupported keyword error")
+	}
+	if !errors.Is(err, ErrUnsupportedKeyword) {
+		t.Fatalf("expected ErrUnsupportedKeyword, got %v", err)
+	}
+}
