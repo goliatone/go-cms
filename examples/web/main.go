@@ -23,6 +23,7 @@ import (
 	markdowncmd "github.com/goliatone/go-cms/internal/commands/markdown"
 	"github.com/goliatone/go-cms/internal/content"
 	"github.com/goliatone/go-cms/internal/di"
+	"github.com/goliatone/go-cms/internal/exampledata"
 	"github.com/goliatone/go-cms/internal/generator"
 	"github.com/goliatone/go-cms/internal/logging"
 	"github.com/goliatone/go-cms/internal/markdown"
@@ -37,10 +38,7 @@ import (
 )
 
 var (
-	demoAuthorID           = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
-	demoPageContentTypeID  = uuid.MustParse("11111111-1111-1111-1111-111111111111")
-	demoBlogContentTypeID  = uuid.MustParse("22222222-2222-2222-2222-222222222222")
-	demoProductContentType = uuid.MustParse("33333333-3333-3333-3333-333333333333")
+	demoAuthorID = uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
 )
 
 // cmsContentServiceAdapter adapts the cms.ContentService to the interfaces.ContentService contract
@@ -270,7 +268,6 @@ func toContentRecordWithOptions(record *content.Content, opts interfaces.Content
 		Slug:            record.Slug,
 		Status:          record.Status,
 		Translation:     buildContentTranslationBundle(translations, opts),
-		Translations:    translations,
 		Metadata:        cloneFieldMap(record.Metadata),
 	}
 }
@@ -789,8 +786,7 @@ func (a *cmsPageServiceAdapter) toPageRecordWithOptions(record *pages.Page, opts
 				IncludeAvailableLocales: opts.IncludeAvailableLocales,
 			},
 		),
-		Translations: translations,
-		Metadata:     a.pageMetaClone(record.ID),
+		Metadata: a.pageMetaClone(record.ID),
 	}
 }
 
@@ -961,7 +957,7 @@ func main() {
 	}
 
 	// Setup demo data
-	_, err := setupDemoData(ctx, module, &cfg, filepath.ToSlash(themeDir))
+	_, err = setupDemoData(ctx, module, &cfg, filepath.ToSlash(themeDir))
 	if err != nil {
 		log.Fatalf("setup demo data: %v", err)
 	}
@@ -1512,9 +1508,14 @@ func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Con
 
 	log.Printf("markdown demo: markdown sync will import content entries only")
 
+	blogContentType, err := module.ContentTypes().GetBySlug(ctx, "blog-post")
+	if err != nil {
+		return fmt.Errorf("resolve blog-post content type: %w", err)
+	}
+
 	syncOpts := interfaces.SyncOptions{
 		ImportOptions: interfaces.ImportOptions{
-			ContentTypeID: demoBlogContentTypeID,
+			ContentTypeID: blogContentType.ID,
 			AuthorID:      demoAuthorID,
 		},
 		UpdateExisting: true,
@@ -1538,9 +1539,12 @@ func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Con
 		MarkdownEnabled: func() bool { return cfg.Features.Markdown && cfg.Markdown.Enabled },
 	}
 
-	handlerSet, err := markdowncmd.RegisterMarkdownCommands(registry, service, nil, gates)
-	if err != nil {
-		return fmt.Errorf("register markdown command handlers: %w", err)
+	importHandler := markdowncmd.NewImportDirectoryHandler(service, nil, gates)
+	syncHandler := markdowncmd.NewSyncDirectoryHandler(service, nil, gates)
+	for _, handler := range []any{importHandler, syncHandler} {
+		if err := registry.RegisterCommand(handler); err != nil {
+			return fmt.Errorf("register markdown command handler %T: %w", handler, err)
+		}
 	}
 	log.Printf("markdown demo registered %d command handlers", len(registry.handlers))
 
@@ -1551,11 +1555,13 @@ func bootstrapMarkdownDemo(ctx context.Context, module *cms.Module, cfg *cms.Con
 	}
 	syncMsg := markdowncmd.SyncDirectoryCommand{
 		Directory:      ".",
-		ContentTypeID:  demoBlogContentTypeID,
+		ContentTypeID:  blogContentType.ID,
 		AuthorID:       demoAuthorID,
 		UpdateExisting: true,
 	}
-	if err := markdowncmd.RegisterMarkdownCron(cron.Register, handlerSet.Sync, cronConfig, syncMsg); err != nil {
+	if err := cron.Register(cronConfig, func() error {
+		return syncHandler.Execute(context.Background(), syncMsg)
+	}); err != nil {
 		return fmt.Errorf("register markdown cron: %w", err)
 	}
 	log.Printf("markdown demo scheduled cron job %q with expression %q", cronJobName, cronConfig.Expression)
@@ -1685,9 +1691,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 	}
 
 	// Create content types
-	pageTypeID := demoPageContentTypeID
-	maybeSeedContentType(ctx, container, &content.ContentType{
-		ID:     pageTypeID,
+	pageType, err := ensureSeedContentType(ctx, container, &content.ContentType{
 		Name:   "page",
 		Slug:   "page",
 		Status: content.ContentTypeStatusActive,
@@ -1717,13 +1721,15 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 			},
 		},
 	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("ensure page content type: %w", err)
+	}
+	pageTypeID := pageType.ID
 
 	// Blog post content type
-	blogTypeID := demoBlogContentTypeID
-	maybeSeedContentType(ctx, container, &content.ContentType{
-		ID:     blogTypeID,
+	blogType, err := ensureSeedContentType(ctx, container, &content.ContentType{
 		Name:   "blog_post",
-		Slug:   "blog_post",
+		Slug:   "blog-post",
 		Status: content.ContentTypeStatusActive,
 		Capabilities: map[string]any{
 			"seo":           true,
@@ -1751,11 +1757,13 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 			},
 		},
 	})
+	if err != nil {
+		return uuid.Nil, fmt.Errorf("ensure blog-post content type: %w", err)
+	}
+	blogTypeID := blogType.ID
 
 	// Product content type
-	productTypeID := demoProductContentType
-	maybeSeedContentType(ctx, container, &content.ContentType{
-		ID:   productTypeID,
+	if _, err := ensureSeedContentType(ctx, container, &content.ContentType{
 		Name: "product",
 		Slug: "product",
 		Schema: map[string]any{
@@ -1766,38 +1774,22 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 				{"name": "specs", "type": "object", "required": false},
 			},
 		},
-	})
+	}); err != nil {
+		return uuid.Nil, fmt.Errorf("ensure product content type: %w", err)
+	}
 
 	// Register block definitions
-	heroBlockDef, err := ensureBlockDefinition(ctx, blockSvc, blocks.RegisterDefinitionInput{
-		Name: "hero",
-		Schema: map[string]any{
-			"fields": []any{"title", "subtitle", "cta_text", "cta_url", "background_image"},
-		},
-	})
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("register hero block: %w", err)
+	blockDefinitions := map[string]*blocks.Definition{}
+	for _, definitionInput := range exampledata.DemoBlockDefinitions() {
+		definition, err := ensureBlockDefinition(ctx, blockSvc, definitionInput)
+		if err != nil {
+			return uuid.Nil, fmt.Errorf("register %s block: %w", definitionInput.Name, err)
+		}
+		blockDefinitions[definitionInput.Name] = definition
 	}
-
-	featuresBlockDef, err := ensureBlockDefinition(ctx, blockSvc, blocks.RegisterDefinitionInput{
-		Name: "features_grid",
-		Schema: map[string]any{
-			"fields": []any{"title", "features"},
-		},
-	})
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("register features block: %w", err)
-	}
-
-	ctaBlockDef, err := ensureBlockDefinition(ctx, blockSvc, blocks.RegisterDefinitionInput{
-		Name: "call_to_action",
-		Schema: map[string]any{
-			"fields": []any{"headline", "description", "button_text", "button_url"},
-		},
-	})
-	if err != nil {
-		return uuid.Nil, fmt.Errorf("register cta block: %w", err)
-	}
+	heroBlockDef := blockDefinitions["hero"]
+	featuresBlockDef := blockDefinitions["features_grid"]
+	ctaBlockDef := blockDefinitions["call_to_action"]
 
 	// Create About page with content type
 	enAboutSummary := "Learn about our CMS"
@@ -2399,7 +2391,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 	}
 
 	log.Println("Demo data setup complete")
-	log.Printf("  - Content Types: 3 (page, blog_post, product)")
+	log.Printf("  - Content Types: 3 (page, blog-post, product)")
 	log.Printf("  - Block Definitions: 3 (hero, features_grid, call_to_action)")
 	log.Printf("  - Pages: 4 (about, getting-started, workflow-demo [draft], markdown-sync-demo)")
 	log.Printf("  - Widgets: 2 (newsletter, promo_banner)")
@@ -2587,23 +2579,33 @@ func createLocalizedBlock(
 	return nil
 }
 
-func maybeSeedContentType(ctx context.Context, container *di.Container, ct *content.ContentType) {
+func ensureSeedContentType(ctx context.Context, container *di.Container, ct *content.ContentType) (*content.ContentType, error) {
 	repo := container.ContentTypeRepository()
 	if repo == nil {
-		return
+		return nil, errors.New("content type repository unavailable")
 	}
 	if err := validateSeedContentType(ctx, repo, ct); err != nil {
-		log.Printf("seed content type %s invalid: %v", ct.Slug, err)
-		return
+		return nil, err
+	}
+	if existing, err := repo.GetBySlug(ctx, ct.Slug); err == nil {
+		return existing, nil
+	} else {
+		var notFound *content.NotFoundError
+		if errors.As(err, &notFound) {
+			goto create
+		}
+		return nil, err
 	}
 
-	if seeder, ok := repo.(interface {
-		Put(*content.ContentType) error
-	}); ok {
-		if err := seeder.Put(ct); err != nil {
-			log.Printf("seed content type %s: %v", ct.Slug, err)
-		}
+create:
+	record := *ct
+	if record.ID == uuid.Nil {
+		record.ID = uuid.New()
 	}
+	record.Schema = cloneFieldMap(ct.Schema)
+	record.UISchema = cloneFieldMap(ct.UISchema)
+	record.Capabilities = cloneFieldMap(ct.Capabilities)
+	return repo.Create(ctx, &record)
 }
 
 func validateSeedContentType(ctx context.Context, repo content.ContentTypeRepository, ct *content.ContentType) error {
@@ -2640,18 +2642,18 @@ func validateSeedContentType(ctx context.Context, repo content.ContentTypeReposi
 		if capabilityString(ct.Capabilities, "policy_entity") == "" {
 			return fmt.Errorf("page capabilities must include policy_entity")
 		}
-	case "blog_post":
+	case "blog-post":
 		if panelSlug != "posts" {
-			return fmt.Errorf("blog_post must set panel_slug=posts")
+			return fmt.Errorf("blog-post must set panel_slug=posts")
 		}
 		if !capabilityBool(ct.Capabilities, "seo") || !capabilityBool(ct.Capabilities, "blocks") {
-			return fmt.Errorf("blog_post capabilities must include seo/blocks")
+			return fmt.Errorf("blog-post capabilities must include seo/blocks")
 		}
 		if capabilityString(ct.Capabilities, "workflow") == "" || capabilityString(ct.Capabilities, "permissions") == "" {
-			return fmt.Errorf("blog_post capabilities must include workflow/permissions")
+			return fmt.Errorf("blog-post capabilities must include workflow/permissions")
 		}
 		if capabilityString(ct.Capabilities, "policy_entity") == "" {
-			return fmt.Errorf("blog_post capabilities must include policy_entity")
+			return fmt.Errorf("blog-post capabilities must include policy_entity")
 		}
 	}
 	return nil

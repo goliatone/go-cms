@@ -117,7 +117,7 @@ The example automatically creates comprehensive demo data including:
 
 ### Content Types
 - **page**: Basic page content type with rich text body
-- **blog_post**: Blog posts with excerpt, author, tags, and featured image
+- **blog-post**: Blog posts with excerpt, author, tags, and featured image
 - **product**: Product content type with price, features, and specifications
 
 ### Pages with Blocks
