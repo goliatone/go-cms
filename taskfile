@@ -94,8 +94,10 @@ function dev:env:load {
 function dev:test {
     if [[ "$1" == "race" ]]; then
        "${GO_BIN}" test ./... -race -count=1
+       (cd examples/web && "${GO_BIN}" test ./... -race -count=1)
     else
         "${GO_BIN}" test -ldflags="-s -w" ./... -count=1
+        (cd examples/web && "${GO_BIN}" test -ldflags="-s -w" ./... -count=1)
     fi
 }
 
