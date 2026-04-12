@@ -119,9 +119,7 @@ func (m *MemoryContentRepository) Update(_ context.Context, record *Content) (*C
 	updated.PublishedBy = cloneUUIDPointer(record.PublishedBy)
 	updated.Status = record.Status
 	updated.Metadata = cloneMap(record.Metadata)
-	if strings.TrimSpace(record.PrimaryLocale) != "" {
-		updated.PrimaryLocale = record.PrimaryLocale
-	}
+	updated.PrimaryLocale = record.PrimaryLocale
 	updated.UpdatedAt = record.UpdatedAt
 	updated.UpdatedBy = record.UpdatedBy
 	if len(record.Translations) > 0 {
