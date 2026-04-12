@@ -872,11 +872,7 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 			logger.Error("content translations build failed", "error", err)
 			return nil, err
 		}
-	}
-	if replaceTranslations && strings.TrimSpace(existing.PrimaryLocale) == "" {
-		if primary := primaryLocaleFromContentInputs(ctx, s.locales, req.Translations); primary != "" {
-			existing.PrimaryLocale = primary
-		}
+		existing.PrimaryLocale = s.reconcilePrimaryLocale(ctx, existing.PrimaryLocale, translations, primaryLocaleFromContentInputs(ctx, s.locales, req.Translations))
 	}
 
 	existing.Status = chooseStatus(req.Status)
@@ -1146,9 +1142,7 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 	} else {
 		record.Translations = append(record.Translations, createdTranslation)
 	}
-	if strings.TrimSpace(record.PrimaryLocale) == "" {
-		record.PrimaryLocale = strings.TrimSpace(sourceLocale)
-	}
+	record.PrimaryLocale = s.reconcilePrimaryLocale(ctx, record.PrimaryLocale, record.Translations, sourceLocale)
 	record.Status = chooseStatus(req.Status)
 	record.UpdatedAt = s.now()
 	if req.ActorID != uuid.Nil {
@@ -1205,6 +1199,9 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	record, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
 		logger.Error("content lookup failed", "error", err)
+		return nil, err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
 		return nil, err
 	}
 	if err := s.loadTranslations(ctx, record); err != nil {
@@ -1302,6 +1299,7 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	}
 
 	record.Translations = translations
+	record.PrimaryLocale = s.reconcilePrimaryLocale(ctx, record.PrimaryLocale, translations, "")
 	record.UpdatedAt = now
 	if req.UpdatedBy != uuid.Nil {
 		record.UpdatedBy = req.UpdatedBy
@@ -1347,6 +1345,9 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	if localeCode == "" {
 		return ErrUnknownLocale
 	}
+	if s.requiresDefaultLocale() && s.isDefaultLocale(localeCode) {
+		return ErrDefaultLocaleRequired
+	}
 
 	logger := s.opLogger(ctx, "content.translation.delete", map[string]any{
 		"content_id": req.ContentID,
@@ -1356,6 +1357,9 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	record, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
 		logger.Error("content lookup failed", "error", err)
+		return err
+	}
+	if err := s.ensureEnvironmentActive(ctx, record.EnvironmentID); err != nil {
 		return err
 	}
 	if err := s.loadTranslations(ctx, record); err != nil {
@@ -1401,6 +1405,7 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	}
 
 	record.Translations = translations
+	record.PrimaryLocale = s.reconcilePrimaryLocale(ctx, record.PrimaryLocale, translations, "")
 	record.UpdatedAt = s.now()
 	if req.DeletedBy != uuid.Nil {
 		record.UpdatedBy = req.DeletedBy
@@ -2465,6 +2470,56 @@ func findContentTranslationByLocale(translations []*ContentTranslation, localeID
 		}
 	}
 	return nil
+}
+
+func (s *service) reconcilePrimaryLocale(ctx context.Context, current string, translations []*ContentTranslation, preferred string) string {
+	if locale := strings.TrimSpace(preferred); locale != "" && s.translationLocaleExists(ctx, translations, locale) {
+		return locale
+	}
+	if locale := strings.TrimSpace(current); locale != "" && s.translationLocaleExists(ctx, translations, locale) {
+		return locale
+	}
+	if s.requiresDefaultLocale() {
+		if locale := s.defaultLocaleKey(); locale != "" && s.translationLocaleExists(ctx, translations, locale) {
+			return locale
+		}
+	}
+	for _, tr := range translations {
+		if code := s.translationLocaleCode(ctx, tr); code != "" {
+			return code
+		}
+	}
+	return ""
+}
+
+func (s *service) translationLocaleExists(ctx context.Context, translations []*ContentTranslation, code string) bool {
+	target := strings.ToLower(strings.TrimSpace(code))
+	if target == "" {
+		return false
+	}
+	for _, tr := range translations {
+		if strings.EqualFold(s.translationLocaleCode(ctx, tr), target) {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *service) translationLocaleCode(ctx context.Context, tr *ContentTranslation) string {
+	if tr == nil {
+		return ""
+	}
+	if tr.Locale != nil {
+		return strings.TrimSpace(tr.Locale.Code)
+	}
+	if s == nil || s.locales == nil || tr.LocaleID == uuid.Nil {
+		return ""
+	}
+	loc, err := s.locales.GetByID(ctx, tr.LocaleID)
+	if err != nil || loc == nil {
+		return ""
+	}
+	return strings.TrimSpace(loc.Code)
 }
 
 func selectSourceTranslation(ctx context.Context, locales LocaleRepository, record *Content, requested string) (*ContentTranslation, string) {
