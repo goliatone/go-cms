@@ -232,6 +232,221 @@ func TestContentService_CreateTranslationConcurrencyWithBunStorage(t *testing.T)
 	}
 }
 
+func TestContentService_UpdateTranslationAfterCreateTranslationWithBunStorage(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerContentModels(t, bunDB)
+	seedContentEntities(t, bunDB)
+
+	zhLocale := &content.Locale{
+		ID:        mustUUID("00000000-0000-0000-0000-000000000203"),
+		Code:      "zh",
+		Display:   "Chinese",
+		IsActive:  true,
+		IsDefault: false,
+	}
+	if _, err := bunDB.NewInsert().Model(zhLocale).Exec(ctx); err != nil {
+		t.Fatalf("insert zh locale: %v", err)
+	}
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+
+	svc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	creator, ok := svc.(content.TranslationCreator)
+	if !ok {
+		t.Fatalf("expected translation creator capability, got %T", svc)
+	}
+
+	authorID := mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	source, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:          "translation-update-after-create",
+		Status:        "published",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Hello",
+				Content: map[string]any{"body": "Welcome"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	if _, err := creator.CreateTranslation(ctx, content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "zh",
+		ActorID:      authorID,
+	}); err != nil {
+		t.Fatalf("create zh translation: %v", err)
+	}
+
+	updated, err := svc.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
+		ContentID: source.ID,
+		Locale:    "zh",
+		Title:     "Ni Hao",
+		Content:   map[string]any{"body": "Updated Chinese copy"},
+		UpdatedBy: authorID,
+	})
+	if err != nil {
+		t.Fatalf("update zh translation: %v", err)
+	}
+	if updated == nil {
+		t.Fatal("expected updated translation")
+	}
+	if updated.LocaleID != zhLocale.ID {
+		t.Fatalf("expected zh locale id %s, got %s", zhLocale.ID, updated.LocaleID)
+	}
+	if updated.Title != "Ni Hao" {
+		t.Fatalf("expected zh title %q, got %q", "Ni Hao", updated.Title)
+	}
+	if got := updated.Content["body"]; got != "Updated Chinese copy" {
+		t.Fatalf("expected zh body to be updated, got %v", got)
+	}
+
+	translations, err := contentRepo.ListTranslations(ctx, source.ID)
+	if err != nil {
+		t.Fatalf("list translations: %v", err)
+	}
+	if len(translations) != 2 {
+		t.Fatalf("expected 2 translations after update, got %d", len(translations))
+	}
+
+	byLocale := make(map[string]*content.ContentTranslation, len(translations))
+	for _, tr := range translations {
+		if tr == nil || tr.Locale == nil {
+			continue
+		}
+		byLocale[tr.Locale.Code] = tr
+	}
+	if len(byLocale) != 2 {
+		t.Fatalf("expected locales [en zh], got %v", keys(byLocale))
+	}
+	if byLocale["en"] == nil {
+		t.Fatalf("expected en translation to remain present, got %v", keys(byLocale))
+	}
+	if byLocale["zh"] == nil {
+		t.Fatalf("expected zh translation to remain present, got %v", keys(byLocale))
+	}
+	if got := byLocale["en"].Content["body"]; got != "Welcome" {
+		t.Fatalf("expected en body to remain unchanged, got %v", got)
+	}
+	if got := byLocale["zh"].Content["body"]; got != "Updated Chinese copy" {
+		t.Fatalf("expected zh body to be updated in storage, got %v", got)
+	}
+
+	reloaded, err := svc.Get(ctx, source.ID, content.WithTranslations())
+	if err != nil {
+		t.Fatalf("reload content with translations: %v", err)
+	}
+	if len(reloaded.Translations) != 2 {
+		t.Fatalf("expected 2 translations on reload, got %d", len(reloaded.Translations))
+	}
+}
+
+func TestContentService_DeleteTranslationAfterCreateTranslationWithBunStorage(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerContentModels(t, bunDB)
+	seedContentEntities(t, bunDB)
+
+	zhLocale := &content.Locale{
+		ID:        mustUUID("00000000-0000-0000-0000-000000000203"),
+		Code:      "zh",
+		Display:   "Chinese",
+		IsActive:  true,
+		IsDefault: false,
+	}
+	if _, err := bunDB.NewInsert().Model(zhLocale).Exec(ctx); err != nil {
+		t.Fatalf("insert zh locale: %v", err)
+	}
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+
+	svc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	creator, ok := svc.(content.TranslationCreator)
+	if !ok {
+		t.Fatalf("expected translation creator capability, got %T", svc)
+	}
+
+	authorID := mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	source, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:          "translation-delete-after-create",
+		Status:        "published",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Hello",
+				Content: map[string]any{"body": "Welcome"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	if _, err := creator.CreateTranslation(ctx, content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "zh",
+		ActorID:      authorID,
+	}); err != nil {
+		t.Fatalf("create zh translation: %v", err)
+	}
+
+	if err := svc.DeleteTranslation(ctx, content.DeleteContentTranslationRequest{
+		ContentID: source.ID,
+		Locale:    "zh",
+		DeletedBy: authorID,
+	}); err != nil {
+		t.Fatalf("delete zh translation: %v", err)
+	}
+
+	translations, err := contentRepo.ListTranslations(ctx, source.ID)
+	if err != nil {
+		t.Fatalf("list translations: %v", err)
+	}
+	if len(translations) != 1 {
+		t.Fatalf("expected 1 translation after delete, got %d", len(translations))
+	}
+	if translations[0] == nil || translations[0].Locale == nil || translations[0].Locale.Code != "en" {
+		t.Fatalf("expected only en translation to remain, got %+v", translations)
+	}
+}
+
 func TestBunContentTypeRepository_ListAndSearchOrdersBySlugAndCreatedAt(t *testing.T) {
 	ctx := context.Background()
 
@@ -372,4 +587,12 @@ func mustUUID(v string) uuid.UUID {
 		panic(err)
 	}
 	return id
+}
+
+func keys[V any](m map[string]V) []string {
+	out := make([]string, 0, len(m))
+	for key := range m {
+		out = append(out, key)
+	}
+	return out
 }

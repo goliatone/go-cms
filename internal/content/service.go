@@ -1207,6 +1207,10 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		logger.Error("content lookup failed", "error", err)
 		return nil, err
 	}
+	if err := s.loadTranslations(ctx, record); err != nil {
+		logger.Error("content translation lookup failed", "error", err)
+		return nil, err
+	}
 	contentType, err := s.contentTypes.GetByID(ctx, record.ContentTypeID)
 	if err != nil {
 		logger.Error("content type lookup failed", "error", err)
@@ -1352,6 +1356,10 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	record, err := s.contents.GetByID(ctx, req.ContentID)
 	if err != nil {
 		logger.Error("content lookup failed", "error", err)
+		return err
+	}
+	if err := s.loadTranslations(ctx, record); err != nil {
+		logger.Error("content translation lookup failed", "error", err)
 		return err
 	}
 
