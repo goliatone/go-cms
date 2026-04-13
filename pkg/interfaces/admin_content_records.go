@@ -93,4 +93,7 @@ type AdminContentCreateTranslationRequest struct {
 	EnvironmentKey string
 	ActorID        uuid.UUID
 	Status         string
+	Path           string
+	RouteKey       string
+	Metadata       map[string]any
 }
