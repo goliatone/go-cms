@@ -82,6 +82,9 @@ type ContentCreateTranslationRequest struct {
 	EnvironmentKey string
 	ActorID        uuid.UUID
 	Status         string
+	Path           string
+	RouteKey       string
+	Metadata       map[string]any
 }
 
 // ContentUpdateTranslationRequest updates a single locale entry.
@@ -130,6 +133,7 @@ type ContentTranslation struct {
 	Title    string
 	Summary  *string
 	Fields   map[string]any
+	Metadata map[string]any
 }
 
 // ContentTypeService abstracts content type management for adapters.
