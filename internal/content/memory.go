@@ -348,6 +348,7 @@ func cloneContentTranslations(src []*ContentTranslation) []*ContentTranslation {
 		}
 		cloned := *tr
 		cloned.Content = cloneMap(tr.Content)
+		cloned.Metadata = cloneMap(tr.Metadata)
 		out[i] = &cloned
 	}
 	return out
@@ -373,10 +374,11 @@ func cloneContentVersionSnapshot(src ContentVersionSnapshot) ContentVersionSnaps
 		target.Translations = make([]ContentVersionTranslationSnapshot, len(src.Translations))
 		for i, tr := range src.Translations {
 			target.Translations[i] = ContentVersionTranslationSnapshot{
-				Locale:  tr.Locale,
-				Title:   tr.Title,
-				Summary: tr.Summary,
-				Content: cloneMap(tr.Content),
+				Locale:   tr.Locale,
+				Title:    tr.Title,
+				Summary:  tr.Summary,
+				Content:  cloneMap(tr.Content),
+				Metadata: cloneMap(tr.Metadata),
 			}
 		}
 	}
