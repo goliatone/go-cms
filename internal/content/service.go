@@ -1092,12 +1092,25 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 	sourceContent := stripSchemaVersion(sourceTranslation.Content)
+	if path := strings.TrimSpace(req.Path); path != "" {
+		sourceContent["path"] = path
+	}
+	if routeKey := strings.TrimSpace(req.RouteKey); routeKey != "" {
+		sourceContent["route_key"] = routeKey
+	}
 	if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(sourceContent)); err != nil {
 		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
 	}
 
 	now := s.now()
 	groupID := translationGroupForContent(record.ID, sourceTranslation)
+	translationMetadata := cloneMap(sourceTranslation.Metadata)
+	if len(req.Metadata) > 0 {
+		if translationMetadata == nil {
+			translationMetadata = map[string]any{}
+		}
+		maps.Copy(translationMetadata, cloneMap(req.Metadata))
+	}
 	createdTranslation := &ContentTranslation{
 		ID:        s.id(),
 		ContentID: record.ID,
@@ -1106,6 +1119,7 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 		Title:     sourceTranslation.Title,
 		Summary:   cloneString(sourceTranslation.Summary),
 		Content:   applySchemaVersion(sourceContent, version),
+		Metadata:  translationMetadata,
 		Locale:    target,
 		CreatedAt: now,
 		UpdatedAt: now,
@@ -2100,6 +2114,7 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 
 		if existingTranslation, ok := existing[loc.ID]; ok && existingTranslation != nil {
 			translation.ID = existingTranslation.ID
+			translation.Metadata = cloneMap(existingTranslation.Metadata)
 			if !existingTranslation.CreatedAt.IsZero() {
 				translation.CreatedAt = existingTranslation.CreatedAt
 			} else {
@@ -2141,6 +2156,7 @@ func (s *service) previewTranslations(ctx context.Context, contentID uuid.UUID, 
 			Title:     tr.Title,
 			Summary:   cloneString(tr.Summary),
 			Content:   cloneMap(tr.Content),
+			Metadata:  cloneMap(tr.Metadata),
 			Locale:    locale,
 			CreatedAt: now,
 			UpdatedAt: now,
