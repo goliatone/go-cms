@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.48.0](https://github.com/goliatone/go-cms/compare/v0.47.0...v0.48.0) - (2026-04-13)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.48.0 ([2c7880d](https://github.com/goliatone/go-cms/commit/2c7880d4a210607c982df10ae17d12d5da4ad687))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Metadata persistence ([bce9047](https://github.com/goliatone/go-cms/commit/bce9047be484b20308453a24ee8d07e1ab83b48f))  - (goliatone)
+- Migrations to support translation meta ([5f58efc](https://github.com/goliatone/go-cms/commit/5f58efcd44fd200bd2a1246ca4399c739ac93cdb))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.47.0 ([f0d7a20](https://github.com/goliatone/go-cms/commit/f0d7a20168c6b38677eea84fb00eff881fa94ed5))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([d85da99](https://github.com/goliatone/go-cms/commit/d85da9959bf9f92fa9a4f5b2e4c2e98dc6f37ac1))  - (goliatone)
+- Update gitignore ([2d1d1ab](https://github.com/goliatone/go-cms/commit/2d1d1abe86e117dc59930288e87b1ced6fda054e))  - (goliatone)
+
 # [0.47.0](https://github.com/goliatone/go-cms/compare/v0.46.0...v0.47.0) - (2026-04-12)
 
 ## <!-- 1 -->🐛 Bug Fixes
