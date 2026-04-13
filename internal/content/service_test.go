@@ -547,6 +547,76 @@ func TestServiceCreateTranslationDuplicateReturnsTypedConflict(t *testing.T) {
 	}
 }
 
+func TestServiceCreateTranslationAppliesLocalizedPathRouteKeyAndMetadataOverrides(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{ID: contentTypeID, Name: "page"})
+
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+
+	source, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "translation-path",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Home",
+			Content: map[string]any{
+				"path":      "/home",
+				"route_key": "pages/home",
+				"body":      "Welcome",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	updated, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "fr",
+		Path:         "/fr/accueil",
+		RouteKey:     "pages/home",
+		Metadata: map[string]any{
+			"translation_create_locale": map[string]any{"idempotency_key": "home-fr"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create translation with localized path: %v", err)
+	}
+
+	var fr *content.ContentTranslation
+	for _, tr := range updated.Translations {
+		if tr == nil || tr.Locale == nil || tr.Locale.Code != "fr" {
+			continue
+		}
+		fr = tr
+		break
+	}
+	if fr == nil {
+		t.Fatalf("expected fr translation to be created")
+	}
+	if got := fr.Content["path"]; got != "/fr/accueil" {
+		t.Fatalf("expected localized path /fr/accueil, got %v", got)
+	}
+	if got := fr.Content["route_key"]; got != "pages/home" {
+		t.Fatalf("expected route_key pages/home, got %v", got)
+	}
+	replay, _ := fr.Metadata["translation_create_locale"].(map[string]any)
+	if got := replay["idempotency_key"]; got != "home-fr" {
+		t.Fatalf("expected translation metadata to persist on created translation, got %+v", fr.Metadata)
+	}
+}
+
 func TestServiceCreateTranslationValidatesLocale(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	typeStore := content.NewMemoryContentTypeRepository()

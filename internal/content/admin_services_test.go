@@ -145,6 +145,82 @@ func TestAdminContentWriteServiceCreatePersistsEmbeddedBlocksAndMetadata(t *test
 	}
 }
 
+func TestAdminContentWriteServiceCreateTranslationForwardsPathRouteKeyAndMetadata(t *testing.T) {
+	t.Parallel()
+
+	localeRepo := NewMemoryLocaleRepository()
+	en := &Locale{ID: uuid.New(), Code: "en", Display: "English", IsActive: true, IsDefault: true}
+	fr := &Locale{ID: uuid.New(), Code: "fr", Display: "French", IsActive: true}
+	localeRepo.Put(en)
+	localeRepo.Put(fr)
+
+	typeRepo := NewMemoryContentTypeRepository()
+	contentRepo := NewMemoryContentRepository()
+	service := NewService(contentRepo, typeRepo, localeRepo, WithEmbeddedBlocksResolver(adminContentEmbeddedResolverStub{}))
+	adminWrite := NewAdminContentWriteService(service, NewContentTypeService(typeRepo), localeRepo)
+
+	contentType, err := typeRepo.Create(context.Background(), &ContentType{
+		ID:     uuid.New(),
+		Name:   "Page",
+		Slug:   "page",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	source, err := service.Create(context.Background(), CreateContentRequest{
+		ContentTypeID: contentType.ID,
+		Slug:          "home",
+		Status:        "draft",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []ContentTranslationInput{{
+			Locale: "en",
+			Title:  "Home",
+			Content: map[string]any{
+				"path":      "/home",
+				"route_key": "pages/home",
+				"body":      "Welcome",
+			},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+
+	record, err := adminWrite.CreateTranslation(context.Background(), interfaces.AdminContentCreateTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "fr",
+		Status:       "draft",
+		Path:         "/fr/accueil",
+		RouteKey:     "pages/home",
+		Metadata: map[string]any{
+			"translation_create_locale": map[string]any{"idempotency_key": "home-fr"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("admin create translation: %v", err)
+	}
+	if record == nil {
+		t.Fatalf("expected created translation record")
+	}
+	if got := record.Locale; got != "fr" {
+		t.Fatalf("expected locale fr, got %q", got)
+	}
+	if got := record.Data["path"]; got != "/fr/accueil" {
+		t.Fatalf("expected localized path /fr/accueil, got %v", got)
+	}
+	if got := record.Data["route_key"]; got != "pages/home" {
+		t.Fatalf("expected route_key pages/home, got %v", got)
+	}
+	replay, _ := record.Metadata["translation_create_locale"].(map[string]any)
+	if got := replay["idempotency_key"]; got != "home-fr" {
+		t.Fatalf("expected translation metadata to be projected in admin record, got %+v", record.Metadata)
+	}
+}
+
 func TestAdminContentDBReadServiceListAppliesSQLPaginationAndSort(t *testing.T) {
 	ctx := context.Background()
 	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
