@@ -1,0 +1,2 @@
+-- SQLite does not support DROP COLUMN in the migration strategy used here.
+-- No-op for content_translations.metadata.
