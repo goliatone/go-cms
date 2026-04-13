@@ -95,6 +95,7 @@ type ContentTranslation struct {
 	Title     string         `bun:"title,notnull" json:"title"`
 	Summary   *string        `bun:"summary" json:"summary,omitempty"`
 	Content   map[string]any `bun:"content,type:jsonb,notnull" json:"content"`
+	Metadata  map[string]any `bun:"metadata,type:jsonb" json:"metadata,omitempty"`
 	DeletedAt *time.Time     `bun:"deleted_at,nullzero" json:"deleted_at,omitempty"`
 	CreatedAt time.Time      `bun:"created_at,nullzero,default:current_timestamp" json:"created_at"`
 	UpdatedAt time.Time      `bun:"updated_at,nullzero,default:current_timestamp" json:"updated_at"`
@@ -127,10 +128,11 @@ type ContentVersionSnapshot struct {
 
 // ContentVersionTranslationSnapshot encodes a localized payload captured in a version.
 type ContentVersionTranslationSnapshot struct {
-	Locale  string         `json:"locale"`
-	Title   string         `json:"title"`
-	Summary *string        `json:"summary,omitempty"`
-	Content map[string]any `json:"content"`
+	Locale   string         `json:"locale"`
+	Title    string         `json:"title"`
+	Summary  *string        `json:"summary,omitempty"`
+	Content  map[string]any `json:"content"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 // ContentVersionSnapshotSchema captures the JSON schema used to validate snapshots.
@@ -153,6 +155,10 @@ var ContentVersionSnapshotSchema = map[string]any{
 						"type": []any{"string", "null"},
 					},
 					"content": map[string]any{
+						"type":                 "object",
+						"additionalProperties": true,
+					},
+					"metadata": map[string]any{
 						"type":                 "object",
 						"additionalProperties": true,
 					},
