@@ -191,6 +191,9 @@ func (s *adminContentWriteService) CreateTranslation(ctx context.Context, req in
 		EnvironmentKey: strings.TrimSpace(req.EnvironmentKey),
 		ActorID:        req.ActorID,
 		Status:         strings.TrimSpace(req.Status),
+		Path:           strings.TrimSpace(req.Path),
+		RouteKey:       strings.TrimSpace(req.RouteKey),
+		Metadata:       cloneAnyMap(req.Metadata),
 	})
 	if err != nil {
 		return nil, err
@@ -275,6 +278,12 @@ func (s *adminContentReadService) buildRecord(ctx context.Context, record *Conte
 	}
 	if includeMetadata {
 		item.Metadata = cloneAnyMap(record.Metadata)
+		if translation != nil && len(translation.Metadata) > 0 {
+			if item.Metadata == nil {
+				item.Metadata = map[string]any{}
+			}
+			maps.Copy(item.Metadata, cloneAnyMap(translation.Metadata))
+		}
 	}
 	if translation != nil {
 		item.Title = translation.Title
