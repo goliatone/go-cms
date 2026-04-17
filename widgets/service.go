@@ -10,6 +10,7 @@ import (
 // Service exposes widget management capabilities to external consumers.
 type Service interface {
 	RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error)
+	SyncDefinition(ctx context.Context, input RegisterDefinitionInput) (*DefinitionSyncResult, error)
 	GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error)
 	ListDefinitions(ctx context.Context) ([]*Definition, error)
 	DeleteDefinition(ctx context.Context, req DeleteDefinitionRequest) error
@@ -45,6 +46,21 @@ type RegisterDefinitionInput struct {
 	Defaults    map[string]any
 	Category    *string
 	Icon        *string
+}
+
+// DefinitionSyncStatus describes how a sync operation affected persistent state.
+type DefinitionSyncStatus string
+
+const (
+	DefinitionSyncStatusCreated   DefinitionSyncStatus = "created"
+	DefinitionSyncStatusUpdated   DefinitionSyncStatus = "updated"
+	DefinitionSyncStatusUnchanged DefinitionSyncStatus = "unchanged"
+)
+
+// DefinitionSyncResult reports the current definition plus the sync outcome.
+type DefinitionSyncResult struct {
+	Definition *Definition          `json:"definition"`
+	Status     DefinitionSyncStatus `json:"status"`
 }
 
 // DeleteDefinitionRequest controls hard-delete behavior for widget definitions.
