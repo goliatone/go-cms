@@ -1,6 +1,8 @@
--- Add canonical key for menu item deduplication
+---bun:dialect: postgres
+
+-- Repair canonical menu item identity for drifted Postgres schemas.
 ALTER TABLE menu_items
-    ADD COLUMN canonical_key TEXT;
+    ADD COLUMN IF NOT EXISTS canonical_key TEXT;
 
 UPDATE menu_items
 SET canonical_key = CASE
@@ -10,9 +12,8 @@ SET canonical_key = CASE
     WHEN target ->> 'path' IS NOT NULL THEN 'path:' || (target ->> 'path')
     ELSE NULL
 END
-WHERE canonical_key IS NULL;
+WHERE canonical_key IS NULL OR canonical_key = '';
 
--- Drop duplicates before enforcing uniqueness.
 DELETE FROM menu_items mi
 USING (
     SELECT id,
