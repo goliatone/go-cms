@@ -16,4 +16,5 @@ const (
 	AreaScopeGlobal   = cmswidgets.AreaScopeGlobal
 	AreaScopeTheme    = cmswidgets.AreaScopeTheme
 	AreaScopeTemplate = cmswidgets.AreaScopeTemplate
+	AreaScopePage     = cmswidgets.AreaScopePage
 )

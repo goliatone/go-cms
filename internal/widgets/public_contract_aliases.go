@@ -5,6 +5,8 @@ import cmswidgets "github.com/goliatone/go-cms/widgets"
 type (
 	Service                     = cmswidgets.Service
 	RegisterDefinitionInput     = cmswidgets.RegisterDefinitionInput
+	DefinitionSyncStatus        = cmswidgets.DefinitionSyncStatus
+	DefinitionSyncResult        = cmswidgets.DefinitionSyncResult
 	DeleteDefinitionRequest     = cmswidgets.DeleteDefinitionRequest
 	CreateInstanceInput         = cmswidgets.CreateInstanceInput
 	UpdateInstanceInput         = cmswidgets.UpdateInstanceInput
@@ -60,4 +62,10 @@ var (
 	ErrAreaPlacementNotFound      = cmswidgets.ErrAreaPlacementNotFound
 	ErrAreaWidgetOrderMismatch    = cmswidgets.ErrAreaWidgetOrderMismatch
 	ErrVisibilityLocaleRestricted = cmswidgets.ErrVisibilityLocaleRestricted
+)
+
+const (
+	DefinitionSyncStatusCreated   = cmswidgets.DefinitionSyncStatusCreated
+	DefinitionSyncStatusUpdated   = cmswidgets.DefinitionSyncStatusUpdated
+	DefinitionSyncStatusUnchanged = cmswidgets.DefinitionSyncStatusUnchanged
 )

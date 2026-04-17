@@ -17,6 +17,10 @@ func (noOpService) RegisterDefinition(context.Context, RegisterDefinitionInput) 
 	return nil, ErrFeatureDisabled
 }
 
+func (noOpService) SyncDefinition(context.Context, RegisterDefinitionInput) (*DefinitionSyncResult, error) {
+	return nil, ErrFeatureDisabled
+}
+
 func (noOpService) GetDefinition(context.Context, uuid.UUID) (*Definition, error) {
 	return nil, ErrFeatureDisabled
 }

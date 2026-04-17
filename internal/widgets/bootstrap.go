@@ -29,8 +29,8 @@ func EnsureDefinitions(ctx context.Context, svc Service, definitions []RegisterD
 		if definition.Name == "" {
 			continue
 		}
-		if _, err := svc.RegisterDefinition(ctx, definition); err != nil {
-			if errors.Is(err, ErrDefinitionExists) || errors.Is(err, ErrFeatureDisabled) {
+		if _, err := svc.SyncDefinition(ctx, definition); err != nil {
+			if errors.Is(err, ErrFeatureDisabled) {
 				continue
 			}
 			return err

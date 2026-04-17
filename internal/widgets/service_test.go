@@ -747,6 +747,169 @@ func TestServiceResolveAreaWithFallbacksAndVisibility(t *testing.T) {
 	}
 }
 
+func TestServiceResolveAreaBuildsLocalizedConfigFromTranslationChain(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 4, 1, 9, 0, 0, 0, time.UTC)
+	localePrimary := uuid.MustParse("00000000-0000-0000-0000-000000000301")
+	localeFallback := uuid.MustParse("00000000-0000-0000-0000-000000000302")
+	localeMissing := uuid.MustParse("00000000-0000-0000-0000-000000000303")
+	actorID := uuid.MustParse("00000000-0000-0000-0000-000000000304")
+
+	svc := newServiceWithAreas(
+		WithClock(func() time.Time { return now }),
+		WithIDGenerator(sequentialIDs(
+			"00000000-0000-0000-0000-00000000c100", // area definition
+			"00000000-0000-0000-0000-00000000c101", // widget definition
+			"00000000-0000-0000-0000-00000000c102", // widget instance
+			"00000000-0000-0000-0000-00000000c103", // area placement
+			"00000000-0000-0000-0000-00000000c104", // fallback translation
+			"00000000-0000-0000-0000-00000000c105", // primary translation
+		)),
+	)
+
+	if _, err := svc.RegisterAreaDefinition(ctx, RegisterAreaDefinitionInput{
+		Code: "homepage.hero",
+		Name: "Homepage Hero",
+	}); err != nil {
+		t.Fatalf("register area definition: %v", err)
+	}
+
+	definition, err := svc.RegisterDefinition(ctx, RegisterDefinitionInput{
+		Name: "hero.banner",
+		Schema: map[string]any{
+			"fields": []any{
+				map[string]any{"name": "headline"},
+				map[string]any{"name": "cta_label"},
+				map[string]any{"name": "eyebrow"},
+			},
+		},
+		Defaults: map[string]any{
+			"eyebrow": "Featured",
+		},
+	})
+	if err != nil {
+		t.Fatalf("register definition: %v", err)
+	}
+
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definition.ID,
+		Configuration: map[string]any{
+			"headline":  "Base headline",
+			"cta_label": "Base CTA",
+		},
+		CreatedBy: actorID,
+		UpdatedBy: actorID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	if _, err := svc.AssignWidgetToArea(ctx, AssignWidgetToAreaInput{
+		AreaCode:   "homepage.hero",
+		InstanceID: instance.ID,
+	}); err != nil {
+		t.Fatalf("assign widget to area: %v", err)
+	}
+
+	if _, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localeFallback,
+		Content: map[string]any{
+			"headline": "Fallback headline",
+		},
+	}); err != nil {
+		t.Fatalf("add fallback translation: %v", err)
+	}
+	if _, err := svc.AddTranslation(ctx, AddTranslationInput{
+		InstanceID: instance.ID,
+		LocaleID:   localePrimary,
+		Content: map[string]any{
+			"headline":  "Primary headline",
+			"cta_label": "Primary CTA",
+		},
+	}); err != nil {
+		t.Fatalf("add primary translation: %v", err)
+	}
+
+	resolvedPrimary, err := svc.ResolveArea(ctx, ResolveAreaInput{
+		AreaCode:          "homepage.hero",
+		LocaleID:          &localePrimary,
+		FallbackLocaleIDs: []uuid.UUID{localeFallback},
+		Now:               now,
+	})
+	if err != nil {
+		t.Fatalf("resolve area with primary locale: %v", err)
+	}
+	if len(resolvedPrimary) != 1 {
+		t.Fatalf("expected one resolved widget, got %d", len(resolvedPrimary))
+	}
+	if got := resolvedPrimary[0].Config["headline"]; got != "Primary headline" {
+		t.Fatalf("expected primary headline override, got %#v", got)
+	}
+	if got := resolvedPrimary[0].Config["cta_label"]; got != "Primary CTA" {
+		t.Fatalf("expected primary cta_label override, got %#v", got)
+	}
+	if got := resolvedPrimary[0].Config["eyebrow"]; got != "Featured" {
+		t.Fatalf("expected defaults to remain in resolved config, got %#v", got)
+	}
+	if resolvedPrimary[0].ResolvedTranslation == nil || resolvedPrimary[0].ResolvedTranslation.LocaleID != localePrimary {
+		t.Fatalf("expected primary translation metadata, got %#v", resolvedPrimary[0].ResolvedTranslation)
+	}
+	if resolvedPrimary[0].ResolvedLocaleID == nil || *resolvedPrimary[0].ResolvedLocaleID != localePrimary {
+		t.Fatalf("expected resolved locale %s, got %#v", localePrimary, resolvedPrimary[0].ResolvedLocaleID)
+	}
+	if got := resolvedPrimary[0].Instance.Configuration["headline"]; got != "Base headline" {
+		t.Fatalf("expected base instance configuration to remain unchanged, got %#v", got)
+	}
+	resolvedPrimary[0].Config["headline"] = "Mutated"
+	if got := resolvedPrimary[0].Instance.Configuration["headline"]; got != "Base headline" {
+		t.Fatalf("expected resolved config clone to avoid mutating instance configuration, got %#v", got)
+	}
+
+	resolvedFallback, err := svc.ResolveArea(ctx, ResolveAreaInput{
+		AreaCode:          "homepage.hero",
+		LocaleID:          &localeMissing,
+		FallbackLocaleIDs: []uuid.UUID{localeFallback},
+		Now:               now,
+	})
+	if err != nil {
+		t.Fatalf("resolve area with fallback locale: %v", err)
+	}
+	if len(resolvedFallback) != 1 {
+		t.Fatalf("expected one resolved widget for fallback locale, got %d", len(resolvedFallback))
+	}
+	if got := resolvedFallback[0].Config["headline"]; got != "Fallback headline" {
+		t.Fatalf("expected fallback headline override, got %#v", got)
+	}
+	if got := resolvedFallback[0].Config["cta_label"]; got != "Base CTA" {
+		t.Fatalf("expected base config to remain when fallback omits cta_label, got %#v", got)
+	}
+	if resolvedFallback[0].ResolvedLocaleID == nil || *resolvedFallback[0].ResolvedLocaleID != localeFallback {
+		t.Fatalf("expected fallback resolved locale %s, got %#v", localeFallback, resolvedFallback[0].ResolvedLocaleID)
+	}
+
+	resolvedBaseOnly, err := svc.ResolveArea(ctx, ResolveAreaInput{
+		AreaCode: "homepage.hero",
+		LocaleID: &localeMissing,
+		Now:      now,
+	})
+	if err != nil {
+		t.Fatalf("resolve area without translation match: %v", err)
+	}
+	if len(resolvedBaseOnly) != 1 {
+		t.Fatalf("expected one resolved widget with base config, got %d", len(resolvedBaseOnly))
+	}
+	if got := resolvedBaseOnly[0].Config["headline"]; got != "Base headline" {
+		t.Fatalf("expected base headline when no translations match, got %#v", got)
+	}
+	if resolvedBaseOnly[0].ResolvedTranslation != nil || resolvedBaseOnly[0].ResolvedLocaleID != nil {
+		t.Fatalf("expected no resolved translation metadata when no translation matches, got %#v / %#v", resolvedBaseOnly[0].ResolvedTranslation, resolvedBaseOnly[0].ResolvedLocaleID)
+	}
+	if len(resolvedBaseOnly[0].Instance.Translations) != 2 {
+		t.Fatalf("expected hydrated raw translations to remain available, got %d", len(resolvedBaseOnly[0].Instance.Translations))
+	}
+}
+
 func TestServiceEvaluateVisibilityInvalidScheduleFormat(t *testing.T) {
 	ctx := context.Background()
 	svc := NewService(
@@ -877,6 +1040,157 @@ func TestEnsureDefinitions(t *testing.T) {
 	}
 	if list[0].Name != "announcement" {
 		t.Fatalf("unexpected definition name %s", list[0].Name)
+	}
+}
+
+func TestServiceSyncDefinitionCreatesUpdatesAndNoops(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2024, 5, 1, 8, 0, 0, 0, time.UTC)
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+		WithClock(func() time.Time { return now }),
+	)
+
+	initial, err := svc.SyncDefinition(ctx, RegisterDefinitionInput{
+		Name:        "announcement",
+		Description: stringPointer("Announcement"),
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"headline": map[string]any{"type": "string"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sync definition create: %v", err)
+	}
+	if initial.Status != DefinitionSyncStatusCreated {
+		t.Fatalf("expected created status, got %q", initial.Status)
+	}
+
+	same, err := svc.SyncDefinition(ctx, RegisterDefinitionInput{
+		Name:        "announcement",
+		Description: stringPointer("Announcement"),
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"headline": map[string]any{"type": "string"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sync definition no-op: %v", err)
+	}
+	if same.Status != DefinitionSyncStatusUnchanged {
+		t.Fatalf("expected unchanged status, got %q", same.Status)
+	}
+	if !same.Definition.UpdatedAt.Equal(initial.Definition.UpdatedAt) {
+		t.Fatalf("expected unchanged sync to preserve updated_at, got %s vs %s", same.Definition.UpdatedAt, initial.Definition.UpdatedAt)
+	}
+
+	later := now.Add(2 * time.Hour)
+	typedSvc := svc.(*service)
+	typedSvc.now = func() time.Time { return later }
+	updated, err := svc.SyncDefinition(ctx, RegisterDefinitionInput{
+		Name:        "announcement",
+		Description: stringPointer("Announcement"),
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"headline": map[string]any{"type": "string"},
+				"variant":  map[string]any{"type": "string"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("sync definition update: %v", err)
+	}
+	if updated.Status != DefinitionSyncStatusUpdated {
+		t.Fatalf("expected updated status, got %q", updated.Status)
+	}
+	if !updated.Definition.CreatedAt.Equal(initial.Definition.CreatedAt) {
+		t.Fatalf("expected created_at preserved on update")
+	}
+	if !updated.Definition.UpdatedAt.Equal(later) {
+		t.Fatalf("expected updated_at refreshed, got %s", updated.Definition.UpdatedAt)
+	}
+	if _, ok := updated.Definition.Schema["properties"].(map[string]any)["variant"]; !ok {
+		t.Fatalf("expected schema update to persist, got %#v", updated.Definition.Schema)
+	}
+}
+
+func TestEnsureDefinitionsUpdatesChangedDefinitionWithoutTouchingInstances(t *testing.T) {
+	ctx := context.Background()
+	actorID := uuid.MustParse("00000000-0000-0000-0000-000000000701")
+	svc := NewService(
+		NewMemoryDefinitionRepository(),
+		NewMemoryInstanceRepository(),
+		NewMemoryTranslationRepository(),
+	)
+
+	initial := []RegisterDefinitionInput{{
+		Name: "announcement",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"headline": map[string]any{"type": "string"},
+			},
+		},
+	}}
+	if err := EnsureDefinitions(ctx, svc, initial); err != nil {
+		t.Fatalf("ensure definitions initial: %v", err)
+	}
+
+	definitions, err := svc.ListDefinitions(ctx)
+	if err != nil {
+		t.Fatalf("list definitions: %v", err)
+	}
+	instance, err := svc.CreateInstance(ctx, CreateInstanceInput{
+		DefinitionID: definitions[0].ID,
+		Configuration: map[string]any{
+			"headline": "Base headline",
+		},
+		CreatedBy: actorID,
+		UpdatedBy: actorID,
+	})
+	if err != nil {
+		t.Fatalf("create instance: %v", err)
+	}
+
+	updated := []RegisterDefinitionInput{{
+		Name: "announcement",
+		Schema: map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"headline": map[string]any{"type": "string"},
+				"variant":  map[string]any{"type": "string"},
+			},
+		},
+	}}
+	if err := EnsureDefinitions(ctx, svc, updated); err != nil {
+		t.Fatalf("ensure definitions update: %v", err)
+	}
+
+	definitions, err = svc.ListDefinitions(ctx)
+	if err != nil {
+		t.Fatalf("list definitions after update: %v", err)
+	}
+	if len(definitions) != 1 {
+		t.Fatalf("expected one definition after sync, got %d", len(definitions))
+	}
+	properties, _ := definitions[0].Schema["properties"].(map[string]any)
+	if _, ok := properties["variant"]; !ok {
+		t.Fatalf("expected synced schema to include new field, got %#v", definitions[0].Schema)
+	}
+
+	reloaded, err := svc.GetInstance(ctx, instance.ID)
+	if err != nil {
+		t.Fatalf("reload instance: %v", err)
+	}
+	if got := reloaded.Configuration["headline"]; got != "Base headline" {
+		t.Fatalf("expected existing instance configuration preserved, got %#v", got)
 	}
 }
 
@@ -1199,4 +1513,8 @@ func newWidgetShortcodeService(tb testing.TB) interfaces.ShortcodeService {
 	}
 	renderer := shortcodepkg.NewRenderer(registry, validator)
 	return shortcodepkg.NewService(registry, renderer)
+}
+
+func stringPointer(value string) *string {
+	return &value
 }

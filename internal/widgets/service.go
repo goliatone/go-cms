@@ -2,6 +2,9 @@ package widgets
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -134,18 +137,8 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 }
 
 func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefinitionInput) (*Definition, error) {
-	name := strings.TrimSpace(input.Name)
-	if name == "" {
-		return nil, ErrDefinitionNameRequired
-	}
-	if len(input.Schema) == 0 {
-		return nil, ErrDefinitionSchemaRequired
-	}
-	if err := validation.ValidateSchema(input.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
-	}
-
-	if err := validateDefaultsAgainstSchema(input.Schema, input.Defaults); err != nil {
+	name, err := validateDefinitionInput(input)
+	if err != nil {
 		return nil, err
 	}
 
@@ -158,23 +151,82 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 		}
 	}
 
-	now := s.now()
-	definition := &Definition{
-		ID:          identity.WidgetDefinitionUUID(name),
-		Name:        name,
-		Description: cloneString(input.Description),
-		Schema:      deepCloneMap(input.Schema),
-		Defaults:    deepCloneMap(input.Defaults),
-		Category:    cloneString(input.Category),
-		Icon:        cloneString(input.Icon),
-		CreatedAt:   now,
-		UpdatedAt:   now,
-	}
-	if s.idCustom {
-		definition.ID = s.id()
+	definition := s.newDefinitionRecord(input, nil)
+	return s.definitions.Create(ctx, definition)
+}
+
+func (s *service) SyncDefinition(ctx context.Context, input RegisterDefinitionInput) (*DefinitionSyncResult, error) {
+	name, err := validateDefinitionInput(input)
+	if err != nil {
+		return nil, err
 	}
 
-	return s.definitions.Create(ctx, definition)
+	existing, err := s.definitions.GetByName(ctx, name)
+	if err != nil {
+		var nf *NotFoundError
+		if !errors.As(err, &nf) {
+			return nil, err
+		}
+		created, createErr := s.definitions.Create(ctx, s.newDefinitionRecord(input, nil))
+		if createErr != nil {
+			reconciled, reconcileErr := s.reconcileDefinitionSyncConflict(ctx, input)
+			if reconcileErr != nil {
+				return nil, createErr
+			}
+			return reconciled, nil
+		}
+		return &DefinitionSyncResult{
+			Definition: created,
+			Status:     DefinitionSyncStatusCreated,
+		}, nil
+	}
+
+	desired := s.newDefinitionRecord(input, existing)
+	equivalent, err := definitionsEquivalent(existing, desired)
+	if err != nil {
+		return nil, err
+	}
+	if equivalent {
+		return &DefinitionSyncResult{
+			Definition: cloneDefinition(existing),
+			Status:     DefinitionSyncStatusUnchanged,
+		}, nil
+	}
+
+	updated, err := s.definitions.Update(ctx, desired)
+	if err != nil {
+		return nil, err
+	}
+	return &DefinitionSyncResult{
+		Definition: updated,
+		Status:     DefinitionSyncStatusUpdated,
+	}, nil
+}
+
+func (s *service) reconcileDefinitionSyncConflict(ctx context.Context, input RegisterDefinitionInput) (*DefinitionSyncResult, error) {
+	existing, err := s.definitions.GetByName(ctx, strings.TrimSpace(input.Name))
+	if err != nil {
+		return nil, err
+	}
+	desired := s.newDefinitionRecord(input, existing)
+	equivalent, err := definitionsEquivalent(existing, desired)
+	if err != nil {
+		return nil, err
+	}
+	if equivalent {
+		return &DefinitionSyncResult{
+			Definition: cloneDefinition(existing),
+			Status:     DefinitionSyncStatusUnchanged,
+		}, nil
+	}
+	updated, err := s.definitions.Update(ctx, desired)
+	if err != nil {
+		return nil, err
+	}
+	return &DefinitionSyncResult{
+		Definition: updated,
+		Status:     DefinitionSyncStatusUpdated,
+	}, nil
 }
 
 func (s *service) GetDefinition(ctx context.Context, id uuid.UUID) (*Definition, error) {
@@ -890,9 +942,13 @@ func (s *service) ResolveArea(ctx context.Context, input ResolveAreaInput) ([]*R
 		if err != nil {
 			return nil, err
 		}
+		resolvedConfig, resolvedTranslation, resolvedLocaleID := resolveLocalizedConfiguration(enriched[0], localeChain)
 		resolved := &ResolvedWidget{
-			Instance:  enriched[0],
-			Placement: cloneAreaPlacement(placement),
+			Instance:            enriched[0],
+			Config:              resolvedConfig,
+			ResolvedTranslation: resolvedTranslation,
+			ResolvedLocaleID:    resolvedLocaleID,
+			Placement:           cloneAreaPlacement(placement),
 		}
 		result = append(result, resolved)
 	}
@@ -1023,10 +1079,7 @@ func (s *service) applyRegistry(ctx context.Context) {
 		if entry.Name == "" {
 			continue
 		}
-		if _, err := s.definitions.GetByName(ctx, entry.Name); err == nil {
-			continue
-		}
-		_, _ = s.RegisterDefinition(ctx, entry)
+		_, _ = s.SyncDefinition(ctx, entry)
 	}
 }
 
@@ -1218,6 +1271,105 @@ func cloneTime(src *time.Time) *time.Time {
 	return &cloned
 }
 
+func cloneUUID(src *uuid.UUID) *uuid.UUID {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	return &cloned
+}
+
+func validateDefinitionInput(input RegisterDefinitionInput) (string, error) {
+	name := strings.TrimSpace(input.Name)
+	if name == "" {
+		return "", ErrDefinitionNameRequired
+	}
+	if len(input.Schema) == 0 {
+		return "", ErrDefinitionSchemaRequired
+	}
+	if err := validation.ValidateSchema(input.Schema); err != nil {
+		return "", fmt.Errorf("%w: %s", ErrDefinitionSchemaInvalid, err)
+	}
+	if err := validateDefaultsAgainstSchema(input.Schema, input.Defaults); err != nil {
+		return "", err
+	}
+	return name, nil
+}
+
+func (s *service) newDefinitionRecord(input RegisterDefinitionInput, existing *Definition) *Definition {
+	now := s.now()
+	name := strings.TrimSpace(input.Name)
+	definition := &Definition{
+		ID:          identity.WidgetDefinitionUUID(name),
+		Name:        name,
+		Description: cloneString(input.Description),
+		Schema:      deepCloneMap(input.Schema),
+		Defaults:    deepCloneMap(input.Defaults),
+		Category:    cloneString(input.Category),
+		Icon:        cloneString(input.Icon),
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if existing != nil {
+		definition.ID = existing.ID
+		definition.CreatedAt = existing.CreatedAt
+		return definition
+	}
+	if s.idCustom {
+		definition.ID = s.id()
+	}
+	return definition
+}
+
+func definitionsEquivalent(current *Definition, desired *Definition) (bool, error) {
+	if current == nil || desired == nil {
+		return current == desired, nil
+	}
+	currentFingerprint, err := definitionFingerprint(current)
+	if err != nil {
+		return false, err
+	}
+	desiredFingerprint, err := definitionFingerprint(desired)
+	if err != nil {
+		return false, err
+	}
+	return currentFingerprint == desiredFingerprint, nil
+}
+
+func definitionFingerprint(definition *Definition) (string, error) {
+	if definition == nil {
+		return "", nil
+	}
+	payload := struct {
+		Name        string         `json:"name"`
+		Description string         `json:"description"`
+		Schema      map[string]any `json:"schema"`
+		Defaults    map[string]any `json:"defaults"`
+		Category    string         `json:"category"`
+		Icon        string         `json:"icon"`
+	}{
+		Name:        strings.TrimSpace(definition.Name),
+		Description: derefTrimmedString(definition.Description),
+		Schema:      deepCloneMap(definition.Schema),
+		Defaults:    deepCloneMap(definition.Defaults),
+		Category:    derefTrimmedString(definition.Category),
+		Icon:        derefTrimmedString(definition.Icon),
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return "", err
+	}
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func derefTrimmedString(value *string) string {
+	if value == nil {
+		return ""
+	}
+	return strings.TrimSpace(*value)
+}
+
 func (s *service) ensureAreaSupport() error {
 	if s.areas == nil || s.placements == nil {
 		return ErrAreaFeatureDisabled
@@ -1237,6 +1389,43 @@ func buildLocaleChain(primary *uuid.UUID, fallbacks []uuid.UUID) []*uuid.UUID {
 	}
 	chain = append(chain, nil)
 	return chain
+}
+
+func resolveLocalizedConfiguration(instance *Instance, localeChain []*uuid.UUID) (map[string]any, *Translation, *uuid.UUID) {
+	if instance == nil {
+		return nil, nil, nil
+	}
+	config := mergeConfiguration(instance.Configuration, nil)
+	if len(localeChain) == 0 || len(instance.Translations) == 0 {
+		return config, nil, nil
+	}
+
+	translation := selectTranslationForLocaleChain(instance.Translations, localeChain)
+	if translation == nil {
+		return config, nil, nil
+	}
+
+	return mergeConfiguration(config, translation.Content), cloneTranslation(translation), cloneUUID(&translation.LocaleID)
+}
+
+func selectTranslationForLocaleChain(translations []*Translation, localeChain []*uuid.UUID) *Translation {
+	if len(translations) == 0 || len(localeChain) == 0 {
+		return nil
+	}
+	for _, localeID := range localeChain {
+		if localeID == nil {
+			continue
+		}
+		for _, translation := range translations {
+			if translation == nil {
+				continue
+			}
+			if translation.LocaleID == *localeID {
+				return translation
+			}
+		}
+	}
+	return nil
 }
 
 func evaluateSchedule(now time.Time, schedule map[string]any) (bool, error) {

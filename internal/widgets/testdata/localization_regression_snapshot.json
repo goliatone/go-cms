@@ -1,0 +1,29 @@
+{
+  "base_only": {
+    "config": {
+      "cta_label": "Base CTA",
+      "eyebrow": "Featured",
+      "headline": "Base headline"
+    },
+    "resolved_locale_id": "",
+    "translation_count": 2
+  },
+  "fallback": {
+    "config": {
+      "cta_label": "Base CTA",
+      "eyebrow": "Featured",
+      "headline": "Fallback headline"
+    },
+    "resolved_locale_id": "00000000-0000-0000-0000-000000000302",
+    "translation_count": 2
+  },
+  "primary": {
+    "config": {
+      "cta_label": "Primary CTA",
+      "eyebrow": "Featured",
+      "headline": "Primary headline"
+    },
+    "resolved_locale_id": "00000000-0000-0000-0000-000000000301",
+    "translation_count": 2
+  }
+}
