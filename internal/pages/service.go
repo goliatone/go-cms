@@ -2379,8 +2379,97 @@ func cloneResolvedWidgetSlice(input []*widgets.ResolvedWidget) []*widgets.Resolv
 		return nil
 	}
 	cloned := make([]*widgets.ResolvedWidget, len(input))
-	copy(cloned, input)
+	for idx, item := range input {
+		cloned[idx] = cloneResolvedWidget(item)
+	}
 	return cloned
+}
+
+func cloneResolvedWidget(src *widgets.ResolvedWidget) *widgets.ResolvedWidget {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	cloned.Config = deepCloneMap(src.Config)
+	cloned.Instance = cloneWidgetInstance(src.Instance)
+	cloned.ResolvedTranslation = cloneWidgetTranslation(src.ResolvedTranslation)
+	if src.ResolvedLocaleID != nil {
+		localeID := *src.ResolvedLocaleID
+		cloned.ResolvedLocaleID = &localeID
+	}
+	if src.Placement != nil {
+		placement := *src.Placement
+		placement.Metadata = deepCloneMap(src.Placement.Metadata)
+		if src.Placement.LocaleID != nil {
+			localeID := *src.Placement.LocaleID
+			placement.LocaleID = &localeID
+		}
+		cloned.Placement = &placement
+	}
+	return &cloned
+}
+
+func cloneWidgetInstance(src *widgets.Instance) *widgets.Instance {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	cloned.Configuration = deepCloneMap(src.Configuration)
+	cloned.Placement = deepCloneMap(src.Placement)
+	cloned.VisibilityRules = deepCloneMap(src.VisibilityRules)
+	if src.AreaCode != nil {
+		areaCode := *src.AreaCode
+		cloned.AreaCode = &areaCode
+	}
+	if src.BlockInstanceID != nil {
+		blockInstanceID := *src.BlockInstanceID
+		cloned.BlockInstanceID = &blockInstanceID
+	}
+	if len(src.Translations) > 0 {
+		cloned.Translations = make([]*widgets.Translation, len(src.Translations))
+		for idx, translation := range src.Translations {
+			cloned.Translations[idx] = cloneWidgetTranslation(translation)
+		}
+	}
+	return &cloned
+}
+
+func cloneWidgetTranslation(src *widgets.Translation) *widgets.Translation {
+	if src == nil {
+		return nil
+	}
+	cloned := *src
+	cloned.Content = deepCloneMap(src.Content)
+	cloned.Instance = nil
+	return &cloned
+}
+
+func deepCloneMap(src map[string]any) map[string]any {
+	if src == nil {
+		return nil
+	}
+	cloned := make(map[string]any, len(src))
+	for key, value := range src {
+		cloned[key] = deepCloneValue(value)
+	}
+	return cloned
+}
+
+func deepCloneValue(value any) any {
+	switch typed := value.(type) {
+	case map[string]any:
+		return deepCloneMap(typed)
+	case []any:
+		cloned := make([]any, len(typed))
+		for idx, item := range typed {
+			cloned[idx] = deepCloneValue(item)
+		}
+		return cloned
+	case []string:
+		return append([]string(nil), typed...)
+	default:
+		return typed
+	}
 }
 
 func areaDefinitionApplies(definition *widgets.AreaDefinition, template *themes.Template) bool {
@@ -2399,6 +2488,9 @@ func areaDefinitionApplies(definition *widgets.AreaDefinition, template *themes.
 			return false
 		}
 		return template.ID == *definition.TemplateID
+	case widgets.AreaScopePage:
+		// Page-scoped areas are bound by their area code on page surfaces.
+		return true
 	default:
 		// Treat global/unspecified scopes as applicable everywhere.
 		return true
