@@ -381,7 +381,7 @@ CREATE TABLE widget_area_definitions (
     code TEXT NOT NULL UNIQUE,
     name TEXT NOT NULL,
     description TEXT,
-    scope TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global', 'theme', 'template')),
+    scope TEXT NOT NULL DEFAULT 'global' CHECK (scope IN ('global', 'theme', 'template', 'page')),
     theme_id TEXT REFERENCES themes(id) ON DELETE CASCADE,
     template_id TEXT REFERENCES templates(id) ON DELETE CASCADE,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
