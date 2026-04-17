@@ -5,6 +5,7 @@ import (
 	"github.com/goliatone/go-cms/internal/di"
 	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/goliatone/go-cms/pkg/lifecycle"
+	"github.com/uptrace/bun"
 )
 
 // Option customises module wiring at construction time.
@@ -28,4 +29,9 @@ func WithGeneratorAssetResolver(resolver generator.AssetResolver) Option {
 // WithLifecycleHooks appends lifecycle hooks that receive root-record mutation events.
 func WithLifecycleHooks(hooks lifecycle.Hooks) Option {
 	return di.WithLifecycleHooks(hooks)
+}
+
+// WithBunDB binds the CMS repositories and bun-backed storage adapter to an existing runtime bun handle.
+func WithBunDB(db *bun.DB) Option {
+	return di.WithBunDB(db)
 }
