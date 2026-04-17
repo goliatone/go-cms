@@ -90,8 +90,10 @@ type NavigationNode struct {
 	Position           int               `json:"position"`
 	Type               string            `json:"type,omitempty"`
 	Label              string            `json:"label,omitempty"`
+	DisplayLabel       string            `json:"display_label,omitempty"`
 	LabelKey           string            `json:"label_key,omitempty"`
 	GroupTitle         string            `json:"group_title,omitempty"`
+	DisplayGroupTitle  string            `json:"display_group_title,omitempty"`
 	GroupTitleKey      string            `json:"group_title_key,omitempty"`
 	URL                string            `json:"url"`
 	Target             map[string]any    `json:"target,omitempty"`
@@ -923,8 +925,10 @@ func toPublicNavigationNode(node menus.NavigationNode) NavigationNode {
 		Position:           node.Position,
 		Type:               node.Type,
 		Label:              node.Label,
+		DisplayLabel:       node.DisplayLabel,
 		LabelKey:           node.LabelKey,
 		GroupTitle:         node.GroupTitle,
+		DisplayGroupTitle:  node.DisplayGroupTitle,
 		GroupTitleKey:      node.GroupTitleKey,
 		URL:                node.URL,
 		Target:             node.Target,
