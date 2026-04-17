@@ -75,6 +75,8 @@ const (
 	AreaScopeTheme AreaScope = "theme"
 	// AreaScopeTemplate registers an area scoped to a specific template.
 	AreaScopeTemplate AreaScope = "template"
+	// AreaScopePage registers an area intended for a specific page surface.
+	AreaScopePage AreaScope = "page"
 )
 
 // AreaDefinition documents a named region where widgets can be rendered.
