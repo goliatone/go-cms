@@ -43,7 +43,7 @@ func TestModule_Menus_AllowOutOfOrderUpserts_CollapsibleAndDeferredParents(t *te
 
 	var content *cms.NavigationNode
 	for i := range nodes {
-		if nodes[i].Type == "group" && nodes[i].Label == "Content" {
+		if nodes[i].Type == "group" && nodes[i].DisplayLabel == "Content" {
 			content = &nodes[i]
 			break
 		}
@@ -75,7 +75,7 @@ func TestModule_Menus_AllowOutOfOrderUpserts_CollapsibleAndDeferredParents(t *te
 
 	content = nil
 	for i := range nodes {
-		if nodes[i].Type == "group" && nodes[i].Label == "Content" {
+		if nodes[i].Type == "group" && nodes[i].DisplayLabel == "Content" {
 			content = &nodes[i]
 			break
 		}
@@ -121,7 +121,7 @@ func TestModule_Menus_AllowOutOfOrderUpserts_CollapsibleAndDeferredParents(t *te
 
 	var deferred *cms.NavigationNode
 	for i := range nodes {
-		if nodes[i].Type == "group" && nodes[i].Label == "Deferred" {
+		if nodes[i].Type == "group" && nodes[i].DisplayLabel == "Deferred" {
 			deferred = &nodes[i]
 			break
 		}
