@@ -1,5 +1,32 @@
 # Changelog
 
+# [0.49.0](https://github.com/goliatone/go-cms/compare/v0.48.0...v0.49.0) - (2026-04-17)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.49.0 ([866aded](https://github.com/goliatone/go-cms/commit/866aded5015d0f9b839e488433de312241862ba0))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Page widget resolve area ([d8c999b](https://github.com/goliatone/go-cms/commit/d8c999b4d5cee6951993c546f679d4e38192d3d8))  - (goliatone)
+- Translation support for menu ([84c1662](https://github.com/goliatone/go-cms/commit/84c1662ce632d3d8552ffbce1be53cb98ab7b401))  - (goliatone)
+- Expose bun setter ([84c5843](https://github.com/goliatone/go-cms/commit/84c584381588cfedced5da75286eb7d82bb58f3a))  - (goliatone)
+- Translation support for widget ([5905abd](https://github.com/goliatone/go-cms/commit/5905abde71fa825f42a5c721424abc365305e44a))  - (goliatone)
+- Widget definition status ([02de44f](https://github.com/goliatone/go-cms/commit/02de44ff9e1fea0341d7f5b5837c392f17ae30d7))  - (goliatone)
+- Support area scope page for widget ([fc73f5b](https://github.com/goliatone/go-cms/commit/fc73f5b8e60b4703432b63f4d104d41a2d661cb0))  - (goliatone)
+- Widget localization ([57dd86f](https://github.com/goliatone/go-cms/commit/57dd86fb25bb8ea7145efeda75fdd6c28186f52c))  - (goliatone)
+- Menu localization ([e479ffd](https://github.com/goliatone/go-cms/commit/e479ffdd12717782d421b11aaf8b9db99b32726c))  - (goliatone)
+- Widget area page scope ([9b55d99](https://github.com/goliatone/go-cms/commit/9b55d992788aaba09a6a455d3ecec52854cfb891))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.48.0 ([47944d8](https://github.com/goliatone/go-cms/commit/47944d81aa8df2ac6e34da4cd3a08d231b322252))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update examples ([efd0fe2](https://github.com/goliatone/go-cms/commit/efd0fe2d78eccd9060b7f803cae5c330d9283df5))  - (goliatone)
+- Update tests ([c490ea1](https://github.com/goliatone/go-cms/commit/c490ea13c5a34d129a2e3612c1fc13bda0da9ee0))  - (goliatone)
+
 # [0.48.0](https://github.com/goliatone/go-cms/compare/v0.47.0...v0.48.0) - (2026-04-13)
 
 ## <!-- 13 -->📦 Bumps
