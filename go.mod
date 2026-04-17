@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/goliatone/go-command v0.18.0
+	github.com/goliatone/go-command v0.19.0
 	github.com/goliatone/go-crud v0.23.0
 	github.com/goliatone/go-errors v0.10.0
 	github.com/goliatone/go-i18n v0.5.0
@@ -52,7 +52,7 @@ require (
 	github.com/gofiber/template/django/v3 v3.1.14 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
-	github.com/goliatone/go-router v0.54.0 // indirect
+	github.com/goliatone/go-router v0.57.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
