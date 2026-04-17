@@ -110,6 +110,7 @@ func TestMigrationRegistrationPostgresApplyRollbackReapply(t *testing.T) {
 	}
 	assertTableExistsPostgres(t, db, schemaName, "locales")
 	assertTableExistsPostgres(t, db, schemaName, "contents")
+	assertColumnExistsPostgres(t, db, schemaName, "menu_items", "canonical_key")
 	migratedCount := countAppliedMigrations(t, db)
 	if migratedCount == 0 {
 		t.Fatalf("expected applied migrations after migrate")
@@ -127,6 +128,7 @@ func TestMigrationRegistrationPostgresApplyRollbackReapply(t *testing.T) {
 	}
 	assertTableExistsPostgres(t, db, schemaName, "locales")
 	assertTableExistsPostgres(t, db, schemaName, "contents")
+	assertColumnExistsPostgres(t, db, schemaName, "menu_items", "canonical_key")
 	if reappliedCount := countAppliedMigrations(t, db); reappliedCount != migratedCount {
 		t.Fatalf("unexpected applied migration count after reapply: got=%d want=%d", reappliedCount, migratedCount)
 	}
@@ -231,6 +233,25 @@ func assertTableExistsPostgres(t *testing.T, db *sql.DB, schema, table string) {
 	).Scan(&exists)
 	if err != nil || !exists {
 		t.Fatalf("expected postgres table %s.%s to exist, err=%v", schema, table, err)
+	}
+}
+
+func assertColumnExistsPostgres(t *testing.T, db *sql.DB, schema, table, column string) {
+	t.Helper()
+
+	var exists bool
+	err := db.QueryRow(
+		`SELECT EXISTS (
+			SELECT 1
+			FROM information_schema.columns
+			WHERE table_schema = $1 AND table_name = $2 AND column_name = $3
+		)`,
+		schema,
+		table,
+		column,
+	).Scan(&exists)
+	if err != nil || !exists {
+		t.Fatalf("expected postgres column %s.%s.%s to exist, err=%v", schema, table, column, err)
 	}
 }
 
