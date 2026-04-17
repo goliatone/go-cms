@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.50.0](https://github.com/goliatone/go-cms/compare/v0.49.1...v0.50.0) - (2026-04-17)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Canonical menu item conflict ([0e5c27b](https://github.com/goliatone/go-cms/commit/0e5c27bfa66e3fe936a24cf9d4356a365936c767))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.50.0 ([f32da68](https://github.com/goliatone/go-cms/commit/f32da682117c8569a9c0675f776cb19671825ae6))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.49.1 ([450fe8c](https://github.com/goliatone/go-cms/commit/450fe8c1b790869c91a93e103c51be40a120d827))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([88108db](https://github.com/goliatone/go-cms/commit/88108db0b90aaae648a3393f6c983e17a5e17918))  - (goliatone)
+
 # [0.49.1](https://github.com/goliatone/go-cms/compare/v0.49.0...v0.49.1) - (2026-04-17)
 
 ## <!-- 13 -->📦 Bumps
