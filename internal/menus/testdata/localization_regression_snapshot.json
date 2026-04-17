@@ -1,0 +1,20 @@
+{
+  "group": {
+    "child": {
+      "display_label": "products",
+      "label": "",
+      "label_key": "menu.products",
+      "url": "/products"
+    },
+    "display_group_title": "",
+    "display_label": "",
+    "group_title_key": "menu.group.main",
+    "type": "group"
+  },
+  "legacy_item": {
+    "display_label": "legacy",
+    "label": "",
+    "label_key": "menu.legacy",
+    "url": "/legacy"
+  }
+}

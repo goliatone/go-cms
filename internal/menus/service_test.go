@@ -1241,8 +1241,8 @@ func TestService_ResolveNavigation_NormalizesSeparatorsAndGroups(t *testing.T) {
 	if nav[2].Children[0].ID != child.ID {
 		t.Fatalf("expected child id %s, got %s", child.ID, nav[2].Children[0].ID)
 	}
-	if nav[2].Children[0].Label != "menu.products" || nav[2].Children[0].LabelKey != "menu.products" {
-		t.Fatalf("expected child label/label_key 'menu.products', got label=%q key=%q", nav[2].Children[0].Label, nav[2].Children[0].LabelKey)
+	if nav[2].Children[0].Label != "" || nav[2].Children[0].LabelKey != "menu.products" || nav[2].Children[0].DisplayLabel != "products" {
+		t.Fatalf("expected child literal label empty, key preserved, and display label fallback 'products', got label=%q key=%q display=%q", nav[2].Children[0].Label, nav[2].Children[0].LabelKey, nav[2].Children[0].DisplayLabel)
 	}
 	if nav[len(nav)-1].Type == menus.MenuItemTypeSeparator {
 		t.Fatalf("expected no trailing separator")
@@ -1402,8 +1402,8 @@ func TestService_ResolveNavigation_LabelFallbacksAndReferenceTree(t *testing.T) 
 	if len(nav) != 3 {
 		t.Fatalf("expected 3 top-level nodes (group, separator, group), got %d", len(nav))
 	}
-	if nav[0].Type != menus.MenuItemTypeGroup || nav[0].Label != "menu.group.main" {
-		t.Fatalf("expected main group with label fallback from key, got type=%s label=%q", nav[0].Type, nav[0].Label)
+	if nav[0].Type != menus.MenuItemTypeGroup || nav[0].Label != "" || nav[0].GroupTitleKey != "menu.group.main" || nav[0].DisplayLabel != "" {
+		t.Fatalf("expected main group to keep literal label empty and key preserved without raw-key display fallback, got type=%s label=%q key=%q display=%q", nav[0].Type, nav[0].Label, nav[0].GroupTitleKey, nav[0].DisplayLabel)
 	}
 	if len(nav[0].Children) != 2 {
 		t.Fatalf("expected main group to have 2 children, got %d", len(nav[0].Children))
@@ -1420,19 +1420,72 @@ func TestService_ResolveNavigation_LabelFallbacksAndReferenceTree(t *testing.T) 
 	if len(nav[0].Children[1].Children) != 2 {
 		t.Fatalf("expected my shop children 2, got %d", len(nav[0].Children[1].Children))
 	}
-	if nav[0].Children[1].Children[0].Label != "menu.products" || nav[0].Children[1].Children[0].LabelKey != "menu.products" {
-		t.Fatalf("expected products to fallback to label key, got label=%q key=%q", nav[0].Children[1].Children[0].Label, nav[0].Children[1].Children[0].LabelKey)
+	if nav[0].Children[1].Children[0].Label != "" || nav[0].Children[1].Children[0].LabelKey != "menu.products" || nav[0].Children[1].Children[0].DisplayLabel != "products" {
+		t.Fatalf("expected products literal label empty, key preserved, and display label fallback 'products', got label=%q key=%q display=%q", nav[0].Children[1].Children[0].Label, nav[0].Children[1].Children[0].LabelKey, nav[0].Children[1].Children[0].DisplayLabel)
 	}
 
 	if nav[1].Type != menus.MenuItemTypeSeparator {
 		t.Fatalf("expected separator between groups, got %s", nav[1].Type)
 	}
 
-	if nav[2].Type != menus.MenuItemTypeGroup || nav[2].Label != "Others" {
-		t.Fatalf("expected Others group, got type=%s label=%q", nav[2].Type, nav[2].Label)
+	if nav[2].Type != menus.MenuItemTypeGroup || nav[2].Label != "" || nav[2].DisplayLabel != "Others" {
+		t.Fatalf("expected Others group display label without literal label fallback mutation, got type=%s label=%q display=%q", nav[2].Type, nav[2].Label, nav[2].DisplayLabel)
 	}
 	if len(nav[2].Children) != 2 {
 		t.Fatalf("expected Others children 2, got %d", len(nav[2].Children))
+	}
+}
+
+func TestService_ResolveNavigationNormalizesLegacyRawKeyMirrors(t *testing.T) {
+	ctx := context.Background()
+	service := newService(t)
+
+	menu, err := service.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: uuid.Nil,
+		UpdatedBy: uuid.Nil,
+	})
+	if err != nil {
+		t.Fatalf("CreateMenu: %v", err)
+	}
+
+	group, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		Type:     menus.MenuItemTypeGroup,
+		Position: 0,
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", GroupTitle: "menu.group.main", GroupTitleKey: "menu.group.main"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("AddMenuItem group: %v", err)
+	}
+
+	if _, err := service.AddMenuItem(ctx, menus.AddMenuItemInput{
+		MenuID:   menu.ID,
+		ParentID: &group.ID,
+		Type:     menus.MenuItemTypeItem,
+		Position: 0,
+		Target:   map[string]any{"type": "page", "slug": "products"},
+		Translations: []menus.MenuItemTranslationInput{
+			{Locale: "en", Label: "menu.products", LabelKey: "menu.products"},
+		},
+	}); err != nil {
+		t.Fatalf("AddMenuItem child: %v", err)
+	}
+
+	nav, err := service.ResolveNavigation(ctx, "primary", "en")
+	if err != nil {
+		t.Fatalf("ResolveNavigation: %v", err)
+	}
+	if len(nav) != 1 || len(nav[0].Children) != 1 {
+		t.Fatalf("expected one group with one child, got %#v", nav)
+	}
+	if nav[0].Label != "" || nav[0].DisplayLabel != "" || nav[0].GroupTitleKey != "menu.group.main" {
+		t.Fatalf("expected legacy mirrored group key to be normalized away from visible labels, got label=%q display=%q key=%q", nav[0].Label, nav[0].DisplayLabel, nav[0].GroupTitleKey)
+	}
+	if nav[0].Children[0].Label != "" || nav[0].Children[0].DisplayLabel != "products" || nav[0].Children[0].LabelKey != "menu.products" {
+		t.Fatalf("expected legacy mirrored item key to be normalized away from visible label, got label=%q display=%q key=%q", nav[0].Children[0].Label, nav[0].Children[0].DisplayLabel, nav[0].Children[0].LabelKey)
 	}
 }
 

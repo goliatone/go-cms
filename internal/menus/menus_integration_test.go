@@ -283,8 +283,11 @@ func TestMenuService_AllowsOptionalTranslations(t *testing.T) {
 	if len(navigation) != 1 {
 		t.Fatalf("expected 1 navigation node, got %d", len(navigation))
 	}
-	if navigation[0].Label == "" {
-		t.Fatalf("expected navigation label fallback, got empty string")
+	if navigation[0].DisplayLabel == "" {
+		t.Fatalf("expected navigation display label fallback, got empty string")
+	}
+	if navigation[0].Label != "" {
+		t.Fatalf("expected literal label to remain empty without translations, got %q", navigation[0].Label)
 	}
 	if navigation[0].URL == "" {
 		t.Fatalf("expected navigation url fallback, got empty string")

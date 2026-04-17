@@ -377,8 +377,10 @@ type NavigationNode struct {
 	Position           int               `json:"position"`
 	Type               string            `json:"type,omitempty"`
 	Label              string            `json:"label,omitempty"`
+	DisplayLabel       string            `json:"display_label,omitempty"`
 	LabelKey           string            `json:"label_key,omitempty"`
 	GroupTitle         string            `json:"group_title,omitempty"`
+	DisplayGroupTitle  string            `json:"display_group_title,omitempty"`
 	GroupTitleKey      string            `json:"group_title_key,omitempty"`
 	URL                string            `json:"url"`
 	Target             map[string]any    `json:"target,omitempty"`
@@ -2796,6 +2798,7 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 		labelKey = strings.TrimSpace(translation.LabelKey)
 		groupTitle = strings.TrimSpace(translation.GroupTitle)
 		groupTitleKey = strings.TrimSpace(translation.GroupTitleKey)
+		label, groupTitle = normalizeLegacyMenuTranslationValues(label, labelKey, groupTitle, groupTitleKey)
 		node.Label = label
 		node.LabelKey = labelKey
 		node.GroupTitle = groupTitle
@@ -2807,39 +2810,17 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 		}
 	}
 
+	node.DisplayGroupTitle = resolveGroupDisplayLabel(groupTitle, label)
+	node.DisplayLabel = resolveNavigationDisplayLabel(node.Type, label, node.DisplayGroupTitle, item)
+
 	if node.URL == "" {
 		node.URL = s.resolveNodeURL(ctx, menuCode, item, envID, localeID, locale)
 	}
 
 	if node.Type == MenuItemTypeGroup {
-		if node.Label == "" {
-			switch {
-			case groupTitle != "":
-				node.Label = groupTitle
-			case groupTitleKey != "":
-				node.Label = groupTitleKey
-			case label != "":
-				node.Label = label
-			case labelKey != "":
-				node.Label = labelKey
-			}
-		}
 	} else if node.Type == MenuItemTypeItem {
-		if node.Label == "" && labelKey != "" {
-			node.Label = labelKey
-		}
-		if node.Label == "" {
-			if slug, ok := extractSlug(item.Target); ok && slug != "" {
-				node.Label = slug
-			} else if translation != nil && translation.Label != "" {
-				node.Label = translation.Label
-			} else if labelKey != "" {
-				node.Label = labelKey
-			} else if targetType, ok := item.Target["type"].(string); ok {
-				node.Label = targetType
-			} else {
-				node.Label = item.ID.String()
-			}
+		if node.DisplayLabel == "" {
+			node.DisplayLabel = resolveNavigationFallbackLabel(item, true)
 		}
 	}
 
@@ -3168,19 +3149,6 @@ func normalizeMenuItemTranslationInput(itemType string, input MenuItemTranslatio
 	default:
 		if normalized.Label == "" && normalized.LabelKey == "" {
 			return normalizedMenuItemTranslation{}, ErrMenuItemTranslationTextRequired
-		}
-	}
-
-	if normalized.Label == "" {
-		if itemType == MenuItemTypeGroup {
-			if normalized.GroupTitle != "" {
-				normalized.Label = normalized.GroupTitle
-			} else if normalized.GroupTitleKey != "" {
-				normalized.Label = normalized.GroupTitleKey
-			}
-		}
-		if normalized.Label == "" && normalized.LabelKey != "" {
-			normalized.Label = normalized.LabelKey
 		}
 	}
 
@@ -4153,6 +4121,83 @@ func extractSlug(target map[string]any) (string, bool) {
 		return "", false
 	}
 	return strings.TrimSpace(fmt.Sprint(raw)), true
+}
+
+func resolveNavigationDisplayLabel(nodeType, label, displayGroupTitle string, item *MenuItem) string {
+	switch nodeType {
+	case MenuItemTypeGroup:
+		return strings.TrimSpace(displayGroupTitle)
+	case MenuItemTypeSeparator:
+		return ""
+	default:
+		if trimmed := strings.TrimSpace(label); trimmed != "" {
+			return trimmed
+		}
+		return resolveNavigationFallbackLabel(item, true)
+	}
+}
+
+func resolveGroupDisplayLabel(groupTitle, label string) string {
+	if trimmed := strings.TrimSpace(groupTitle); trimmed != "" {
+		return trimmed
+	}
+	if trimmed := strings.TrimSpace(label); trimmed != "" {
+		return trimmed
+	}
+	return ""
+}
+
+func resolveNavigationFallbackLabel(item *MenuItem, allowTargetFallback bool) string {
+	if item == nil {
+		return ""
+	}
+	if allowTargetFallback {
+		if slug, ok := extractSlug(item.Target); ok && slug != "" {
+			return slug
+		}
+		if item.Target != nil {
+			if targetType, ok := item.Target["type"].(string); ok {
+				if trimmed := strings.TrimSpace(targetType); trimmed != "" {
+					return trimmed
+				}
+			}
+		}
+	}
+	if externalCode := strings.TrimSpace(item.ExternalCode); externalCode != "" {
+		return lastMenuPathSegment(externalCode)
+	}
+	if item.ParentRef != nil {
+		if segment := lastMenuPathSegment(strings.TrimSpace(*item.ParentRef)); segment != "" {
+			return segment
+		}
+	}
+	if item.ID != uuid.Nil {
+		return item.ID.String()
+	}
+	return ""
+}
+
+func normalizeLegacyMenuTranslationValues(label, labelKey, groupTitle, groupTitleKey string) (string, string) {
+	if labelKey != "" && label == labelKey {
+		label = ""
+	}
+	if groupTitleKey != "" && groupTitle == groupTitleKey {
+		groupTitle = ""
+	}
+	return label, groupTitle
+}
+
+func lastMenuPathSegment(path string) string {
+	trimmed := strings.TrimSpace(path)
+	if trimmed == "" {
+		return ""
+	}
+	for _, separator := range []string{".", "/"} {
+		if idx := strings.LastIndex(trimmed, separator); idx >= 0 && idx+1 < len(trimmed) {
+			trimmed = trimmed[idx+1:]
+		}
+	}
+	return strings.TrimSpace(trimmed)
 }
 
 func normalizeNavigationNodes(nodes []NavigationNode) []NavigationNode {
