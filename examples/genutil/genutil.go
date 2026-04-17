@@ -113,6 +113,10 @@ func (r *goTemplateRenderer) ensureTemplates() (*template.Template, error) {
 				if resolved == nil || resolved.Instance == nil {
 					return merged
 				}
+				if len(resolved.Config) > 0 {
+					maps.Copy(merged, resolved.Config)
+					return merged
+				}
 				maps.Copy(merged, resolved.Instance.Configuration)
 				for _, tr := range resolved.Instance.Translations {
 					if tr == nil || tr.LocaleID != localeID {

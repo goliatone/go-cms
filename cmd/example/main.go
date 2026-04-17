@@ -714,7 +714,10 @@ func summarizeResolvedWidgets(items []*widgets.ResolvedWidget) []map[string]any 
 		summary := map[string]any{
 			"id":            item.Instance.ID,
 			"definitionID":  item.Instance.DefinitionID,
-			"configuration": item.Instance.Configuration,
+			"configuration": item.Config,
+		}
+		if summary["configuration"] == nil {
+			summary["configuration"] = item.Instance.Configuration
 		}
 		if item.Placement != nil {
 			summary["position"] = item.Placement.Position

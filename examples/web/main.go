@@ -2697,21 +2697,23 @@ func prepareWidgetsForTemplate(
 			continue
 		}
 
-		// Start with the base configuration
 		mergedConfig := make(map[string]any)
-		for k, v := range resolved.Instance.Configuration {
-			mergedConfig[k] = v
-		}
-
-		// Look for translation in the instance's Translations that were already loaded
-		if localeID != uuid.Nil && resolved.Instance.Translations != nil {
-			for _, translation := range resolved.Instance.Translations {
-				if translation.LocaleID == localeID {
-					// Translation content overrides base configuration
-					for k, v := range translation.Content {
-						mergedConfig[k] = v
+		if len(resolved.Config) > 0 {
+			for k, v := range resolved.Config {
+				mergedConfig[k] = v
+			}
+		} else {
+			for k, v := range resolved.Instance.Configuration {
+				mergedConfig[k] = v
+			}
+			if localeID != uuid.Nil && resolved.Instance.Translations != nil {
+				for _, translation := range resolved.Instance.Translations {
+					if translation.LocaleID == localeID {
+						for k, v := range translation.Content {
+							mergedConfig[k] = v
+						}
+						break
 					}
-					break
 				}
 			}
 		}
