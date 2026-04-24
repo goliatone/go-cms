@@ -91,6 +91,9 @@ func (m *MemoryContentRepository) List(_ context.Context, env ...ContentListOpti
 		if !matchesEnvironment(rec.EnvironmentID, envID) {
 			continue
 		}
+		if opts.contentTypeID != uuid.Nil && rec.ContentTypeID != opts.contentTypeID {
+			continue
+		}
 		cloned := m.attachVersions(cloneContent(rec))
 		if !opts.includeTranslations {
 			cloned.Translations = nil
