@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	cmscontent "github.com/goliatone/go-cms/content"
+	"github.com/google/uuid"
 )
 
 // ContentListOption configures content list behavior. It is an alias to string to
@@ -17,6 +18,7 @@ const (
 	contentListWithTranslations     ContentListOption = "content:list:with_translations"
 	contentListProjectionPrefix     ContentListOption = "content:list:projection:"
 	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
+	contentListContentTypePrefix    ContentListOption = "content:list:content_type:"
 )
 
 // WithTranslations preloads translations when listing content records.
@@ -39,12 +41,19 @@ func WithProjectionMode(mode ProjectionTranslationMode) ContentListOption {
 	return cmscontent.WithProjectionMode(mode)
 }
 
+// WithContentTypeID scopes list reads to one content type before loading
+// translations or projections.
+func WithContentTypeID(id uuid.UUID) ContentListOption {
+	return cmscontent.WithContentTypeID(id)
+}
+
 type contentListOptions struct {
 	envKey              string
 	includeTranslations bool
 	projection          string
 	projectionMode      ProjectionTranslationMode
 	projectionModeSet   bool
+	contentTypeID       uuid.UUID
 }
 
 func parseContentListOptions(args ...ContentListOption) contentListOptions {
@@ -67,6 +76,12 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 				if mode != "" {
 					opts.projectionMode = ProjectionTranslationMode(mode)
 					opts.projectionModeSet = true
+				}
+				continue
+			}
+			if after, ok := strings.CutPrefix(token, string(contentListContentTypePrefix)); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(after)); err == nil {
+					opts.contentTypeID = id
 				}
 				continue
 			}
