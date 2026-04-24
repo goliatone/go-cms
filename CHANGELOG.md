@@ -1,5 +1,27 @@
 # Changelog
 
+# [0.51.0](https://github.com/goliatone/go-cms/compare/v0.50.0...v0.51.0) - (2026-04-24)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Apply env filter to list ([a539061](https://github.com/goliatone/go-cms/commit/a539061b503f3297aff6eda798668e16631291cf))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.51.0 ([3d59414](https://github.com/goliatone/go-cms/commit/3d59414c0aef9ff917741a8c9bba8067840f8d0e))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Content type id ([7c41b56](https://github.com/goliatone/go-cms/commit/7c41b5612eebebb2792bc6a39c93b47cbd325a8e))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.50.0 ([ea0266a](https://github.com/goliatone/go-cms/commit/ea0266a8e32d6441fcf139cb98578214e76c9b6e))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update test ([3f3d571](https://github.com/goliatone/go-cms/commit/3f3d571975a2b4bc2bdd2d29517a87ff3a219529))  - (goliatone)
+
 # [0.50.0](https://github.com/goliatone/go-cms/compare/v0.49.1...v0.50.0) - (2026-04-17)
 
 ## <!-- 1 -->🐛 Bug Fixes
