@@ -126,7 +126,11 @@ func (r *BunContentRepository) List(ctx context.Context, env ...ContentListOptio
 	opts := parseContentListOptions(env...)
 	normalizedEnv := normalizeEnvironmentKey(opts.envKey)
 	records, _, err := r.repo.List(ctx, repository.SelectRawProcessor(func(q *bun.SelectQuery) *bun.SelectQuery {
-		return applyEnvironmentFilter(q, normalizedEnv)
+		q = applyEnvironmentFilter(q, normalizedEnv)
+		if opts.contentTypeID != uuid.Nil {
+			q = q.Where("?TableAlias.content_type_id = ?", opts.contentTypeID)
+		}
+		return q
 	}))
 	if err != nil {
 		return nil, err
