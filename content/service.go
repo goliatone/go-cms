@@ -74,6 +74,7 @@ const (
 	contentListWithTranslations     ContentListOption = "content:list:with_translations"
 	contentListProjectionPrefix     ContentListOption = "content:list:projection:"
 	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
+	contentListContentTypePrefix    ContentListOption = "content:list:content_type:"
 )
 
 // WithTranslations preloads translations when listing or fetching content records.
@@ -106,6 +107,15 @@ func WithProjectionMode(mode ProjectionTranslationMode) ContentListOption {
 		return ""
 	}
 	return ContentListOption(string(contentListProjectionModePrefix) + normalized)
+}
+
+// WithContentTypeID scopes list reads to one content type before loading
+// translations or projections.
+func WithContentTypeID(id uuid.UUID) ContentListOption {
+	if id == uuid.Nil {
+		return ""
+	}
+	return ContentListOption(string(contentListContentTypePrefix) + id.String())
 }
 
 // CreateContentRequest captures the information required to create content.
