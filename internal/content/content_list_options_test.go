@@ -11,6 +11,7 @@ import (
 
 type contentListFixture struct {
 	svc         content.Service
+	typeRepo    *content.MemoryContentTypeRepository
 	defaultType *content.ContentType
 	stagingType *content.ContentType
 }
@@ -64,6 +65,7 @@ func newContentListFixtureWithOptions(t *testing.T, opts ...content.ServiceOptio
 
 	return &contentListFixture{
 		svc:         svc,
+		typeRepo:    typeRepo,
 		defaultType: defaultType,
 		stagingType: stagingType,
 	}
@@ -183,6 +185,60 @@ func TestContentServiceListWithTranslationsRespectsEnvironment(t *testing.T) {
 	}
 	if len(listed[0].Translations) == 0 {
 		t.Fatal("expected staging translations to be populated")
+	}
+}
+
+func TestContentServiceListWithContentTypeIDScopesBeforeTranslations(t *testing.T) {
+	ctx := context.Background()
+	fixture := newContentListFixture(t)
+	otherType := &content.ContentType{
+		ID:            uuid.New(),
+		Name:          "News",
+		Slug:          "news",
+		Schema:        map[string]any{"fields": []any{"body"}},
+		EnvironmentID: fixture.defaultType.EnvironmentID,
+	}
+	seedContentType(t, fixture.typeRepo, otherType)
+
+	if _, err := fixture.svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID:  fixture.defaultType.ID,
+		Slug:           "welcome",
+		Status:         "draft",
+		EnvironmentKey: "default",
+		CreatedBy:      uuid.New(),
+		UpdatedBy:      uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Welcome", Content: map[string]any{"body": "hello"}},
+		},
+	}); err != nil {
+		t.Fatalf("create article content: %v", err)
+	}
+	if _, err := fixture.svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID:  otherType.ID,
+		Slug:           "breaking",
+		Status:         "draft",
+		EnvironmentKey: "default",
+		CreatedBy:      uuid.New(),
+		UpdatedBy:      uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{Locale: "en", Title: "Breaking", Content: map[string]any{"body": "news"}},
+		},
+	}); err != nil {
+		t.Fatalf("create news content: %v", err)
+	}
+
+	listed, err := fixture.svc.List(ctx, "default", content.WithContentTypeID(otherType.ID), content.WithTranslations())
+	if err != nil {
+		t.Fatalf("list scoped content with translations: %v", err)
+	}
+	if len(listed) != 1 {
+		t.Fatalf("expected one scoped record, got %d", len(listed))
+	}
+	if listed[0].ContentTypeID != otherType.ID {
+		t.Fatalf("expected content type %s, got %s", otherType.ID, listed[0].ContentTypeID)
+	}
+	if len(listed[0].Translations) == 0 {
+		t.Fatal("expected scoped record translations to be populated")
 	}
 }
 
