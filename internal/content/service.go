@@ -784,6 +784,9 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 		return nil, err
 	}
 	listArgs := []ContentListOption{ContentListOption(envID.String())}
+	if opts.contentTypeID != uuid.Nil {
+		listArgs = append(listArgs, WithContentTypeID(opts.contentTypeID))
+	}
 	translationsRequested := s.shouldLoadTranslations(opts, mode)
 	translationsLoaded := translationsRequested && s.translationsEnabledFlag()
 	if translationsLoaded {
