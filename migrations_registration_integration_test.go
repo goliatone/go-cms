@@ -18,6 +18,7 @@ import (
 	_ "github.com/mattn/go-sqlite3"
 	"github.com/uptrace/bun/dialect/pgdialect"
 	"github.com/uptrace/bun/dialect/sqlitedialect"
+	"github.com/uptrace/bun/migrate"
 )
 
 const (
@@ -58,7 +59,7 @@ func TestMigrationRegistrationSQLiteApplyRollbackReapply(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-	registerCMSMigrations(t, client)
+	registerCMSDialectMigrations(t, client)
 
 	if err := client.ValidateDialects(ctx); err != nil {
 		t.Fatalf("validate dialects: %v", err)
@@ -71,6 +72,9 @@ func TestMigrationRegistrationSQLiteApplyRollbackReapply(t *testing.T) {
 	migratedCount := countAppliedMigrations(t, db)
 	if migratedCount == 0 {
 		t.Fatalf("expected applied migrations after migrate")
+	}
+	if stableCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_%"); stableCount != 0 {
+		t.Fatalf("expected standalone sqlite migration markers to remain raw, got stable=%d", stableCount)
 	}
 
 	if err := client.RollbackAll(ctx); err != nil {
@@ -88,6 +92,9 @@ func TestMigrationRegistrationSQLiteApplyRollbackReapply(t *testing.T) {
 	if reappliedCount := countAppliedMigrations(t, db); reappliedCount != migratedCount {
 		t.Fatalf("unexpected applied migration count after reapply: got=%d want=%d", reappliedCount, migratedCount)
 	}
+	if stableCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_%"); stableCount != 0 {
+		t.Fatalf("expected standalone reapplied sqlite migration markers to remain raw, got stable=%d", stableCount)
+	}
 }
 
 func TestMigrationRegistrationPostgresApplyRollbackReapply(t *testing.T) {
@@ -100,7 +107,7 @@ func TestMigrationRegistrationPostgresApplyRollbackReapply(t *testing.T) {
 	defer func() { _ = db.Close() }()
 
 	ctx := context.Background()
-	registerCMSMigrations(t, client)
+	registerCMSDialectMigrations(t, client)
 
 	if err := client.ValidateDialects(ctx); err != nil {
 		t.Fatalf("validate dialects: %v", err)
@@ -134,7 +141,145 @@ func TestMigrationRegistrationPostgresApplyRollbackReapply(t *testing.T) {
 	}
 }
 
-func registerCMSMigrations(t *testing.T, client *persistence.Client) {
+func TestStableMigrationRegistrationSQLiteBackfillsLegacyDialectMarkers(t *testing.T) {
+	legacyClient, db, dsn := newSQLiteMigrationClientWithDSN(t)
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	registerCMSDialectMigrations(t, legacyClient)
+	if err := legacyClient.Migrate(ctx); err != nil {
+		t.Fatalf("migrate legacy sqlite: %v", err)
+	}
+	rawCount := countAppliedMigrations(t, db)
+	if rawCount == 0 {
+		t.Fatalf("expected raw applied migrations")
+	}
+	if stableCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_%"); stableCount != 0 {
+		t.Fatalf("expected no stable markers before backfill, got %d", stableCount)
+	}
+
+	stableClient, err := persistence.New(migrationTestConfig{
+		driver: "sqlite3",
+		server: dsn,
+	}, db, sqlitedialect.New())
+	if err != nil {
+		t.Fatalf("persistence.New stable sqlite: %v", err)
+	}
+	result, err := cms.BackfillStableMigrationMarkers(ctx, stableClient.DB())
+	if err != nil {
+		t.Fatalf("backfill stable migration markers: %v", err)
+	}
+	if result.MatchedRawMarkers != rawCount || result.InsertedMarkers != rawCount {
+		t.Fatalf("unexpected backfill result: got=%+v raw=%d", result, rawCount)
+	}
+	result, err = cms.BackfillStableMigrationMarkers(ctx, stableClient.DB())
+	if err != nil {
+		t.Fatalf("backfill stable migration markers again: %v", err)
+	}
+	if result.MatchedRawMarkers != rawCount || result.InsertedMarkers != 0 || result.ExistingMarkers != rawCount {
+		t.Fatalf("unexpected idempotent backfill result: got=%+v raw=%d", result, rawCount)
+	}
+	registerCMSStableMigrations(t, stableClient)
+	if err := stableClient.Migrate(ctx); err != nil {
+		t.Fatalf("migrate stable sqlite after backfill: %v", err)
+	}
+	if totalCount := countAppliedMigrations(t, db); totalCount != rawCount*2 {
+		t.Fatalf("expected raw plus stable markers only, got total=%d raw=%d", totalCount, rawCount)
+	}
+	if stableCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_%"); stableCount != rawCount {
+		t.Fatalf("expected all raw markers to have stable aliases, got stable=%d raw=%d", stableCount, rawCount)
+	}
+}
+
+func TestStableMigrationRegistrationSQLiteBackfillsCustomOrder(t *testing.T) {
+	legacyClient, db, dsn := newSQLiteMigrationClientWithDSN(t)
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	registerCMSDialectMigrations(t, legacyClient)
+	if err := legacyClient.Migrate(ctx); err != nil {
+		t.Fatalf("migrate legacy sqlite: %v", err)
+	}
+	rawCount := countAppliedMigrations(t, db)
+	if rawCount == 0 {
+		t.Fatalf("expected raw applied migrations")
+	}
+
+	stableClient, err := persistence.New(migrationTestConfig{
+		driver: "sqlite3",
+		server: dsn,
+	}, db, sqlitedialect.New())
+	if err != nil {
+		t.Fatalf("persistence.New stable sqlite: %v", err)
+	}
+	opts := []cms.MigrationSourceOption{cms.WithMigrationSourceOrder(44)}
+	result, err := cms.BackfillStableMigrationMarkers(ctx, stableClient.DB(), opts...)
+	if err != nil {
+		t.Fatalf("backfill stable migration markers: %v", err)
+	}
+	if result.MatchedRawMarkers != rawCount || result.InsertedMarkers != rawCount {
+		t.Fatalf("unexpected backfill result: got=%+v raw=%d", result, rawCount)
+	}
+
+	source, err := cms.StableOrderedMigrationSource(opts...)
+	if err != nil {
+		t.Fatalf("stable ordered migration source: %v", err)
+	}
+	if err := stableClient.RegisterOrderedMigrationSources(source); err != nil {
+		t.Fatalf("register ordered migration source: %v", err)
+	}
+	if err := stableClient.Migrate(ctx); err != nil {
+		t.Fatalf("migrate stable sqlite after custom-order backfill: %v", err)
+	}
+	if stableCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_000044_%"); stableCount != rawCount {
+		t.Fatalf("expected custom-order stable markers, got stable=%d raw=%d", stableCount, rawCount)
+	}
+	if wrongOrderCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_000040_%"); wrongOrderCount != 0 {
+		t.Fatalf("expected no default-order stable markers, got %d", wrongOrderCount)
+	}
+}
+
+func TestStableMigrationBackfillRejectsRawMarkersWithoutCMSSchema(t *testing.T) {
+	client, db := newSQLiteMigrationClient(t)
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	migrator := migrate.NewMigrator(client.DB(), migrate.NewMigrations(), migrate.WithUpsert(true))
+	if err := migrator.Init(ctx); err != nil {
+		t.Fatalf("init migrator: %v", err)
+	}
+	if err := migrator.MarkApplied(ctx, &migrate.Migration{Name: "20250102000000", GroupID: 1}); err != nil {
+		t.Fatalf("insert raw marker: %v", err)
+	}
+
+	_, err := cms.BackfillStableMigrationMarkers(ctx, client.DB())
+	if err == nil {
+		t.Fatalf("expected schema mismatch error")
+	}
+	if !strings.Contains(err.Error(), "required schema tables are missing") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestStableMigrationRegistrationSQLiteFreshDatabaseUsesSourceStableMarkers(t *testing.T) {
+	client, db := newSQLiteMigrationClient(t)
+	defer func() { _ = db.Close() }()
+
+	ctx := context.Background()
+	registerCMSStableMigrations(t, client)
+	if err := client.Migrate(ctx); err != nil {
+		t.Fatalf("migrate stable sqlite: %v", err)
+	}
+	migratedCount := countAppliedMigrations(t, db)
+	if migratedCount == 0 {
+		t.Fatalf("expected applied migrations")
+	}
+	if stableCount := countAppliedMigrationsLikeSQLite(t, db, "ordsrc_%"); stableCount != migratedCount {
+		t.Fatalf("expected all fresh sqlite migration markers to be source-stable, got stable=%d total=%d", stableCount, migratedCount)
+	}
+}
+
+func registerCMSDialectMigrations(t *testing.T, client *persistence.Client) {
 	t.Helper()
 
 	migrationsRoot, err := fs.Sub(cms.GetMigrationsFS(), "data/sql/migrations")
@@ -149,10 +294,37 @@ func registerCMSMigrations(t *testing.T, client *persistence.Client) {
 	)
 }
 
+func registerCMSStableMigrations(t *testing.T, client *persistence.Client) {
+	t.Helper()
+
+	source, err := cms.StableOrderedMigrationSource()
+	if err != nil {
+		t.Fatalf("stable ordered migration source: %v", err)
+	}
+
+	if err := client.RegisterOrderedMigrationSources(source); err != nil {
+		t.Fatalf("register ordered migration source: %v", err)
+	}
+}
+
 func newSQLiteMigrationClient(t *testing.T) (*persistence.Client, *sql.DB) {
 	t.Helper()
 
 	dsn := "file:" + filepath.Join(t.TempDir(), "cms_migrations.db") + "?cache=shared&_fk=1"
+	client, db, _ := newSQLiteMigrationClientForDSN(t, dsn)
+	return client, db
+}
+
+func newSQLiteMigrationClientWithDSN(t *testing.T) (*persistence.Client, *sql.DB, string) {
+	t.Helper()
+
+	dsn := "file:" + filepath.Join(t.TempDir(), "cms_migrations.db") + "?cache=shared&_fk=1"
+	return newSQLiteMigrationClientForDSN(t, dsn)
+}
+
+func newSQLiteMigrationClientForDSN(t *testing.T, dsn string) (*persistence.Client, *sql.DB, string) {
+	t.Helper()
+
 	db, err := sql.Open("sqlite3", dsn)
 	if err != nil {
 		t.Fatalf("open sqlite: %v", err)
@@ -168,7 +340,7 @@ func newSQLiteMigrationClient(t *testing.T) (*persistence.Client, *sql.DB) {
 		_ = db.Close()
 		t.Fatalf("persistence.New sqlite: %v", err)
 	}
-	return client, db
+	return client, db, dsn
 }
 
 func newPostgresMigrationClient(t *testing.T, dsn string) (*persistence.Client, *sql.DB, string) {
@@ -261,6 +433,16 @@ func countAppliedMigrations(t *testing.T, db *sql.DB) int {
 	var count int
 	if err := db.QueryRow(`SELECT count(*) FROM bun_migrations`).Scan(&count); err != nil {
 		t.Fatalf("count bun_migrations: %v", err)
+	}
+	return count
+}
+
+func countAppliedMigrationsLikeSQLite(t *testing.T, db *sql.DB, pattern string) int {
+	t.Helper()
+
+	var count int
+	if err := db.QueryRow(`SELECT count(*) FROM bun_migrations WHERE name LIKE ?`, pattern).Scan(&count); err != nil {
+		t.Fatalf("count bun_migrations like %q: %v", pattern, err)
 	}
 	return count
 }
