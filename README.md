@@ -810,7 +810,7 @@ if err != nil {
 	panic(err)
 }
 
-// Register CMS migrations (dialect-aware)
+// Register standalone CMS migrations (dialect-aware).
 migrationsFS, err := fs.Sub(cms.GetMigrationsFS(), "data/sql/migrations")
 if err != nil {
 	panic(err)
@@ -834,6 +834,14 @@ if report := client.Report(); report != nil && !report.IsZero() {
 	fmt.Printf("Applied migrations: %s\n", report.String())
 }
 ```
+
+When composing go-cms with other package migrations in one ordered graph, use
+`cms.StableOrderedMigrationSource()` instead. It uses `source_key=go-cms` and
+`order=40`. Existing databases that previously used the standalone registration
+must call `cms.BackfillStableMigrationMarkers(ctx, client.DB(), opts...)` before
+the first source-stable migration run so old raw markers are copied to matching
+`ordsrc_*` names. Pass the same migration source options to backfill and stable
+registration.
 
 The CMS includes migrations for all core tables:
 
