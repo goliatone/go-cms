@@ -1055,7 +1055,7 @@ func TestServiceSyncDefinitionCreatesUpdatesAndNoops(t *testing.T) {
 
 	initial, err := svc.SyncDefinition(ctx, RegisterDefinitionInput{
 		Name:        "announcement",
-		Description: stringPointer("Announcement"),
+		Description: new("Announcement"),
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -1072,7 +1072,7 @@ func TestServiceSyncDefinitionCreatesUpdatesAndNoops(t *testing.T) {
 
 	same, err := svc.SyncDefinition(ctx, RegisterDefinitionInput{
 		Name:        "announcement",
-		Description: stringPointer("Announcement"),
+		Description: new("Announcement"),
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -1095,7 +1095,7 @@ func TestServiceSyncDefinitionCreatesUpdatesAndNoops(t *testing.T) {
 	typedSvc.now = func() time.Time { return later }
 	updated, err := svc.SyncDefinition(ctx, RegisterDefinitionInput{
 		Name:        "announcement",
-		Description: stringPointer("Announcement"),
+		Description: new("Announcement"),
 		Schema: map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -1515,6 +1515,7 @@ func newWidgetShortcodeService(tb testing.TB) interfaces.ShortcodeService {
 	return shortcodepkg.NewService(registry, renderer)
 }
 
+//go:fix inline
 func stringPointer(value string) *string {
-	return &value
+	return new(value)
 }
