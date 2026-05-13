@@ -80,8 +80,8 @@ github.com/goliatone/go-i18n v0.5.0 h1:xc2mYv0XWoMHpfyDj6JEJS53cUUDCvAtSjieG2OYd
 github.com/goliatone/go-i18n v0.5.0/go.mod h1:lg0zlUwItVZAXUJPWywuFKtgL75eGSJFBfyIfhDekoU=
 github.com/goliatone/go-logger v0.8.0 h1:Yq9xy+ZGS65BDUxV5NpSd+aw72vUDxxv/ISMJDlRiHs=
 github.com/goliatone/go-logger v0.8.0/go.mod h1:hWv7Tj+af3E0vjJIHR52JmmK3jKk6rCKFtvhCC/3jXE=
-github.com/goliatone/go-persistence-bun v0.13.0 h1:7GLuvIlSqbZG1Bvypl1c/o7q2WOvLK2JpWH4onE+skc=
-github.com/goliatone/go-persistence-bun v0.13.0/go.mod h1:hrsGtNrREROFmcc3P1JFYLtunY2JwfPfsRhRUT3+Gyc=
+github.com/goliatone/go-persistence-bun v0.16.0 h1:mArQ3cprmn4gitXXqNDjsgGQ2S8G3mrk0gVZF+gWFZo=
+github.com/goliatone/go-persistence-bun v0.16.0/go.mod h1:hrsGtNrREROFmcc3P1JFYLtunY2JwfPfsRhRUT3+Gyc=
 github.com/goliatone/go-repository-bun v0.15.1 h1:t2RHhqM6OBjyybJE9wnKtVYXM8f4Jb2s1s/q2sSCS60=
 github.com/goliatone/go-repository-bun v0.15.1/go.mod h1:bOFyQOGKyPJX+tkd7A7DhASqcPMvwdhDq41AmWujFqs=
 github.com/goliatone/go-repository-cache v0.7.1 h1:/JHBAWnBDiz9Gz1ko3XZMmq5ZuOOHRdedMZfoBCVWk8=
@@ -94,8 +94,8 @@ github.com/goliatone/go-theme v0.3.0 h1:iuIuyjnhC+bY+gxYa+1E4m9K6cY5MM5DQAZpYLOk
 github.com/goliatone/go-theme v0.3.0/go.mod h1:ZmjyB8jDSzO1ABpVfw/UrnO4wgYllpdogvo7al4csOQ=
 github.com/goliatone/go-urlkit v0.6.0 h1:em91h2tkVjy8RVCfTd7MY3E7tDMKKn3+uFcempTTaMs=
 github.com/goliatone/go-urlkit v0.6.0/go.mod h1:QVCju3Z9io9mX+t2D7RCp+ja9PYrLNJoucWc124siFQ=
-github.com/goliatone/go-users v0.18.0 h1:6H+4u+vPGvzkvQSRI9r6ThQTNKVsFv6QOostapoXiKw=
-github.com/goliatone/go-users v0.18.0/go.mod h1:BOfKFkTssP0TJXlfT6/+ToqI33t4NYLUsByKXvBjgFA=
+github.com/goliatone/go-users v0.24.0 h1:1IN8b2u3PxH4l6hyPk7r1JVy6Ieegm35uvKRJ6N81dM=
+github.com/goliatone/go-users v0.24.0/go.mod h1:1mm4svjtFJG1cjjg2Q4gDJk2VDe10sFhIAxTLpZZbhk=
 github.com/goliatone/hashid v0.2.0 h1:Q+OkMo+JX2FCok72BetkmniSIuV4YYj9JUhUZAjRDZ4=
 github.com/goliatone/hashid v0.2.0/go.mod h1:jgEJQBDWz7OSe4uWCcsu5rkb4HtKTNvgF4Wl3NPfC6E=
 github.com/goodsign/monday v1.0.2 h1:k8kRMkCRVfCTWOU4dRfRgneQsWlB1+mJd3MxG0lGLzQ=

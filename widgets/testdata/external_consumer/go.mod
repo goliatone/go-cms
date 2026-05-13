@@ -15,17 +15,20 @@ require (
 	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/flosch/pongo2/v6 v6.0.0 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
-	github.com/goliatone/go-command v0.18.0 // indirect
+	github.com/goliatone/go-command v0.19.0 // indirect
 	github.com/goliatone/go-errors v0.10.0 // indirect
 	github.com/goliatone/go-i18n v0.5.0 // indirect
 	github.com/goliatone/go-logger v0.8.0 // indirect
+	github.com/goliatone/go-persistence-bun v0.16.0 // indirect
 	github.com/goliatone/go-repository-bun v0.15.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-theme v0.3.0 // indirect
 	github.com/goliatone/go-urlkit v0.6.0 // indirect
-	github.com/goliatone/go-users v0.18.0 // indirect
+	github.com/goliatone/go-users v0.24.0 // indirect
 	github.com/goliatone/hashid v0.2.0 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
@@ -38,12 +41,21 @@ require (
 	github.com/soongo/path-to-regexp v1.6.4 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/uptrace/bun v1.2.18 // indirect
+	github.com/uptrace/bun/dbfixture v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18 // indirect
+	github.com/uptrace/bun/extra/bundebug v1.2.18 // indirect
+	github.com/uptrace/bun/extra/bunotel v1.2.18 // indirect
+	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2 // indirect
 	github.com/viccon/sturdyc v1.1.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yuin/goldmark v1.6.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/otel v1.42.0 // indirect
+	go.opentelemetry.io/otel/metric v1.42.0 // indirect
+	go.opentelemetry.io/otel/trace v1.42.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
