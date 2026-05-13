@@ -187,7 +187,7 @@ func setupDatabase() (*bun.DB, error) {
         return nil, err
     }
 
-    // Register CMS migrations (dialect-aware)
+    // Register standalone CMS migrations (dialect-aware).
     migrationsFS, err := fs.Sub(cms.GetMigrationsFS(), "data/sql/migrations")
     if err != nil {
         return nil, err
@@ -220,9 +220,40 @@ func setupDatabase() (*bun.DB, error) {
 **Key steps:**
 
 1. `fs.Sub()` extracts the `data/sql/migrations` subdirectory from the embedded FS.
-2. `RegisterDialectMigrations()` registers migrations for multiple dialects and binds them to the canonical source label (`go-cms`).
+2. `RegisterDialectMigrations()` registers standalone CMS migrations and binds them to the canonical source label (`go-cms`).
 3. `WithValidationTargets("postgres", "sqlite")` ensures both variants exist for every timestamp.
 4. `client.Migrate()` executes all pending migrations and records their state in `bun_migrations`.
+
+### Source-Stable Shared Graphs
+
+When composing go-cms with other packages in a shared ordered migration graph,
+register every package as a source-stable ordered source. Do not mix
+`RegisterDialectMigrations` or legacy positional `OrderedMigrationSource` values
+with source-stable sources in the same migration manager.
+
+```go
+opts := []cms.MigrationSourceOption{
+    cms.WithMigrationSourceDependencies("go-users"),
+}
+
+if _, err := cms.BackfillStableMigrationMarkers(ctx, client.DB(), opts...); err != nil {
+    return err
+}
+
+source, err := cms.StableOrderedMigrationSource(opts...)
+if err != nil {
+    return err
+}
+if err := client.RegisterOrderedMigrationSources(source); err != nil {
+    return err
+}
+```
+
+`cms.StableOrderedMigrationSource()` uses `source_key=go-cms` and `order=40`.
+`BackfillStableMigrationMarkers` is safe to call on fresh databases; it only
+copies already-applied raw go-cms markers to their matching `ordsrc_*` names.
+Use the same options for backfill and registration if you override dependencies
+or source order.
 
 ---
 
