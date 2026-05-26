@@ -60,7 +60,7 @@ type goTemplateRenderer struct {
 	err     error
 }
 
-func (r *goTemplateRenderer) ensureTemplates() (*template.Template, error) {
+func (r *goTemplateRenderer) ensureTemplates() (*template.Template, error) { //nolint:gocyclo // Template discovery supports several trusted example layouts.
 	r.once.Do(func() {
 		var files []string
 		err := filepath.WalkDir(r.baseDir, func(path string, entry fs.DirEntry, walkErr error) error {
@@ -212,9 +212,9 @@ func toHTML(value any) template.HTML {
 	case template.HTML:
 		return v
 	case string:
-		return template.HTML(v)
+		return template.HTML(v) // #nosec G203 -- example generator receives trusted template content.
 	default:
-		return template.HTML(fmt.Sprint(v))
+		return template.HTML(fmt.Sprint(v)) // #nosec G203 -- example generator receives trusted template content.
 	}
 }
 
@@ -245,7 +245,7 @@ func (s *filesystemStorage) Exec(_ context.Context, query string, args ...any) (
 			return emptyResult{}, fmt.Errorf("ensure_dir requires path")
 		}
 		path := s.normalizePath(args[0])
-		return emptyResult{}, os.MkdirAll(s.abs(path), 0o755)
+		return emptyResult{}, os.MkdirAll(s.abs(path), 0o750)
 	case opWrite:
 		if len(args) < 2 {
 			return emptyResult{}, fmt.Errorf("write requires path and reader")
@@ -256,15 +256,20 @@ func (s *filesystemStorage) Exec(_ context.Context, query string, args ...any) (
 			return emptyResult{}, fmt.Errorf("write expects io.Reader content")
 		}
 		full := s.abs(path)
-		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Dir(full), 0o750); err != nil {
 			return emptyResult{}, err
 		}
-		file, err := os.Create(full)
+		file, err := os.Create(full) // #nosec G304 -- path is normalized under the example storage root.
 		if err != nil {
 			return emptyResult{}, err
 		}
-		defer file.Close()
 		if _, err := io.Copy(file, reader); err != nil {
+			if closeErr := file.Close(); closeErr != nil {
+				return emptyResult{}, errors.Join(err, closeErr)
+			}
+			return emptyResult{}, err
+		}
+		if err := file.Close(); err != nil {
 			return emptyResult{}, err
 		}
 		return emptyResult{}, nil
@@ -298,7 +303,10 @@ func (s *filesystemStorage) abs(rel string) string {
 }
 
 func (s *filesystemStorage) normalizePath(arg any) string {
-	path, _ := arg.(string)
+	path, ok := arg.(string)
+	if !ok {
+		return ""
+	}
 	path = filepath.ToSlash(filepath.Clean(path))
 	if s.base != "" && strings.HasPrefix(path, s.base) {
 		path = strings.TrimPrefix(path, s.base)
@@ -372,7 +380,7 @@ func (themeAssetResolver) Open(_ context.Context, theme *themes.Theme, asset str
 		return nil, fmt.Errorf("theme required")
 	}
 	full := filepath.Join(theme.ThemePath, filepath.FromSlash(asset))
-	return os.Open(full)
+	return os.Open(full) // #nosec G304 -- asset path is resolved relative to the registered example theme.
 }
 
 func (themeAssetResolver) ResolvePath(_ *themes.Theme, asset string) (string, error) {
