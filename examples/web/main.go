@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"maps"
 	"net/url"
 	"os"
 	"os/signal"
@@ -277,9 +278,7 @@ func cloneFieldMap(fields map[string]any) map[string]any {
 		return nil
 	}
 	out := make(map[string]any, len(fields))
-	for k, v := range fields {
-		out[k] = v
-	}
+	maps.Copy(out, fields)
 	return out
 }
 
@@ -1051,7 +1050,7 @@ func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Confi
 			opts := generator.BuildOptions{}
 			if locales := ctx.Query("locales"); locales != "" {
 				var selected []string
-				for _, part := range strings.Split(locales, ",") {
+				for part := range strings.SplitSeq(locales, ",") {
 					if trimmed := strings.TrimSpace(part); trimmed != "" {
 						selected = append(selected, trimmed)
 					}
@@ -1626,7 +1625,7 @@ func setupDemoData(ctx context.Context, module *cms.Module, cfg *cms.Config, the
 				{Code: "sidebar", Name: "Sidebar"},
 			},
 			Assets: &themes.ThemeAssets{
-				BasePath: stringPtr("assets"),
+				BasePath: new("assets"),
 				Styles:   []string{"theme.css"},
 				Images:   []string{"logo.svg"},
 			},
@@ -2148,7 +2147,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 		Items: []cms.SeedMenuItem{
 			{
 				Path:     "primary.home",
-				Position: intPtr(0),
+				Position: new(0),
 				Type:     "item",
 				Target: map[string]any{
 					"type": "url",
@@ -2161,7 +2160,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 			},
 			{
 				Path:     "primary.about",
-				Position: intPtr(1),
+				Position: new(1),
 				Type:     "item",
 				Target: map[string]any{
 					"type": "page",
@@ -2174,7 +2173,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 			},
 			{
 				Path:     "primary.blog",
-				Position: intPtr(2),
+				Position: new(2),
 				Type:     "item",
 				Target: map[string]any{
 					"type": "page",
@@ -2187,7 +2186,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 			},
 			{
 				Path:     "primary.markdown_demo",
-				Position: intPtr(3),
+				Position: new(3),
 				Type:     "item",
 				Target: map[string]any{
 					"type": "url",
@@ -2315,7 +2314,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 			VisibilityRules: map[string]any{
 				"audience": []any{"guest", "user"},
 			},
-			UnpublishOn: timePtr(time.Now().Add(30 * 24 * time.Hour)),
+			UnpublishOn: new(time.Now().Add(30 * 24 * time.Hour)),
 			Position:    1,
 			CreatedBy:   authorID,
 			UpdatedBy:   authorID,
@@ -2371,7 +2370,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 				AreaCode:   "sidebar.primary",
 				LocaleID:   &locale.ID,
 				InstanceID: newsletterWidget.ID,
-				Position:   intPtr(0),
+				Position:   new(0),
 			}); err != nil {
 				return uuid.Nil, fmt.Errorf("assign newsletter widget for locale %s: %w", localeCode, err)
 			}
@@ -2381,7 +2380,7 @@ echo "ID de Página: $PAGE_ID"</code></pre>
 				AreaCode:   "sidebar.primary",
 				LocaleID:   &locale.ID,
 				InstanceID: promoWidget.ID,
-				Position:   intPtr(1),
+				Position:   new(1),
 			}); err != nil {
 				return uuid.Nil, fmt.Errorf("assign promo widget for locale %s: %w", localeCode, err)
 			}
@@ -2484,16 +2483,19 @@ func getLocaleIDByCode(container *di.Container, code string) uuid.UUID {
 	return locale.ID
 }
 
+//go:fix inline
 func intPtr(v int) *int {
-	return &v
+	return new(v)
 }
 
+//go:fix inline
 func timePtr(t time.Time) *time.Time {
-	return &t
+	return new(t)
 }
 
+//go:fix inline
 func stringPtr(s string) *string {
-	return &s
+	return new(s)
 }
 
 func ensureWidgetDefinition(ctx context.Context, svc widgets.Service, input widgets.RegisterDefinitionInput) (*widgets.Definition, error) {
@@ -2699,19 +2701,13 @@ func prepareWidgetsForTemplate(
 
 		mergedConfig := make(map[string]any)
 		if len(resolved.Config) > 0 {
-			for k, v := range resolved.Config {
-				mergedConfig[k] = v
-			}
+			maps.Copy(mergedConfig, resolved.Config)
 		} else {
-			for k, v := range resolved.Instance.Configuration {
-				mergedConfig[k] = v
-			}
+			maps.Copy(mergedConfig, resolved.Instance.Configuration)
 			if localeID != uuid.Nil && resolved.Instance.Translations != nil {
 				for _, translation := range resolved.Instance.Translations {
 					if translation.LocaleID == localeID {
-						for k, v := range translation.Content {
-							mergedConfig[k] = v
-						}
+						maps.Copy(mergedConfig, translation.Content)
 						break
 					}
 				}
