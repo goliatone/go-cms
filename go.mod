@@ -10,7 +10,7 @@ require (
 	github.com/goliatone/go-errors v0.10.0
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-logger v0.8.0
-	github.com/goliatone/go-persistence-bun v0.16.0
+	github.com/goliatone/go-persistence-bun v0.16.1
 	github.com/goliatone/go-repository-bun v0.15.1
 	github.com/goliatone/go-repository-cache v0.7.1
 	github.com/goliatone/go-slug v0.1.0
@@ -47,7 +47,7 @@ require (
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gofiber/contrib/websocket v1.3.4 // indirect
-	github.com/gofiber/fiber/v2 v2.52.10 // indirect
+	github.com/gofiber/fiber/v2 v2.52.12 // indirect
 	github.com/gofiber/template v1.8.3 // indirect
 	github.com/gofiber/template/django/v3 v3.1.14 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
