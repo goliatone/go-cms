@@ -1,3 +1,4 @@
+//nolint:govet // Integration tests use scoped setup assertions with local err variables in independent steps.
 package content_test
 
 import (
@@ -17,6 +18,13 @@ import (
 	"github.com/uptrace/bun/dialect/sqlitedialect"
 )
 
+func closeSQLDB(t *testing.T, db *sql.DB) {
+	t.Helper()
+	if err := db.Close(); err != nil {
+		t.Fatalf("close sqlite db: %v", err)
+	}
+}
+
 func TestContentService_WithBunStorageAndCache(t *testing.T) {
 	ctx := context.Background()
 
@@ -24,9 +32,7 @@ func TestContentService_WithBunStorageAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -82,9 +88,7 @@ func TestContentService_UpdateTranslationAfterCreateTranslationWithCachedBunStor
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -208,9 +212,7 @@ func TestContentService_AllowsOptionalTranslations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -277,9 +279,7 @@ func TestContentService_CreateTranslationConcurrencyWithBunStorage(t *testing.T)
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -367,9 +367,7 @@ func TestContentService_UpdateTranslationAfterCreateTranslationWithBunStorage(t 
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -496,9 +494,7 @@ func TestContentTranslationMetadataPersistenceHygieneWithBunStorage(t *testing.T
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -625,9 +621,7 @@ func TestContentService_DeleteTranslationAfterCreateTranslationWithBunStorage(t 
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -711,9 +705,7 @@ func TestBunContentTypeRepository_ListAndSearchOrdersBySlugAndCreatedAt(t *testi
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	t.Cleanup(func() { closeSQLDB(t, sqlDB) })
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)

@@ -1,6 +1,7 @@
 package content_test
 
 import (
+	"context"
 	"database/sql"
 	"io/fs"
 	"strings"
@@ -16,7 +17,8 @@ func TestContentTypeSlugMigrationBackfill(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { closeSQLDB(t, db) })
+	ctx := context.Background()
 
 	applyMigrationFile(t, db, "20250102000000_initial_schema.up.sql")
 
@@ -24,10 +26,10 @@ func TestContentTypeSlugMigrationBackfill(t *testing.T) {
 	id1 := uuid.NewString()
 	id2 := uuid.NewString()
 
-	if _, err := db.Exec(`INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id1, "Landing Page", schema); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id1, "Landing Page", schema); err != nil {
 		t.Fatalf("insert content type 1: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id2, "Landing Page", schema); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id2, "Landing Page", schema); err != nil {
 		t.Fatalf("insert content type 2: %v", err)
 	}
 
@@ -46,7 +48,7 @@ func TestContentTypeSlugMigrationBackfill(t *testing.T) {
 		t.Fatalf("expected unique slugs after backfill, got %q", slug1)
 	}
 
-	if _, err := db.Exec(`INSERT INTO content_types (id, name, slug, schema) VALUES (?, ?, ?, ?)`, uuid.NewString(), "Duplicate", slug1, schema); err == nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO content_types (id, name, slug, schema) VALUES (?, ?, ?, ?)`, uuid.NewString(), "Duplicate", slug1, schema); err == nil {
 		t.Fatalf("expected unique slug constraint error")
 	}
 }
@@ -56,12 +58,13 @@ func TestContentTypeSlugMigrationBackfillUsesIDFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { closeSQLDB(t, db) })
+	ctx := context.Background()
 
 	applyMigrationFile(t, db, "20250102000000_initial_schema.up.sql")
 
 	id := uuid.NewString()
-	if _, err := db.Exec(`INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id, "", `{"fields":[]}`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO content_types (id, name, schema) VALUES (?, ?, ?)`, id, "", `{"fields":[]}`); err != nil {
 		t.Fatalf("insert content type: %v", err)
 	}
 
@@ -78,22 +81,23 @@ func TestContentTranslationMetadataHygieneMigrationRepairsJSONNull(t *testing.T)
 	if err != nil {
 		t.Fatalf("open sqlite db: %v", err)
 	}
-	defer db.Close()
+	t.Cleanup(func() { closeSQLDB(t, db) })
+	ctx := context.Background()
 
-	if _, err := db.Exec(`CREATE TABLE content_translations (id TEXT PRIMARY KEY, metadata TEXT)`); err != nil {
+	if _, err := db.ExecContext(ctx, `CREATE TABLE content_translations (id TEXT PRIMARY KEY, metadata TEXT)`); err != nil {
 		t.Fatalf("create content_translations: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO content_translations (id, metadata) VALUES (?, ?)`, "json-null", "null"); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO content_translations (id, metadata) VALUES (?, ?)`, "json-null", "null"); err != nil {
 		t.Fatalf("insert json-null metadata: %v", err)
 	}
-	if _, err := db.Exec(`INSERT INTO content_translations (id, metadata) VALUES (?, ?)`, "object", `{"workflow":true}`); err != nil {
+	if _, err := db.ExecContext(ctx, `INSERT INTO content_translations (id, metadata) VALUES (?, ?)`, "object", `{"workflow":true}`); err != nil {
 		t.Fatalf("insert object metadata: %v", err)
 	}
 
 	applyMigrationFile(t, db, "20260526000000_content_translation_metadata_hygiene.up.sql")
 
 	var repaired sql.NullString
-	if err := db.QueryRow(`SELECT metadata FROM content_translations WHERE id = ?`, "json-null").Scan(&repaired); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT metadata FROM content_translations WHERE id = ?`, "json-null").Scan(&repaired); err != nil {
 		t.Fatalf("select repaired metadata: %v", err)
 	}
 	if repaired.Valid {
@@ -101,7 +105,7 @@ func TestContentTranslationMetadataHygieneMigrationRepairsJSONNull(t *testing.T)
 	}
 
 	var object string
-	if err := db.QueryRow(`SELECT metadata FROM content_translations WHERE id = ?`, "object").Scan(&object); err != nil {
+	if err := db.QueryRowContext(ctx, `SELECT metadata FROM content_translations WHERE id = ?`, "object").Scan(&object); err != nil {
 		t.Fatalf("select object metadata: %v", err)
 	}
 	if object != `{"workflow":true}` {
@@ -112,7 +116,7 @@ func TestContentTranslationMetadataHygieneMigrationRepairsJSONNull(t *testing.T)
 func fetchContentTypeSlug(t *testing.T, db *sql.DB, id string) string {
 	t.Helper()
 	var slug string
-	if err := db.QueryRow(`SELECT slug FROM content_types WHERE id = ?`, id).Scan(&slug); err != nil {
+	if err := db.QueryRowContext(context.Background(), `SELECT slug FROM content_types WHERE id = ?`, id).Scan(&slug); err != nil {
 		t.Fatalf("select slug for %s: %v", id, err)
 	}
 	return slug
@@ -144,7 +148,7 @@ func applyMigrationFile(t *testing.T, db *sql.DB, name string) {
 		if statement == "" {
 			continue
 		}
-		if _, err := db.Exec(statement); err != nil {
+		if _, err := db.ExecContext(context.Background(), statement); err != nil {
 			t.Fatalf("exec migration %s: %v", name, err)
 		}
 	}

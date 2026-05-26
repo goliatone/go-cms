@@ -1,3 +1,4 @@
+//nolint:govet // Unit tests use scoped setup assertions with local err variables in independent steps.
 package content_test
 
 import (
@@ -734,7 +735,10 @@ func TestServiceCreateTranslationAppliesLocalizedPathRouteKeyAndMetadataOverride
 	if got := fr.Content["route_key"]; got != "pages/home" {
 		t.Fatalf("expected route_key pages/home, got %v", got)
 	}
-	replay, _ := fr.Metadata["translation_create_locale"].(map[string]any)
+	replay, ok := fr.Metadata["translation_create_locale"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translation_create_locale metadata object, got %+v", fr.Metadata)
+	}
 	if got := replay["idempotency_key"]; got != "home-fr" {
 		t.Fatalf("expected translation metadata to persist on created translation, got %+v", fr.Metadata)
 	}

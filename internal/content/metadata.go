@@ -139,7 +139,7 @@ func normalizeNavigationField(metadata map[string]any) error {
 	}
 	normalized, err := NormalizeNavigationOverrides(raw)
 	if err != nil {
-		return fmt.Errorf("%w: %s", ErrContentMetadataInvalid, err)
+		return fmt.Errorf("%w: %w", ErrContentMetadataInvalid, err)
 	}
 	if len(normalized) == 0 {
 		delete(metadata, entryFieldNavigation)
@@ -271,19 +271,6 @@ func dedupeStringList(values []string) []string {
 	return out
 }
 
-func computeEffectiveMenuLocations(navigation map[string]string) []string {
-	if len(navigation) == 0 {
-		return nil
-	}
-	locations := make([]string, 0, len(navigation))
-	for location, state := range navigation {
-		if strings.EqualFold(strings.TrimSpace(state), "show") {
-			locations = append(locations, strings.TrimSpace(location))
-		}
-	}
-	return dedupeStringList(locations)
-}
-
 func toString(raw any) string {
 	switch typed := raw.(type) {
 	case string:
@@ -293,6 +280,7 @@ func toString(raw any) string {
 	}
 }
 
+//nolint:gocyclo,funlen // Handles all metadata number encodings in one normalization point.
 func normalizeIntValue(value any) (int, bool) {
 	switch typed := value.(type) {
 	case int:
@@ -304,8 +292,14 @@ func normalizeIntValue(value any) (int, bool) {
 	case int32:
 		return int(typed), true
 	case int64:
+		if typed > int64(maxIntValue) || typed < int64(minIntValue) {
+			return 0, false
+		}
 		return int(typed), true
 	case uint:
+		if uint64(typed) > uint64(maxIntValue) {
+			return 0, false
+		}
 		return int(typed), true
 	case uint8:
 		return int(typed), true

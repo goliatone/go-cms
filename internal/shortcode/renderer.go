@@ -3,7 +3,7 @@ package shortcode
 import (
 	"bytes"
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"html/template"
@@ -64,6 +64,8 @@ func NewRenderer(registry interfaces.ShortcodeRegistry, validator *Validator, op
 }
 
 // Render executes the shortcode and returns sanitised HTML.
+//
+//nolint:gocyclo // Render coordinates validation, cache, execution, and sanitizer steps.
 func (r *Renderer) Render(ctx interfaces.ShortcodeContext, shortcode string, params map[string]any, inner string) (template.HTML, error) {
 	def, ok := r.registry.Get(shortcode)
 	if !ok {
@@ -82,7 +84,7 @@ func (r *Renderer) Render(ctx interfaces.ShortcodeContext, shortcode string, par
 		if cached, err := cacheProvider.Get(r.background(ctx.Context), cacheKey); err == nil {
 			if cachedHTML, ok := cached.(string); ok {
 				r.metrics.IncrementCacheHit(shortcode)
-				return template.HTML(cachedHTML), nil
+				return template.HTML(cachedHTML), nil // #nosec G203 -- cache stores HTML after shortcode sanitizer processing.
 			}
 		}
 	}
@@ -114,10 +116,12 @@ func (r *Renderer) Render(ctx interfaces.ShortcodeContext, shortcode string, par
 	}
 
 	if cacheProvider != nil && def.CacheTTL > 0 {
-		_ = cacheProvider.Set(r.background(ctx.Context), cacheKey, output, def.CacheTTL)
+		if err := cacheProvider.Set(r.background(ctx.Context), cacheKey, output, def.CacheTTL); err != nil {
+			return "", err
+		}
 	}
 
-	return template.HTML(output), nil
+	return template.HTML(output), nil // #nosec G203 -- output has passed through the configured shortcode sanitizer.
 }
 
 // RenderAsync executes Render in a separate goroutine.
@@ -143,7 +147,7 @@ func (r *Renderer) RenderAsync(ctx interfaces.ShortcodeContext, shortcode string
 func (r *Renderer) renderTemplate(def interfaces.ShortcodeDefinition, params map[string]any, inner string) (string, error) {
 	data := make(map[string]any, len(params)+1)
 	maps.Copy(data, params)
-	data["Inner"] = template.HTML(inner)
+	data["Inner"] = template.HTML(inner) // #nosec G203 -- rendered shortcode output is sanitized before being returned.
 
 	tmpl, err := template.New(def.Name).Parse(def.Template)
 	if err != nil {
@@ -186,13 +190,17 @@ func (r *Renderer) buildCacheKey(locale, shortcode string, params map[string]any
 		builder.WriteString("|")
 		builder.WriteString(key)
 		builder.WriteString("=")
-		builder.WriteString(fmt.Sprintf("%v", params[key]))
+		builder.WriteString(cacheValueString(params[key]))
 	}
 	builder.WriteString("|inner=")
 	builder.WriteString(inner)
 
-	h := sha1.Sum([]byte(builder.String()))
+	h := sha256.Sum256([]byte(builder.String()))
 	return "shortcode:" + hex.EncodeToString(h[:])
+}
+
+func cacheValueString(value any) string {
+	return fmt.Sprint(value)
 }
 
 func (r *Renderer) background(ctx context.Context) context.Context {

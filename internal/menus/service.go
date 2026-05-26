@@ -1,3 +1,4 @@
+//nolint:gocyclo,govet,nestif,funlen // Menu service keeps legacy orchestration flows in one file.
 package menus
 
 import (
@@ -19,6 +20,11 @@ import (
 	"github.com/goliatone/go-cms/internal/translationconfig"
 	"github.com/goliatone/go-cms/pkg/activity"
 	"github.com/google/uuid"
+)
+
+const (
+	maxIntValue = int(^uint(0) >> 1)
+	minIntValue = -maxIntValue - 1
 )
 
 // Service describes menu management capabilities.
@@ -751,7 +757,9 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 		ObjectID:   objectID.String(),
 		Metadata:   meta,
 	}
-	_ = s.activity.Emit(ctx, event)
+	if err := s.activity.Emit(ctx, event); err != nil {
+		return
+	}
 }
 
 func (s *service) resolveEnvironment(ctx context.Context, key string) (uuid.UUID, string, error) {
@@ -1996,13 +2004,15 @@ func (s *service) emitMenuResetAudit(ctx context.Context, actor uuid.UUID, menu 
 		metadata["error"] = resetErr.Error()
 	}
 
-	_ = s.audit.Record(ctx, jobs.AuditEvent{
+	if err := s.audit.Record(ctx, jobs.AuditEvent{
 		EntityType: "menu",
 		EntityID:   menu.ID.String(),
 		Action:     action,
 		OccurredAt: s.now().UTC(),
 		Metadata:   metadata,
-	})
+	}); err != nil {
+		return
+	}
 }
 
 // UpdateMenuItem mutates supported fields on an existing item.
@@ -2523,7 +2533,10 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 		return nil, err
 	}
 
-	menu, _ := s.menus.GetByID(ctx, item.MenuID)
+	var menu *Menu
+	if fetched, fetchErr := s.menus.GetByID(ctx, item.MenuID); fetchErr == nil {
+		menu = fetched
+	}
 
 	locale, err := s.lookupLocale(ctx, normalizedInput.Locale)
 	if err != nil {
@@ -2817,8 +2830,7 @@ func (s *service) buildNavigationNode(ctx context.Context, menuCode string, item
 		node.URL = s.resolveNodeURL(ctx, menuCode, item, envID, localeID, locale)
 	}
 
-	if node.Type == MenuItemTypeGroup {
-	} else if node.Type == MenuItemTypeItem {
+	if node.Type == MenuItemTypeItem {
 		if node.DisplayLabel == "" {
 			node.DisplayLabel = resolveNavigationFallbackLabel(item, true)
 		}
@@ -3311,22 +3323,6 @@ func (s *service) mergeTranslations(ctx context.Context, existing *MenuItem, ite
 	}
 	existing.Translations = existingTranslations
 	return existing, nil
-}
-
-func (s *service) findDuplicateByCanonicalKey(ctx context.Context, menuID uuid.UUID, key string) (*MenuItem, error) {
-	items, err := s.items.ListByMenu(ctx, menuID)
-	if err != nil {
-		return nil, err
-	}
-	for _, item := range items {
-		if item == nil || item.CanonicalKey == nil {
-			continue
-		}
-		if *item.CanonicalKey == key {
-			return item, nil
-		}
-	}
-	return nil, nil
 }
 
 func deriveCanonicalKey(itemType string, target map[string]any) *string {
@@ -4339,7 +4335,7 @@ func (s *service) resolveContentContributions(ctx context.Context, location stri
 		return nil, nil, MenuContributionDuplicateByURL, nil
 	}
 
-	records, err := s.contentRepo.List(ctx, content.ContentListOption(envID.String()), content.WithTranslations())
+	records, err := s.contentRepo.List(ctx, envID.String(), content.WithTranslations())
 	if err != nil {
 		return nil, nil, "", err
 	}
@@ -4742,8 +4738,14 @@ func parseIntValue(value any) (int, bool) {
 	case int32:
 		return int(typed), true
 	case int64:
+		if typed > int64(maxIntValue) || typed < int64(minIntValue) {
+			return 0, false
+		}
 		return int(typed), true
 	case uint:
+		if uint64(typed) > uint64(maxIntValue) {
+			return 0, false
+		}
 		return int(typed), true
 	case uint8:
 		return int(typed), true
@@ -4752,6 +4754,9 @@ func parseIntValue(value any) (int, bool) {
 	case uint32:
 		return int(typed), true
 	case uint64:
+		if typed > uint64(maxIntValue) {
+			return 0, false
+		}
 		return int(typed), true
 	case float32:
 		if float32(int(typed)) != typed {

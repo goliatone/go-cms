@@ -11,6 +11,11 @@ import (
 	"github.com/goliatone/go-cms/pkg/interfaces"
 )
 
+const (
+	maxIntValue = int(^uint(0) >> 1)
+	minIntValue = -maxIntValue - 1
+)
+
 var (
 	// ErrUnknownParameter indicates the request supplied an unexpected parameter.
 	ErrUnknownParameter = errors.New("shortcode: unknown parameter")
@@ -93,7 +98,7 @@ func (v *Validator) CoerceParams(def interfaces.ShortcodeDefinition, supplied ma
 		}
 		coerced, err := coerceValue(param.Type, value)
 		if err != nil {
-			return nil, fmt.Errorf("%w: %s %v", ErrParameterType, key, err)
+			return nil, fmt.Errorf("%w: %s %w", ErrParameterType, key, err)
 		}
 		if param.Validate != nil {
 			if err := param.Validate(coerced); err != nil {
@@ -160,10 +165,17 @@ func coerceInt(value any) (int, error) {
 	case int32:
 		return int(v), nil
 	case int64:
+		if v > int64(maxIntValue) || v < int64(minIntValue) {
+			return 0, fmt.Errorf("%w: %d overflows int", ErrParameterType, v)
+		}
 		return int(v), nil
 	case uint, uint8, uint16, uint32, uint64:
 		rv := reflect.ValueOf(v)
-		return int(rv.Uint()), nil
+		unsigned := rv.Uint()
+		if unsigned > uint64(maxIntValue) {
+			return 0, fmt.Errorf("%w: %d overflows int", ErrParameterType, unsigned)
+		}
+		return int(unsigned), nil
 	case float32:
 		return int(v), nil
 	case float64:

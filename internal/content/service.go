@@ -427,15 +427,7 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 		return
 	}
 	if meta != nil {
-		if _, ok := meta["environment_key"]; !ok {
-			if raw, ok := meta["environment_id"].(string); ok && strings.TrimSpace(raw) != "" {
-				if parsed, err := uuid.Parse(raw); err == nil {
-					if key := s.environmentKeyForID(ctx, parsed); key != "" {
-						meta["environment_key"] = key
-					}
-				}
-			}
-		}
+		s.ensureActivityEnvironmentKey(ctx, meta)
 	}
 	event := activity.Event{
 		Verb:       verb,
@@ -446,6 +438,23 @@ func (s *service) emitActivity(ctx context.Context, actor uuid.UUID, verb, objec
 	}
 	if err := s.activity.Emit(ctx, event); err != nil {
 		s.log(ctx).Warn("content.activity_emit_failed", "error", err)
+	}
+}
+
+func (s *service) ensureActivityEnvironmentKey(ctx context.Context, meta map[string]any) {
+	if _, ok := meta["environment_key"]; ok {
+		return
+	}
+	raw, ok := meta["environment_id"].(string)
+	if !ok || strings.TrimSpace(raw) == "" {
+		return
+	}
+	parsed, err := uuid.Parse(raw)
+	if err != nil {
+		return
+	}
+	if key := s.environmentKeyForID(ctx, parsed); key != "" {
+		meta["environment_key"] = key
 	}
 }
 
@@ -541,6 +550,8 @@ func asString(value any) string {
 }
 
 // Create orchestrates creation of a new content entry with translations.
+//
+//nolint:funlen,gocyclo,govet,nestif // Content creation coordinates validation, projection, and translation setup in one repository boundary.
 func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Content, error) {
 	if (req.ContentTypeID == uuid.UUID{}) {
 		return nil, ErrContentTypeRequired
@@ -603,11 +614,11 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 		return nil, err
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	entryMetadata, err := normalizeEntryMetadata(req.Metadata)
 	if err != nil {
@@ -670,14 +681,14 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 			cleanContent := stripSchemaVersion(payload)
 			if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
 				if err := s.validateBlockAvailability(ctx, contentType.Slug, contentType.Schema, blocks); err != nil {
-					return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+					return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 				}
 				if err := s.validateEmbeddedBlocks(ctx, code, blocks, EmbeddedBlockValidationStrict); err != nil {
-					return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+					return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 				}
 			}
 			if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
-				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+				return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 			}
 
 			translation := &ContentTranslation{
@@ -734,6 +745,8 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 }
 
 // Get fetches content by identifier. Use WithTranslations to preload translations.
+//
+//nolint:govet // Content retrieval keeps scoped projection errors local to each option branch.
 func (s *service) Get(ctx context.Context, id uuid.UUID, opts ...ContentGetOption) (*Content, error) {
 	logger := s.opLogger(ctx, "content.get", map[string]any{
 		"content_id": id,
@@ -784,7 +797,7 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 	if err != nil {
 		return nil, err
 	}
-	listArgs := []ContentListOption{ContentListOption(envID.String())}
+	listArgs := []ContentListOption{envID.String()}
 	if opts.contentTypeID != uuid.Nil {
 		listArgs = append(listArgs, WithContentTypeID(opts.contentTypeID))
 	}
@@ -814,6 +827,7 @@ func (s *service) List(ctx context.Context, env ...ContentListOption) ([]*Conten
 	return records, nil
 }
 
+//nolint:funlen,gocyclo,govet // Update keeps scoped error handling close to each repository and validation step.
 func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Content, error) {
 	if req.ID == uuid.Nil {
 		return nil, ErrContentIDRequired
@@ -855,11 +869,11 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 		}
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	now := s.now()
@@ -870,7 +884,6 @@ func (s *service) Update(ctx context.Context, req UpdateContentRequest) (*Conten
 	if replaceTranslations {
 		existingLocales := indexTranslationsByLocaleID(existing.Translations)
 
-		var err error
 		translations, err = s.buildTranslations(ctx, existing.ID, req.Translations, existingLocales, now, contentType.Slug, contentType.Schema, version)
 		if err != nil {
 			logger.Error("content translations build failed", "error", err)
@@ -981,13 +994,18 @@ func (s *service) Delete(ctx context.Context, req DeleteContentRequest) error {
 	s.emitActivity(ctx, pickActor(req.DeletedBy, record.UpdatedBy, record.CreatedBy), "delete", "content", record.ID, meta)
 	var contentType *ContentType
 	if s.contentTypes != nil {
-		contentType, _ = s.contentTypes.GetByID(ctx, record.ContentTypeID)
+		resolvedType, lookupErr := s.contentTypes.GetByID(ctx, record.ContentTypeID)
+		if lookupErr == nil {
+			contentType = resolvedType
+		}
 	}
 	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, record, contentType, "delete", uuid.Nil, "", meta))
 	return nil
 }
 
 // CreateTranslation clones an existing locale variant into a target locale.
+//
+//nolint:funlen,gocyclo,govet // Translation creation validates locale, source, schema, metadata, and persistence in one flow.
 func (s *service) CreateTranslation(ctx context.Context, req CreateContentTranslationRequest) (*Content, error) {
 	if !s.translationsEnabledFlag() {
 		return nil, ErrContentTranslationsDisabled
@@ -1089,11 +1107,11 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 		return nil, ErrContentTypeRequired
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	sourceContent := stripSchemaVersion(sourceTranslation.Content)
 	if path := strings.TrimSpace(req.Path); path != "" {
@@ -1103,7 +1121,7 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 		sourceContent["route_key"] = routeKey
 	}
 	if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(sourceContent)); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	now := s.now()
@@ -1197,6 +1215,8 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 }
 
 // UpdateTranslation mutates a single translation without replacing the entire set.
+//
+//nolint:funlen,gocyclo,govet // Translation updates intentionally keep validation and replacement logic adjacent.
 func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTranslationRequest) (*ContentTranslation, error) {
 	if !s.translationsEnabledFlag() {
 		return nil, ErrContentTranslationsDisabled
@@ -1235,11 +1255,11 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		return nil, ErrContentTypeRequired
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	version, err := resolveContentSchemaVersion(contentType.Schema, contentType.Slug)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	loc, err := s.locales.GetByCode(ctx, localeCode)
@@ -1275,14 +1295,14 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 	cleanContent := stripSchemaVersion(payload)
 	if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
 		if err := s.validateBlockAvailability(ctx, contentType.Slug, contentType.Schema, blocks); err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 		if err := s.validateEmbeddedBlocks(ctx, localeCode, blocks, EmbeddedBlockValidationStrict); err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 	}
 	if err := validation.ValidatePayload(contentType.Schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	now := s.now()
@@ -1360,6 +1380,8 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 }
 
 // DeleteTranslation removes a locale from the translation set.
+//
+//nolint:funlen,gocyclo,govet // Delete rules depend on translation counts, defaults, and repository state.
 func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTranslationRequest) error {
 	if !s.translationsEnabledFlag() {
 		return ErrContentTranslationsDisabled
@@ -1456,13 +1478,18 @@ func (s *service) DeleteTranslation(ctx context.Context, req DeleteContentTransl
 	s.emitActivity(ctx, req.DeletedBy, "delete", "content_translation", targetID, meta)
 	var contentType *ContentType
 	if s.contentTypes != nil {
-		contentType, _ = s.contentTypes.GetByID(ctx, record.ContentTypeID)
+		resolvedType, lookupErr := s.contentTypes.GetByID(ctx, record.ContentTypeID)
+		if lookupErr == nil {
+			contentType = resolvedType
+		}
 	}
 	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, record, contentType, "translation_delete", targetID, loc.Code, meta))
 	return nil
 }
 
 // Schedule registers publish and unpublish windows for a content entry and dispatches scheduler jobs.
+//
+//nolint:gocyclo,govet // Scheduling owns status updates and scheduler side effects for both publish windows.
 func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Content, error) {
 	if !s.schedulingEnabled {
 		return nil, ErrSchedulingDisabled
@@ -1508,56 +1535,11 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 	}
 
 	if s.scheduler != nil {
-		if record.PublishAt != nil {
-			payload := map[string]any{"content_id": record.ID.String()}
-			if req.ScheduledBy != uuid.Nil {
-				payload["scheduled_by"] = req.ScheduledBy.String()
-			}
-			if _, err := s.scheduler.Enqueue(ctx, interfaces.JobSpec{
-				Key:     cmsscheduler.ContentPublishJobKey(record.ID),
-				Type:    cmsscheduler.JobTypeContentPublish,
-				RunAt:   *record.PublishAt,
-				Payload: payload,
-			}); err != nil {
-				logger.Error("content publish job enqueue failed", "error", err)
-				return nil, err
-			}
-			logger.Debug("content publish job enqueued", "job_key", cmsscheduler.ContentPublishJobKey(record.ID))
-		} else {
-			cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentPublishJobKey(record.ID))
-			if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
-				logger.Error("content publish job cancel failed", "error", cancelErr)
-				return nil, cancelErr
-			}
-			if cancelErr == nil {
-				logger.Debug("content publish job cancelled", "job_key", cmsscheduler.ContentPublishJobKey(record.ID))
-			}
+		if err := s.syncScheduleJob(ctx, logger, record, req.ScheduledBy, record.PublishAt, cmsscheduler.ContentPublishJobKey(record.ID), cmsscheduler.JobTypeContentPublish, "publish"); err != nil {
+			return nil, err
 		}
-
-		if record.UnpublishAt != nil {
-			payload := map[string]any{"content_id": record.ID.String()}
-			if req.ScheduledBy != uuid.Nil {
-				payload["scheduled_by"] = req.ScheduledBy.String()
-			}
-			if _, err := s.scheduler.Enqueue(ctx, interfaces.JobSpec{
-				Key:     cmsscheduler.ContentUnpublishJobKey(record.ID),
-				Type:    cmsscheduler.JobTypeContentUnpublish,
-				RunAt:   *record.UnpublishAt,
-				Payload: payload,
-			}); err != nil {
-				logger.Error("content unpublish job enqueue failed", "error", err)
-				return nil, err
-			}
-			logger.Debug("content unpublish job enqueued", "job_key", cmsscheduler.ContentUnpublishJobKey(record.ID))
-		} else {
-			cancelErr := s.scheduler.CancelByKey(ctx, cmsscheduler.ContentUnpublishJobKey(record.ID))
-			if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
-				logger.Error("content unpublish job cancel failed", "error", cancelErr)
-				return nil, cancelErr
-			}
-			if cancelErr == nil {
-				logger.Debug("content unpublish job cancelled", "job_key", cmsscheduler.ContentUnpublishJobKey(record.ID))
-			}
+		if err := s.syncScheduleJob(ctx, logger, record, req.ScheduledBy, record.UnpublishAt, cmsscheduler.ContentUnpublishJobKey(record.ID), cmsscheduler.JobTypeContentUnpublish, "unpublish"); err != nil {
+			return nil, err
 		}
 	}
 
@@ -1585,6 +1567,37 @@ func (s *service) Schedule(ctx context.Context, req ScheduleContentRequest) (*Co
 	return s.decorateContent(updated), nil
 }
 
+func (s *service) syncScheduleJob(ctx context.Context, logger interfaces.Logger, record *Content, scheduledBy uuid.UUID, runAt *time.Time, key, jobType, label string) error {
+	if runAt != nil {
+		payload := map[string]any{"content_id": record.ID.String()}
+		if scheduledBy != uuid.Nil {
+			payload["scheduled_by"] = scheduledBy.String()
+		}
+		if _, enqueueErr := s.scheduler.Enqueue(ctx, interfaces.JobSpec{
+			Key:     key,
+			Type:    jobType,
+			RunAt:   *runAt,
+			Payload: payload,
+		}); enqueueErr != nil {
+			logger.Error("content "+label+" job enqueue failed", "error", enqueueErr)
+			return enqueueErr
+		}
+		logger.Debug("content "+label+" job enqueued", "job_key", key)
+		return nil
+	}
+
+	cancelErr := s.scheduler.CancelByKey(ctx, key)
+	if cancelErr != nil && !errors.Is(cancelErr, interfaces.ErrJobNotFound) {
+		logger.Error("content "+label+" job cancel failed", "error", cancelErr)
+		return cancelErr
+	}
+	if cancelErr == nil {
+		logger.Debug("content "+label+" job cancelled", "job_key", key)
+	}
+	return nil
+}
+
+//nolint:funlen,gocyclo,govet // Draft creation keeps version-retention, snapshot, and content updates in one write flow.
 func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest) (*ContentVersion, error) {
 	if !s.versioningEnabled {
 		return nil, ErrVersioningDisabled
@@ -1613,7 +1626,7 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 		return nil, ErrContentTypeRequired
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	snapshot := cloneContentVersionSnapshot(req.Snapshot)
@@ -1626,7 +1639,7 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 	}
 	snapshot.Metadata = entryMetadata
 	if err := s.validateSnapshot(ctx, contentType.Schema, snapshot, EmbeddedBlockValidationDraft); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	versions, err := s.contents.ListVersions(ctx, req.ContentID)
@@ -1689,6 +1702,7 @@ func (s *service) CreateDraft(ctx context.Context, req CreateContentDraftRequest
 	return cloneContentVersion(created), nil
 }
 
+//nolint:funlen,gocyclo,govet // Publishing a draft coordinates snapshot migration, content status, and lifecycle emission.
 func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftRequest) (*ContentVersion, error) {
 	if !s.versioningEnabled {
 		return nil, ErrVersioningDisabled
@@ -1738,7 +1752,7 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		return nil, ErrContentTypeRequired
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	migratedSnapshot, err := s.migrateContentSnapshot(contentType, version.Snapshot, true)
 	if err != nil {
@@ -1750,7 +1764,7 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 		logger.Error("embedded block migration failed", "error", err)
 		var embeddedErr *EmbeddedBlockValidationError
 		if errors.As(err, &embeddedErr) {
-			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 		return nil, err
 	}
@@ -1760,7 +1774,7 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	}
 	migratedSnapshot.Metadata = entryMetadata
 	if err := s.validateSnapshot(ctx, contentType.Schema, migratedSnapshot, EmbeddedBlockValidationStrict); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	version.Snapshot = migratedSnapshot
 
@@ -1821,7 +1835,10 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	if contentRecord.Type != nil {
 		publishedType = contentRecord.Type
 	} else if s.contentTypes != nil {
-		publishedType, _ = s.contentTypes.GetByID(ctx, contentRecord.ContentTypeID)
+		resolvedType, lookupErr := s.contentTypes.GetByID(ctx, contentRecord.ContentTypeID)
+		if lookupErr == nil {
+			publishedType = resolvedType
+		}
 	}
 	s.emitLifecycle(ctx, s.contentLifecycleEvent(ctx, contentRecord, publishedType, "publish", uuid.Nil, "", meta))
 
@@ -1882,6 +1899,8 @@ func (s *service) RestoreVersion(ctx context.Context, req RestoreContentVersionR
 }
 
 // PreviewDraft returns a migrated draft snapshot without persisting changes.
+//
+//nolint:funlen,govet // Preview builds a full migrated content projection without persisting intermediary state.
 func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftRequest) (*ContentPreview, error) {
 	if !s.versioningEnabled {
 		return nil, ErrVersioningDisabled
@@ -1916,7 +1935,7 @@ func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftReque
 		return nil, ErrContentTypeRequired
 	}
 	if err := validation.ValidateSchema(contentType.Schema); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 
 	previewVersion := cloneContentVersion(version)
@@ -1930,12 +1949,12 @@ func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftReque
 		logger.Error("embedded block migration failed", "error", err)
 		var embeddedErr *EmbeddedBlockValidationError
 		if errors.As(err, &embeddedErr) {
-			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 		return nil, err
 	}
 	if err := s.validateSnapshot(ctx, contentType.Schema, migratedSnapshot, EmbeddedBlockValidationDraft); err != nil {
-		return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+		return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 	}
 	previewVersion.Snapshot = migratedSnapshot
 
@@ -2035,12 +2054,12 @@ func (s *service) migratePayload(slug string, schema map[string]any, target cmss
 	trimmed := stripSchemaVersion(payload)
 	migrated, err := s.schemaMigrator.Migrate(slug, current.String(), target.String(), trimmed)
 	if err != nil {
-		return nil, false, fmt.Errorf("%w: %v", ErrContentSchemaMigrationRequired, err)
+		return nil, false, fmt.Errorf("%w: %w", ErrContentSchemaMigrationRequired, err)
 	}
 	clean := stripSchemaVersion(migrated)
 	if strict && schema != nil {
 		if err := validation.ValidateMigrationPayload(schema, SanitizeEmbeddedBlocks(clean)); err != nil {
-			return nil, false, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			return nil, false, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 	}
 	return applySchemaVersion(clean, target), true, nil
@@ -2069,6 +2088,7 @@ func effectiveContentStatus(record *Content, now time.Time) domain.Status {
 	return status
 }
 
+//nolint:gocyclo // Translation building validates locale uniqueness, schema, blocks, and existing family IDs together.
 func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, inputs []ContentTranslationInput, existing map[uuid.UUID]*ContentTranslation, now time.Time, contentType string, schema map[string]any, version cmsschema.Version) ([]*ContentTranslation, error) {
 	seen := map[string]struct{}{}
 	result := make([]*ContentTranslation, 0, len(inputs))
@@ -2097,14 +2117,14 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 		cleanContent := stripSchemaVersion(payload)
 		if blocks, ok := ExtractEmbeddedBlocks(cleanContent); ok {
 			if err := s.validateBlockAvailability(ctx, contentType, schema, blocks); err != nil {
-				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+				return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 			}
 			if err := s.validateEmbeddedBlocks(ctx, code, blocks, EmbeddedBlockValidationStrict); err != nil {
-				return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+				return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 			}
 		}
 		if err := validation.ValidatePayload(schema, SanitizeEmbeddedBlocks(cleanContent)); err != nil {
-			return nil, fmt.Errorf("%w: %s", ErrContentSchemaInvalid, err)
+			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 
 		translation := &ContentTranslation{
@@ -2559,11 +2579,10 @@ func selectSourceTranslation(ctx context.Context, locales LocaleRepository, reco
 		return nil, ""
 	}
 	if locale := strings.TrimSpace(requested); locale != "" {
-		if locales != nil {
-			if resolved, err := locales.GetByCode(ctx, locale); err == nil && resolved != nil {
-				if found := findContentTranslationByLocale(record.Translations, resolved.ID, resolved.Code); found != nil {
-					return found, resolved.Code
-				}
+		resolved, err := resolveRequestedLocale(ctx, locales, locale)
+		if err == nil && resolved != nil {
+			if found := findContentTranslationByLocale(record.Translations, resolved.ID, resolved.Code); found != nil {
+				return found, resolved.Code
 			}
 		}
 		if found := findContentTranslationByLocale(record.Translations, uuid.Nil, locale); found != nil {
@@ -2583,6 +2602,13 @@ func selectSourceTranslation(ctx context.Context, locales LocaleRepository, reco
 		return first, strings.TrimSpace(first.Locale.Code)
 	}
 	return first, strings.TrimSpace(requested)
+}
+
+func resolveRequestedLocale(ctx context.Context, locales LocaleRepository, locale string) (*Locale, error) {
+	if locales == nil {
+		return nil, nil
+	}
+	return locales.GetByCode(ctx, locale)
 }
 
 func resolveContentSourceTranslation(ctx context.Context, locales LocaleRepository, translations []*ContentTranslation, locale string) (*ContentTranslation, string) {

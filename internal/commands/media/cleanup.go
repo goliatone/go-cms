@@ -12,7 +12,7 @@ import (
 	command "github.com/goliatone/go-command"
 )
 
-const cleanupAssetsMessageType = "cms.media.asset.cleanup"
+const cleanupAssetsMessageType = "cms.media.asset.cleanup" // #nosec G101 -- message type identifier, not a credential.
 
 // CleanupAssetsCommand invalidates cached media bindings so downstream resolvers refresh state.
 type CleanupAssetsCommand struct {
