@@ -137,7 +137,7 @@ func (s *adminContentWriteService) Create(ctx context.Context, req interfaces.Ad
 		CreatedBy:                req.CreatedBy,
 		UpdatedBy:                req.UpdatedBy,
 		Metadata:                 adminContentMetadata(req.Navigation, req.EffectiveMenuLocations, req.Metadata),
-		Translations:             []ContentTranslationInput{adminContentTranslationInput(req.Locale, req.Title, req.Data, req.Blocks, req.EmbeddedBlocks, req.SchemaVersion)},
+		Translations:             []ContentTranslationInput{adminContentTranslationInput(req.Locale, req.FamilyID, req.Title, req.Data, req.Blocks, req.EmbeddedBlocks, req.SchemaVersion)},
 		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
 	if err != nil {
@@ -156,7 +156,7 @@ func (s *adminContentWriteService) Update(ctx context.Context, req interfaces.Ad
 		EnvironmentKey:           strings.TrimSpace(req.EnvironmentKey),
 		UpdatedBy:                req.UpdatedBy,
 		Metadata:                 adminContentMetadata(req.Navigation, req.EffectiveMenuLocations, req.Metadata),
-		Translations:             []ContentTranslationInput{adminContentTranslationInput(req.Locale, req.Title, req.Data, req.Blocks, req.EmbeddedBlocks, req.SchemaVersion)},
+		Translations:             []ContentTranslationInput{adminContentTranslationInput(req.Locale, req.FamilyID, req.Title, req.Data, req.Blocks, req.EmbeddedBlocks, req.SchemaVersion)},
 		AllowMissingTranslations: req.AllowMissingTranslations,
 	})
 	if err != nil {
@@ -188,6 +188,7 @@ func (s *adminContentWriteService) CreateTranslation(ctx context.Context, req in
 		SourceID:       req.SourceID,
 		SourceLocale:   sharedi18n.NormalizeLocale(req.SourceLocale),
 		TargetLocale:   sharedi18n.NormalizeLocale(req.TargetLocale),
+		FamilyID:       cloneUUIDPointer(req.FamilyID),
 		EnvironmentKey: strings.TrimSpace(req.EnvironmentKey),
 		ActorID:        req.ActorID,
 		Status:         strings.TrimSpace(req.Status),
@@ -631,7 +632,7 @@ func adminContentMetadata(navigation map[string]string, effectiveMenuLocations [
 	return cloned
 }
 
-func adminContentTranslationInput(locale, title string, data map[string]any, blocks []string, embedded []map[string]any, schemaVersion string) ContentTranslationInput {
+func adminContentTranslationInput(locale string, familyID *uuid.UUID, title string, data map[string]any, blocks []string, embedded []map[string]any, schemaVersion string) ContentTranslationInput {
 	payload := cloneAnyMap(data)
 	if payload == nil {
 		payload = map[string]any{}
@@ -646,9 +647,10 @@ func adminContentTranslationInput(locale, title string, data map[string]any, blo
 		payload["_schema"] = strings.TrimSpace(schemaVersion)
 	}
 	return ContentTranslationInput{
-		Locale:  sharedi18n.NormalizeLocale(locale),
-		Title:   strings.TrimSpace(title),
-		Content: payload,
+		Locale:   sharedi18n.NormalizeLocale(locale),
+		FamilyID: cloneUUIDPointer(familyID),
+		Title:    strings.TrimSpace(title),
+		Content:  payload,
 	}
 }
 

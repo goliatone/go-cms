@@ -682,6 +682,10 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 				ContentID: record.ID,
 				LocaleID:  loc.ID,
 				FamilyID: func() *uuid.UUID {
+					if tr.FamilyID != nil && *tr.FamilyID != uuid.Nil {
+						groupID := *tr.FamilyID
+						return &groupID
+					}
 					return &groupID
 				}(),
 				Title:     tr.Title,
@@ -1107,6 +1111,9 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 
 	now := s.now()
 	groupID := translationGroupForContent(record.ID, sourceTranslation)
+	if req.FamilyID != nil && *req.FamilyID != uuid.Nil {
+		groupID = *req.FamilyID
+	}
 	translationMetadata := cloneMap(sourceTranslation.Metadata)
 	if len(req.Metadata) > 0 {
 		if translationMetadata == nil {
@@ -1287,6 +1294,10 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		ContentID: req.ContentID,
 		LocaleID:  loc.ID,
 		FamilyID: func() *uuid.UUID {
+			if req.FamilyID != nil && *req.FamilyID != uuid.Nil {
+				groupID := *req.FamilyID
+				return &groupID
+			}
 			if target.FamilyID != nil {
 				return target.FamilyID
 			}
@@ -2102,6 +2113,10 @@ func (s *service) buildTranslations(ctx context.Context, contentID uuid.UUID, in
 			ContentID: contentID,
 			LocaleID:  loc.ID,
 			FamilyID: func() *uuid.UUID {
+				if input.FamilyID != nil && *input.FamilyID != uuid.Nil {
+					groupID := *input.FamilyID
+					return &groupID
+				}
 				if existingTranslation, ok := existing[loc.ID]; ok && existingTranslation != nil && existingTranslation.FamilyID != nil {
 					return existingTranslation.FamilyID
 				}

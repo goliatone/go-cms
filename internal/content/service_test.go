@@ -77,6 +77,66 @@ func TestServiceCreateSuccess(t *testing.T) {
 	}
 }
 
+func TestServicePersistsExplicitTranslationFamilyID(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Schema: map[string]any{
+			"fields": []any{"body"},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "bo", Display: "Tibetan"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	familyID := uuid.New()
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "family-id",
+		Status:        "draft",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:   "en",
+				FamilyID: &familyID,
+				Title:    "Family ID",
+				Content:  map[string]any{"body": "Welcome"},
+			},
+			{
+				Locale:  "bo",
+				Title:   "Family ID BO",
+				Content: map[string]any{"body": "Welcome BO"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	assertContentTranslationFamilyID(t, record.Translations, "en", familyID)
+
+	nextFamilyID := uuid.New()
+	if _, err := svc.UpdateTranslation(context.Background(), content.UpdateContentTranslationRequest{
+		ContentID: record.ID,
+		Locale:    "bo",
+		FamilyID:  &nextFamilyID,
+		Title:     "Family ID BO Updated",
+		Content:   map[string]any{"body": "Updated"},
+	}); err != nil {
+		t.Fatalf("update translation: %v", err)
+	}
+	updated, err := contentStore.GetByID(context.Background(), record.ID)
+	if err != nil {
+		t.Fatalf("load updated content: %v", err)
+	}
+	assertContentTranslationFamilyID(t, updated.Translations, "bo", nextFamilyID)
+}
+
 func TestServiceCreateRejectsInvalidSchemaPayload(t *testing.T) {
 	contentStore := content.NewMemoryContentRepository()
 	typeStore := content.NewMemoryContentTypeRepository()
@@ -1657,6 +1717,20 @@ func seedContentType(t *testing.T, store *content.MemoryContentTypeRepository, c
 	if err := store.Put(ct); err != nil {
 		t.Fatalf("seed content type: %v", err)
 	}
+}
+
+func assertContentTranslationFamilyID(t *testing.T, translations []*content.ContentTranslation, locale string, familyID uuid.UUID) {
+	t.Helper()
+	for _, translation := range translations {
+		if translation == nil || translation.Locale == nil || translation.Locale.Code != locale {
+			continue
+		}
+		if translation.FamilyID == nil || *translation.FamilyID != familyID {
+			t.Fatalf("translation %s family_id = %v, want %s", locale, translation.FamilyID, familyID)
+		}
+		return
+	}
+	t.Fatalf("translation locale %q not found", locale)
 }
 
 func requireTranslationCreator(t *testing.T, svc content.Service) content.TranslationCreator {
