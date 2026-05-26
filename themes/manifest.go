@@ -22,12 +22,19 @@ type Manifest struct {
 
 // LoadManifest reads and parses a manifest from disk.
 func LoadManifest(path string) (*Manifest, error) {
-	file, err := os.Open(path)
+	file, err := os.Open(path) // #nosec G304 -- manifest path is supplied by trusted theme registration code.
 	if err != nil {
 		return nil, fmt.Errorf("themes: open manifest: %w", err)
 	}
-	defer file.Close()
-	return ParseManifest(file)
+	manifest, parseErr := ParseManifest(file)
+	closeErr := file.Close()
+	if parseErr != nil {
+		return nil, parseErr
+	}
+	if closeErr != nil {
+		return nil, fmt.Errorf("themes: close manifest: %w", closeErr)
+	}
+	return manifest, nil
 }
 
 // ParseManifest decodes manifest JSON from a reader.
