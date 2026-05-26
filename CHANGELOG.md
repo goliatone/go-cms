@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.54.0](https://github.com/goliatone/go-cms/compare/v0.53.0...v0.54.0) - (2026-05-26)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.54.0 ([1a31640](https://github.com/goliatone/go-cms/commit/1a3164096438153802cb84cf16d925040feaacdf))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Translation metadata ([db7fbb6](https://github.com/goliatone/go-cms/commit/db7fbb64a457f563a01d288ecfab1b603ae916a8))  - (goliatone)
+- Migrations to fix metadata setup ([a906aca](https://github.com/goliatone/go-cms/commit/a906aca652dbd285aaf1be8d5cc88bb063886deb))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.53.0 ([abf4050](https://github.com/goliatone/go-cms/commit/abf40501de77e5b5ba1d5fb3ed09005fdfbf3083))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Setup linters ([d13e634](https://github.com/goliatone/go-cms/commit/d13e6346fb8444ad78ca531c3aa4565bbd67d602))  - (goliatone)
+- Update tests ([d1eb474](https://github.com/goliatone/go-cms/commit/d1eb4749df5176a1fc25779ae4d86964f0865060))  - (goliatone)
+- Update examples ([39d77f2](https://github.com/goliatone/go-cms/commit/39d77f22fb5dce5ece2bf03f45692b2b1940b72d))  - (goliatone)
+
 # [0.53.0](https://github.com/goliatone/go-cms/compare/v0.52.0...v0.53.0) - (2026-05-26)
 
 ## <!-- 13 -->📦 Bumps
