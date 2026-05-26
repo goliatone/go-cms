@@ -90,6 +90,7 @@ type AdminContentCreateTranslationRequest struct {
 	SourceID       uuid.UUID
 	SourceLocale   string
 	TargetLocale   string
+	FamilyID       *uuid.UUID
 	EnvironmentKey string
 	ActorID        uuid.UUID
 	Status         string
