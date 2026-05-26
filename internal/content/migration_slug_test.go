@@ -73,6 +73,42 @@ func TestContentTypeSlugMigrationBackfillUsesIDFallback(t *testing.T) {
 	}
 }
 
+func TestContentTranslationMetadataHygieneMigrationRepairsJSONNull(t *testing.T) {
+	db, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("open sqlite db: %v", err)
+	}
+	defer db.Close()
+
+	if _, err := db.Exec(`CREATE TABLE content_translations (id TEXT PRIMARY KEY, metadata TEXT)`); err != nil {
+		t.Fatalf("create content_translations: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO content_translations (id, metadata) VALUES (?, ?)`, "json-null", "null"); err != nil {
+		t.Fatalf("insert json-null metadata: %v", err)
+	}
+	if _, err := db.Exec(`INSERT INTO content_translations (id, metadata) VALUES (?, ?)`, "object", `{"workflow":true}`); err != nil {
+		t.Fatalf("insert object metadata: %v", err)
+	}
+
+	applyMigrationFile(t, db, "20260526000000_content_translation_metadata_hygiene.up.sql")
+
+	var repaired sql.NullString
+	if err := db.QueryRow(`SELECT metadata FROM content_translations WHERE id = ?`, "json-null").Scan(&repaired); err != nil {
+		t.Fatalf("select repaired metadata: %v", err)
+	}
+	if repaired.Valid {
+		t.Fatalf("expected JSON null metadata to be repaired to SQL NULL, got %q", repaired.String)
+	}
+
+	var object string
+	if err := db.QueryRow(`SELECT metadata FROM content_translations WHERE id = ?`, "object").Scan(&object); err != nil {
+		t.Fatalf("select object metadata: %v", err)
+	}
+	if object != `{"workflow":true}` {
+		t.Fatalf("expected object metadata to remain unchanged, got %q", object)
+	}
+}
+
 func fetchContentTypeSlug(t *testing.T, db *sql.DB, id string) string {
 	t.Helper()
 	var slug string

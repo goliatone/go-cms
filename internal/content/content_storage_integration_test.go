@@ -2,6 +2,8 @@ package content_test
 
 import (
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"sync"
 	"testing"
@@ -487,6 +489,135 @@ func TestContentService_UpdateTranslationAfterCreateTranslationWithBunStorage(t 
 	}
 }
 
+func TestContentTranslationMetadataPersistenceHygieneWithBunStorage(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerContentModels(t, bunDB)
+	seedContentEntities(t, bunDB)
+
+	for _, locale := range []*content.Locale{
+		{
+			ID:        mustUUID("00000000-0000-0000-0000-000000000202"),
+			Code:      "fr",
+			Display:   "French",
+			IsActive:  true,
+			IsDefault: false,
+		},
+		{
+			ID:        mustUUID("00000000-0000-0000-0000-000000000203"),
+			Code:      "zh",
+			Display:   "Chinese",
+			IsActive:  true,
+			IsDefault: false,
+		},
+	} {
+		if _, err := bunDB.NewInsert().Model(locale).Exec(ctx); err != nil {
+			t.Fatalf("insert locale %s: %v", locale.Code, err)
+		}
+	}
+
+	contentRepo := content.NewBunContentRepository(bunDB)
+	contentTypeRepo := content.NewBunContentTypeRepository(bunDB)
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+
+	svc := content.NewService(contentRepo, contentTypeRepo, localeRepo)
+	creator, ok := svc.(content.TranslationCreator)
+	if !ok {
+		t.Fatalf("expected translation creator capability, got %T", svc)
+	}
+
+	authorID := mustUUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	source, err := svc.Create(ctx, content.CreateContentRequest{
+		ContentTypeID: mustUUID("00000000-0000-0000-0000-000000000210"),
+		Slug:          "translation-metadata-hygiene",
+		Status:        "published",
+		CreatedBy:     authorID,
+		UpdatedBy:     authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Hello",
+				Content: map[string]any{"body": "Welcome"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create source content: %v", err)
+	}
+	assertRawTranslationMetadataSQLNull(t, bunDB, source.ID, "en")
+
+	if _, err := svc.Update(ctx, content.UpdateContentRequest{
+		ID:        source.ID,
+		UpdatedBy: authorID,
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:  "en",
+				Title:   "Hello Updated",
+				Content: map[string]any{"body": "Updated"},
+			},
+		},
+	}); err != nil {
+		t.Fatalf("replace translations through update: %v", err)
+	}
+	assertRawTranslationMetadataSQLNull(t, bunDB, source.ID, "en")
+
+	if _, err := creator.CreateTranslation(ctx, content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "fr",
+		ActorID:      authorID,
+	}); err != nil {
+		t.Fatalf("create fr translation: %v", err)
+	}
+	assertRawTranslationMetadataSQLNull(t, bunDB, source.ID, "fr")
+
+	if _, err := creator.CreateTranslation(ctx, content.CreateContentTranslationRequest{
+		SourceID:     source.ID,
+		SourceLocale: "en",
+		TargetLocale: "zh",
+		ActorID:      authorID,
+		Metadata: map[string]any{
+			"workflow": map[string]any{"idempotency_key": "translation-metadata-hygiene-zh"},
+		},
+	}); err != nil {
+		t.Fatalf("create zh translation: %v", err)
+	}
+	assertRawTranslationMetadataObject(t, bunDB, source.ID, "zh", "workflow")
+
+	if _, err := svc.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
+		ContentID: source.ID,
+		Locale:    "zh",
+		Title:     "Ni Hao",
+		Content:   map[string]any{"body": "Updated Chinese copy"},
+		UpdatedBy: authorID,
+	}); err != nil {
+		t.Fatalf("update zh translation: %v", err)
+	}
+	assertRawTranslationMetadataObject(t, bunDB, source.ID, "zh", "workflow")
+
+	if _, err := svc.UpdateTranslation(ctx, content.UpdateContentTranslationRequest{
+		ContentID: source.ID,
+		Locale:    "en",
+		Title:     "Hello Again",
+		Content:   map[string]any{"body": "Updated English copy"},
+		UpdatedBy: authorID,
+	}); err != nil {
+		t.Fatalf("update en translation: %v", err)
+	}
+	assertRawTranslationMetadataSQLNull(t, bunDB, source.ID, "en")
+}
+
 func TestContentService_DeleteTranslationAfterCreateTranslationWithBunStorage(t *testing.T) {
 	ctx := context.Background()
 
@@ -705,6 +836,49 @@ func seedContentEntities(t *testing.T, db *bun.DB) {
 	if _, err := db.NewInsert().Model(ct).Exec(ctx); err != nil {
 		t.Fatalf("insert content type: %v", err)
 	}
+}
+
+func assertRawTranslationMetadataSQLNull(t *testing.T, db *bun.DB, contentID uuid.UUID, locale string) {
+	t.Helper()
+	raw := rawTranslationMetadata(t, db, contentID, locale)
+	if raw.Valid {
+		t.Fatalf("translation %s metadata = %q, want SQL NULL", locale, raw.String)
+	}
+}
+
+func assertRawTranslationMetadataObject(t *testing.T, db *bun.DB, contentID uuid.UUID, locale, key string) {
+	t.Helper()
+	raw := rawTranslationMetadata(t, db, contentID, locale)
+	if !raw.Valid {
+		t.Fatalf("translation %s metadata is SQL NULL, want object containing %q", locale, key)
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw.String), &decoded); err != nil {
+		t.Fatalf("translation %s metadata is not valid JSON object: %v (%q)", locale, err, raw.String)
+	}
+	if decoded == nil {
+		t.Fatalf("translation %s metadata decoded as nil from %q", locale, raw.String)
+	}
+	if _, ok := decoded[key]; !ok {
+		t.Fatalf("translation %s metadata missing %q: %#v", locale, key, decoded)
+	}
+}
+
+func rawTranslationMetadata(t *testing.T, db *bun.DB, contentID uuid.UUID, locale string) sql.NullString {
+	t.Helper()
+	var raw sql.NullString
+	if err := db.QueryRowContext(
+		context.Background(),
+		`SELECT ct.metadata
+		   FROM content_translations AS ct
+		   JOIN locales AS l ON l.id = ct.locale_id
+		  WHERE ct.content_id = ? AND l.code = ?`,
+		contentID.String(),
+		locale,
+	).Scan(&raw); err != nil {
+		t.Fatalf("read raw translation metadata for %s: %v", locale, err)
+	}
+	return raw
 }
 
 func mustUUID(v string) uuid.UUID {
