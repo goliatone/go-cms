@@ -1,5 +1,26 @@
 # Changelog
 
+# [0.54.1](https://github.com/goliatone/go-cms/compare/v0.54.0...v0.54.1) - (2026-05-26)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Code quality ([b6cd73e](https://github.com/goliatone/go-cms/commit/b6cd73e683d44030a5187b487177506cd66a8711))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.54.1 ([ada5298](https://github.com/goliatone/go-cms/commit/ada5298dafddeb74751c3c94e4d7b5c1b9391aef))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.54.0 ([e6ad494](https://github.com/goliatone/go-cms/commit/e6ad49472a3d5c3cefcfa0b006199a9a163ecc81))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Setup linters ([d8af114](https://github.com/goliatone/go-cms/commit/d8af114fa1b116874643296460d873d4860b2126))  - (goliatone)
+- Update deps ([3f79ad9](https://github.com/goliatone/go-cms/commit/3f79ad9731bb17701672fd6df6d70b5510b2764e))  - (goliatone)
+- Update examples ([0e74bb4](https://github.com/goliatone/go-cms/commit/0e74bb4c0dd855080fa39bf28060e3373a085fca))  - (goliatone)
+- Update tests ([a6b9a16](https://github.com/goliatone/go-cms/commit/a6b9a16853b328d90b1f1530d7303b723522e4ba))  - (goliatone)
+
 # [0.54.0](https://github.com/goliatone/go-cms/compare/v0.53.0...v0.54.0) - (2026-05-26)
 
 ## <!-- 13 -->📦 Bumps
