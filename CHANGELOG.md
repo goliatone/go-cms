@@ -1,5 +1,19 @@
 # Changelog
 
+# [0.53.0](https://github.com/goliatone/go-cms/compare/v0.52.0...v0.53.0) - (2026-05-26)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.53.0 ([3bf2738](https://github.com/goliatone/go-cms/commit/3bf27381939b91abf1426e6ac6744f67a5a55e62))  - (goliatone)
+
+## <!-- 16 -->➕ Add
+
+- Content family ([648b208](https://github.com/goliatone/go-cms/commit/648b20837382e56f2ab402f0ea0954f5c1ce7d29))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.52.0 ([4b6e1b8](https://github.com/goliatone/go-cms/commit/4b6e1b89afea78d3cd8f9ecc1bdfeb575614a608))  - (goliatone)
+
 # [0.52.0](https://github.com/goliatone/go-cms/compare/v0.51.0...v0.52.0) - (2026-05-13)
 
 ## <!-- 13 -->📦 Bumps
