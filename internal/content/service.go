@@ -644,7 +644,10 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 
 	primaryLocale := ""
 	if len(req.Translations) > 0 {
-		groupID := record.ID
+		groupID, err := createTranslationGroupID(record.ID, req.Translations)
+		if err != nil {
+			return nil, err
+		}
 		seenLocales := map[string]struct{}{}
 		for _, tr := range req.Translations {
 			code := strings.TrimSpace(tr.Locale)
@@ -681,13 +684,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 				ID:        s.id(),
 				ContentID: record.ID,
 				LocaleID:  loc.ID,
-				FamilyID: func() *uuid.UUID {
-					if tr.FamilyID != nil && *tr.FamilyID != uuid.Nil {
-						groupID := *tr.FamilyID
-						return &groupID
-					}
-					return &groupID
-				}(),
+				FamilyID:  cloneContentUUID(groupID),
 				Title:     tr.Title,
 				Summary:   tr.Summary,
 				Content:   applySchemaVersion(cleanContent, version),
@@ -1307,6 +1304,7 @@ func (s *service) UpdateTranslation(ctx context.Context, req UpdateContentTransl
 		Title:     req.Title,
 		Summary:   cloneString(req.Summary),
 		Content:   applySchemaVersion(cleanContent, version),
+		Metadata:  cloneMap(target.Metadata),
 		CreatedAt: target.CreatedAt,
 		UpdatedAt: now,
 		Locale:    loc,
@@ -2610,6 +2608,33 @@ func translationGroupForContent(contentID uuid.UUID, translation *ContentTransla
 		return *translation.FamilyID
 	}
 	return contentID
+}
+
+func createTranslationGroupID(contentID uuid.UUID, translations []ContentTranslationInput) (uuid.UUID, error) {
+	groupID := contentID
+	var explicit uuid.UUID
+	for _, translation := range translations {
+		if translation.FamilyID == nil || *translation.FamilyID == uuid.Nil {
+			continue
+		}
+		familyID := *translation.FamilyID
+		if explicit == uuid.Nil {
+			explicit = familyID
+			groupID = familyID
+			continue
+		}
+		if explicit != familyID {
+			return uuid.Nil, &TranslationInvariantViolationError{
+				Message: "create translations must use one explicit family ID",
+			}
+		}
+	}
+	return groupID, nil
+}
+
+func cloneContentUUID(id uuid.UUID) *uuid.UUID {
+	value := id
+	return &value
 }
 
 func isTranslationUniqueViolation(err error) bool {
