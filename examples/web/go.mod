@@ -3,10 +3,10 @@ module github.com/goliatone/go-cms/examples/web
 go 1.26.0
 
 require (
-	github.com/gofiber/fiber/v2 v2.52.10
+	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/goliatone/go-cms v0.0.0
-	github.com/goliatone/go-command v0.18.0
-	github.com/goliatone/go-router v0.54.0
+	github.com/goliatone/go-command v0.19.0
+	github.com/goliatone/go-router v0.57.0
 	github.com/goliatone/go-urlkit v0.6.0
 	github.com/google/uuid v1.6.0
 )
@@ -27,6 +27,8 @@ require (
 	github.com/fatih/color v1.18.0 // indirect
 	github.com/flosch/pongo2/v6 v6.0.0 // indirect
 	github.com/gertd/go-pluralize v0.2.1 // indirect
+	github.com/go-logr/logr v1.4.3 // indirect
+	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/gobwas/glob v0.2.3 // indirect
 	github.com/gofiber/contrib/websocket v1.3.4 // indirect
@@ -37,11 +39,12 @@ require (
 	github.com/goliatone/go-errors v0.10.0 // indirect
 	github.com/goliatone/go-i18n v0.5.0 // indirect
 	github.com/goliatone/go-logger v0.8.0 // indirect
+	github.com/goliatone/go-persistence-bun v0.16.0 // indirect
 	github.com/goliatone/go-repository-bun v0.15.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-theme v0.3.0 // indirect
-	github.com/goliatone/go-users v0.18.0 // indirect
+	github.com/goliatone/go-users v0.24.0 // indirect
 	github.com/goliatone/hashid v0.2.0 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/gorilla/websocket v1.5.3 // indirect
@@ -63,14 +66,23 @@ require (
 	github.com/stretchr/testify v1.11.1 // indirect
 	github.com/tmthrgd/go-hex v0.0.0-20190904060850-447a3041c3bc // indirect
 	github.com/uptrace/bun v1.2.18 // indirect
+	github.com/uptrace/bun/dbfixture v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18 // indirect
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18 // indirect
+	github.com/uptrace/bun/extra/bundebug v1.2.18 // indirect
+	github.com/uptrace/bun/extra/bunotel v1.2.18 // indirect
+	github.com/uptrace/opentelemetry-go-extra/otelsql v0.3.2 // indirect
 	github.com/valyala/bytebufferpool v1.0.0 // indirect
 	github.com/valyala/fasthttp v1.68.0 // indirect
 	github.com/viccon/sturdyc v1.1.5 // indirect
 	github.com/vmihailenco/msgpack/v5 v5.4.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/yuin/goldmark v1.6.0 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.opentelemetry.io/otel v1.42.0 // indirect
+	go.opentelemetry.io/otel/metric v1.42.0 // indirect
+	go.opentelemetry.io/otel/trace v1.42.0 // indirect
+	golang.org/x/crypto v0.49.0 // indirect
 	golang.org/x/net v0.51.0 // indirect
 	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/text v0.35.0 // indirect
