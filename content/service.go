@@ -133,11 +133,12 @@ type CreateContentRequest struct {
 
 // ContentTranslationInput represents localized fields supplied during create or update.
 type ContentTranslationInput struct {
-	Locale  string
-	Title   string
-	Summary *string
-	Content map[string]any
-	Blocks  []map[string]any
+	Locale   string
+	FamilyID *uuid.UUID
+	Title    string
+	Summary  *string
+	Content  map[string]any
+	Blocks   []map[string]any
 }
 
 // UpdateContentRequest captures mutable fields for an existing content entry.
@@ -170,6 +171,7 @@ type CreateContentTranslationRequest struct {
 	SourceID         uuid.UUID
 	SourceLocale     string
 	TargetLocale     string
+	FamilyID         *uuid.UUID
 	EnvironmentKey   string
 	ActorID          uuid.UUID
 	Status           string
@@ -183,6 +185,7 @@ type CreateContentTranslationRequest struct {
 type UpdateContentTranslationRequest struct {
 	ContentID uuid.UUID
 	Locale    string
+	FamilyID  *uuid.UUID
 	Title     string
 	Summary   *string
 	Content   map[string]any
