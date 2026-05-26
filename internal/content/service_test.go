@@ -92,8 +92,10 @@ func TestServicePersistsExplicitTranslationFamilyID(t *testing.T) {
 	})
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
 	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "bo", Display: "Tibetan"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
 
 	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
 	familyID := uuid.New()
 	record, err := svc.Create(context.Background(), content.CreateContentRequest{
 		ContentTypeID: contentTypeID,
@@ -119,6 +121,7 @@ func TestServicePersistsExplicitTranslationFamilyID(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	assertContentTranslationFamilyID(t, record.Translations, "en", familyID)
+	assertContentTranslationFamilyID(t, record.Translations, "bo", familyID)
 
 	nextFamilyID := uuid.New()
 	if _, err := svc.UpdateTranslation(context.Background(), content.UpdateContentTranslationRequest{
@@ -135,6 +138,66 @@ func TestServicePersistsExplicitTranslationFamilyID(t *testing.T) {
 		t.Fatalf("load updated content: %v", err)
 	}
 	assertContentTranslationFamilyID(t, updated.Translations, "bo", nextFamilyID)
+
+	createdFamilyID := uuid.New()
+	if _, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     record.ID,
+		SourceLocale: "en",
+		TargetLocale: "fr",
+		FamilyID:     &createdFamilyID,
+	}); err != nil {
+		t.Fatalf("create translation: %v", err)
+	}
+	translated, err := contentStore.GetByID(context.Background(), record.ID)
+	if err != nil {
+		t.Fatalf("load translated content: %v", err)
+	}
+	assertContentTranslationFamilyID(t, translated.Translations, "fr", createdFamilyID)
+}
+
+func TestServiceCreateRejectsMixedExplicitTranslationFamilyIDs(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Schema: map[string]any{
+			"fields": []any{"body"},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "bo", Display: "Tibetan"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	firstFamilyID := uuid.New()
+	secondFamilyID := uuid.New()
+	_, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "mixed-family-id",
+		Status:        "draft",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []content.ContentTranslationInput{
+			{
+				Locale:   "en",
+				FamilyID: &firstFamilyID,
+				Title:    "Family ID",
+				Content:  map[string]any{"body": "Welcome"},
+			},
+			{
+				Locale:   "bo",
+				FamilyID: &secondFamilyID,
+				Title:    "Family ID BO",
+				Content:  map[string]any{"body": "Welcome BO"},
+			},
+		},
+	})
+	if !errors.Is(err, content.ErrTranslationInvariantViolation) {
+		t.Fatalf("expected ErrTranslationInvariantViolation, got %v", err)
+	}
 }
 
 func TestServiceCreateRejectsInvalidSchemaPayload(t *testing.T) {
@@ -675,6 +738,86 @@ func TestServiceCreateTranslationAppliesLocalizedPathRouteKeyAndMetadataOverride
 	if got := replay["idempotency_key"]; got != "home-fr" {
 		t.Fatalf("expected translation metadata to persist on created translation, got %+v", fr.Metadata)
 	}
+}
+
+func TestServiceKeepsTranslationMetadataAbsentOrObjectAcrossWritePaths(t *testing.T) {
+	contentStore := content.NewMemoryContentRepository()
+	typeStore := content.NewMemoryContentTypeRepository()
+	localeStore := content.NewMemoryLocaleRepository()
+
+	contentTypeID := uuid.New()
+	seedContentType(t, typeStore, &content.ContentType{
+		ID:   contentTypeID,
+		Name: "page",
+		Schema: map[string]any{
+			"fields": []any{"body"},
+		},
+	})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "en", Display: "English"})
+	localeStore.Put(&content.Locale{ID: uuid.New(), Code: "fr", Display: "French"})
+
+	svc := content.NewService(contentStore, typeStore, localeStore)
+	creator := requireTranslationCreator(t, svc)
+	actorID := uuid.New()
+
+	record, err := svc.Create(context.Background(), content.CreateContentRequest{
+		ContentTypeID: contentTypeID,
+		Slug:          "metadata-hygiene",
+		CreatedBy:     actorID,
+		UpdatedBy:     actorID,
+		Translations: []content.ContentTranslationInput{{
+			Locale:  "en",
+			Title:   "Home",
+			Content: map[string]any{"body": "Welcome"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+	assertTranslationMetadataAbsent(t, record.Translations, "en")
+
+	updated, err := svc.Update(context.Background(), content.UpdateContentRequest{
+		ID:        record.ID,
+		UpdatedBy: actorID,
+		Translations: []content.ContentTranslationInput{{
+			Locale:  "en",
+			Title:   "Home Updated",
+			Content: map[string]any{"body": "Welcome updated"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("update content: %v", err)
+	}
+	assertTranslationMetadataAbsent(t, updated.Translations, "en")
+
+	translated, err := creator.CreateTranslation(context.Background(), content.CreateContentTranslationRequest{
+		SourceID:     record.ID,
+		SourceLocale: "en",
+		TargetLocale: "fr",
+		Metadata: map[string]any{
+			"workflow": map[string]any{"idempotency_key": "metadata-hygiene-fr"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create translation: %v", err)
+	}
+	assertTranslationMetadataObject(t, translated.Translations, "fr", "workflow")
+
+	if _, err := svc.UpdateTranslation(context.Background(), content.UpdateContentTranslationRequest{
+		ContentID: record.ID,
+		Locale:    "fr",
+		Title:     "Accueil",
+		Content:   map[string]any{"body": "Bienvenue"},
+		UpdatedBy: actorID,
+	}); err != nil {
+		t.Fatalf("update translation: %v", err)
+	}
+	reloaded, err := svc.Get(context.Background(), record.ID, content.WithTranslations())
+	if err != nil {
+		t.Fatalf("reload content: %v", err)
+	}
+	assertTranslationMetadataObject(t, reloaded.Translations, "fr", "workflow")
+	assertTranslationMetadataAbsent(t, reloaded.Translations, "en")
 }
 
 func TestServiceCreateTranslationValidatesLocale(t *testing.T) {
@@ -1727,6 +1870,37 @@ func assertContentTranslationFamilyID(t *testing.T, translations []*content.Cont
 		}
 		if translation.FamilyID == nil || *translation.FamilyID != familyID {
 			t.Fatalf("translation %s family_id = %v, want %s", locale, translation.FamilyID, familyID)
+		}
+		return
+	}
+	t.Fatalf("translation locale %q not found", locale)
+}
+
+func assertTranslationMetadataAbsent(t *testing.T, translations []*content.ContentTranslation, locale string) {
+	t.Helper()
+	for _, translation := range translations {
+		if translation == nil || translation.Locale == nil || translation.Locale.Code != locale {
+			continue
+		}
+		if translation.Metadata != nil {
+			t.Fatalf("translation %s metadata = %#v, want nil", locale, translation.Metadata)
+		}
+		return
+	}
+	t.Fatalf("translation locale %q not found", locale)
+}
+
+func assertTranslationMetadataObject(t *testing.T, translations []*content.ContentTranslation, locale, key string) {
+	t.Helper()
+	for _, translation := range translations {
+		if translation == nil || translation.Locale == nil || translation.Locale.Code != locale {
+			continue
+		}
+		if translation.Metadata == nil {
+			t.Fatalf("translation %s metadata is nil, want object containing %q", locale, key)
+		}
+		if _, ok := translation.Metadata[key]; !ok {
+			t.Fatalf("translation %s metadata missing %q: %#v", locale, key, translation.Metadata)
 		}
 		return
 	}
