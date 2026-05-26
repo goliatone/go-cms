@@ -33,6 +33,7 @@ GO_QUALITY_BASELINE_SCRIPT="${GO_QUALITY_BASELINE_SCRIPT:-./tools/quality/baseli
 GO_QUALITY_GOCACHE="${GO_QUALITY_GOCACHE:-$(pwd)/.tmp/go-cache}"
 GO_QUALITY_GOTMPDIR="${GO_QUALITY_GOTMPDIR:-$(pwd)/.tmp/go-tmp}"
 GO_LINT_NEW_FROM_REV="${GO_LINT_NEW_FROM_REV:-origin/main}"
+GO_GOSEC_EXCLUDE_DIRS=(".tmp" ".cache" ".gocache" ".gomodcache" "node_modules")
 
 
 #################################################
@@ -466,33 +467,41 @@ function go:security:govulncheck {
 }
 
 function go:security:gosec {
-    local gosec_bin
-    local -a patterns=()
+	local gosec_bin
+	local -a args=()
+	local -a patterns=()
 
-    gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
-    _go:quality:prepare_env || return 1
-    while IFS= read -r pattern; do
-        if [ -n "${pattern}" ]; then
-            patterns+=("${pattern}")
-        fi
-    done < <(_go:lint:patterns "$@")
-    "${gosec_bin}" -exclude-dir=.tmp "${patterns[@]}"
+	gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+	_go:quality:prepare_env || return 1
+	for exclude_dir in "${GO_GOSEC_EXCLUDE_DIRS[@]}"; do
+		args+=("-exclude-dir=${exclude_dir}")
+	done
+	while IFS= read -r pattern; do
+		if [ -n "${pattern}" ]; then
+			patterns+=("${pattern}")
+		fi
+	done < <(_go:lint:patterns "$@")
+	"${gosec_bin}" "${args[@]}" "${patterns[@]}"
 }
 
 function go:security:gosec:baseline {
-    local gosec_bin
-    local baseline_path
-    local -a patterns=()
+	local gosec_bin
+	local baseline_path
+	local gosec_args=""
+	local -a patterns=()
 
-    gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
-    baseline_path="${GO_QUALITY_BASELINE_DIR}/gosec.txt"
-    _go:quality:prepare_env || return 1
-    while IFS= read -r pattern; do
-        if [ -n "${pattern}" ]; then
-            patterns+=("${pattern}")
-        fi
-    done < <(_go:lint:patterns "$@")
-    GOSEC_BIN="${gosec_bin}" GOSEC_ARGS="-exclude-dir=.tmp" "${GO_QUALITY_BASELINE_SCRIPT}" check gosec "${baseline_path}" "${patterns[@]}"
+	gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+	baseline_path="${GO_QUALITY_BASELINE_DIR}/gosec.txt"
+	_go:quality:prepare_env || return 1
+	for exclude_dir in "${GO_GOSEC_EXCLUDE_DIRS[@]}"; do
+		gosec_args="${gosec_args} -exclude-dir=${exclude_dir}"
+	done
+	while IFS= read -r pattern; do
+		if [ -n "${pattern}" ]; then
+			patterns+=("${pattern}")
+		fi
+	done < <(_go:lint:patterns "$@")
+	GOSEC_BIN="${gosec_bin}" GOSEC_ARGS="${gosec_args# }" "${GO_QUALITY_BASELINE_SCRIPT}" check gosec "${baseline_path}" "${patterns[@]}"
 }
 
 function go:security:all {
@@ -519,19 +528,23 @@ function go:baseline:update:golangci-lint {
 }
 
 function go:baseline:update:gosec {
-    local gosec_bin
-    local baseline_path
-    local -a patterns=()
+	local gosec_bin
+	local baseline_path
+	local gosec_args=""
+	local -a patterns=()
 
-    gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
-    baseline_path="${GO_QUALITY_BASELINE_DIR}/gosec.txt"
-    _go:quality:prepare_env || return 1
-    while IFS= read -r pattern; do
-        if [ -n "${pattern}" ]; then
-            patterns+=("${pattern}")
-        fi
-    done < <(_go:lint:patterns "$@")
-    GOSEC_BIN="${gosec_bin}" GOSEC_ARGS="-exclude-dir=.tmp" "${GO_QUALITY_BASELINE_SCRIPT}" update gosec "${baseline_path}" "${patterns[@]}"
+	gosec_bin=$(_go:tool:ensure "gosec" "github.com/securego/gosec/v2/cmd/gosec@${GO_GOSEC_VERSION}") || return 1
+	baseline_path="${GO_QUALITY_BASELINE_DIR}/gosec.txt"
+	_go:quality:prepare_env || return 1
+	for exclude_dir in "${GO_GOSEC_EXCLUDE_DIRS[@]}"; do
+		gosec_args="${gosec_args} -exclude-dir=${exclude_dir}"
+	done
+	while IFS= read -r pattern; do
+		if [ -n "${pattern}" ]; then
+			patterns+=("${pattern}")
+		fi
+	done < <(_go:lint:patterns "$@")
+	GOSEC_BIN="${gosec_bin}" GOSEC_ARGS="${gosec_args# }" "${GO_QUALITY_BASELINE_SCRIPT}" update gosec "${baseline_path}" "${patterns[@]}"
 }
 
 function go:baseline:update:all {
