@@ -82,8 +82,8 @@ github.com/goliatone/go-logger v0.8.0 h1:Yq9xy+ZGS65BDUxV5NpSd+aw72vUDxxv/ISMJDl
 github.com/goliatone/go-logger v0.8.0/go.mod h1:hWv7Tj+af3E0vjJIHR52JmmK3jKk6rCKFtvhCC/3jXE=
 github.com/goliatone/go-persistence-bun v0.16.1 h1:qajnqUgTKw/JAP+eCuQMgdVF1XUgrztmKA4WkYJydJM=
 github.com/goliatone/go-persistence-bun v0.16.1/go.mod h1:hrsGtNrREROFmcc3P1JFYLtunY2JwfPfsRhRUT3+Gyc=
-github.com/goliatone/go-repository-bun v0.15.1 h1:t2RHhqM6OBjyybJE9wnKtVYXM8f4Jb2s1s/q2sSCS60=
-github.com/goliatone/go-repository-bun v0.15.1/go.mod h1:bOFyQOGKyPJX+tkd7A7DhASqcPMvwdhDq41AmWujFqs=
+github.com/goliatone/go-repository-bun v0.16.0 h1:pbB7suk9yvSxkwRfehb9l+NJ+WSBPfMllAb7nf/r0Xc=
+github.com/goliatone/go-repository-bun v0.16.0/go.mod h1:bOFyQOGKyPJX+tkd7A7DhASqcPMvwdhDq41AmWujFqs=
 github.com/goliatone/go-repository-cache v0.7.1 h1:/JHBAWnBDiz9Gz1ko3XZMmq5ZuOOHRdedMZfoBCVWk8=
 github.com/goliatone/go-repository-cache v0.7.1/go.mod h1:vv+5iv/FjDBoasIzy8Tb0t/lpswK1W6+l3piar4+w1o=
 github.com/goliatone/go-router v0.59.0 h1:ojzKnLMMf0+jE7xqwJdgdtNcsskY0UdncENz4lg3BwA=
@@ -94,8 +94,8 @@ github.com/goliatone/go-theme v0.3.0 h1:iuIuyjnhC+bY+gxYa+1E4m9K6cY5MM5DQAZpYLOk
 github.com/goliatone/go-theme v0.3.0/go.mod h1:ZmjyB8jDSzO1ABpVfw/UrnO4wgYllpdogvo7al4csOQ=
 github.com/goliatone/go-urlkit v0.6.0 h1:em91h2tkVjy8RVCfTd7MY3E7tDMKKn3+uFcempTTaMs=
 github.com/goliatone/go-urlkit v0.6.0/go.mod h1:QVCju3Z9io9mX+t2D7RCp+ja9PYrLNJoucWc124siFQ=
-github.com/goliatone/go-users v0.24.0 h1:1IN8b2u3PxH4l6hyPk7r1JVy6Ieegm35uvKRJ6N81dM=
-github.com/goliatone/go-users v0.24.0/go.mod h1:1mm4svjtFJG1cjjg2Q4gDJk2VDe10sFhIAxTLpZZbhk=
+github.com/goliatone/go-users v0.24.1 h1:iTSHo5A5kMexVZJNC6UVlmUf4lsCL8A802dheg3eGRg=
+github.com/goliatone/go-users v0.24.1/go.mod h1:Yhcfa0QZ1PYBm4HPDUsUZXbAwGsxV4itbsNClQwCL6o=
 github.com/goliatone/hashid v0.2.2 h1:QyDBo3evEfF7Y9hd0ip630f4E2E3jajRZotC46rm8dk=
 github.com/goliatone/hashid v0.2.2/go.mod h1:jgEJQBDWz7OSe4uWCcsu5rkb4HtKTNvgF4Wl3NPfC6E=
 github.com/goodsign/monday v1.0.2 h1:k8kRMkCRVfCTWOU4dRfRgneQsWlB1+mJd3MxG0lGLzQ=

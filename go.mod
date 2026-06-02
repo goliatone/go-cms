@@ -11,12 +11,12 @@ require (
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-logger v0.8.0
 	github.com/goliatone/go-persistence-bun v0.16.1
-	github.com/goliatone/go-repository-bun v0.15.1
+	github.com/goliatone/go-repository-bun v0.16.0
 	github.com/goliatone/go-repository-cache v0.7.1
 	github.com/goliatone/go-slug v0.1.0
 	github.com/goliatone/go-theme v0.3.0
 	github.com/goliatone/go-urlkit v0.6.0
-	github.com/goliatone/go-users v0.24.0
+	github.com/goliatone/go-users v0.24.1
 	github.com/goliatone/hashid v0.2.2
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
