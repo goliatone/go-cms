@@ -22,14 +22,14 @@ require (
 	github.com/goliatone/go-errors v0.10.0 // indirect
 	github.com/goliatone/go-i18n v0.5.0 // indirect
 	github.com/goliatone/go-logger v0.8.0 // indirect
-	github.com/goliatone/go-persistence-bun v0.16.0 // indirect
-	github.com/goliatone/go-repository-bun v0.15.1 // indirect
+	github.com/goliatone/go-persistence-bun v0.16.1 // indirect
+	github.com/goliatone/go-repository-bun v0.16.0 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-theme v0.3.0 // indirect
 	github.com/goliatone/go-urlkit v0.6.0 // indirect
-	github.com/goliatone/go-users v0.24.0 // indirect
-	github.com/goliatone/hashid v0.2.0 // indirect
+	github.com/goliatone/go-users v0.24.1 // indirect
+	github.com/goliatone/hashid v0.2.2 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/lib/pq v1.10.9 // indirect
 	github.com/lithammer/shortuuid v3.0.0+incompatible // indirect
@@ -55,9 +55,9 @@ require (
 	go.opentelemetry.io/otel v1.42.0 // indirect
 	go.opentelemetry.io/otel/metric v1.42.0 // indirect
 	go.opentelemetry.io/otel/trace v1.42.0 // indirect
-	golang.org/x/crypto v0.49.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
-	golang.org/x/text v0.35.0 // indirect
+	golang.org/x/crypto v0.50.0 // indirect
+	golang.org/x/sys v0.43.0 // indirect
+	golang.org/x/text v0.36.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
