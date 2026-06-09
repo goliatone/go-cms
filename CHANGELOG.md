@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.55.0](https://github.com/goliatone/go-cms/compare/v0.54.1...v0.55.0) - (2026-06-09)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Menu item pagination ([553bdd6](https://github.com/goliatone/go-cms/commit/553bdd666952eef1c5cf782602f9612fca0985df))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.55.0 ([5039ce7](https://github.com/goliatone/go-cms/commit/5039ce70e95959a4a65c215c050e5d0fbb322626))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.54.1 ([9e161e0](https://github.com/goliatone/go-cms/commit/9e161e050be727270dbb143a0169f6c896febd0a))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update deps ([1afac5d](https://github.com/goliatone/go-cms/commit/1afac5df2c304aa3903e5c23a065316294770bf5))  - (goliatone)
+
 # [0.54.1](https://github.com/goliatone/go-cms/compare/v0.54.0...v0.54.1) - (2026-05-26)
 
 ## <!-- 1 -->🐛 Bug Fixes
