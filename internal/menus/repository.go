@@ -27,7 +27,7 @@ func NewMenuRepository(db *bun.DB) repository.Repository[*Menu] {
 
 // NewMenuItemRepository creates a repository for MenuItem entities.
 func NewMenuItemRepository(db *bun.DB) repository.Repository[*MenuItem] {
-	return repository.MustNewRepository(db, repository.ModelHandlers[*MenuItem]{
+	return repository.MustNewRepositoryWithConfig(db, repository.ModelHandlers[*MenuItem]{
 		NewRecord: func() *MenuItem { return &MenuItem{} },
 		GetID: func(item *MenuItem) uuid.UUID {
 			return item.ID
@@ -41,7 +41,7 @@ func NewMenuItemRepository(db *bun.DB) repository.Repository[*MenuItem] {
 		GetIdentifierValue: func(item *MenuItem) string {
 			return item.ID.String()
 		},
-	})
+	}, nil, repository.WithDefaultListPagination(0, 0))
 }
 
 // NewMenuItemTranslationRepository creates a repository for MenuItemTranslation entities.

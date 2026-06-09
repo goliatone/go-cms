@@ -3,6 +3,7 @@ package menus_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"testing"
 	"time"
 
@@ -179,6 +180,71 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 	// second call should hit cache without error
 	if _, err := menuSvc.ResolveNavigation(ctx, fixture.MenuCode, "en"); err != nil {
 		t.Fatalf("resolve navigation cached: %v", err)
+	}
+}
+
+func TestMenuService_WithBunStorageResolvesMenusBeyondLegacyDefaultPageLimit(t *testing.T) {
+	ctx := context.Background()
+
+	sqlDB, err := testsupport.NewSQLiteMemoryDB()
+	if err != nil {
+		t.Fatalf("new sqlite db: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = sqlDB.Close()
+	})
+
+	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
+	bunDB.SetMaxOpenConns(1)
+
+	registerMenuModels(t, bunDB)
+	seedMenuIntegrationEntities(t, bunDB)
+
+	localeRepo := content.NewBunLocaleRepository(bunDB)
+	menuRepo := menus.NewBunMenuRepository(bunDB)
+	menuItemRepo := menus.NewBunMenuItemRepository(bunDB)
+	menuTranslationRepo := menus.NewBunMenuItemTranslationRepository(bunDB)
+	menuSvc := menus.NewService(menuRepo, menuItemRepo, menuTranslationRepo, localeRepo)
+
+	authorID := uuid.MustParse("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+	menuRecord, err := menuSvc.CreateMenu(ctx, menus.CreateMenuInput{
+		Code:      "primary",
+		CreatedBy: authorID,
+		UpdatedBy: authorID,
+	})
+	if err != nil {
+		t.Fatalf("create menu: %v", err)
+	}
+
+	const totalItems = 30
+	for i := 0; i < totalItems; i++ {
+		label := fmt.Sprintf("Item %02d", i+1)
+		if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+			MenuID:   menuRecord.ID,
+			Position: i,
+			Target: map[string]any{
+				"type": "url",
+				"url":  fmt.Sprintf("/item-%02d", i+1),
+			},
+			CreatedBy: authorID,
+			UpdatedBy: authorID,
+			Translations: []menus.MenuItemTranslationInput{
+				{Locale: "en", Label: label},
+			},
+		}); err != nil {
+			t.Fatalf("add menu item %d: %v", i+1, err)
+		}
+	}
+
+	navigation, err := menuSvc.ResolveNavigation(ctx, "primary", "en")
+	if err != nil {
+		t.Fatalf("resolve navigation: %v", err)
+	}
+	if len(navigation) != totalItems {
+		t.Fatalf("expected %d navigation items, got %d", totalItems, len(navigation))
+	}
+	if got := navigation[totalItems-1].DisplayLabel; got != "Item 30" {
+		t.Fatalf("expected final item past legacy page limit to resolve, got %q", got)
 	}
 }
 
