@@ -89,6 +89,9 @@ func (s *adminContentReadService) List(ctx context.Context, opts interfaces.Admi
 		if err != nil {
 			return nil, 0, err
 		}
+		if !matchesAdminContentScope(item, opts.ContentTypeSlug) {
+			continue
+		}
 		if !matchesAdminContentFilters(item, opts.Filters, opts.Search) {
 			continue
 		}
@@ -119,6 +122,19 @@ func (s *adminContentReadService) Get(ctx context.Context, id string, opts inter
 		return nil, err
 	}
 	return &item, nil
+}
+
+func (s *adminContentReadService) ListFamilies(_ context.Context, opts interfaces.AdminContentFamilyListOptions) (interfaces.AdminContentFamilyListResult, error) {
+	return interfaces.AdminContentFamilyListResult{
+			Page:    normalizedAdminContentPage(opts.Page),
+			PerPage: normalizedAdminContentPerPage(opts.PerPage),
+		}, interfaces.AdminContentFamilyReadUnsupportedError{
+			Reason: "optimized grouped family reads require a backing store implementation",
+			Metadata: map[string]any{
+				"content_type_id":   strings.TrimSpace(opts.ContentTypeID),
+				"content_type_slug": strings.TrimSpace(opts.ContentTypeSlug),
+			},
+		}
 }
 
 func (s *adminContentWriteService) Create(ctx context.Context, req interfaces.AdminContentCreateRequest) (*interfaces.AdminContentRecord, error) {
@@ -398,6 +414,11 @@ func adminContentReadOptions(opts interfaces.AdminContentListOptions) []ContentL
 	if env := strings.TrimSpace(opts.EnvironmentKey); env != "" {
 		out = append(out, ContentListOption(env))
 	}
+	if id := strings.TrimSpace(opts.ContentTypeID); id != "" {
+		if parsed, err := uuid.Parse(id); err == nil && parsed != uuid.Nil {
+			out = append(out, WithContentTypeID(parsed))
+		}
+	}
 	out = append(out, WithTranslations(), WithProjection(ContentProjectionAdmin))
 	return out
 }
@@ -468,6 +489,15 @@ func matchesAdminContentFilters(record interfaces.AdminContentRecord, filters ma
 		}
 	}
 	return true
+}
+
+func matchesAdminContentScope(record interfaces.AdminContentRecord, contentTypeSlug string) bool {
+	slug := strings.TrimSpace(contentTypeSlug)
+	if slug == "" {
+		return true
+	}
+	return strings.EqualFold(record.ContentTypeSlug, slug) ||
+		strings.EqualFold(record.ContentType, slug)
 }
 
 func sortAdminContentRecords(records []interfaces.AdminContentRecord, sortBy string, desc bool) {
@@ -604,6 +634,23 @@ func paginateAdminContentRecords(records []interfaces.AdminContentRecord, page, 
 	out := make([]interfaces.AdminContentRecord, end-start)
 	copy(out, records[start:end])
 	return out
+}
+
+func normalizedAdminContentPage(page int) int {
+	if page <= 0 {
+		return 1
+	}
+	return page
+}
+
+func normalizedAdminContentPerPage(perPage int) int {
+	if perPage <= 0 {
+		return 25
+	}
+	if perPage > 500 {
+		return 500
+	}
+	return perPage
 }
 
 func adminContentMetadata(navigation map[string]string, effectiveMenuLocations []string, metadata map[string]any) map[string]any {

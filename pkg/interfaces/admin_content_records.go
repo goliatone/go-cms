@@ -32,6 +32,30 @@ type AdminContentRecord struct {
 	PublishedAt            *time.Time
 }
 
+// AdminContentFamilyRecord defines a grouped translation-family admin row.
+type AdminContentFamilyRecord struct {
+	FamilyID         string
+	Title            string
+	Slug             string
+	Locale           string
+	AvailableLocales []string
+	ContentType      string
+	ContentTypeSlug  string
+	Status           string
+	Data             map[string]any
+	Metadata         map[string]any
+	Variants         []AdminContentRecord
+}
+
+// AdminContentFamilyListResult captures grouped-family rows and count metadata.
+type AdminContentFamilyListResult struct {
+	Families     []AdminContentFamilyRecord
+	FamilyTotal  int
+	ContentTotal int
+	Page         int
+	PerPage      int
+}
+
 // AdminContentCreateRequest captures admin-shaped fields for content creation.
 type AdminContentCreateRequest struct {
 	ContentTypeID            uuid.UUID

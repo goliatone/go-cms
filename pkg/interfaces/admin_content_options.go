@@ -15,6 +15,8 @@ type AdminContentIncludeDefaults struct {
 
 // AdminContentListOptions defines the admin content list read contract.
 type AdminContentListOptions struct {
+	ContentTypeID            string
+	ContentTypeSlug          string
 	Locale                   string
 	FallbackLocale           string
 	AllowMissingTranslations bool
@@ -30,6 +32,27 @@ type AdminContentListOptions struct {
 	Search                   string
 	Filters                  map[string]any
 	Fields                   []string
+}
+
+// AdminContentFamilyListOptions defines the admin grouped-family read contract.
+type AdminContentFamilyListOptions struct {
+	ContentTypeID            string
+	ContentTypeSlug          string
+	Locale                   string
+	FallbackLocale           string
+	AllowMissingTranslations bool
+	Page                     int
+	PerPage                  int
+	SortBy                   string
+	SortDesc                 bool
+	Search                   string
+	Filters                  map[string]any
+	Fields                   []string
+	IncludeData              bool
+	IncludeMetadata          bool
+	IncludeBlocks            bool
+	EnvironmentKey           string
+	DefaultIncludes          *AdminContentIncludeDefaults
 }
 
 // AdminContentGetOptions defines the admin content detail read contract.

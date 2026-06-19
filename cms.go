@@ -33,6 +33,9 @@ type AdminPageReadService = interfaces.AdminPageReadService
 // AdminContentReadService exports the admin content read service contract.
 type AdminContentReadService = interfaces.AdminContentReadService
 
+// AdminContentFamilyReadService exports the optimized admin content family read contract.
+type AdminContentFamilyReadService = interfaces.AdminContentFamilyReadService
+
 // AdminContentWriteService exports the admin content write service contract.
 type AdminContentWriteService = interfaces.AdminContentWriteService
 
@@ -48,6 +51,12 @@ type AdminPageRecord = interfaces.AdminPageRecord
 // AdminContentRecord exports the admin content read record DTO.
 type AdminContentRecord = interfaces.AdminContentRecord
 
+// AdminContentFamilyRecord exports the admin content grouped family DTO.
+type AdminContentFamilyRecord = interfaces.AdminContentFamilyRecord
+
+// AdminContentFamilyListResult exports the admin content grouped family list result.
+type AdminContentFamilyListResult = interfaces.AdminContentFamilyListResult
+
 // AdminBlockDefinitionRecord exports the admin block definition DTO.
 type AdminBlockDefinitionRecord = interfaces.AdminBlockDefinitionRecord
 
@@ -62,6 +71,9 @@ type AdminPageListOptions = interfaces.AdminPageListOptions
 
 // AdminContentListOptions exports the admin content list options.
 type AdminContentListOptions = interfaces.AdminContentListOptions
+
+// AdminContentFamilyListOptions exports the admin content grouped family list options.
+type AdminContentFamilyListOptions = interfaces.AdminContentFamilyListOptions
 
 // AdminPageGetOptions exports the admin page get options.
 type AdminPageGetOptions = interfaces.AdminPageGetOptions
@@ -92,6 +104,12 @@ type AdminContentDeleteRequest = interfaces.AdminContentDeleteRequest
 
 // AdminContentCreateTranslationRequest exports the admin content translation clone request.
 type AdminContentCreateTranslationRequest = interfaces.AdminContentCreateTranslationRequest
+
+// AdminContentFamilyReadUnsupportedError exports structured family-read unsupported details.
+type AdminContentFamilyReadUnsupportedError = interfaces.AdminContentFamilyReadUnsupportedError
+
+// ErrAdminContentFamilyReadUnsupported marks unavailable optimized family reads.
+var ErrAdminContentFamilyReadUnsupported = interfaces.ErrAdminContentFamilyReadUnsupported
 
 // AdminBlockDefinitionListOptions exports the admin block definition list options.
 type AdminBlockDefinitionListOptions = interfaces.AdminBlockDefinitionListOptions
