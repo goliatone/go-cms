@@ -1,10 +1,28 @@
 # Changelog
 
+# [0.55.1](https://github.com/goliatone/go-cms/compare/v0.56.0...v0.55.1) - (2026-06-19)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.55.1 ([d3f981f](https://github.com/goliatone/go-cms/commit/d3f981ffe75153d86c70da13596cde620323c861))  - (goliatone)
+
 # [0.56.0](https://github.com/goliatone/go-cms/compare/v0.55.0...v0.56.0) - (2026-06-19)
 
 ## <!-- 1 -->🐛 Bug Fixes
 
-- Add count-capable admin content family reads ([06d48a7](https://github.com/goliatone/go-cms/commit/06d48a7))  - (goliatone)
+- Add count-capable admin content family reads ([06d48a7](https://github.com/goliatone/go-cms/commit/06d48a79676a6397630b0e070182f4ce31c084dd))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.56.0 ([f55b8c4](https://github.com/goliatone/go-cms/commit/f55b8c4937b4031b78d731ca6e47ca4099eb8260))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.55.0 ([2d5a46c](https://github.com/goliatone/go-cms/commit/2d5a46cedc5382a2d64b8fcc48878dd657d3bf29))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([e4193a0](https://github.com/goliatone/go-cms/commit/e4193a0d356478015c5f56b3e7ae566fc5efbc96))  - (goliatone)
 
 # [0.55.0](https://github.com/goliatone/go-cms/compare/v0.54.1...v0.55.0) - (2026-06-09)
 
@@ -1567,4 +1585,5 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
+
 
