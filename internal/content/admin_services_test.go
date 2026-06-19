@@ -3,6 +3,7 @@ package content
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
@@ -265,6 +266,159 @@ func TestAdminContentDBReadServiceListAppliesSQLPaginationAndSort(t *testing.T) 
 	}
 	if records[0].Title != "Alpha" || records[1].Title != "Bravo" {
 		t.Fatalf("expected sorted page [Alpha Bravo], got [%s %s]", records[0].Title, records[1].Title)
+	}
+}
+
+func TestAdminContentDBReadServiceListAppliesContentTypeIDScopeBeforeCount(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	archiveType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "Archive Event",
+		Slug:   "archive-event",
+		Schema: map[string]any{"type": "object"},
+		Capabilities: map[string]any{
+			"translations":        true,
+			"panel_slug":          "archive_event",
+			"search_content_type": "archive_event",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create archive content type: %v", err)
+	}
+	otherType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "Archive Event Session",
+		Slug:   "archive-event-session",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create other content type: %v", err)
+	}
+
+	for i := 0; i < 30; i++ {
+		status := "published"
+		if i%2 == 0 {
+			status = "draft"
+		}
+		createAdminContentDBRecord(t, ctx, service, archiveType.ID, fmt.Sprintf("archive-event-%02d", i), status, []ContentTranslationInput{{
+			Locale: "en",
+			Title:  fmt.Sprintf("Archive Event %02d", i),
+			Content: map[string]any{
+				"body": fmt.Sprintf("event %02d", i),
+			},
+		}})
+	}
+	for i := 0; i < 5; i++ {
+		createAdminContentDBRecord(t, ctx, service, otherType.ID, fmt.Sprintf("other-%02d", i), "draft", []ContentTranslationInput{{
+			Locale:  "en",
+			Title:   fmt.Sprintf("Other %02d", i),
+			Content: map[string]any{"body": "other"},
+		}})
+	}
+
+	records, total, err := adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID: archiveType.ID.String(),
+		Locale:        "en",
+		Page:          2,
+		PerPage:       10,
+		SortBy:        "slug",
+	})
+	if err != nil {
+		t.Fatalf("list scoped archive content: %v", err)
+	}
+	if total != 30 {
+		t.Fatalf("expected scoped total 30 before pagination, got %d", total)
+	}
+	if len(records) != 10 {
+		t.Fatalf("expected page size 10, got %d", len(records))
+	}
+	if records[0].Slug != "archive-event-10" || records[9].Slug != "archive-event-19" {
+		t.Fatalf("expected second slug page archive-event-10..19, got first=%q last=%q", records[0].Slug, records[9].Slug)
+	}
+	for _, record := range records {
+		if record.ContentTypeSlug != "archive-event" {
+			t.Fatalf("expected physical content type slug archive-event, got %+v", record)
+		}
+	}
+}
+
+func TestAdminContentDBReadServiceListFamiliesCountsBeforeVariantHydration(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	archiveType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "Archive Event",
+		Slug:   "archive-event",
+		Schema: map[string]any{"type": "object"},
+		Capabilities: map[string]any{
+			"translations":        true,
+			"panel_slug":          "archive_event",
+			"search_content_type": "archive_event",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create archive content type: %v", err)
+	}
+
+	familyIDs := make([]uuid.UUID, 30)
+	for i := 0; i < 30; i++ {
+		familyID := uuid.NewMD5(uuid.NameSpaceURL, []byte(fmt.Sprintf("archive-event-family-%02d", i)))
+		familyIDs[i] = familyID
+		status := "published"
+		if i%2 == 0 {
+			status = "draft"
+		}
+		createAdminContentDBRecord(t, ctx, service, archiveType.ID, fmt.Sprintf("archive-event-%02d", i), status, []ContentTranslationInput{
+			{
+				Locale:   "en",
+				FamilyID: &familyID,
+				Title:    fmt.Sprintf("Archive Event %02d", i),
+				Content:  map[string]any{"body": fmt.Sprintf("event %02d en", i)},
+			},
+			{
+				Locale:   "es",
+				FamilyID: &familyID,
+				Title:    fmt.Sprintf("Evento Archivo %02d", i),
+				Content:  map[string]any{"body": fmt.Sprintf("event %02d es", i)},
+			},
+		})
+	}
+
+	familyRead, ok := adminRead.(interfaces.AdminContentFamilyReadService)
+	if !ok {
+		t.Fatalf("expected DB admin read service to expose optimized family reads")
+	}
+	result, err := familyRead.ListFamilies(ctx, interfaces.AdminContentFamilyListOptions{
+		ContentTypeID:   archiveType.ID.String(),
+		Locale:          "en",
+		Page:            2,
+		PerPage:         10,
+		SortBy:          "title",
+		IncludeData:     true,
+		IncludeMetadata: true,
+	})
+	if err != nil {
+		t.Fatalf("list scoped archive families: %v", err)
+	}
+	if result.FamilyTotal != 30 {
+		t.Fatalf("expected 30 family total before pagination, got %d", result.FamilyTotal)
+	}
+	if result.Page != 2 || result.PerPage != 10 {
+		t.Fatalf("expected page metadata 2/10, got page=%d per_page=%d", result.Page, result.PerPage)
+	}
+	if len(result.Families) != 10 {
+		t.Fatalf("expected 10 paged families, got %d", len(result.Families))
+	}
+	if got := result.Families[0].FamilyID; got != familyIDs[10].String() {
+		t.Fatalf("expected second page to start at family %s, got %s", familyIDs[10], got)
+	}
+	if len(result.Families[0].Variants) != 2 {
+		t.Fatalf("expected selected family variants to be hydrated, got %+v", result.Families[0].Variants)
 	}
 }
 
