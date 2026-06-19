@@ -1,5 +1,15 @@
 # Changelog
 
+# [unreleased]
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.56.0 ([a853163](https://github.com/goliatone/go-cms/commit/a8531637d4dfe50055451df6ab7c6d38f8dcb7ac))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.55.1 ([4e706bb](https://github.com/goliatone/go-cms/commit/4e706bb25445e411fc4aa9baa0d57641c344f8f6))  - (goliatone)
+
 # [0.55.1](https://github.com/goliatone/go-cms/compare/v0.56.0...v0.55.1) - (2026-06-19)
 
 ## <!-- 13 -->📦 Bumps
