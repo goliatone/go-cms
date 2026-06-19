@@ -1,5 +1,11 @@
 # Changelog
 
+# [0.56.0](https://github.com/goliatone/go-cms/compare/v0.55.0...v0.56.0) - (2026-06-19)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Add count-capable admin content family reads ([06d48a7](https://github.com/goliatone/go-cms/commit/06d48a7))  - (goliatone)
+
 # [0.55.0](https://github.com/goliatone/go-cms/compare/v0.54.1...v0.55.0) - (2026-06-09)
 
 ## <!-- 1 -->🐛 Bug Fixes
@@ -1561,5 +1567,4 @@
 - Add examples ([b908360](https://github.com/goliatone/go-cms/commit/b908360cca0ced59a045d765d3422d61d4e860b9))  - (goliatone)
 - Initial commit ([6199f08](https://github.com/goliatone/go-cms/commit/6199f08eda759389820c74507bb12f4ca217dd8e))  - (goliatone)
 - Update cms imp ([5aba41b](https://github.com/goliatone/go-cms/commit/5aba41b9bb4a4c68f19ba459e673b567f62a9eaf))  - (goliatone)
-
 
