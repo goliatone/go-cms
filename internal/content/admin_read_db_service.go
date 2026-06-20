@@ -13,6 +13,7 @@ import (
 	sharedi18n "github.com/goliatone/go-i18n"
 	"github.com/google/uuid"
 	"github.com/uptrace/bun"
+	"github.com/uptrace/bun/dialect"
 )
 
 // NewAdminContentDBReadService constructs the DB-backed admin content read service.
@@ -87,7 +88,9 @@ func (s *adminContentDBReadService) List(ctx context.Context, opts interfaces.Ad
 	countQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 	applyAdminContentDBEnvironment(countQuery, envID)
 	applyAdminContentDBContentTypeScope(countQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if !applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search) {
+	if ok, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterRowScope); err != nil {
+		return nil, 0, err
+	} else if !ok {
 		return []interfaces.AdminContentRecord{}, 0, nil
 	}
 	total, err := countQuery.Count(ctx)
@@ -98,7 +101,9 @@ func (s *adminContentDBReadService) List(ctx context.Context, opts interfaces.Ad
 	listQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 	applyAdminContentDBEnvironment(listQuery, envID)
 	applyAdminContentDBContentTypeScope(listQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if !applyAdminContentDBFilters(listQuery, expr, opts.Filters, opts.Search) {
+	if ok, err := applyAdminContentDBFilters(listQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterRowScope); err != nil {
+		return nil, 0, err
+	} else if !ok {
 		return []interfaces.AdminContentRecord{}, 0, nil
 	}
 	applyAdminContentDBSort(listQuery, expr, opts.SortBy, opts.SortDesc)
@@ -162,7 +167,9 @@ func (s *adminContentDBReadService) ListFamilies(ctx context.Context, opts inter
 	countQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 	applyAdminContentDBEnvironment(countQuery, envID)
 	applyAdminContentDBContentTypeScope(countQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if !applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search) {
+	if ok, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope); err != nil {
+		return result, err
+	} else if !ok {
 		return result, nil
 	}
 	countQuery.Where(expr.familyID + " IS NOT NULL")
@@ -178,7 +185,9 @@ func (s *adminContentDBReadService) ListFamilies(ctx context.Context, opts inter
 	contentCountQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 	applyAdminContentDBEnvironment(contentCountQuery, envID)
 	applyAdminContentDBContentTypeScope(contentCountQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if applyAdminContentDBFilters(contentCountQuery, expr, opts.Filters, opts.Search) {
+	if ok, err := applyAdminContentDBFilters(contentCountQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope); err != nil {
+		return result, err
+	} else if ok {
 		contentCountQuery.Where(expr.familyID + " IS NOT NULL")
 		total, err := contentCountQuery.Count(ctx)
 		if err != nil {
@@ -190,7 +199,9 @@ func (s *adminContentDBReadService) ListFamilies(ctx context.Context, opts inter
 	pageQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 	applyAdminContentDBEnvironment(pageQuery, envID)
 	applyAdminContentDBContentTypeScope(pageQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if !applyAdminContentDBFilters(pageQuery, expr, opts.Filters, opts.Search) {
+	if ok, err := applyAdminContentDBFilters(pageQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope); err != nil {
+		return result, err
+	} else if !ok {
 		return result, nil
 	}
 	pageQuery.Where(expr.familyID + " IS NOT NULL")
@@ -395,85 +406,302 @@ func applyAdminContentDBContentTypeScope(query *bun.SelectQuery, contentTypeID s
 	query.Where("LOWER(COALESCE(ctype.slug, ctype.name, '')) = ?", normalizedSlug)
 }
 
-func applyAdminContentDBFilters(query *bun.SelectQuery, expr adminContentDBExpressions, filters map[string]any, search string) bool {
+type adminContentDBFilterPredicate struct {
+	SourceKey string
+	Field     string
+	Operator  string
+	Values    []string
+}
+
+type adminContentDBFilterTarget struct {
+	Expr string
+	Args []any
+}
+
+type adminContentDBDynamicFilterScope int
+
+const (
+	adminContentDBDynamicFilterRowScope adminContentDBDynamicFilterScope = iota
+	adminContentDBDynamicFilterFamilyScope
+)
+
+const adminContentDBLikeEscapeClause = " ESCAPE '\\'"
+
+func applyAdminContentDBFilters(query *bun.SelectQuery, expr adminContentDBExpressions, filters map[string]any, search string, dynamicScope adminContentDBDynamicFilterScope) (bool, error) {
 	if query == nil {
-		return false
+		return false, nil
 	}
-	if len(filters) > 0 {
-		if !applyAdminContentDBFilterValues(query, "LOWER(c.status)", filters["status"]) {
-			return false
+	predicates, ok, err := normalizeAdminContentDBFilterPredicates(filters)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		query.Where("1=0")
+		return false, nil
+	}
+	for _, predicate := range predicates {
+		applied, err := applyAdminContentDBFilterPredicate(query, expr, predicate, dynamicScope)
+		if err != nil {
+			return false, err
 		}
-		if !applyAdminContentDBLocaleFilterValues(query, "LOWER("+expr.resolvedLocale+")", filters["locale"], expr.resolvedLocaleArgs...) {
-			return false
-		}
-		if !applyAdminContentDBLocaleFilterValues(query, "LOWER("+expr.resolvedLocale+")", filters["resolved_locale"], expr.resolvedLocaleArgs...) {
-			return false
-		}
-		if !applyAdminContentDBFilterValues(query, "LOWER(c.slug)", filters["slug"]) {
-			return false
-		}
-		if !applyAdminContentDBFilterValues(query, "LOWER("+expr.title+")", filters["title"], expr.titleArgs...) {
-			return false
-		}
-		if !applyAdminContentDBFilterValues(query, "LOWER("+expr.contentType+")", firstNonNil(filters["content_type"], filters["content_type_slug"])) {
-			return false
-		}
-		if !applyAdminContentDBFilterValues(query, "LOWER(CAST("+expr.familyID+" AS TEXT))", filters["family_id"]) {
-			return false
+		if !applied {
+			query.Where("1=0")
+			return false, nil
 		}
 	}
 
 	term := strings.TrimSpace(search)
 	if term == "" {
-		return true
+		return true, nil
 	}
-	like := "%" + strings.ToLower(term) + "%"
+	like := adminContentDBContainsPattern(term)
 	query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
 		args := append([]any{}, expr.titleArgs...)
 		return q.
-			Where("LOWER("+expr.title+") LIKE ?", append(args, like)...).
-			WhereOr("LOWER(c.slug) LIKE ?", like).
-			WhereOr("LOWER("+expr.contentType+") LIKE ?", like)
+			Where("LOWER("+expr.title+") LIKE ?"+adminContentDBLikeEscapeClause, append(args, like)...).
+			WhereOr("LOWER(c.slug) LIKE ?"+adminContentDBLikeEscapeClause, like).
+			WhereOr("LOWER("+expr.contentType+") LIKE ?"+adminContentDBLikeEscapeClause, like)
 	})
-	return true
+	return true, nil
 }
 
-func applyAdminContentDBFilterValues(query *bun.SelectQuery, field string, filter any, extraArgs ...any) bool {
-	values, ok := normalizeAdminContentFilterValues(filter, func(value string) string {
-		return strings.ToLower(strings.TrimSpace(value))
-	})
-	if !ok {
-		query.Where("1=0")
-		return false
+func normalizeAdminContentDBFilterPredicates(filters map[string]any) ([]adminContentDBFilterPredicate, bool, error) {
+	if len(filters) == 0 {
+		return nil, true, nil
 	}
-	if len(values) == 0 {
-		return true
+	keys := make([]string, 0, len(filters))
+	for key := range filters {
+		keys = append(keys, key)
 	}
-	args := append([]any{}, extraArgs...)
-	args = append(args, bun.In(values))
-	query.Where(field+" IN (?)", args...)
-	return true
-}
+	sort.Strings(keys)
 
-func applyAdminContentDBLocaleFilterValues(query *bun.SelectQuery, field string, filter any, extraArgs ...any) bool {
-	values, ok := normalizeAdminContentFilterValues(filter, func(value string) string {
-		normalized := sharedi18n.NormalizeLocale(value)
-		if normalized == "" {
-			return ""
+	out := make([]adminContentDBFilterPredicate, 0, len(keys))
+	for _, key := range keys {
+		field, operator := parseAdminContentDBFilterKey(key)
+		if field == "" || field == "_search" || field == "environment" || isAdminContentDBListModeFilterField(field) {
+			continue
 		}
-		return strings.ToLower(normalized)
-	})
-	if !ok {
-		query.Where("1=0")
+		if !isSupportedAdminContentDBFilterOperator(operator) {
+			return nil, false, adminContentDBUnsupportedFilter("unsupported filter operator", map[string]any{
+				"field":    field,
+				"operator": operator,
+				"key":      key,
+			})
+		}
+		values, ok := normalizeAdminContentFilterValues(filters[key], func(value string) string {
+			return strings.TrimSpace(value)
+		})
+		if !ok {
+			return nil, false, nil
+		}
+		if len(values) == 0 {
+			continue
+		}
+		out = append(out, adminContentDBFilterPredicate{
+			SourceKey: key,
+			Field:     field,
+			Operator:  operator,
+			Values:    values,
+		})
+	}
+	return out, true, nil
+}
+
+func parseAdminContentDBFilterKey(key string) (string, string) {
+	parts := strings.SplitN(strings.TrimSpace(key), "__", 2)
+	field := strings.ToLower(strings.TrimSpace(parts[0]))
+	operator := "eq"
+	if len(parts) == 2 {
+		if parsed := strings.ToLower(strings.TrimSpace(parts[1])); parsed != "" {
+			operator = parsed
+		}
+	}
+	return field, operator
+}
+
+func isSupportedAdminContentDBFilterOperator(operator string) bool {
+	switch strings.ToLower(strings.TrimSpace(operator)) {
+	case "", "eq", "in", "ilike":
+		return true
+	default:
 		return false
 	}
+}
+
+func applyAdminContentDBFilterPredicate(query *bun.SelectQuery, expr adminContentDBExpressions, predicate adminContentDBFilterPredicate, dynamicScope adminContentDBDynamicFilterScope) (bool, error) {
+	target, dynamic, ok := resolveAdminContentDBFilterTarget(query, expr, predicate.Field, dynamicScope)
+	if !ok {
+		return false, adminContentDBUnsupportedFilter("unsupported filter field", map[string]any{
+			"field":    predicate.Field,
+			"operator": predicate.Operator,
+			"key":      predicate.SourceKey,
+		})
+	}
+	if dynamic {
+		return applyAdminContentDBDynamicFilterPredicate(query, target, predicate), nil
+	}
+	return applyAdminContentDBTargetFilterPredicate(query, target, predicate), nil
+}
+
+func resolveAdminContentDBFilterTarget(query *bun.SelectQuery, expr adminContentDBExpressions, field string, dynamicScope adminContentDBDynamicFilterScope) (adminContentDBFilterTarget, bool, bool) {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "id":
+		return adminContentDBFilterTarget{Expr: "CAST(c.id AS TEXT)"}, false, true
+	case "status":
+		return adminContentDBFilterTarget{Expr: "c.status"}, false, true
+	case "locale", "resolved_locale":
+		return adminContentDBFilterTarget{Expr: expr.resolvedLocale, Args: append([]any{}, expr.resolvedLocaleArgs...)}, false, true
+	case "slug":
+		return adminContentDBFilterTarget{Expr: "c.slug"}, false, true
+	case "title":
+		return adminContentDBFilterTarget{Expr: expr.title, Args: append([]any{}, expr.titleArgs...)}, false, true
+	case "content_type", "content_type_slug":
+		return adminContentDBFilterTarget{Expr: expr.contentType}, false, true
+	case "family_id":
+		return adminContentDBFilterTarget{Expr: "CAST(" + expr.familyID + " AS TEXT)"}, false, true
+	case "created_at":
+		return adminContentDBFilterTarget{Expr: "CAST(c.created_at AS TEXT)"}, false, true
+	case "updated_at":
+		return adminContentDBFilterTarget{Expr: "CAST(c.updated_at AS TEXT)"}, false, true
+	case "published_at":
+		return adminContentDBFilterTarget{Expr: "CAST(c.published_at AS TEXT)"}, false, true
+	}
+	if !isSafeAdminContentDBJSONKey(field) {
+		return adminContentDBFilterTarget{}, false, false
+	}
+	if dynamicScope == adminContentDBDynamicFilterFamilyScope {
+		return adminContentDBFilterTarget{Expr: adminContentDBJSONTextExpr(query, "ct_filter.content", field)}, true, true
+	}
+	source := "(COALESCE(ct_req.content, ct_fb.content, ct_primary.content, ct_first.content))"
+	return adminContentDBFilterTarget{Expr: adminContentDBJSONTextExpr(query, source, field)}, false, true
+}
+
+func applyAdminContentDBTargetFilterPredicate(query *bun.SelectQuery, target adminContentDBFilterTarget, predicate adminContentDBFilterPredicate) bool {
+	values := normalizeAdminContentDBPredicateValues(predicate.Values)
 	if len(values) == 0 {
 		return true
 	}
-	args := append([]any{}, extraArgs...)
-	args = append(args, bun.In(values))
-	query.Where(field+" IN (?)", args...)
+	args := append([]any{}, target.Args...)
+	switch strings.ToLower(strings.TrimSpace(predicate.Operator)) {
+	case "in", "eq", "":
+		args = append(args, bun.In(values))
+		query.Where("LOWER(COALESCE("+target.Expr+", '')) IN (?)", args...)
+	case "ilike":
+		query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
+			return applyAdminContentDBLikeGroup(q, "LOWER(COALESCE("+target.Expr+", ''))", target.Args, values)
+		})
+	}
 	return true
+}
+
+func applyAdminContentDBDynamicFilterPredicate(query *bun.SelectQuery, target adminContentDBFilterTarget, predicate adminContentDBFilterPredicate) bool {
+	values := normalizeAdminContentDBPredicateValues(predicate.Values)
+	if len(values) == 0 {
+		return true
+	}
+	switch strings.ToLower(strings.TrimSpace(predicate.Operator)) {
+	case "in", "eq", "":
+		query.Where("EXISTS (SELECT 1 FROM content_translations AS ct_filter WHERE ct_filter.content_id = c.id AND LOWER(COALESCE("+target.Expr+", '')) IN (?))", bun.In(values))
+	case "ilike":
+		condition, args := adminContentDBLikeExistsCondition("LOWER(COALESCE("+target.Expr+", ''))", values)
+		query.Where("EXISTS (SELECT 1 FROM content_translations AS ct_filter WHERE ct_filter.content_id = c.id AND "+condition+")", args...)
+	}
+	return true
+}
+
+func applyAdminContentDBLikeGroup(q *bun.SelectQuery, expr string, exprArgs []any, values []string) *bun.SelectQuery {
+	for i, value := range values {
+		args := append([]any{}, exprArgs...)
+		args = append(args, adminContentDBContainsPattern(value))
+		if i == 0 {
+			q = q.Where(expr+" LIKE ?"+adminContentDBLikeEscapeClause, args...)
+		} else {
+			q = q.WhereOr(expr+" LIKE ?"+adminContentDBLikeEscapeClause, args...)
+		}
+	}
+	return q
+}
+
+func adminContentDBLikeExistsCondition(expr string, values []string) (string, []any) {
+	parts := make([]string, 0, len(values))
+	args := make([]any, 0, len(values))
+	for _, value := range values {
+		parts = append(parts, expr+" LIKE ?"+adminContentDBLikeEscapeClause)
+		args = append(args, adminContentDBContainsPattern(value))
+	}
+	if len(parts) == 0 {
+		return "1=1", nil
+	}
+	return "(" + strings.Join(parts, " OR ") + ")", args
+}
+
+func normalizeAdminContentDBPredicateValues(values []string) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		normalized := strings.ToLower(strings.TrimSpace(value))
+		if normalized == "" {
+			continue
+		}
+		out = append(out, normalized)
+	}
+	return out
+}
+
+func adminContentDBContainsPattern(value string) string {
+	return "%" + adminContentDBEscapeLikeValue(strings.ToLower(strings.TrimSpace(value))) + "%"
+}
+
+func adminContentDBEscapeLikeValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	var b strings.Builder
+	b.Grow(len(value))
+	for _, r := range value {
+		switch r {
+		case '\\', '%', '_':
+			b.WriteRune('\\')
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+func isAdminContentDBListModeFilterField(field string) bool {
+	switch strings.ToLower(strings.TrimSpace(field)) {
+	case "group_by", "groupby":
+		return true
+	default:
+		return false
+	}
+}
+
+func isSafeAdminContentDBJSONKey(key string) bool {
+	key = strings.TrimSpace(key)
+	if key == "" {
+		return false
+	}
+	for _, r := range key {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
+
+func adminContentDBJSONTextExpr(query *bun.SelectQuery, source string, key string) string {
+	if query != nil && query.Dialect() != nil && query.Dialect().Name() == dialect.SQLite {
+		return fmt.Sprintf("json_extract(%s, '$.%s')", source, key)
+	}
+	return fmt.Sprintf("%s->>'%s'", source, key)
+}
+
+func adminContentDBUnsupportedFilter(reason string, metadata map[string]any) error {
+	return interfaces.AdminContentFamilyReadUnsupportedError{
+		Reason:   strings.TrimSpace(reason),
+		Metadata: metadata,
+	}
 }
 
 func normalizeAdminContentFilterValues(filter any, normalize func(string) string) ([]string, bool) {
@@ -488,8 +716,10 @@ func normalizeAdminContentFilterValues(filter any, normalize func(string) string
 	var values []string
 	switch typed := filter.(type) {
 	case string:
-		if text := normalize(typed); text != "" {
-			values = append(values, text)
+		for _, part := range strings.Split(typed, ",") {
+			if text := normalize(part); text != "" {
+				values = append(values, text)
+			}
 		}
 	case []string:
 		if len(typed) == 0 {
@@ -681,13 +911,4 @@ func sortAdminContentFamilyVariants(records []interfaces.AdminContentRecord, req
 		}
 		return records[i].ID.String() < records[j].ID.String()
 	})
-}
-
-func firstNonNil(values ...any) any {
-	for _, value := range values {
-		if value != nil {
-			return value
-		}
-	}
-	return nil
 }
