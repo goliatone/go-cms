@@ -2,6 +2,7 @@ package content
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"testing"
@@ -216,7 +217,10 @@ func TestAdminContentWriteServiceCreateTranslationForwardsPathRouteKeyAndMetadat
 	if got := record.Data["route_key"]; got != "pages/home" {
 		t.Fatalf("expected route_key pages/home, got %v", got)
 	}
-	replay, _ := record.Metadata["translation_create_locale"].(map[string]any)
+	replay, ok := record.Metadata["translation_create_locale"].(map[string]any)
+	if !ok {
+		t.Fatalf("expected translation metadata to be projected in admin record, got %+v", record.Metadata)
+	}
 	if got := replay["idempotency_key"]; got != "home-fr" {
 		t.Fatalf("expected translation metadata to be projected in admin record, got %+v", record.Metadata)
 	}
@@ -298,7 +302,7 @@ func TestAdminContentDBReadServiceListAppliesContentTypeIDScopeBeforeCount(t *te
 		t.Fatalf("create other content type: %v", err)
 	}
 
-	for i := 0; i < 30; i++ {
+	for i := range 30 {
 		status := "published"
 		if i%2 == 0 {
 			status = "draft"
@@ -311,7 +315,7 @@ func TestAdminContentDBReadServiceListAppliesContentTypeIDScopeBeforeCount(t *te
 			},
 		}})
 	}
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		createAdminContentDBRecord(t, ctx, service, otherType.ID, fmt.Sprintf("other-%02d", i), "draft", []ContentTranslationInput{{
 			Locale:  "en",
 			Title:   fmt.Sprintf("Other %02d", i),
@@ -366,8 +370,8 @@ func TestAdminContentDBReadServiceListFamiliesCountsBeforeVariantHydration(t *te
 	}
 
 	familyIDs := make([]uuid.UUID, 30)
-	for i := 0; i < 30; i++ {
-		familyID := uuid.NewMD5(uuid.NameSpaceURL, []byte(fmt.Sprintf("archive-event-family-%02d", i)))
+	for i := range 30 {
+		familyID := uuid.NewMD5(uuid.NameSpaceURL, fmt.Appendf(nil, "archive-event-family-%02d", i))
 		familyIDs[i] = familyID
 		status := "published"
 		if i%2 == 0 {
@@ -748,15 +752,10 @@ func newAdminContentDBTestFixture(t *testing.T) (*bun.DB, Service, ContentTypeRe
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
-	t.Cleanup(func() {
-		_ = bunDB.Close()
-	})
+	cleanupAdminContentDBTestFixture(t, sqlDB, bunDB)
 
 	registerAdminContentDBModels(t, bunDB)
 
@@ -777,6 +776,18 @@ func newAdminContentDBTestFixture(t *testing.T) (*bun.DB, Service, ContentTypeRe
 	}
 
 	return bunDB, service, typeRepo, localeRepo
+}
+
+func cleanupAdminContentDBTestFixture(t *testing.T, sqlDB *sql.DB, bunDB *bun.DB) {
+	t.Helper()
+	t.Cleanup(func() {
+		if closeErr := bunDB.Close(); closeErr != nil {
+			t.Errorf("close bun db: %v", closeErr)
+		}
+		if closeErr := sqlDB.Close(); closeErr != nil {
+			t.Errorf("close sqlite db: %v", closeErr)
+		}
+	})
 }
 
 func registerAdminContentDBModels(t *testing.T, db *bun.DB) {

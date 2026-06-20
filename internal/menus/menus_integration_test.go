@@ -2,6 +2,7 @@ package menus_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -25,9 +26,7 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	cleanupMenuSQLDB(t, sqlDB)
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -146,7 +145,7 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 		t.Fatalf("create menu: %v", err)
 	}
 
-	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	_, err = menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 		MenuID:   menuRecord.ID,
 		Position: 0,
 		Target: map[string]any{
@@ -159,7 +158,8 @@ func TestMenuService_WithBunStorageAndCache(t *testing.T) {
 			{Locale: "en", Label: "Company"},
 			{Locale: "es", Label: "Empresa"},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("add menu item: %v", err)
 	}
 
@@ -190,9 +190,7 @@ func TestMenuService_WithBunStorageResolvesMenusBeyondLegacyDefaultPageLimit(t *
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	cleanupMenuSQLDB(t, sqlDB)
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -217,9 +215,9 @@ func TestMenuService_WithBunStorageResolvesMenusBeyondLegacyDefaultPageLimit(t *
 	}
 
 	const totalItems = 30
-	for i := 0; i < totalItems; i++ {
+	for i := range totalItems {
 		label := fmt.Sprintf("Item %02d", i+1)
-		if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+		_, addErr := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 			MenuID:   menuRecord.ID,
 			Position: i,
 			Target: map[string]any{
@@ -231,8 +229,9 @@ func TestMenuService_WithBunStorageResolvesMenusBeyondLegacyDefaultPageLimit(t *
 			Translations: []menus.MenuItemTranslationInput{
 				{Locale: "en", Label: label},
 			},
-		}); err != nil {
-			t.Fatalf("add menu item %d: %v", i+1, err)
+		})
+		if addErr != nil {
+			t.Fatalf("add menu item %d: %v", i+1, addErr)
 		}
 	}
 
@@ -255,9 +254,7 @@ func TestMenuService_AllowsOptionalTranslations(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	cleanupMenuSQLDB(t, sqlDB)
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -331,14 +328,15 @@ func TestMenuService_AllowsOptionalTranslations(t *testing.T) {
 		t.Fatalf("create menu: %v", err)
 	}
 
-	if _, err := menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
+	_, err = menuSvc.AddMenuItem(ctx, menus.AddMenuItemInput{
 		MenuID:                   menuRecord.ID,
 		Position:                 0,
 		Target:                   map[string]any{"type": "page", "slug": pageRecord.Slug},
 		CreatedBy:                authorID,
 		UpdatedBy:                authorID,
 		AllowMissingTranslations: true,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("add menu item without translations: %v", err)
 	}
 
@@ -367,9 +365,7 @@ func TestMenuService_BulkReorderMaintainsHierarchy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	cleanupMenuSQLDB(t, sqlDB)
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	bunDB.SetMaxOpenConns(1)
@@ -448,7 +444,7 @@ func TestMenuService_BulkReorderMaintainsHierarchy(t *testing.T) {
 		t.Fatalf("add child: %v", err)
 	}
 
-	if _, err := menuSvc.BulkReorderMenuItems(ctx, menus.BulkReorderMenuItemsInput{
+	_, err = menuSvc.BulkReorderMenuItems(ctx, menus.BulkReorderMenuItemsInput{
 		MenuID:    menu.ID,
 		UpdatedBy: uuid.Nil,
 		Items: []menus.ItemOrder{
@@ -456,7 +452,8 @@ func TestMenuService_BulkReorderMaintainsHierarchy(t *testing.T) {
 			{ItemID: rootA.ID, Position: 1},
 			{ItemID: child.ID, ParentID: &rootB.ID, Position: 0},
 		},
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("bulk reorder: %v", err)
 	}
 
@@ -485,9 +482,7 @@ func TestMenuRepository_RoundTripNewFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("new sqlite db: %v", err)
 	}
-	t.Cleanup(func() {
-		_ = sqlDB.Close()
-	})
+	cleanupMenuSQLDB(t, sqlDB)
 
 	bunDB := bun.NewDB(sqlDB, sqlitedialect.New())
 	registerMenuModels(t, bunDB)
@@ -702,6 +697,15 @@ func assertNavigation(t *testing.T, expected []navigationEntry, got []menus.Navi
 			t.Fatalf("navigation[%d] url mismatch: want %q, got %q", i, entry.URL, got[i].URL)
 		}
 	}
+}
+
+func cleanupMenuSQLDB(t *testing.T, db *sql.DB) {
+	t.Helper()
+	t.Cleanup(func() {
+		if closeErr := db.Close(); closeErr != nil {
+			t.Errorf("close sqlite db: %v", closeErr)
+		}
+	})
 }
 
 func mustUUID(value string) uuid.UUID {
