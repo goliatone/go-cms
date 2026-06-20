@@ -4,12 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/goliatone/go-cms/internal/domain"
-	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -30,17 +30,95 @@ var (
 	ErrGuardRejected = errors.New("workflow adapter: transition blocked by guard")
 )
 
-type workflowEngine interface {
-	Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error)
-	AvailableTransitions(ctx context.Context, query interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error)
-	RegisterWorkflow(ctx context.Context, definition interfaces.WorkflowDefinition) error
+// WorkflowState is the normalized lifecycle state used by this legacy adapter.
+type WorkflowState string
+
+// TransitionInput describes a requested workflow transition.
+type TransitionInput struct {
+	EntityID     uuid.UUID
+	EntityType   string
+	CurrentState WorkflowState
+	TargetState  WorkflowState
+	Transition   string
+	ActorID      uuid.UUID
+	Metadata     map[string]any
 }
 
-// Engine adapts a workflow state machine to the go-cms interfaces.WorkflowEngine contract.
+// TransitionQuery describes a request for transitions available from a state.
+type TransitionQuery struct {
+	EntityType string
+	State      WorkflowState
+	Context    map[string]any
+}
+
+// TransitionResult describes the completed transition.
+type TransitionResult struct {
+	EntityID      uuid.UUID
+	EntityType    string
+	Transition    string
+	FromState     WorkflowState
+	ToState       WorkflowState
+	CompletedAt   time.Time
+	ActorID       uuid.UUID
+	Metadata      map[string]any
+	Events        []WorkflowEvent
+	Notifications []WorkflowNotification
+}
+
+// WorkflowEvent is emitted by workflow actions.
+type WorkflowEvent struct {
+	Name      string
+	Timestamp time.Time
+	Payload   map[string]any
+}
+
+// WorkflowNotification is produced by workflow actions.
+type WorkflowNotification struct {
+	Channel string
+	Message string
+	Data    map[string]any
+}
+
+// WorkflowAuthorizer gates guarded transitions.
+type WorkflowAuthorizer interface {
+	AuthorizeTransition(ctx context.Context, input TransitionInput, guard string) error
+}
+
+// WorkflowDefinition describes the states and transitions for an entity type.
+type WorkflowDefinition struct {
+	EntityType   string
+	InitialState WorkflowState
+	States       []WorkflowStateDefinition
+	Transitions  []WorkflowTransition
+}
+
+// WorkflowStateDefinition describes a state in a workflow definition.
+type WorkflowStateDefinition struct {
+	Name        WorkflowState
+	Description string
+	Terminal    bool
+}
+
+// WorkflowTransition describes a transition in a workflow definition.
+type WorkflowTransition struct {
+	Name        string
+	Description string
+	From        WorkflowState
+	To          WorkflowState
+	Guard       string
+}
+
+type workflowEngine interface {
+	Transition(ctx context.Context, input TransitionInput) (*TransitionResult, error)
+	AvailableTransitions(ctx context.Context, query TransitionQuery) ([]WorkflowTransition, error)
+	RegisterWorkflow(ctx context.Context, definition WorkflowDefinition) error
+}
+
+// Engine adapts a legacy workflow state machine behind a normalized API.
 type Engine struct {
 	machine workflowEngine
 
-	authorizer     interfaces.WorkflowAuthorizer
+	authorizer     WorkflowAuthorizer
 	actionResolver ActionResolver
 	now            func() time.Time
 
@@ -73,7 +151,7 @@ func NewEngine(machine workflowEngine, opts ...Option) (*Engine, error) {
 }
 
 // WithAuthorizer injects a guard authorizer to gate guarded transitions.
-func WithAuthorizer(authorizer interfaces.WorkflowAuthorizer) Option {
+func WithAuthorizer(authorizer WorkflowAuthorizer) Option {
 	return func(e *Engine) {
 		e.authorizer = authorizer
 	}
@@ -105,7 +183,7 @@ func WithClock(clock func() time.Time) Option {
 }
 
 // Transition applies a workflow transition for an entity.
-func (e *Engine) Transition(ctx context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
+func (e *Engine) Transition(ctx context.Context, input TransitionInput) (*TransitionResult, error) {
 	if input.EntityID == uuid.Nil {
 		return nil, ErrNilEntityID
 	}
@@ -117,54 +195,19 @@ func (e *Engine) Transition(ctx context.Context, input interfaces.TransitionInpu
 
 	normalizedInput := normalizeInput(definition, input)
 
-	transitionName := normalizeTransitionName(normalizedInput.Transition)
-	targetState := normalizeWorkflowState(normalizedInput.TargetState)
-	current := normalizedInput.CurrentState
-
-	if transitionName == "" && targetState == "" {
-		targetState = current
-	}
-
-	if transitionName == "" && targetState == current {
-		return &interfaces.TransitionResult{
-			EntityID:    normalizedInput.EntityID,
-			EntityType:  definition.definition.EntityType,
-			Transition:  "",
-			FromState:   current,
-			ToState:     current,
-			CompletedAt: e.now(),
-			ActorID:     normalizedInput.ActorID,
-			Metadata:    cloneMetadata(normalizedInput.Metadata),
-		}, nil
-	}
-
-	var transition interfaces.WorkflowTransition
-
-	switch {
-	case transitionName != "":
-		transition, err = definition.lookupTransition(transitionName, current)
-	case targetState != "":
-		transition, err = definition.lookupByStates(current, targetState)
-	default:
-		err = ErrMissingTransition
-	}
-
+	transition, noOp, err := definition.transitionForInput(normalizedInput)
 	if err != nil {
 		return nil, err
+	}
+	if noOp {
+		return e.noOpTransitionResult(definition, normalizedInput), nil
 	}
 
 	normalizedInput.Transition = transition.Name
 	normalizedInput.TargetState = transition.To
 
-	if guard := strings.TrimSpace(transition.Guard); guard != "" {
-		if e.authorizer == nil {
-			return nil, fmt.Errorf("%w: %s", ErrGuardAuthorizerRequired, guard)
-		}
-		guardInput := normalizedInput
-		guardInput.Metadata = cloneMetadata(guardInput.Metadata)
-		if err := e.authorizer.AuthorizeTransition(ctx, guardInput, guard); err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrGuardRejected, err)
-		}
+	if authErr := e.authorizeTransition(ctx, normalizedInput, transition); authErr != nil {
+		return nil, authErr
 	}
 
 	result, err := e.machine.Transition(ctx, normalizedInput)
@@ -174,36 +217,75 @@ func (e *Engine) Transition(ctx context.Context, input interfaces.TransitionInpu
 
 	normalizedResult := normalizeResult(result, transition, normalizedInput, e.now)
 
+	return e.applyTransitionAction(ctx, definition, transition, normalizedInput, normalizedResult)
+}
+
+func (e *Engine) noOpTransitionResult(definition *compiledDefinition, input TransitionInput) *TransitionResult {
+	return &TransitionResult{
+		EntityID:    input.EntityID,
+		EntityType:  definition.definition.EntityType,
+		Transition:  "",
+		FromState:   input.CurrentState,
+		ToState:     input.CurrentState,
+		CompletedAt: e.now(),
+		ActorID:     input.ActorID,
+		Metadata:    cloneMetadata(input.Metadata),
+	}
+}
+
+func (e *Engine) authorizeTransition(ctx context.Context, input TransitionInput, transition WorkflowTransition) error {
+	guard := strings.TrimSpace(transition.Guard)
+	if guard == "" {
+		return nil
+	}
+	if e.authorizer == nil {
+		return fmt.Errorf("%w: %s", ErrGuardAuthorizerRequired, guard)
+	}
+	guardInput := input
+	guardInput.Metadata = cloneMetadata(guardInput.Metadata)
+	if guardErr := e.authorizer.AuthorizeTransition(ctx, guardInput, guard); guardErr != nil {
+		return fmt.Errorf("%w: %w", ErrGuardRejected, guardErr)
+	}
+	return nil
+}
+
+func (e *Engine) applyTransitionAction(
+	ctx context.Context,
+	definition *compiledDefinition,
+	transition WorkflowTransition,
+	input TransitionInput,
+	result *TransitionResult,
+) (*TransitionResult, error) {
 	if action := e.resolveAction(definition, transition); action != nil {
 		output, err := action(ctx, ActionInput{
-			Transition: normalizedInput,
-			Result:     normalizedResult,
+			Transition: input,
+			Result:     result,
 		})
 		if err != nil {
 			return nil, err
 		}
 		if len(output.Events) > 0 {
-			normalizedResult.Events = append(normalizedResult.Events, cloneEvents(output.Events)...)
+			result.Events = append(result.Events, cloneEvents(output.Events)...)
 		}
 		if len(output.Notifications) > 0 {
-			normalizedResult.Notifications = append(normalizedResult.Notifications, cloneNotifications(output.Notifications)...)
+			result.Notifications = append(result.Notifications, cloneNotifications(output.Notifications)...)
 		}
 		if len(output.Metadata) > 0 {
-			normalizedResult.Metadata = mergeMetadata(normalizedResult.Metadata, output.Metadata)
+			result.Metadata = mergeMetadata(result.Metadata, output.Metadata)
 		}
 	}
 
-	return normalizedResult, nil
+	return result, nil
 }
 
 // AvailableTransitions returns the transitions reachable from the supplied state.
-func (e *Engine) AvailableTransitions(ctx context.Context, query interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
+func (e *Engine) AvailableTransitions(ctx context.Context, query TransitionQuery) ([]WorkflowTransition, error) {
 	definition, err := e.definitionFor(query.EntityType)
 	if err != nil {
 		return nil, err
 	}
 
-	normalizedQuery := interfaces.TransitionQuery{
+	normalizedQuery := TransitionQuery{
 		EntityType: definition.definition.EntityType,
 		State:      normalizeWorkflowStateWithDefault(query.State, definition.definition.InitialState),
 		Context:    cloneMetadata(query.Context),
@@ -218,7 +300,7 @@ func (e *Engine) AvailableTransitions(ctx context.Context, query interfaces.Tran
 }
 
 // RegisterWorkflow installs a workflow definition for the supplied entity type.
-func (e *Engine) RegisterWorkflow(ctx context.Context, definition interfaces.WorkflowDefinition) error {
+func (e *Engine) RegisterWorkflow(ctx context.Context, definition WorkflowDefinition) error {
 	compiled := compileDefinition(definition)
 	if compiled.definition.EntityType == "" {
 		return fmt.Errorf("%w: %s", ErrUnknownEntityType, definition.EntityType)
@@ -235,7 +317,7 @@ func (e *Engine) RegisterWorkflow(ctx context.Context, definition interfaces.Wor
 	return nil
 }
 
-func (e *Engine) resolveAction(definition *compiledDefinition, transition interfaces.WorkflowTransition) Action {
+func (e *Engine) resolveAction(definition *compiledDefinition, transition WorkflowTransition) Action {
 	if e.actionResolver == nil {
 		return nil
 	}
@@ -257,14 +339,14 @@ func (e *Engine) definitionFor(entityType string) (*compiledDefinition, error) {
 	return definition, nil
 }
 
-func compileDefinition(definition interfaces.WorkflowDefinition) *compiledDefinition {
-	normalized := interfaces.WorkflowDefinition{
+func compileDefinition(definition WorkflowDefinition) *compiledDefinition {
+	normalized := WorkflowDefinition{
 		EntityType: normalizeEntityType(definition.EntityType),
-		States:     make([]interfaces.WorkflowStateDefinition, 0, len(definition.States)),
+		States:     make([]WorkflowStateDefinition, 0, len(definition.States)),
 	}
 
 	for _, state := range definition.States {
-		normalizedState := interfaces.WorkflowStateDefinition{
+		normalizedState := WorkflowStateDefinition{
 			Name:        normalizeWorkflowState(state.Name),
 			Description: strings.TrimSpace(state.Description),
 			Terminal:    state.Terminal,
@@ -278,17 +360,17 @@ func compileDefinition(definition interfaces.WorkflowDefinition) *compiledDefini
 	case len(normalized.States) > 0:
 		normalized.InitialState = normalized.States[0].Name
 	default:
-		normalized.InitialState = interfaces.WorkflowState(domain.WorkflowStateDraft)
+		normalized.InitialState = WorkflowState(domain.WorkflowStateDraft)
 	}
 
 	compiled := &compiledDefinition{
 		definition:         normalized,
-		transitions:        make(map[string]interfaces.WorkflowTransition),
-		transitionsByState: make(map[interfaces.WorkflowState][]interfaces.WorkflowTransition),
+		transitions:        make(map[string]WorkflowTransition),
+		transitionsByState: make(map[WorkflowState][]WorkflowTransition),
 	}
 
 	for _, transition := range definition.Transitions {
-		normalizedTransition := interfaces.WorkflowTransition{
+		normalizedTransition := WorkflowTransition{
 			Name:        normalizeTransitionName(transition.Name),
 			Description: strings.TrimSpace(transition.Description),
 			From:        normalizeWorkflowState(transition.From),
@@ -305,21 +387,43 @@ func compileDefinition(definition interfaces.WorkflowDefinition) *compiledDefini
 }
 
 type compiledDefinition struct {
-	definition         interfaces.WorkflowDefinition
-	transitions        map[string]interfaces.WorkflowTransition
-	transitionsByState map[interfaces.WorkflowState][]interfaces.WorkflowTransition
+	definition         WorkflowDefinition
+	transitions        map[string]WorkflowTransition
+	transitionsByState map[WorkflowState][]WorkflowTransition
 }
 
-func (d *compiledDefinition) lookupTransition(name string, state interfaces.WorkflowState) (interfaces.WorkflowTransition, error) {
+func (d *compiledDefinition) transitionForInput(input TransitionInput) (WorkflowTransition, bool, error) {
+	transitionName := normalizeTransitionName(input.Transition)
+	targetState := normalizeWorkflowState(input.TargetState)
+	current := input.CurrentState
+
+	if transitionName == "" && targetState == "" {
+		targetState = current
+	}
+	if transitionName == "" && targetState == current {
+		return WorkflowTransition{}, true, nil
+	}
+	if transitionName != "" {
+		transition, err := d.lookupTransition(transitionName, current)
+		return transition, false, err
+	}
+	if targetState != "" {
+		transition, err := d.lookupByStates(current, targetState)
+		return transition, false, err
+	}
+	return WorkflowTransition{}, false, ErrMissingTransition
+}
+
+func (d *compiledDefinition) lookupTransition(name string, state WorkflowState) (WorkflowTransition, error) {
 	key := transitionKey(name, normalizeWorkflowState(state))
 	transition, ok := d.transitions[key]
 	if !ok {
-		return interfaces.WorkflowTransition{}, fmt.Errorf("%w: %s from %s", ErrInvalidTransition, name, state)
+		return WorkflowTransition{}, fmt.Errorf("%w: %s from %s", ErrInvalidTransition, name, state)
 	}
 	return transition, nil
 }
 
-func (d *compiledDefinition) lookupByStates(from, to interfaces.WorkflowState) (interfaces.WorkflowTransition, error) {
+func (d *compiledDefinition) lookupByStates(from, to WorkflowState) (WorkflowTransition, error) {
 	transitions := d.transitionsByState[normalizeWorkflowState(from)]
 	target := normalizeWorkflowState(to)
 	for _, candidate := range transitions {
@@ -327,10 +431,10 @@ func (d *compiledDefinition) lookupByStates(from, to interfaces.WorkflowState) (
 			return candidate, nil
 		}
 	}
-	return interfaces.WorkflowTransition{}, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, from, to)
+	return WorkflowTransition{}, fmt.Errorf("%w: %s -> %s", ErrInvalidTransition, from, to)
 }
 
-func normalizeInput(definition *compiledDefinition, input interfaces.TransitionInput) interfaces.TransitionInput {
+func normalizeInput(definition *compiledDefinition, input TransitionInput) TransitionInput {
 	normalized := input
 	normalized.EntityType = definition.definition.EntityType
 	normalized.CurrentState = normalizeWorkflowStateWithDefault(input.CurrentState, definition.definition.InitialState)
@@ -340,15 +444,15 @@ func normalizeInput(definition *compiledDefinition, input interfaces.TransitionI
 	return normalized
 }
 
-func normalizeWorkflowStateWithDefault(state interfaces.WorkflowState, fallback interfaces.WorkflowState) interfaces.WorkflowState {
+func normalizeWorkflowStateWithDefault(state WorkflowState, fallback WorkflowState) WorkflowState {
 	if strings.TrimSpace(string(state)) == "" {
 		return normalizeWorkflowState(fallback)
 	}
 	return normalizeWorkflowState(state)
 }
 
-func normalizeWorkflowState(state interfaces.WorkflowState) interfaces.WorkflowState {
-	return interfaces.WorkflowState(domain.NormalizeWorkflowState(string(state)))
+func normalizeWorkflowState(state WorkflowState) WorkflowState {
+	return WorkflowState(domain.NormalizeWorkflowState(string(state)))
 }
 
 func normalizeEntityType(entity string) string {
@@ -359,11 +463,11 @@ func normalizeTransitionName(name string) string {
 	return strings.ToLower(strings.TrimSpace(name))
 }
 
-func transitionKey(name string, from interfaces.WorkflowState) string {
+func transitionKey(name string, from WorkflowState) string {
 	return normalizeTransitionName(name) + "::" + string(normalizeWorkflowState(from))
 }
 
-func normalizeResult(result *interfaces.TransitionResult, transition interfaces.WorkflowTransition, input interfaces.TransitionInput, clock func() time.Time) *interfaces.TransitionResult {
+func normalizeResult(result *TransitionResult, transition WorkflowTransition, input TransitionInput, clock func() time.Time) *TransitionResult {
 	if result == nil {
 		return nil
 	}
@@ -401,10 +505,10 @@ func normalizeResult(result *interfaces.TransitionResult, transition interfaces.
 	return &normalized
 }
 
-func normalizeTransitions(transitions []interfaces.WorkflowTransition) []interfaces.WorkflowTransition {
-	result := make([]interfaces.WorkflowTransition, len(transitions))
+func normalizeTransitions(transitions []WorkflowTransition) []WorkflowTransition {
+	result := make([]WorkflowTransition, len(transitions))
 	for i, transition := range transitions {
-		result[i] = interfaces.WorkflowTransition{
+		result[i] = WorkflowTransition{
 			Name:        normalizeTransitionName(transition.Name),
 			Description: strings.TrimSpace(transition.Description),
 			From:        normalizeWorkflowState(transition.From),
@@ -420,9 +524,7 @@ func cloneMetadata(input map[string]any) map[string]any {
 		return nil
 	}
 	clone := make(map[string]any, len(input))
-	for k, v := range input {
-		clone[k] = v
-	}
+	maps.Copy(clone, input)
 	return clone
 }
 
@@ -434,19 +536,17 @@ func mergeMetadata(base map[string]any, extra map[string]any) map[string]any {
 	if result == nil {
 		result = make(map[string]any, len(extra))
 	}
-	for k, v := range extra {
-		result[k] = v
-	}
+	maps.Copy(result, extra)
 	return result
 }
 
-func cloneEvents(events []interfaces.WorkflowEvent) []interfaces.WorkflowEvent {
+func cloneEvents(events []WorkflowEvent) []WorkflowEvent {
 	if len(events) == 0 {
 		return nil
 	}
-	result := make([]interfaces.WorkflowEvent, len(events))
+	result := make([]WorkflowEvent, len(events))
 	for i, event := range events {
-		cloned := interfaces.WorkflowEvent{
+		cloned := WorkflowEvent{
 			Name:      event.Name,
 			Timestamp: event.Timestamp,
 		}
@@ -458,13 +558,13 @@ func cloneEvents(events []interfaces.WorkflowEvent) []interfaces.WorkflowEvent {
 	return result
 }
 
-func cloneNotifications(notifications []interfaces.WorkflowNotification) []interfaces.WorkflowNotification {
+func cloneNotifications(notifications []WorkflowNotification) []WorkflowNotification {
 	if len(notifications) == 0 {
 		return nil
 	}
-	result := make([]interfaces.WorkflowNotification, len(notifications))
+	result := make([]WorkflowNotification, len(notifications))
 	for i, notification := range notifications {
-		cloned := interfaces.WorkflowNotification{
+		cloned := WorkflowNotification{
 			Channel: notification.Channel,
 			Message: notification.Message,
 		}
@@ -481,25 +581,25 @@ type Action func(ctx context.Context, input ActionInput) (ActionOutput, error)
 
 // ActionInput captures the transition context passed to an action.
 type ActionInput struct {
-	Transition interfaces.TransitionInput
-	Result     *interfaces.TransitionResult
+	Transition TransitionInput
+	Result     *TransitionResult
 }
 
 // ActionOutput conveys side effects produced by an action.
 type ActionOutput struct {
-	Events        []interfaces.WorkflowEvent
-	Notifications []interfaces.WorkflowNotification
+	Events        []WorkflowEvent
+	Notifications []WorkflowNotification
 	Metadata      map[string]any
 }
 
 // ActionResolver resolves the action bound to a transition (if any).
-type ActionResolver func(entityType string, transition interfaces.WorkflowTransition) (Action, bool)
+type ActionResolver func(entityType string, transition WorkflowTransition) (Action, bool)
 
 // ActionRegistry provides a simple map-backed ActionResolver.
 type ActionRegistry map[string]Action
 
 // Resolve returns the action registered for the supplied entity/transition combination.
-func (r ActionRegistry) Resolve(entityType string, transition interfaces.WorkflowTransition) (Action, bool) {
+func (r ActionRegistry) Resolve(entityType string, transition WorkflowTransition) (Action, bool) {
 	if len(r) == 0 {
 		return nil, false
 	}

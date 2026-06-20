@@ -6,7 +6,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/goliatone/go-cms/pkg/interfaces"
 	"github.com/google/uuid"
 )
 
@@ -26,21 +25,21 @@ func TestEngine_TransitionBlockedByGuard(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	definition := interfaces.WorkflowDefinition{
+	definition := WorkflowDefinition{
 		EntityType: "article",
-		States: []interfaces.WorkflowStateDefinition{
+		States: []WorkflowStateDefinition{
 			{Name: "draft", Description: "Draft"},
 			{Name: "published", Description: "Published"},
 		},
-		Transitions: []interfaces.WorkflowTransition{
+		Transitions: []WorkflowTransition{
 			{Name: "publish", From: "draft", To: "published", Guard: "is_editor"},
 		},
 	}
-	if err := engine.RegisterWorkflow(ctx, definition); err != nil {
-		t.Fatalf("register workflow: %v", err)
+	if registerErr := engine.RegisterWorkflow(ctx, definition); registerErr != nil {
+		t.Fatalf("register workflow: %v", registerErr)
 	}
 
-	_, err = engine.Transition(ctx, interfaces.TransitionInput{
+	_, err = engine.Transition(ctx, TransitionInput{
 		EntityID:     entityID,
 		EntityType:   "article",
 		CurrentState: "Draft",
@@ -66,7 +65,7 @@ func TestEngine_TransitionExecutesAndNormalizes(t *testing.T) {
 	now := time.Unix(1800000000, 0)
 
 	machine := &stubMachine{
-		transitionResult: &interfaces.TransitionResult{
+		transitionResult: &TransitionResult{
 			EntityID:   entityID,
 			EntityType: "ARTICLE",
 			FromState:  "Draft",
@@ -83,22 +82,22 @@ func TestEngine_TransitionExecutesAndNormalizes(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	definition := interfaces.WorkflowDefinition{
+	definition := WorkflowDefinition{
 		EntityType:   "Article",
 		InitialState: "Draft",
-		States: []interfaces.WorkflowStateDefinition{
+		States: []WorkflowStateDefinition{
 			{Name: "draft"},
 			{Name: "published"},
 		},
-		Transitions: []interfaces.WorkflowTransition{
+		Transitions: []WorkflowTransition{
 			{Name: "Publish", From: "Draft", To: "Published", Guard: "role == admin"},
 		},
 	}
-	if err := engine.RegisterWorkflow(ctx, definition); err != nil {
-		t.Fatalf("register workflow: %v", err)
+	if registerErr := engine.RegisterWorkflow(ctx, definition); registerErr != nil {
+		t.Fatalf("register workflow: %v", registerErr)
 	}
 
-	result, err := engine.Transition(ctx, interfaces.TransitionInput{
+	result, err := engine.Transition(ctx, TransitionInput{
 		EntityID:     entityID,
 		EntityType:   "ARTICLE",
 		CurrentState: "Draft",
@@ -112,7 +111,7 @@ func TestEngine_TransitionExecutesAndNormalizes(t *testing.T) {
 	if machine.lastInput.Transition != "publish" {
 		t.Fatalf("expected normalized transition, got %q", machine.lastInput.Transition)
 	}
-	if machine.lastInput.CurrentState != interfaces.WorkflowState("draft") {
+	if machine.lastInput.CurrentState != WorkflowState("draft") {
 		t.Fatalf("expected normalized current state, got %s", machine.lastInput.CurrentState)
 	}
 	if authorizer.lastGuard != "role == admin" {
@@ -137,7 +136,7 @@ func TestEngine_ActionOutputAppended(t *testing.T) {
 	now := time.Unix(1900000000, 0)
 
 	machine := &stubMachine{
-		transitionResult: &interfaces.TransitionResult{
+		transitionResult: &TransitionResult{
 			EntityID:   entityID,
 			EntityType: "article",
 			FromState:  "draft",
@@ -149,10 +148,10 @@ func TestEngine_ActionOutputAppended(t *testing.T) {
 	registry := ActionRegistry{
 		"article::publish": func(ctx context.Context, input ActionInput) (ActionOutput, error) {
 			return ActionOutput{
-				Events: []interfaces.WorkflowEvent{
+				Events: []WorkflowEvent{
 					{Name: "page_published", Payload: map[string]any{"id": input.Result.EntityID}},
 				},
-				Notifications: []interfaces.WorkflowNotification{
+				Notifications: []WorkflowNotification{
 					{Channel: "email", Message: "published"},
 				},
 				Metadata: map[string]any{"action": "publish"},
@@ -165,21 +164,21 @@ func TestEngine_ActionOutputAppended(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	definition := interfaces.WorkflowDefinition{
+	definition := WorkflowDefinition{
 		EntityType: "article",
-		States: []interfaces.WorkflowStateDefinition{
+		States: []WorkflowStateDefinition{
 			{Name: "draft"},
 			{Name: "published"},
 		},
-		Transitions: []interfaces.WorkflowTransition{
+		Transitions: []WorkflowTransition{
 			{Name: "publish", From: "draft", To: "published"},
 		},
 	}
-	if err := engine.RegisterWorkflow(ctx, definition); err != nil {
-		t.Fatalf("register workflow: %v", err)
+	if registerErr := engine.RegisterWorkflow(ctx, definition); registerErr != nil {
+		t.Fatalf("register workflow: %v", registerErr)
 	}
 
-	result, err := engine.Transition(ctx, interfaces.TransitionInput{
+	result, err := engine.Transition(ctx, TransitionInput{
 		EntityID:     entityID,
 		EntityType:   "article",
 		CurrentState: "draft",
@@ -204,7 +203,7 @@ func TestEngine_ActionOutputAppended(t *testing.T) {
 func TestEngine_AvailableTransitionsNormalizesOutput(t *testing.T) {
 	ctx := context.Background()
 	machine := &stubMachine{
-		transitions: []interfaces.WorkflowTransition{
+		transitions: []WorkflowTransition{
 			{Name: "Publish", From: "Draft", To: "Published"},
 			{Name: "Archive", From: "Published", To: "Archived"},
 		},
@@ -215,23 +214,23 @@ func TestEngine_AvailableTransitionsNormalizesOutput(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	definition := interfaces.WorkflowDefinition{
+	definition := WorkflowDefinition{
 		EntityType: "article",
-		States: []interfaces.WorkflowStateDefinition{
+		States: []WorkflowStateDefinition{
 			{Name: "draft"},
 			{Name: "published"},
 			{Name: "archived"},
 		},
-		Transitions: []interfaces.WorkflowTransition{
+		Transitions: []WorkflowTransition{
 			{Name: "publish", From: "draft", To: "published"},
 			{Name: "archive", From: "published", To: "archived"},
 		},
 	}
-	if err := engine.RegisterWorkflow(ctx, definition); err != nil {
-		t.Fatalf("register workflow: %v", err)
+	if registerErr := engine.RegisterWorkflow(ctx, definition); registerErr != nil {
+		t.Fatalf("register workflow: %v", registerErr)
 	}
 
-	transitions, err := engine.AvailableTransitions(ctx, interfaces.TransitionQuery{
+	transitions, err := engine.AvailableTransitions(ctx, TransitionQuery{
 		EntityType: "ARTICLE",
 		State:      "DRAFT",
 	})
@@ -261,18 +260,18 @@ func TestEngine_NoOpTransitionSkipsMachine(t *testing.T) {
 		t.Fatalf("new engine: %v", err)
 	}
 
-	definition := interfaces.WorkflowDefinition{
+	definition := WorkflowDefinition{
 		EntityType: "article",
-		States: []interfaces.WorkflowStateDefinition{
+		States: []WorkflowStateDefinition{
 			{Name: "draft"},
 		},
 	}
-	if err := engine.RegisterWorkflow(ctx, definition); err != nil {
-		t.Fatalf("register workflow: %v", err)
+	if registerErr := engine.RegisterWorkflow(ctx, definition); registerErr != nil {
+		t.Fatalf("register workflow: %v", registerErr)
 	}
 
 	entityID := uuid.New()
-	result, err := engine.Transition(ctx, interfaces.TransitionInput{
+	result, err := engine.Transition(ctx, TransitionInput{
 		EntityID:     entityID,
 		EntityType:   "article",
 		CurrentState: "draft",
@@ -293,25 +292,25 @@ func TestEngine_NoOpTransitionSkipsMachine(t *testing.T) {
 }
 
 type stubMachine struct {
-	transitionResult *interfaces.TransitionResult
+	transitionResult *TransitionResult
 	transitionErr    error
-	transitions      []interfaces.WorkflowTransition
+	transitions      []WorkflowTransition
 	availableErr     error
 	registerErr      error
 
 	transitionCalled bool
-	lastInput        interfaces.TransitionInput
-	lastQuery        interfaces.TransitionQuery
+	lastInput        TransitionInput
+	lastQuery        TransitionQuery
 }
 
-func (s *stubMachine) Transition(_ context.Context, input interfaces.TransitionInput) (*interfaces.TransitionResult, error) {
+func (s *stubMachine) Transition(_ context.Context, input TransitionInput) (*TransitionResult, error) {
 	s.transitionCalled = true
 	s.lastInput = input
 	if s.transitionErr != nil {
 		return nil, s.transitionErr
 	}
 	if s.transitionResult == nil {
-		return &interfaces.TransitionResult{
+		return &TransitionResult{
 			EntityID:    input.EntityID,
 			EntityType:  input.EntityType,
 			Transition:  input.Transition,
@@ -329,17 +328,17 @@ func (s *stubMachine) Transition(_ context.Context, input interfaces.TransitionI
 	return &clone, nil
 }
 
-func (s *stubMachine) AvailableTransitions(_ context.Context, query interfaces.TransitionQuery) ([]interfaces.WorkflowTransition, error) {
+func (s *stubMachine) AvailableTransitions(_ context.Context, query TransitionQuery) ([]WorkflowTransition, error) {
 	s.lastQuery = query
 	if s.availableErr != nil {
 		return nil, s.availableErr
 	}
-	out := make([]interfaces.WorkflowTransition, len(s.transitions))
+	out := make([]WorkflowTransition, len(s.transitions))
 	copy(out, s.transitions)
 	return out, nil
 }
 
-func (s *stubMachine) RegisterWorkflow(_ context.Context, _ interfaces.WorkflowDefinition) error {
+func (s *stubMachine) RegisterWorkflow(_ context.Context, _ WorkflowDefinition) error {
 	if s.registerErr != nil {
 		return s.registerErr
 	}
@@ -350,10 +349,10 @@ type stubAuthorizer struct {
 	err       error
 	calls     int
 	lastGuard string
-	lastInput interfaces.TransitionInput
+	lastInput TransitionInput
 }
 
-func (s *stubAuthorizer) AuthorizeTransition(_ context.Context, input interfaces.TransitionInput, guard string) error {
+func (s *stubAuthorizer) AuthorizeTransition(_ context.Context, input TransitionInput, guard string) error {
 	s.calls++
 	s.lastGuard = guard
 	s.lastInput = input
