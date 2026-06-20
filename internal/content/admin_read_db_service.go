@@ -59,38 +59,36 @@ type adminContentDBExpressions struct {
 	contentType        string
 }
 
+type adminContentDBReadScope struct {
+	envID              uuid.UUID
+	requestedLocale    string
+	fallbackLocale     string
+	primaryLocaleID    uuid.UUID
+	primaryLocaleCode  string
+	fallbackLocaleID   uuid.UUID
+	fallbackLocaleCode string
+	includeData        bool
+	includeMetadata    bool
+	includeBlocks      bool
+}
+
 func (s *adminContentDBReadService) List(ctx context.Context, opts interfaces.AdminContentListOptions) ([]interfaces.AdminContentRecord, int, error) {
-	if s == nil || s.base == nil || s.base.content == nil {
-		return nil, 0, errors.New("content: admin read service requires content service")
+	if err := s.requireAdminContentDBReadService(); err != nil {
+		return nil, 0, err
 	}
-	if s.db == nil {
-		return nil, 0, errors.New("content: admin read service requires database")
-	}
-
-	requestedLocale := sharedi18n.NormalizeLocale(opts.Locale)
-	fallbackLocale := sharedi18n.NormalizeLocale(opts.FallbackLocale)
-	includeData, includeMetadata, includeBlocks := resolveAdminContentIncludes(true, opts.IncludeData, opts.IncludeMetadata, opts.IncludeBlocks, opts.DefaultIncludes)
-
-	envID, err := resolveAdminContentEnvironment(ctx, s.base.content, opts.EnvironmentKey)
+	scope, err := s.prepareAdminContentDBReadScope(ctx, opts.EnvironmentKey, opts.Locale, opts.FallbackLocale, opts.IncludeData, opts.IncludeMetadata, opts.IncludeBlocks, opts.DefaultIncludes)
 	if err != nil {
 		return nil, 0, err
 	}
-	primaryLocaleID, primaryLocaleCode, err := s.resolveAdminContentLocale(ctx, requestedLocale)
-	if err != nil {
-		return nil, 0, err
-	}
-	fallbackLocaleID, fallbackLocaleCode, err := s.resolveAdminContentLocale(ctx, fallbackLocale)
-	if err != nil {
-		return nil, 0, err
-	}
-	primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode = dedupeAdminContentLocales(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 
-	countQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
-	applyAdminContentDBEnvironment(countQuery, envID)
+	countQuery, expr := s.newAdminContentDBScopedQuery(scope)
+	applyAdminContentDBEnvironment(countQuery, scope.envID)
 	applyAdminContentDBContentTypeScope(countQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if ok, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterRowScope); err != nil {
+	filtersOK, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterRowScope)
+	if err != nil {
 		return nil, 0, err
-	} else if !ok {
+	}
+	if !filtersOK {
 		return []interfaces.AdminContentRecord{}, 0, nil
 	}
 	total, err := countQuery.Count(ctx)
@@ -98,12 +96,14 @@ func (s *adminContentDBReadService) List(ctx context.Context, opts interfaces.Ad
 		return nil, 0, err
 	}
 
-	listQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
-	applyAdminContentDBEnvironment(listQuery, envID)
+	listQuery, expr := s.newAdminContentDBScopedQuery(scope)
+	applyAdminContentDBEnvironment(listQuery, scope.envID)
 	applyAdminContentDBContentTypeScope(listQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if ok, err := applyAdminContentDBFilters(listQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterRowScope); err != nil {
+	filtersOK, err = applyAdminContentDBFilters(listQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterRowScope)
+	if err != nil {
 		return nil, 0, err
-	} else if !ok {
+	}
+	if !filtersOK {
 		return []interfaces.AdminContentRecord{}, 0, nil
 	}
 	applyAdminContentDBSort(listQuery, expr, opts.SortBy, opts.SortDesc)
@@ -124,7 +124,7 @@ func (s *adminContentDBReadService) List(ctx context.Context, opts interfaces.Ad
 		if err != nil {
 			return nil, 0, err
 		}
-		item, err := s.base.buildRecord(ctx, record, requestedLocale, fallbackLocale, opts.AllowMissingTranslations, includeData, includeMetadata, includeBlocks)
+		item, err := s.base.buildRecord(ctx, record, scope.requestedLocale, scope.fallbackLocale, opts.AllowMissingTranslations, scope.includeData, scope.includeMetadata, scope.includeBlocks)
 		if err != nil {
 			return nil, 0, err
 		}
@@ -139,42 +139,16 @@ func (s *adminContentDBReadService) ListFamilies(ctx context.Context, opts inter
 		Page:    normalizedAdminContentPage(opts.Page),
 		PerPage: normalizedAdminContentPerPage(opts.PerPage),
 	}
-	if s == nil || s.base == nil || s.base.content == nil {
-		return result, errors.New("content: admin read service requires content service")
+	if err := s.requireAdminContentDBReadService(); err != nil {
+		return result, err
 	}
-	if s.db == nil {
-		return result, errors.New("content: admin read service requires database")
-	}
-
-	requestedLocale := sharedi18n.NormalizeLocale(opts.Locale)
-	fallbackLocale := sharedi18n.NormalizeLocale(opts.FallbackLocale)
-	includeData, includeMetadata, includeBlocks := resolveAdminContentIncludes(true, opts.IncludeData, opts.IncludeMetadata, opts.IncludeBlocks, opts.DefaultIncludes)
-
-	envID, err := resolveAdminContentEnvironment(ctx, s.base.content, opts.EnvironmentKey)
+	scope, err := s.prepareAdminContentDBReadScope(ctx, opts.EnvironmentKey, opts.Locale, opts.FallbackLocale, opts.IncludeData, opts.IncludeMetadata, opts.IncludeBlocks, opts.DefaultIncludes)
 	if err != nil {
 		return result, err
 	}
-	primaryLocaleID, primaryLocaleCode, err := s.resolveAdminContentLocale(ctx, requestedLocale)
-	if err != nil {
-		return result, err
-	}
-	fallbackLocaleID, fallbackLocaleCode, err := s.resolveAdminContentLocale(ctx, fallbackLocale)
-	if err != nil {
-		return result, err
-	}
-	primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode = dedupeAdminContentLocales(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
 
-	countQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
-	applyAdminContentDBEnvironment(countQuery, envID)
-	applyAdminContentDBContentTypeScope(countQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if ok, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope); err != nil {
-		return result, err
-	} else if !ok {
-		return result, nil
-	}
-	countQuery.Where(expr.familyID + " IS NOT NULL")
-	var familyTotal int
-	if err := countQuery.ColumnExpr("COUNT(DISTINCT "+expr.familyID+")").Scan(ctx, &familyTotal); err != nil {
+	familyTotal, err := s.countAdminContentDBFamilies(ctx, scope, opts)
+	if err != nil {
 		return result, err
 	}
 	result.FamilyTotal = familyTotal
@@ -182,61 +156,96 @@ func (s *adminContentDBReadService) ListFamilies(ctx context.Context, opts inter
 		return result, nil
 	}
 
-	contentCountQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
-	applyAdminContentDBEnvironment(contentCountQuery, envID)
-	applyAdminContentDBContentTypeScope(contentCountQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if ok, err := applyAdminContentDBFilters(contentCountQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope); err != nil {
+	contentTotal, err := s.countAdminContentDBFamilyContent(ctx, scope, opts)
+	if err != nil {
 		return result, err
-	} else if ok {
-		contentCountQuery.Where(expr.familyID + " IS NOT NULL")
-		total, err := contentCountQuery.Count(ctx)
-		if err != nil {
-			return result, err
-		}
-		result.ContentTotal = total
 	}
+	result.ContentTotal = contentTotal
 
-	pageQuery, expr := s.newAdminContentDBQuery(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
-	applyAdminContentDBEnvironment(pageQuery, envID)
-	applyAdminContentDBContentTypeScope(pageQuery, opts.ContentTypeID, opts.ContentTypeSlug)
-	if ok, err := applyAdminContentDBFilters(pageQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope); err != nil {
-		return result, err
-	} else if !ok {
-		return result, nil
-	}
-	pageQuery.Where(expr.familyID + " IS NOT NULL")
-	pageQuery.ColumnExpr(expr.familyID + " AS family_id")
-	pageQuery.GroupExpr(expr.familyID)
-	if err := applyAdminContentDBFamilySort(pageQuery, expr, opts.SortBy, opts.SortDesc); err != nil {
-		return result, err
-	}
-	applyAdminContentDBPagination(pageQuery, result.Page, result.PerPage)
-
-	var familyRows []adminContentDBFamilyPageRow
-	if err := pageQuery.Scan(ctx, &familyRows); err != nil {
+	familyRows, err := s.listAdminContentDBFamilyPageRows(ctx, scope, opts, result.Page, result.PerPage)
+	if err != nil {
 		return result, err
 	}
 	if len(familyRows) == 0 {
 		return result, nil
 	}
 
-	familyIDs := make([]uuid.UUID, 0, len(familyRows))
-	familyOrder := make([]string, 0, len(familyRows))
-	for _, row := range familyRows {
+	familyIDs, familyOrder := adminContentDBFamilyPageIDs(familyRows)
+	if len(familyIDs) == 0 {
+		return result, nil
+	}
+
+	variantRecords, err := s.loadAdminContentDBFamilyVariants(ctx, scope.envID, opts.ContentTypeID, opts.ContentTypeSlug, familyIDs, scope.requestedLocale, scope.includeData, scope.includeMetadata, scope.includeBlocks, opts.AllowMissingTranslations)
+	if err != nil {
+		return result, err
+	}
+	result.Families = buildAdminContentDBFamilyRecords(familyOrder, variantRecords, scope.requestedLocale, opts.Fields)
+	return result, nil
+}
+
+func (s *adminContentDBReadService) countAdminContentDBFamilies(ctx context.Context, scope adminContentDBReadScope, opts interfaces.AdminContentFamilyListOptions) (int, error) {
+	countQuery, expr := s.newAdminContentDBScopedQuery(scope)
+	applyAdminContentDBEnvironment(countQuery, scope.envID)
+	applyAdminContentDBContentTypeScope(countQuery, opts.ContentTypeID, opts.ContentTypeSlug)
+	filtersOK, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope)
+	if err != nil || !filtersOK {
+		return 0, err
+	}
+	countQuery.Where(expr.familyID + " IS NOT NULL")
+	var familyTotal int
+	err = countQuery.ColumnExpr("COUNT(DISTINCT "+expr.familyID+")").Scan(ctx, &familyTotal)
+	return familyTotal, err
+}
+
+func (s *adminContentDBReadService) countAdminContentDBFamilyContent(ctx context.Context, scope adminContentDBReadScope, opts interfaces.AdminContentFamilyListOptions) (int, error) {
+	countQuery, expr := s.newAdminContentDBScopedQuery(scope)
+	applyAdminContentDBEnvironment(countQuery, scope.envID)
+	applyAdminContentDBContentTypeScope(countQuery, opts.ContentTypeID, opts.ContentTypeSlug)
+	filtersOK, err := applyAdminContentDBFilters(countQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope)
+	if err != nil || !filtersOK {
+		return 0, err
+	}
+	countQuery.Where(expr.familyID + " IS NOT NULL")
+	return countQuery.Count(ctx)
+}
+
+func (s *adminContentDBReadService) listAdminContentDBFamilyPageRows(ctx context.Context, scope adminContentDBReadScope, opts interfaces.AdminContentFamilyListOptions, pageNum int, perPage int) ([]adminContentDBFamilyPageRow, error) {
+	pageQuery, expr := s.newAdminContentDBScopedQuery(scope)
+	applyAdminContentDBEnvironment(pageQuery, scope.envID)
+	applyAdminContentDBContentTypeScope(pageQuery, opts.ContentTypeID, opts.ContentTypeSlug)
+	filtersOK, err := applyAdminContentDBFilters(pageQuery, expr, opts.Filters, opts.Search, adminContentDBDynamicFilterFamilyScope)
+	if err != nil || !filtersOK {
+		return nil, err
+	}
+	pageQuery.Where(expr.familyID + " IS NOT NULL")
+	pageQuery.ColumnExpr(expr.familyID + " AS family_id")
+	pageQuery.GroupExpr(expr.familyID)
+	if err := applyAdminContentDBFamilySort(pageQuery, expr, opts.SortBy, opts.SortDesc); err != nil {
+		return nil, err
+	}
+	applyAdminContentDBPagination(pageQuery, pageNum, perPage)
+
+	var rows []adminContentDBFamilyPageRow
+	if err := pageQuery.Scan(ctx, &rows); err != nil {
+		return nil, err
+	}
+	return rows, nil
+}
+
+func adminContentDBFamilyPageIDs(rows []adminContentDBFamilyPageRow) ([]uuid.UUID, []string) {
+	familyIDs := make([]uuid.UUID, 0, len(rows))
+	familyOrder := make([]string, 0, len(rows))
+	for _, row := range rows {
 		if row.FamilyID == uuid.Nil {
 			continue
 		}
 		familyIDs = append(familyIDs, row.FamilyID)
 		familyOrder = append(familyOrder, row.FamilyID.String())
 	}
-	if len(familyIDs) == 0 {
-		return result, nil
-	}
+	return familyIDs, familyOrder
+}
 
-	variantRecords, err := s.loadAdminContentDBFamilyVariants(ctx, envID, opts.ContentTypeID, opts.ContentTypeSlug, familyIDs, requestedLocale, includeData, includeMetadata, includeBlocks, opts.AllowMissingTranslations)
-	if err != nil {
-		return result, err
-	}
+func buildAdminContentDBFamilyRecords(familyOrder []string, variantRecords []interfaces.AdminContentRecord, requestedLocale string, fields []string) []interfaces.AdminContentFamilyRecord {
 	byFamily := map[string][]interfaces.AdminContentRecord{}
 	for _, record := range variantRecords {
 		familyID := adminContentRecordFamilyID(record)
@@ -265,11 +274,49 @@ func (s *adminContentDBReadService) ListFamilies(ctx context.Context, opts inter
 			Status:           parent.Status,
 			Data:             parent.Data,
 			Metadata:         parent.Metadata,
-			Variants:         projectAdminContentRecords(variants, opts.Fields),
+			Variants:         projectAdminContentRecords(variants, fields),
 		})
 	}
-	result.Families = families
-	return result, nil
+	return families
+}
+
+func (s *adminContentDBReadService) requireAdminContentDBReadService() error {
+	if s == nil || s.base == nil || s.base.content == nil {
+		return errors.New("content: admin read service requires content service")
+	}
+	if s.db == nil {
+		return errors.New("content: admin read service requires database")
+	}
+	return nil
+}
+
+func (s *adminContentDBReadService) prepareAdminContentDBReadScope(ctx context.Context, envKey string, locale string, fallbackLocale string, includeData bool, includeMetadata bool, includeBlocks bool, defaults *interfaces.AdminContentIncludeDefaults) (adminContentDBReadScope, error) {
+	scope := adminContentDBReadScope{
+		requestedLocale: sharedi18n.NormalizeLocale(locale),
+		fallbackLocale:  sharedi18n.NormalizeLocale(fallbackLocale),
+	}
+	scope.includeData, scope.includeMetadata, scope.includeBlocks = resolveAdminContentIncludes(true, includeData, includeMetadata, includeBlocks, defaults)
+
+	envID, err := resolveAdminContentEnvironment(ctx, s.base.content, envKey)
+	if err != nil {
+		return scope, err
+	}
+	scope.envID = envID
+
+	primaryLocaleID, primaryLocaleCode, err := s.resolveAdminContentLocale(ctx, scope.requestedLocale)
+	if err != nil {
+		return scope, err
+	}
+	fallbackLocaleID, fallbackLocaleCode, err := s.resolveAdminContentLocale(ctx, scope.fallbackLocale)
+	if err != nil {
+		return scope, err
+	}
+	scope.primaryLocaleID, scope.primaryLocaleCode, scope.fallbackLocaleID, scope.fallbackLocaleCode = dedupeAdminContentLocales(primaryLocaleID, primaryLocaleCode, fallbackLocaleID, fallbackLocaleCode)
+	return scope, nil
+}
+
+func (s *adminContentDBReadService) newAdminContentDBScopedQuery(scope adminContentDBReadScope) (*bun.SelectQuery, adminContentDBExpressions) {
+	return s.newAdminContentDBQuery(scope.primaryLocaleID, scope.primaryLocaleCode, scope.fallbackLocaleID, scope.fallbackLocaleCode)
 }
 
 func (s *adminContentDBReadService) Get(ctx context.Context, id string, opts interfaces.AdminContentGetOptions) (*interfaces.AdminContentRecord, error) {
@@ -584,7 +631,7 @@ func applyAdminContentDBTargetFilterPredicate(query *bun.SelectQuery, target adm
 	args := append([]any{}, target.Args...)
 	switch strings.ToLower(strings.TrimSpace(predicate.Operator)) {
 	case "in", "eq", "":
-		args = append(args, bun.In(values))
+		args = append(args, bun.List(values))
 		query.Where("LOWER(COALESCE("+target.Expr+", '')) IN (?)", args...)
 	case "ilike":
 		query.WhereGroup(" AND ", func(q *bun.SelectQuery) *bun.SelectQuery {
@@ -601,7 +648,7 @@ func applyAdminContentDBDynamicFilterPredicate(query *bun.SelectQuery, target ad
 	}
 	switch strings.ToLower(strings.TrimSpace(predicate.Operator)) {
 	case "in", "eq", "":
-		query.Where("EXISTS (SELECT 1 FROM content_translations AS ct_filter WHERE ct_filter.content_id = c.id AND LOWER(COALESCE("+target.Expr+", '')) IN (?))", bun.In(values))
+		query.Where("EXISTS (SELECT 1 FROM content_translations AS ct_filter WHERE ct_filter.content_id = c.id AND LOWER(COALESCE("+target.Expr+", '')) IN (?))", bun.List(values))
 	case "ilike":
 		condition, args := adminContentDBLikeExistsCondition("LOWER(COALESCE("+target.Expr+", ''))", values)
 		query.Where("EXISTS (SELECT 1 FROM content_translations AS ct_filter WHERE ct_filter.content_id = c.id AND "+condition+")", args...)
@@ -713,43 +760,58 @@ func normalizeAdminContentFilterValues(filter any, normalize func(string) string
 			return strings.TrimSpace(value)
 		}
 	}
-	var values []string
 	switch typed := filter.(type) {
 	case string:
-		for _, part := range strings.Split(typed, ",") {
-			if text := normalize(part); text != "" {
-				values = append(values, text)
-			}
-		}
+		return normalizeAdminContentStringFilterValues(typed, normalize), true
 	case []string:
-		if len(typed) == 0 {
-			return nil, true
-		}
-		for _, entry := range typed {
-			if text := normalize(entry); text != "" {
-				values = append(values, text)
-			}
-		}
+		return normalizeAdminContentStringSliceFilterValues(typed, normalize), true
 	case []any:
-		if len(typed) == 0 {
-			return nil, true
-		}
-		hasString := false
-		for _, entry := range typed {
-			if text, ok := entry.(string); ok {
-				if normalized := normalize(text); normalized != "" {
-					values = append(values, normalized)
-				}
-				hasString = true
-			}
-		}
-		if !hasString {
-			return nil, false
-		}
+		return normalizeAdminContentAnySliceFilterValues(typed, normalize)
 	default:
 		return nil, false
 	}
-	return values, true
+}
+
+func normalizeAdminContentStringFilterValues(value string, normalize func(string) string) []string {
+	var values []string
+	for part := range strings.SplitSeq(value, ",") {
+		if text := normalize(part); text != "" {
+			values = append(values, text)
+		}
+	}
+	return values
+}
+
+func normalizeAdminContentStringSliceFilterValues(entries []string, normalize func(string) string) []string {
+	if len(entries) == 0 {
+		return nil
+	}
+	values := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if text := normalize(entry); text != "" {
+			values = append(values, text)
+		}
+	}
+	return values
+}
+
+func normalizeAdminContentAnySliceFilterValues(entries []any, normalize func(string) string) ([]string, bool) {
+	if len(entries) == 0 {
+		return nil, true
+	}
+	values := make([]string, 0, len(entries))
+	hasString := false
+	for _, entry := range entries {
+		text, ok := entry.(string)
+		if !ok {
+			continue
+		}
+		if normalized := normalize(text); normalized != "" {
+			values = append(values, normalized)
+		}
+		hasString = true
+	}
+	return values, hasString
 }
 
 func applyAdminContentDBSort(query *bun.SelectQuery, expr adminContentDBExpressions, sortBy string, desc bool) {
@@ -836,7 +898,7 @@ func (s *adminContentDBReadService) loadAdminContentDBFamilyVariants(ctx context
 		TableExpr("contents AS c").
 		Join("JOIN content_translations AS ct ON ct.content_id = c.id").
 		Join("LEFT JOIN content_types AS ctype ON ctype.id = c.content_type_id").
-		Where("ct.family_id IN (?)", bun.In(familyIDs)).
+		Where("ct.family_id IN (?)", bun.List(familyIDs)).
 		ColumnExpr("DISTINCT c.id AS id").
 		OrderExpr("c.id ASC")
 	applyAdminContentDBEnvironment(query, envID)
@@ -850,12 +912,7 @@ func (s *adminContentDBReadService) loadAdminContentDBFamilyVariants(ctx context
 		return nil, nil
 	}
 
-	selected := make(map[string]struct{}, len(familyIDs))
-	for _, familyID := range familyIDs {
-		if familyID != uuid.Nil {
-			selected[familyID.String()] = struct{}{}
-		}
-	}
+	selected := adminContentDBSelectedFamilyIDs(familyIDs)
 	records := make([]interfaces.AdminContentRecord, 0, len(rows))
 	for _, row := range rows {
 		record, err := s.base.content.Get(ctx, row.ID, WithTranslations(), WithProjection(ContentProjectionAdmin))
@@ -865,25 +922,48 @@ func (s *adminContentDBReadService) loadAdminContentDBFamilyVariants(ctx context
 		if record == nil {
 			continue
 		}
-		for _, translation := range record.Translations {
-			if translation == nil || translation.FamilyID == nil || *translation.FamilyID == uuid.Nil {
-				continue
-			}
-			if _, ok := selected[translation.FamilyID.String()]; !ok {
-				continue
-			}
-			locale := s.base.localeCode(ctx, translation)
-			if locale == "" {
-				continue
-			}
-			item, err := s.base.buildRecord(ctx, record, locale, requestedLocale, allowMissing, includeData, includeMetadata, includeBlocks)
-			if err != nil {
-				return nil, err
-			}
-			records = append(records, item)
+		records, err = s.appendAdminContentDBFamilyVariantRecords(ctx, records, record, selected, requestedLocale, includeData, includeMetadata, includeBlocks, allowMissing)
+		if err != nil {
+			return nil, err
 		}
 	}
 	return records, nil
+}
+
+func adminContentDBSelectedFamilyIDs(familyIDs []uuid.UUID) map[string]struct{} {
+	selected := make(map[string]struct{}, len(familyIDs))
+	for _, familyID := range familyIDs {
+		if familyID != uuid.Nil {
+			selected[familyID.String()] = struct{}{}
+		}
+	}
+	return selected
+}
+
+func (s *adminContentDBReadService) appendAdminContentDBFamilyVariantRecords(ctx context.Context, records []interfaces.AdminContentRecord, record *Content, selected map[string]struct{}, requestedLocale string, includeData bool, includeMetadata bool, includeBlocks bool, allowMissing bool) ([]interfaces.AdminContentRecord, error) {
+	for _, translation := range record.Translations {
+		if !adminContentDBTranslationSelected(translation, selected) {
+			continue
+		}
+		locale := s.base.localeCode(ctx, translation)
+		if locale == "" {
+			continue
+		}
+		item, err := s.base.buildRecord(ctx, record, locale, requestedLocale, allowMissing, includeData, includeMetadata, includeBlocks)
+		if err != nil {
+			return nil, err
+		}
+		records = append(records, item)
+	}
+	return records, nil
+}
+
+func adminContentDBTranslationSelected(translation *ContentTranslation, selected map[string]struct{}) bool {
+	if translation == nil || translation.FamilyID == nil || *translation.FamilyID == uuid.Nil {
+		return false
+	}
+	_, ok := selected[translation.FamilyID.String()]
+	return ok
 }
 
 func adminContentRecordFamilyID(record interfaces.AdminContentRecord) string {
