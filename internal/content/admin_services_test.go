@@ -475,6 +475,272 @@ func TestAdminContentDBReadServiceListFiltersByResolvedLocaleAndSearch(t *testin
 	}
 }
 
+func TestAdminContentDBReadServiceListFiltersByTranslationDataField(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	contentType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "News",
+		Slug:   "news",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	matchingFamilyID := uuid.New()
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "archive-release", "published", []ContentTranslationInput{
+		{Locale: "en", FamilyID: &matchingFamilyID, Title: "Archive Release", Content: map[string]any{"path": "/en/news/archive-release"}},
+		{Locale: "bo", FamilyID: &matchingFamilyID, Title: "Archive Release BO", Content: map[string]any{"path": "/bo/news/archive-release"}},
+	})
+	otherFamilyID := uuid.New()
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "other-news", "published", []ContentTranslationInput{
+		{Locale: "en", FamilyID: &otherFamilyID, Title: "Other News", Content: map[string]any{"path": "/en/news/other-news"}},
+		{Locale: "bo", FamilyID: &otherFamilyID, Title: "Other News BO", Content: map[string]any{"path": "/bo/news/other-news"}},
+	})
+
+	records, total, err := adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID:            contentType.ID.String(),
+		Locale:                   "en",
+		AllowMissingTranslations: true,
+		IncludeData:              true,
+		Filters:                  map[string]any{"path__ilike": "/bo/news/archive-release"},
+	})
+	if err != nil {
+		t.Fatalf("list with non-visible path filter: %v", err)
+	}
+	if total != 0 || len(records) != 0 {
+		t.Fatalf("expected flat path filter to match visible row data only, got total=%d len=%d records=%+v", total, len(records), records)
+	}
+
+	records, total, err = adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID:            contentType.ID.String(),
+		Locale:                   "en",
+		AllowMissingTranslations: true,
+		IncludeData:              true,
+		Filters:                  map[string]any{"path__ilike": "/en/news/archive-release"},
+	})
+	if err != nil {
+		t.Fatalf("list with path filter: %v", err)
+	}
+	if total != 1 || len(records) != 1 {
+		t.Fatalf("expected one path-filtered record, got total=%d len=%d", total, len(records))
+	}
+	if records[0].Slug != "archive-release" {
+		t.Fatalf("expected archive-release record, got %+v", records[0])
+	}
+}
+
+func TestAdminContentDBReadServiceListFiltersByCSVInValue(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	contentType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "News",
+		Slug:   "news",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "draft-news", "draft", []ContentTranslationInput{
+		{Locale: "en", Title: "Draft News", Content: map[string]any{"path": "/en/news/draft"}},
+	})
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "published-news", "published", []ContentTranslationInput{
+		{Locale: "en", Title: "Published News", Content: map[string]any{"path": "/en/news/published"}},
+	})
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "archived-news", "archived", []ContentTranslationInput{
+		{Locale: "en", Title: "Archived News", Content: map[string]any{"path": "/en/news/archived"}},
+	})
+
+	records, total, err := adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID: contentType.ID.String(),
+		Locale:        "en",
+		Filters:       map[string]any{"status__in": "draft,published"},
+	})
+	if err != nil {
+		t.Fatalf("list with csv in filter: %v", err)
+	}
+	if total != 2 || len(records) != 2 {
+		t.Fatalf("expected two csv-in records, got total=%d len=%d records=%+v", total, len(records), records)
+	}
+	for _, record := range records {
+		if record.Status == "archived" {
+			t.Fatalf("did not expect archived record in csv-in results: %+v", records)
+		}
+	}
+
+	records, total, err = adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID: contentType.ID.String(),
+		Locale:        "en",
+		Filters:       map[string]any{"slug__ilike": "published"},
+	})
+	if err != nil {
+		t.Fatalf("list with native ilike filter: %v", err)
+	}
+	if total != 1 || len(records) != 1 || records[0].Slug != "published-news" {
+		t.Fatalf("expected one native ilike record, got total=%d records=%+v", total, records)
+	}
+}
+
+func TestAdminContentDBReadServiceListFiltersEscapesLikeWildcards(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	contentType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "News",
+		Slug:   "news",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "literal-underscore", "published", []ContentTranslationInput{
+		{Locale: "en", Title: "Literal Underscore", Content: map[string]any{"path": "/en/news/under_score"}},
+	})
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "wildcard-candidate", "published", []ContentTranslationInput{
+		{Locale: "en", Title: "Wildcard Candidate", Content: map[string]any{"path": "/en/news/underXscore"}},
+	})
+
+	records, total, err := adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID: contentType.ID.String(),
+		Locale:        "en",
+		IncludeData:   true,
+		Filters:       map[string]any{"path__ilike": "under_score"},
+	})
+	if err != nil {
+		t.Fatalf("list with literal wildcard filter: %v", err)
+	}
+	if total != 1 || len(records) != 1 {
+		t.Fatalf("expected one literal underscore match, got total=%d len=%d records=%+v", total, len(records), records)
+	}
+	if records[0].Slug != "literal-underscore" {
+		t.Fatalf("expected literal underscore record, got %+v", records[0])
+	}
+}
+
+func TestAdminContentDBReadServiceListFamiliesFiltersByTranslationDataField(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	contentType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "News",
+		Slug:   "news",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	matchingFamilyID := uuid.New()
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "archive-release", "published", []ContentTranslationInput{
+		{Locale: "en", FamilyID: &matchingFamilyID, Title: "Archive Release", Content: map[string]any{"path": "/en/news/archive-release"}},
+		{Locale: "bo", FamilyID: &matchingFamilyID, Title: "Archive Release BO", Content: map[string]any{"path": "/bo/news/archive-release"}},
+	})
+	otherFamilyID := uuid.New()
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "other-news", "published", []ContentTranslationInput{
+		{Locale: "en", FamilyID: &otherFamilyID, Title: "Other News", Content: map[string]any{"path": "/en/news/other-news"}},
+		{Locale: "bo", FamilyID: &otherFamilyID, Title: "Other News BO", Content: map[string]any{"path": "/bo/news/other-news"}},
+	})
+
+	familyRead, ok := adminRead.(interfaces.AdminContentFamilyReadService)
+	if !ok {
+		t.Fatalf("expected DB admin read service to expose optimized family reads")
+	}
+	result, err := familyRead.ListFamilies(ctx, interfaces.AdminContentFamilyListOptions{
+		ContentTypeID:            contentType.ID.String(),
+		Locale:                   "en",
+		AllowMissingTranslations: true,
+		IncludeData:              true,
+		Filters:                  map[string]any{"path__ilike": "/bo/news/archive-release"},
+	})
+	if err != nil {
+		t.Fatalf("list families with path filter: %v", err)
+	}
+	if result.FamilyTotal != 1 || len(result.Families) != 1 {
+		t.Fatalf("expected one path-filtered family, got total=%d len=%d", result.FamilyTotal, len(result.Families))
+	}
+	if result.Families[0].FamilyID != matchingFamilyID.String() {
+		t.Fatalf("expected matching family %s, got %+v", matchingFamilyID, result.Families[0])
+	}
+	if len(result.Families[0].Variants) != 2 {
+		t.Fatalf("expected family variants to remain hydrated, got %+v", result.Families[0].Variants)
+	}
+}
+
+func TestAdminContentDBReadServiceListDeclinesUnsupportedFilterOperator(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	contentType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "News",
+		Slug:   "news",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "archive-release", "published", []ContentTranslationInput{
+		{Locale: "en", Title: "Archive Release", Content: map[string]any{"path": "/en/news/archive-release"}},
+	})
+
+	_, _, err = adminRead.List(ctx, interfaces.AdminContentListOptions{
+		ContentTypeID: contentType.ID.String(),
+		Locale:        "en",
+		Filters:       map[string]any{"path__contains": "archive"},
+	})
+	if !errors.Is(err, interfaces.ErrAdminContentFamilyReadUnsupported) {
+		t.Fatalf("expected unsupported read error, got %v", err)
+	}
+}
+
+func TestAdminContentDBReadServiceListFamiliesDeclinesUnsupportedFilterOperator(t *testing.T) {
+	ctx := context.Background()
+	bunDB, service, typeRepo, localeRepo := newAdminContentDBTestFixture(t)
+	adminRead := NewAdminContentDBReadService(bunDB, service, NewContentTypeService(typeRepo), localeRepo, nil)
+
+	contentType, err := typeRepo.Create(ctx, &ContentType{
+		ID:     uuid.New(),
+		Name:   "News",
+		Slug:   "news",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+
+	familyID := uuid.New()
+	createAdminContentDBRecord(t, ctx, service, contentType.ID, "archive-release", "published", []ContentTranslationInput{
+		{Locale: "en", FamilyID: &familyID, Title: "Archive Release", Content: map[string]any{"path": "/en/news/archive-release"}},
+	})
+
+	familyRead, ok := adminRead.(interfaces.AdminContentFamilyReadService)
+	if !ok {
+		t.Fatalf("expected DB admin read service to expose optimized family reads")
+	}
+	_, err = familyRead.ListFamilies(ctx, interfaces.AdminContentFamilyListOptions{
+		ContentTypeID: contentType.ID.String(),
+		Locale:        "en",
+		Filters:       map[string]any{"path__contains": "archive"},
+	})
+	if !errors.Is(err, interfaces.ErrAdminContentFamilyReadUnsupported) {
+		t.Fatalf("expected unsupported family read error, got %v", err)
+	}
+}
+
 func newAdminContentDBTestFixture(t *testing.T) (*bun.DB, Service, ContentTypeRepository, LocaleRepository) {
 	t.Helper()
 
@@ -503,6 +769,7 @@ func newAdminContentDBTestFixture(t *testing.T) (*bun.DB, Service, ContentTypeRe
 		{ID: uuid.New(), Code: "en", Display: "English", IsActive: true, IsDefault: true},
 		{ID: uuid.New(), Code: "es", Display: "Spanish", IsActive: true},
 		{ID: uuid.New(), Code: "fr", Display: "French", IsActive: true},
+		{ID: uuid.New(), Code: "bo", Display: "Tibetan", IsActive: true},
 	} {
 		if _, err := bunDB.NewInsert().Model(locale).Exec(context.Background()); err != nil {
 			t.Fatalf("insert locale %s: %v", locale.Code, err)
