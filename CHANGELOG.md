@@ -1,5 +1,23 @@
 # Changelog
 
+# [0.58.0](https://github.com/goliatone/go-cms/compare/v0.57.0...v0.58.0) - (2026-06-20)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Apply content internal filters ([56deb02](https://github.com/goliatone/go-cms/commit/56deb022ea4743996f0c5706b9e35d5d13ccd483))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.58.0 ([3754e38](https://github.com/goliatone/go-cms/commit/3754e38df2852044aabd89953731fc93cbaa2bba))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.57.0 ([cdc94e9](https://github.com/goliatone/go-cms/commit/cdc94e9f7aaaed38b25769379a2f55b0d97728df))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tests ([64981a8](https://github.com/goliatone/go-cms/commit/64981a8628af340b5d71af4a79175b86c6ba957e))  - (goliatone)
+
 # [0.57.0](https://github.com/goliatone/go-cms/compare/v0.55.1...v0.57.0) - (2026-06-19)
 
 ## <!-- 13 -->📦 Bumps
