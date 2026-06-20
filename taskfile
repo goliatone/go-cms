@@ -185,6 +185,53 @@ function _go:default_patterns {
         "./site/..."
 }
 
+function _go:default_module_dirs {
+    printf '%s\n' \
+        "." \
+        "commands" \
+        "examples/web" \
+        "site"
+}
+
+function _go:run_in_default_modules {
+    local module_dir
+    local -a command=("$@")
+
+    while IFS= read -r module_dir; do
+        if [ -n "${module_dir}" ]; then
+            (cd "${module_dir}" && "${command[@]}" ./...) || return 1
+        fi
+    done < <(_go:default_module_dirs)
+}
+
+function _go:lint_new_from_rev {
+    if git rev-parse --verify "${GO_LINT_NEW_FROM_REV}^{commit}" >/dev/null 2>&1; then
+        printf '%s\n' "${GO_LINT_NEW_FROM_REV}"
+        return 0
+    fi
+    if git rev-parse --verify "HEAD^{commit}" >/dev/null 2>&1; then
+        printf '%s\n' "HEAD"
+        return 0
+    fi
+    printf '%s\n' "${GO_LINT_NEW_FROM_REV}"
+}
+
+function _go:lint_new_in_default_modules {
+    local golangci_lint_bin=$1
+    local module_dir
+    local rev
+
+    while IFS= read -r module_dir; do
+        if [ -n "${module_dir}" ]; then
+            (
+                cd "${module_dir}" || exit "$?"
+                rev=$(_go:lint_new_from_rev) || exit "$?"
+                "${golangci_lint_bin}" run --new-from-rev="${rev}" --whole-files ./...
+            ) || return 1
+        fi
+    done < <(_go:default_module_dirs)
+}
+
 function _go:packages {
     local go_bin
     local -a patterns=()
@@ -273,6 +320,11 @@ function go:fix {
 
     go_bin=$(_go:bin) || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${go_bin}" fix
+        return $?
+    fi
+
     while IFS= read -r pattern; do
         if [ -n "${pattern}" ]; then
             patterns+=("${pattern}")
@@ -311,6 +363,11 @@ function go:test {
 
     go_bin=$(_go:bin) || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${go_bin}" test
+        return $?
+    fi
+
     while IFS= read -r pkg; do
         if [ -n "${pkg}" ]; then
             packages+=("${pkg}")
@@ -325,6 +382,11 @@ function go:race {
 
     go_bin=$(_go:bin) || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${go_bin}" test -race -count=1
+        return $?
+    fi
+
     while IFS= read -r pkg; do
         if [ -n "${pkg}" ]; then
             packages+=("${pkg}")
@@ -370,6 +432,11 @@ function go:lint {
     version="$(_go:golangci_lint_version)" || return 1
     golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${golangci_lint_bin}" run
+        return $?
+    fi
+
     while IFS= read -r pattern; do
         if [ -n "${pattern}" ]; then
             patterns+=("${pattern}")
@@ -386,6 +453,11 @@ function go:lint:fix {
     version="$(_go:golangci_lint_version)" || return 1
     golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${golangci_lint_bin}" run --fix
+        return $?
+    fi
+
     while IFS= read -r pattern; do
         if [ -n "${pattern}" ]; then
             patterns+=("${pattern}")
@@ -402,12 +474,17 @@ function go:lint:new {
     version="$(_go:golangci_lint_version)" || return 1
     golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:lint_new_in_default_modules "${golangci_lint_bin}"
+        return $?
+    fi
+
     while IFS= read -r pattern; do
         if [ -n "${pattern}" ]; then
             patterns+=("${pattern}")
         fi
     done < <(_go:lint:patterns "$@")
-    "${golangci_lint_bin}" run --new-from-rev="${GO_LINT_NEW_FROM_REV}" --whole-files "${patterns[@]}"
+    "${golangci_lint_bin}" run --new-from-rev="$(_go:lint_new_from_rev)" --whole-files "${patterns[@]}"
 }
 
 function go:lint:report {
@@ -418,6 +495,11 @@ function go:lint:report {
     version="$(_go:golangci_lint_version)" || return 1
     golangci_lint_bin=$(_go:tool:ensure "golangci-lint" "github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${version}") || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${golangci_lint_bin}" run --issues-exit-code=0
+        return $?
+    fi
+
     while IFS= read -r pattern; do
         if [ -n "${pattern}" ]; then
             patterns+=("${pattern}")
@@ -458,6 +540,11 @@ function go:security:govulncheck {
 
     govulncheck_bin=$(_go:tool:ensure "govulncheck" "golang.org/x/vuln/cmd/govulncheck@${GO_GOVULNCHECK_VERSION}") || return 1
     _go:quality:prepare_env || return 1
+    if [ "$#" -eq 0 ]; then
+        _go:run_in_default_modules "${govulncheck_bin}"
+        return $?
+    fi
+
     while IFS= read -r pkg; do
         if [ -n "${pkg}" ]; then
             packages+=("${pkg}")
@@ -476,6 +563,11 @@ function go:security:gosec {
 	for exclude_dir in "${GO_GOSEC_EXCLUDE_DIRS[@]}"; do
 		args+=("-exclude-dir=${exclude_dir}")
 	done
+	if [ "$#" -eq 0 ]; then
+		_go:run_in_default_modules "${gosec_bin}" "${args[@]}"
+		return $?
+	fi
+
 	while IFS= read -r pattern; do
 		if [ -n "${pattern}" ]; then
 			patterns+=("${pattern}")
