@@ -1,5 +1,25 @@
 # Changelog
 
+# [0.58.1](https://github.com/goliatone/go-cms/compare/v0.58.0...v0.58.1) - (2026-06-20)
+
+## <!-- 1 -->🐛 Bug Fixes
+
+- Admin db scope ([320c5cb](https://github.com/goliatone/go-cms/commit/320c5cb150d41290d38b2cf9536862cb4e27bdef))  - (goliatone)
+
+## <!-- 13 -->📦 Bumps
+
+- Bump version: v0.58.1 ([3ad7ffd](https://github.com/goliatone/go-cms/commit/3ad7ffd90f189200343a97d591ec192775c4d9c2))  - (goliatone)
+
+## <!-- 3 -->📚 Documentation
+
+- Update changelog for v0.58.0 ([54476aa](https://github.com/goliatone/go-cms/commit/54476aa9b7dd2daa64ad660936f7151b84c88629))  - (goliatone)
+
+## <!-- 7 -->⚙️ Miscellaneous Tasks
+
+- Update tasks ([85debd4](https://github.com/goliatone/go-cms/commit/85debd410366fa82634255ff007eeeaaad1c24e5))  - (goliatone)
+- Update tests ([df2c107](https://github.com/goliatone/go-cms/commit/df2c1073374c172aba8f8d3670770fba6ae263ac))  - (goliatone)
+- Update deps ([0996b2b](https://github.com/goliatone/go-cms/commit/0996b2bcad60905f8934de9d2770ee2745554e24))  - (goliatone)
+
 # [0.58.0](https://github.com/goliatone/go-cms/compare/v0.57.0...v0.58.0) - (2026-06-20)
 
 ## <!-- 1 -->🐛 Bug Fixes
