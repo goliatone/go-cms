@@ -33,7 +33,7 @@ GO_QUALITY_BASELINE_SCRIPT="${GO_QUALITY_BASELINE_SCRIPT:-./tools/quality/baseli
 GO_QUALITY_GOCACHE="${GO_QUALITY_GOCACHE:-$(pwd)/.tmp/go-cache}"
 GO_QUALITY_GOTMPDIR="${GO_QUALITY_GOTMPDIR:-$(pwd)/.tmp/go-tmp}"
 GO_LINT_NEW_FROM_REV="${GO_LINT_NEW_FROM_REV:-origin/main}"
-GO_GOSEC_EXCLUDE_DIRS=(".tmp" ".cache" ".gocache" ".gomodcache" "node_modules" "commands" "examples/web" "internal/workflow/adapter" "site" "widgets/testdata/external_consumer")
+GO_GOSEC_EXCLUDE_DIRS=(".tmp" ".cache" ".gocache" ".gomodcache" "node_modules" "examples/web" "site" "widgets/testdata/external_consumer")
 
 
 #################################################
@@ -181,6 +181,7 @@ function _go:default_patterns {
     printf '%s\n' \
         "./..." \
         "./commands/..." \
+        "./internal/workflow/adapter/..." \
         "./examples/web/..." \
         "./site/..."
 }
@@ -189,6 +190,7 @@ function _go:default_module_dirs {
     printf '%s\n' \
         "." \
         "commands" \
+        "internal/workflow/adapter" \
         "examples/web" \
         "site"
 }
