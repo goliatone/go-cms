@@ -102,6 +102,30 @@ type AdminContentUpdateRequest struct {
 	AllowMissingTranslations bool
 }
 
+// AdminContentUpdateTranslationRequest captures admin-shaped fields for a
+// single-locale content translation update.
+type AdminContentUpdateTranslationRequest struct {
+	ID                       uuid.UUID
+	ContentTypeID            uuid.UUID
+	ContentType              string
+	ContentTypeSlug          string
+	Title                    string
+	Slug                     string
+	Locale                   string
+	FamilyID                 *uuid.UUID
+	Status                   string
+	Navigation               map[string]string
+	EffectiveMenuLocations   []string
+	Blocks                   []string
+	EmbeddedBlocks           []map[string]any
+	SchemaVersion            string
+	Data                     map[string]any
+	Metadata                 map[string]any
+	EnvironmentKey           string
+	UpdatedBy                uuid.UUID
+	AllowMissingTranslations bool
+}
+
 // AdminContentDeleteRequest captures content deletion inputs.
 type AdminContentDeleteRequest struct {
 	ID         uuid.UUID

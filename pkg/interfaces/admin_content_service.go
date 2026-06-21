@@ -38,6 +38,12 @@ type AdminContentFamilyReadService interface {
 	ListFamilies(ctx context.Context, opts AdminContentFamilyListOptions) (AdminContentFamilyListResult, error)
 }
 
+// AdminContentTranslationWriteService exposes single-locale admin mutations
+// without requiring callers to replace the full translation set.
+type AdminContentTranslationWriteService interface {
+	UpdateTranslation(ctx context.Context, req AdminContentUpdateTranslationRequest) (*AdminContentRecord, error)
+}
+
 // AdminContentWriteService exposes admin-oriented content mutations.
 type AdminContentWriteService interface {
 	Create(ctx context.Context, req AdminContentCreateRequest) (*AdminContentRecord, error)

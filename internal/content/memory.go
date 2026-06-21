@@ -94,6 +94,9 @@ func (m *MemoryContentRepository) List(_ context.Context, env ...ContentListOpti
 		if opts.contentTypeID != uuid.Nil && rec.ContentTypeID != opts.contentTypeID {
 			continue
 		}
+		if opts.familyID != uuid.Nil && !contentHasFamilyID(rec, opts.familyID) {
+			continue
+		}
 		cloned := m.attachVersions(cloneContent(rec))
 		if !opts.includeTranslations {
 			cloned.Translations = nil
@@ -101,6 +104,21 @@ func (m *MemoryContentRepository) List(_ context.Context, env ...ContentListOpti
 		out = append(out, cloned)
 	}
 	return out, nil
+}
+
+func contentHasFamilyID(record *Content, familyID uuid.UUID) bool {
+	if record == nil || familyID == uuid.Nil {
+		return false
+	}
+	for _, translation := range record.Translations {
+		if translation == nil || translation.FamilyID == nil {
+			continue
+		}
+		if *translation.FamilyID == familyID {
+			return true
+		}
+	}
+	return false
 }
 
 // Update persists metadata changes for content records.

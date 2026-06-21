@@ -19,6 +19,7 @@ const (
 	contentListProjectionPrefix     ContentListOption = "content:list:projection:"
 	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
 	contentListContentTypePrefix    ContentListOption = "content:list:content_type:"
+	contentListFamilyPrefix         ContentListOption = "content:list:family:"
 )
 
 // WithTranslations preloads translations when listing content records.
@@ -47,6 +48,12 @@ func WithContentTypeID(id uuid.UUID) ContentListOption {
 	return cmscontent.WithContentTypeID(id)
 }
 
+// WithFamilyID scopes list reads to content records that have at least one
+// translation in the requested family.
+func WithFamilyID(id uuid.UUID) ContentListOption {
+	return cmscontent.WithFamilyID(id)
+}
+
 type contentListOptions struct {
 	envKey              string
 	includeTranslations bool
@@ -54,6 +61,7 @@ type contentListOptions struct {
 	projectionMode      ProjectionTranslationMode
 	projectionModeSet   bool
 	contentTypeID       uuid.UUID
+	familyID            uuid.UUID
 }
 
 func parseContentListOptions(args ...ContentListOption) contentListOptions {
@@ -82,6 +90,12 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 			if after, ok := strings.CutPrefix(token, string(contentListContentTypePrefix)); ok {
 				if id, err := uuid.Parse(strings.TrimSpace(after)); err == nil {
 					opts.contentTypeID = id
+				}
+				continue
+			}
+			if after, ok := strings.CutPrefix(token, string(contentListFamilyPrefix)); ok {
+				if id, err := uuid.Parse(strings.TrimSpace(after)); err == nil {
+					opts.familyID = id
 				}
 				continue
 			}

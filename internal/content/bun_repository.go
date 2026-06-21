@@ -130,6 +130,9 @@ func (r *BunContentRepository) List(ctx context.Context, env ...ContentListOptio
 		if opts.contentTypeID != uuid.Nil {
 			q = q.Where("?TableAlias.content_type_id = ?", opts.contentTypeID)
 		}
+		if opts.familyID != uuid.Nil {
+			q = q.Where("EXISTS (SELECT 1 FROM content_translations ct_family WHERE ct_family.content_id = ?TableAlias.id AND ct_family.family_id = ?)", opts.familyID)
+		}
 		return q
 	}))
 	if err != nil {
