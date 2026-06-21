@@ -75,6 +75,7 @@ const (
 	contentListProjectionPrefix     ContentListOption = "content:list:projection:"
 	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
 	contentListContentTypePrefix    ContentListOption = "content:list:content_type:"
+	contentListFamilyPrefix         ContentListOption = "content:list:family:"
 )
 
 // WithTranslations preloads translations when listing or fetching content records.
@@ -116,6 +117,15 @@ func WithContentTypeID(id uuid.UUID) ContentListOption {
 		return ""
 	}
 	return ContentListOption(string(contentListContentTypePrefix) + id.String())
+}
+
+// WithFamilyID scopes list reads to content records that have at least one
+// translation in the requested family.
+func WithFamilyID(id uuid.UUID) ContentListOption {
+	if id == uuid.Nil {
+		return ""
+	}
+	return ContentListOption(string(contentListFamilyPrefix) + id.String())
 }
 
 // CreateContentRequest captures the information required to create content.
