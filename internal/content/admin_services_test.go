@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
 
 	cmsschema "github.com/goliatone/go-cms/internal/schema"
@@ -224,6 +225,79 @@ func TestAdminContentWriteServiceCreateTranslationForwardsPathRouteKeyAndMetadat
 	if got := replay["idempotency_key"]; got != "home-fr" {
 		t.Fatalf("expected translation metadata to be projected in admin record, got %+v", record.Metadata)
 	}
+}
+
+func TestAdminContentWriteServiceUpdateTranslationPreservesSiblingLocales(t *testing.T) {
+	t.Parallel()
+
+	localeRepo := NewMemoryLocaleRepository()
+	en := &Locale{ID: uuid.New(), Code: "en", Display: "English", IsActive: true, IsDefault: true}
+	bo := &Locale{ID: uuid.New(), Code: "bo", Display: "Tibetan", IsActive: true}
+	zh := &Locale{ID: uuid.New(), Code: "zh", Display: "Chinese", IsActive: true}
+	localeRepo.Put(en)
+	localeRepo.Put(bo)
+	localeRepo.Put(zh)
+
+	typeRepo := NewMemoryContentTypeRepository()
+	contentRepo := NewMemoryContentRepository()
+	service := NewService(contentRepo, typeRepo, localeRepo, WithDefaultLocale("en", true), WithEmbeddedBlocksResolver(adminContentEmbeddedResolverStub{}))
+	adminWrite := NewAdminContentWriteService(service, NewContentTypeService(typeRepo), localeRepo)
+	translationWrite, ok := adminWrite.(interfaces.AdminContentTranslationWriteService)
+	if !ok {
+		t.Fatalf("expected admin write service to expose translation update capability")
+	}
+
+	contentType, err := typeRepo.Create(context.Background(), &ContentType{
+		ID:     uuid.New(),
+		Name:   "Teaching Topic",
+		Slug:   "teaching_topic",
+		Schema: map[string]any{"type": "object"},
+	})
+	if err != nil {
+		t.Fatalf("create content type: %v", err)
+	}
+	familyID := uuid.New()
+	record, err := service.Create(context.Background(), CreateContentRequest{
+		ContentTypeID: contentType.ID,
+		Slug:          "lojong",
+		Status:        "draft",
+		CreatedBy:     uuid.New(),
+		UpdatedBy:     uuid.New(),
+		Translations: []ContentTranslationInput{
+			{Locale: "en", FamilyID: &familyID, Title: "Lojong", Content: map[string]any{"label": "Lojong"}},
+			{Locale: "bo", FamilyID: &familyID, Title: "Lojong BO", Content: map[string]any{"label": "Lojong BO"}},
+			{Locale: "zh", FamilyID: &familyID, Title: "Lojong ZH", Content: map[string]any{"label": "Lojong ZH"}},
+		},
+	})
+	if err != nil {
+		t.Fatalf("create content: %v", err)
+	}
+
+	updated, err := translationWrite.UpdateTranslation(context.Background(), interfaces.AdminContentUpdateTranslationRequest{
+		ID:        record.ID,
+		Locale:    "bo",
+		FamilyID:  &familyID,
+		Title:     "Updated BO",
+		Data:      map[string]any{"label": "Updated BO"},
+		UpdatedBy: uuid.New(),
+	})
+	if err != nil {
+		t.Fatalf("admin update translation: %v", err)
+	}
+	if updated == nil || updated.Locale != "bo" || updated.Title != "Updated BO" {
+		t.Fatalf("unexpected updated projection: %+v", updated)
+	}
+
+	reloaded, err := service.Get(context.Background(), record.ID, WithTranslations())
+	if err != nil {
+		t.Fatalf("reload content: %v", err)
+	}
+	if got := collectContentLocalesFromTranslations(reloaded.Translations); !equalStringSet(got, []string{"bo", "en", "zh"}) {
+		t.Fatalf("locales after update = %#v, want bo/en/zh", got)
+	}
+	assertContentTranslationTitle(t, reloaded.Translations, "en", "Lojong")
+	assertContentTranslationTitle(t, reloaded.Translations, "bo", "Updated BO")
+	assertContentTranslationTitle(t, reloaded.Translations, "zh", "Lojong ZH")
 }
 
 func TestAdminContentDBReadServiceListAppliesSQLPaginationAndSort(t *testing.T) {
@@ -823,4 +897,36 @@ func createAdminContentDBRecord(t *testing.T, ctx context.Context, svc Service, 
 		t.Fatalf("create content %s: %v", slug, err)
 	}
 	return record
+}
+
+func assertContentTranslationTitle(t *testing.T, translations []*ContentTranslation, locale string, title string) {
+	t.Helper()
+	for _, translation := range translations {
+		if translation == nil || translation.Locale == nil || !strings.EqualFold(translation.Locale.Code, locale) {
+			continue
+		}
+		if translation.Title != title {
+			t.Fatalf("translation %s title = %q, want %q", locale, translation.Title, title)
+		}
+		return
+	}
+	t.Fatalf("translation %s not found in %#v", locale, translations)
+}
+
+func equalStringSet(left []string, right []string) bool {
+	if len(left) != len(right) {
+		return false
+	}
+	seen := map[string]int{}
+	for _, value := range left {
+		seen[strings.ToLower(strings.TrimSpace(value))]++
+	}
+	for _, value := range right {
+		key := strings.ToLower(strings.TrimSpace(value))
+		if seen[key] == 0 {
+			return false
+		}
+		seen[key]--
+	}
+	return true
 }
