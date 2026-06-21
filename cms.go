@@ -36,6 +36,9 @@ type AdminContentReadService = interfaces.AdminContentReadService
 // AdminContentFamilyReadService exports the optimized admin content family read contract.
 type AdminContentFamilyReadService = interfaces.AdminContentFamilyReadService
 
+// AdminContentTranslationWriteService exports the single-locale admin content write contract.
+type AdminContentTranslationWriteService = interfaces.AdminContentTranslationWriteService
+
 // AdminContentWriteService exports the admin content write service contract.
 type AdminContentWriteService = interfaces.AdminContentWriteService
 
@@ -98,6 +101,9 @@ type AdminContentCreateRequest = interfaces.AdminContentCreateRequest
 
 // AdminContentUpdateRequest exports the admin content update request.
 type AdminContentUpdateRequest = interfaces.AdminContentUpdateRequest
+
+// AdminContentUpdateTranslationRequest exports the admin content single-translation update request.
+type AdminContentUpdateTranslationRequest = interfaces.AdminContentUpdateTranslationRequest
 
 // AdminContentDeleteRequest exports the admin content delete request.
 type AdminContentDeleteRequest = interfaces.AdminContentDeleteRequest
