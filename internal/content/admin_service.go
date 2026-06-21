@@ -181,6 +181,125 @@ func (s *adminContentWriteService) Update(ctx context.Context, req interfaces.Ad
 	return s.projectRecord(ctx, updated, req.Locale, "", req.AllowMissingTranslations)
 }
 
+func (s *adminContentWriteService) UpdateTranslation(ctx context.Context, req interfaces.AdminContentUpdateTranslationRequest) (*interfaces.AdminContentRecord, error) {
+	if s == nil || s.content == nil {
+		return nil, errors.New("content: admin write service requires content service")
+	}
+	input := adminContentTranslationInput(req.Locale, req.FamilyID, req.Title, req.Data, req.Blocks, req.EmbeddedBlocks, req.SchemaVersion)
+	if _, err := s.content.UpdateTranslation(ctx, UpdateContentTranslationRequest{
+		ContentID: req.ID,
+		Locale:    input.Locale,
+		FamilyID:  cloneUUIDPointer(input.FamilyID),
+		Title:     input.Title,
+		Summary:   cloneString(input.Summary),
+		Content:   cloneAnyMap(input.Content),
+		Blocks:    cloneAnyMapSlice(input.Blocks),
+		UpdatedBy: req.UpdatedBy,
+	}); err != nil {
+		if !errors.Is(err, ErrDefaultLocaleRequired) {
+			return nil, err
+		}
+		if _, mergeErr := s.updateTranslationByMergedSet(ctx, req, input); mergeErr != nil {
+			return nil, mergeErr
+		}
+	}
+
+	if shouldUpdateAdminContentEntry(req) {
+		status := strings.TrimSpace(req.Status)
+		if status == "" {
+			current, err := s.content.Get(ctx, req.ID, WithTranslations())
+			if err != nil {
+				return nil, err
+			}
+			status = current.Status
+		}
+		if _, err := s.content.Update(ctx, UpdateContentRequest{
+			ID:                       req.ID,
+			Status:                   status,
+			EnvironmentKey:           strings.TrimSpace(req.EnvironmentKey),
+			UpdatedBy:                req.UpdatedBy,
+			Metadata:                 adminContentMetadata(req.Navigation, req.EffectiveMenuLocations, req.Metadata),
+			AllowMissingTranslations: true,
+		}); err != nil {
+			return nil, err
+		}
+	}
+
+	updated, err := s.content.Get(ctx, req.ID, WithTranslations(), WithDerivedFields())
+	if err != nil {
+		return nil, err
+	}
+	return s.projectRecord(ctx, updated, req.Locale, "", req.AllowMissingTranslations)
+}
+
+func (s *adminContentWriteService) updateTranslationByMergedSet(ctx context.Context, req interfaces.AdminContentUpdateTranslationRequest, input ContentTranslationInput) (*Content, error) {
+	current, err := s.content.Get(ctx, req.ID, WithTranslations())
+	if err != nil {
+		return nil, err
+	}
+	inputs := make([]ContentTranslationInput, 0, len(current.Translations))
+	replaced := false
+	targetLocale := strings.ToLower(strings.TrimSpace(input.Locale))
+	for _, translation := range current.Translations {
+		if translation == nil {
+			continue
+		}
+		code := s.contentTranslationLocaleCode(ctx, translation)
+		if strings.EqualFold(code, targetLocale) {
+			inputs = append(inputs, input)
+			replaced = true
+			continue
+		}
+		inputs = append(inputs, adminContentTranslationInputFromStored(ctx, s, translation))
+	}
+	if !replaced {
+		inputs = append(inputs, input)
+	}
+	status := strings.TrimSpace(req.Status)
+	if status == "" {
+		status = current.Status
+	}
+	return s.content.Update(ctx, UpdateContentRequest{
+		ID:                       req.ID,
+		Status:                   status,
+		EnvironmentKey:           strings.TrimSpace(req.EnvironmentKey),
+		UpdatedBy:                req.UpdatedBy,
+		Metadata:                 adminContentMetadata(req.Navigation, req.EffectiveMenuLocations, req.Metadata),
+		Translations:             inputs,
+		AllowMissingTranslations: true,
+	})
+}
+
+func adminContentTranslationInputFromStored(ctx context.Context, s *adminContentWriteService, translation *ContentTranslation) ContentTranslationInput {
+	if translation == nil {
+		return ContentTranslationInput{}
+	}
+	return ContentTranslationInput{
+		Locale:   s.contentTranslationLocaleCode(ctx, translation),
+		FamilyID: cloneUUIDPointer(translation.FamilyID),
+		Title:    strings.TrimSpace(translation.Title),
+		Summary:  cloneString(translation.Summary),
+		Content:  cloneAnyMap(translation.Content),
+	}
+}
+
+func (s *adminContentWriteService) contentTranslationLocaleCode(ctx context.Context, translation *ContentTranslation) string {
+	if translation == nil {
+		return ""
+	}
+	if translation.Locale != nil {
+		if code := strings.TrimSpace(translation.Locale.Code); code != "" {
+			return sharedi18n.NormalizeLocale(code)
+		}
+	}
+	if s != nil && s.locales != nil && translation.LocaleID != uuid.Nil {
+		if locale, err := s.locales.GetByID(ctx, translation.LocaleID); err == nil && locale != nil {
+			return sharedi18n.NormalizeLocale(locale.Code)
+		}
+	}
+	return ""
+}
+
 func (s *adminContentWriteService) Delete(ctx context.Context, req interfaces.AdminContentDeleteRequest) error {
 	if s == nil || s.content == nil {
 		return errors.New("content: admin write service requires content service")
@@ -190,6 +309,10 @@ func (s *adminContentWriteService) Delete(ctx context.Context, req interfaces.Ad
 		DeletedBy:  req.DeletedBy,
 		HardDelete: req.HardDelete,
 	})
+}
+
+func shouldUpdateAdminContentEntry(req interfaces.AdminContentUpdateTranslationRequest) bool {
+	return strings.TrimSpace(req.Status) != "" || req.Metadata != nil || len(req.Navigation) > 0 || len(req.EffectiveMenuLocations) > 0
 }
 
 func (s *adminContentWriteService) CreateTranslation(ctx context.Context, req interfaces.AdminContentCreateTranslationRequest) (*interfaces.AdminContentRecord, error) {
