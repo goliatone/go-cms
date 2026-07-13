@@ -284,6 +284,8 @@ func (s *service) SupportsContentListOption(option cmsapi.ContentListOption) boo
 	return cmsapi.SupportsContentListOption(option)
 }
 
+var _ cmsapi.ContentListOptionSupport = (*service)(nil)
+
 // NewService constructs a content service with the required dependencies.
 func NewService(contents ContentRepository, types ContentTypeRepository, locales LocaleRepository, opts ...ServiceOption) Service {
 	s := &service{
