@@ -20,6 +20,7 @@ const (
 	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
 	contentListContentTypePrefix    ContentListOption = "content:list:content_type:"
 	contentListFamilyPrefix         ContentListOption = "content:list:family:"
+	contentListFamiliesPrefix       ContentListOption = "content:list:families:"
 )
 
 // WithTranslations preloads translations when listing content records.
@@ -54,6 +55,10 @@ func WithFamilyID(id uuid.UUID) ContentListOption {
 	return cmscontent.WithFamilyID(id)
 }
 
+func WithFamilyIDs(ids ...uuid.UUID) ContentListOption {
+	return cmscontent.WithFamilyIDs(ids...)
+}
+
 type contentListOptions struct {
 	envKey              string
 	includeTranslations bool
@@ -61,7 +66,7 @@ type contentListOptions struct {
 	projectionMode      ProjectionTranslationMode
 	projectionModeSet   bool
 	contentTypeID       uuid.UUID
-	familyID            uuid.UUID
+	familyIDs           []uuid.UUID
 }
 
 func parseContentListOptions(args ...ContentListOption) contentListOptions {
@@ -95,7 +100,15 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 			}
 			if after, ok := strings.CutPrefix(token, string(contentListFamilyPrefix)); ok {
 				if id, err := uuid.Parse(strings.TrimSpace(after)); err == nil {
-					opts.familyID = id
+					opts.familyIDs = appendUniqueContentFamilyID(opts.familyIDs, id)
+				}
+				continue
+			}
+			if after, ok := strings.CutPrefix(token, string(contentListFamiliesPrefix)); ok {
+				for _, rawID := range strings.Split(after, ",") {
+					if id, err := uuid.Parse(strings.TrimSpace(rawID)); err == nil {
+						opts.familyIDs = appendUniqueContentFamilyID(opts.familyIDs, id)
+					}
 				}
 				continue
 			}
@@ -105,4 +118,16 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 		}
 	}
 	return opts
+}
+
+func appendUniqueContentFamilyID(ids []uuid.UUID, id uuid.UUID) []uuid.UUID {
+	if id == uuid.Nil {
+		return ids
+	}
+	for _, existing := range ids {
+		if existing == id {
+			return ids
+		}
+	}
+	return append(ids, id)
 }

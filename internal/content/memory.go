@@ -94,7 +94,7 @@ func (m *MemoryContentRepository) List(_ context.Context, env ...ContentListOpti
 		if opts.contentTypeID != uuid.Nil && rec.ContentTypeID != opts.contentTypeID {
 			continue
 		}
-		if opts.familyID != uuid.Nil && !contentHasFamilyID(rec, opts.familyID) {
+		if len(opts.familyIDs) > 0 && !contentHasAnyFamilyID(rec, opts.familyIDs) {
 			continue
 		}
 		cloned := m.attachVersions(cloneContent(rec))
@@ -104,6 +104,15 @@ func (m *MemoryContentRepository) List(_ context.Context, env ...ContentListOpti
 		out = append(out, cloned)
 	}
 	return out, nil
+}
+
+func contentHasAnyFamilyID(record *Content, familyIDs []uuid.UUID) bool {
+	for _, familyID := range familyIDs {
+		if contentHasFamilyID(record, familyID) {
+			return true
+		}
+	}
+	return false
 }
 
 func contentHasFamilyID(record *Content, familyID uuid.UUID) bool {
