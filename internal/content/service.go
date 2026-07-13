@@ -280,6 +280,10 @@ type service struct {
 	projectionTranslationMode ProjectionTranslationMode
 }
 
+func (s *service) SupportsContentListOption(option cmsapi.ContentListOption) bool {
+	return cmsapi.SupportsContentListOption(option)
+}
+
 // NewService constructs a content service with the required dependencies.
 func NewService(contents ContentRepository, types ContentTypeRepository, locales LocaleRepository, opts ...ServiceOption) Service {
 	s := &service{
