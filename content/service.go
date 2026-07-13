@@ -52,6 +52,13 @@ type ContentTypeService interface {
 // preserve the existing List(ctx, env ...string) call pattern.
 type ContentListOption = string
 
+// ContentListOptionSupport is an optional capability contract for adapters that
+// must negotiate list options across independently versioned packages. Callers
+// should not send an option when this contract is absent or returns false.
+type ContentListOptionSupport interface {
+	SupportsContentListOption(ContentListOption) bool
+}
+
 // ContentGetOption configures content get behavior. It reuses list option tokens.
 type ContentGetOption = ContentListOption
 
@@ -148,6 +155,49 @@ func WithFamilyIDs(ids ...uuid.UUID) ContentListOption {
 		return ""
 	}
 	return ContentListOption(string(contentListFamiliesPrefix) + strings.Join(values, ","))
+}
+
+// SupportsContentListOption reports whether this package recognizes and can
+// execute the supplied list option. Dynamic options are validated as well as
+// recognized so malformed tokens cannot be mistaken for environment keys.
+func SupportsContentListOption(option ContentListOption) bool {
+	token := strings.TrimSpace(option)
+	if token == "" {
+		return false
+	}
+	switch token {
+	case contentListWithTranslations:
+		return true
+	}
+	for _, prefix := range []ContentListOption{
+		contentListProjectionPrefix,
+		contentListProjectionModePrefix,
+	} {
+		if value, ok := strings.CutPrefix(token, string(prefix)); ok {
+			return strings.TrimSpace(value) != ""
+		}
+	}
+	for _, prefix := range []ContentListOption{
+		contentListContentTypePrefix,
+		contentListFamilyPrefix,
+	} {
+		if value, ok := strings.CutPrefix(token, string(prefix)); ok {
+			id, err := uuid.Parse(strings.TrimSpace(value))
+			return err == nil && id != uuid.Nil
+		}
+	}
+	if value, ok := strings.CutPrefix(token, string(contentListFamiliesPrefix)); ok {
+		found := false
+		for _, rawID := range strings.Split(value, ",") {
+			id, err := uuid.Parse(strings.TrimSpace(rawID))
+			if err != nil || id == uuid.Nil {
+				return false
+			}
+			found = true
+		}
+		return found
+	}
+	return false
 }
 
 // CreateContentRequest captures the information required to create content.
