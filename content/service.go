@@ -100,7 +100,7 @@ func WithProjection(name string) ContentListOption {
 	case "derived", "derived-fields":
 		normalized = ContentProjectionDerivedFields
 	}
-	return ContentListOption(string(contentListProjectionPrefix) + normalized)
+	return contentListProjectionPrefix + normalized
 }
 
 // WithDerivedFields enables the canonical derived-content-fields projection.
@@ -115,7 +115,7 @@ func WithProjectionMode(mode ProjectionTranslationMode) ContentListOption {
 	if normalized == "" {
 		return ""
 	}
-	return ContentListOption(string(contentListProjectionModePrefix) + normalized)
+	return contentListProjectionModePrefix + normalized
 }
 
 // WithContentTypeID scopes list reads to one content type before loading
@@ -124,7 +124,7 @@ func WithContentTypeID(id uuid.UUID) ContentListOption {
 	if id == uuid.Nil {
 		return ""
 	}
-	return ContentListOption(string(contentListContentTypePrefix) + id.String())
+	return contentListContentTypePrefix + id.String()
 }
 
 // WithFamilyID scopes list reads to content records that have at least one
@@ -133,7 +133,7 @@ func WithFamilyID(id uuid.UUID) ContentListOption {
 	if id == uuid.Nil {
 		return ""
 	}
-	return ContentListOption(string(contentListFamilyPrefix) + id.String())
+	return contentListFamilyPrefix + id.String()
 }
 
 // WithFamilyIDs scopes one list read to any of the supplied translation
@@ -154,7 +154,7 @@ func WithFamilyIDs(ids ...uuid.UUID) ContentListOption {
 	if len(values) == 0 {
 		return ""
 	}
-	return ContentListOption(string(contentListFamiliesPrefix) + strings.Join(values, ","))
+	return contentListFamiliesPrefix + strings.Join(values, ",")
 }
 
 // SupportsContentListOption reports whether this package recognizes and can
@@ -173,7 +173,7 @@ func SupportsContentListOption(option ContentListOption) bool {
 		contentListProjectionPrefix,
 		contentListProjectionModePrefix,
 	} {
-		if value, ok := strings.CutPrefix(token, string(prefix)); ok {
+		if value, ok := strings.CutPrefix(token, prefix); ok {
 			return strings.TrimSpace(value) != ""
 		}
 	}
@@ -181,14 +181,14 @@ func SupportsContentListOption(option ContentListOption) bool {
 		contentListContentTypePrefix,
 		contentListFamilyPrefix,
 	} {
-		if value, ok := strings.CutPrefix(token, string(prefix)); ok {
+		if value, ok := strings.CutPrefix(token, prefix); ok {
 			id, err := uuid.Parse(strings.TrimSpace(value))
 			return err == nil && id != uuid.Nil
 		}
 	}
-	if value, ok := strings.CutPrefix(token, string(contentListFamiliesPrefix)); ok {
+	if value, ok := strings.CutPrefix(token, contentListFamiliesPrefix); ok {
 		found := false
-		for _, rawID := range strings.Split(value, ",") {
+		for rawID := range strings.SplitSeq(value, ",") {
 			id, err := uuid.Parse(strings.TrimSpace(rawID))
 			if err != nil || id == uuid.Nil {
 				return false

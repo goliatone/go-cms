@@ -1,6 +1,7 @@
 package content
 
 import (
+	"slices"
 	"strings"
 
 	cmscontent "github.com/goliatone/go-cms/content"
@@ -80,11 +81,11 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 		case contentListWithTranslations:
 			opts.includeTranslations = true
 		default:
-			if after, ok := strings.CutPrefix(token, string(contentListProjectionPrefix)); ok {
+			if after, ok := strings.CutPrefix(token, contentListProjectionPrefix); ok {
 				opts.projection = strings.ToLower(strings.TrimSpace(after))
 				continue
 			}
-			if after, ok := strings.CutPrefix(token, string(contentListProjectionModePrefix)); ok {
+			if after, ok := strings.CutPrefix(token, contentListProjectionModePrefix); ok {
 				mode := strings.ToLower(strings.TrimSpace(after))
 				if mode != "" {
 					opts.projectionMode = ProjectionTranslationMode(mode)
@@ -92,20 +93,20 @@ func parseContentListOptions(args ...ContentListOption) contentListOptions {
 				}
 				continue
 			}
-			if after, ok := strings.CutPrefix(token, string(contentListContentTypePrefix)); ok {
+			if after, ok := strings.CutPrefix(token, contentListContentTypePrefix); ok {
 				if id, err := uuid.Parse(strings.TrimSpace(after)); err == nil {
 					opts.contentTypeID = id
 				}
 				continue
 			}
-			if after, ok := strings.CutPrefix(token, string(contentListFamilyPrefix)); ok {
+			if after, ok := strings.CutPrefix(token, contentListFamilyPrefix); ok {
 				if id, err := uuid.Parse(strings.TrimSpace(after)); err == nil {
 					opts.familyIDs = appendUniqueContentFamilyID(opts.familyIDs, id)
 				}
 				continue
 			}
-			if after, ok := strings.CutPrefix(token, string(contentListFamiliesPrefix)); ok {
-				for _, rawID := range strings.Split(after, ",") {
+			if after, ok := strings.CutPrefix(token, contentListFamiliesPrefix); ok {
+				for rawID := range strings.SplitSeq(after, ",") {
 					if id, err := uuid.Parse(strings.TrimSpace(rawID)); err == nil {
 						opts.familyIDs = appendUniqueContentFamilyID(opts.familyIDs, id)
 					}
@@ -124,10 +125,8 @@ func appendUniqueContentFamilyID(ids []uuid.UUID, id uuid.UUID) []uuid.UUID {
 	if id == uuid.Nil {
 		return ids
 	}
-	for _, existing := range ids {
-		if existing == id {
-			return ids
-		}
+	if slices.Contains(ids, id) {
+		return ids
 	}
 	return append(ids, id)
 }
