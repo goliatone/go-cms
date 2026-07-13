@@ -25,7 +25,7 @@ require (
 	github.com/uptrace/bun v1.2.18
 	github.com/uptrace/bun/dialect/pgdialect v1.2.18
 	github.com/uptrace/bun/dialect/sqlitedialect v1.2.18
-	github.com/yuin/goldmark v1.6.0
+	github.com/yuin/goldmark v1.7.17
 )
 
 require (
