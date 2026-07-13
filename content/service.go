@@ -76,6 +76,7 @@ const (
 	contentListProjectionModePrefix ContentListOption = "content:list:projection_mode:"
 	contentListContentTypePrefix    ContentListOption = "content:list:content_type:"
 	contentListFamilyPrefix         ContentListOption = "content:list:family:"
+	contentListFamiliesPrefix       ContentListOption = "content:list:families:"
 )
 
 // WithTranslations preloads translations when listing or fetching content records.
@@ -126,6 +127,27 @@ func WithFamilyID(id uuid.UUID) ContentListOption {
 		return ""
 	}
 	return ContentListOption(string(contentListFamilyPrefix) + id.String())
+}
+
+// WithFamilyIDs scopes one list read to any of the supplied translation
+// families. Invalid/empty identifiers are omitted and duplicates are collapsed.
+func WithFamilyIDs(ids ...uuid.UUID) ContentListOption {
+	values := make([]string, 0, len(ids))
+	seen := map[uuid.UUID]struct{}{}
+	for _, id := range ids {
+		if id == uuid.Nil {
+			continue
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		values = append(values, id.String())
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return ContentListOption(string(contentListFamiliesPrefix) + strings.Join(values, ","))
 }
 
 // CreateContentRequest captures the information required to create content.
