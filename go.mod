@@ -14,7 +14,7 @@ require (
 	github.com/goliatone/go-repository-bun v0.16.1
 	github.com/goliatone/go-repository-cache v0.7.1
 	github.com/goliatone/go-slug v0.1.0
-	github.com/goliatone/go-theme v0.5.0
+	github.com/goliatone/go-theme v0.5.1
 	github.com/goliatone/go-urlkit v0.7.0
 	github.com/goliatone/go-users v0.24.1
 	github.com/goliatone/hashid v0.2.2
