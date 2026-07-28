@@ -5,9 +5,9 @@ go 1.26.0
 require (
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/goliatone/go-cms v0.0.0
-	github.com/goliatone/go-command v0.22.0
-	github.com/goliatone/go-router v0.59.0
-	github.com/goliatone/go-urlkit v0.6.0
+	github.com/goliatone/go-command v0.24.1
+	github.com/goliatone/go-router v0.61.2
+	github.com/goliatone/go-urlkit v0.7.0
 	github.com/google/uuid v1.6.0
 )
 
@@ -36,14 +36,15 @@ require (
 	github.com/gofiber/template/django/v3 v3.1.14 // indirect
 	github.com/gofiber/utils v1.2.0 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
-	github.com/goliatone/go-errors v0.11.0 // indirect
+	github.com/goliatone/go-errors v0.12.0 // indirect
 	github.com/goliatone/go-i18n v0.5.0 // indirect
-	github.com/goliatone/go-logger v0.8.0 // indirect
+	github.com/goliatone/go-logger v0.9.0 // indirect
+	github.com/goliatone/go-masker v0.2.0 // indirect
 	github.com/goliatone/go-persistence-bun v0.16.1 // indirect
 	github.com/goliatone/go-repository-bun v0.16.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
-	github.com/goliatone/go-theme v0.3.0 // indirect
+	github.com/goliatone/go-theme v0.5.0 // indirect
 	github.com/goliatone/go-users v0.24.1 // indirect
 	github.com/goliatone/hashid v0.2.2 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
@@ -61,6 +62,7 @@ require (
 	github.com/puzpuzpuz/xsync/v3 v3.5.1 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1 // indirect
 	github.com/savsgio/gotils v0.0.0-20250924091648-bce9a52d7761 // indirect
+	github.com/showa-93/go-mask v0.6.2 // indirect
 	github.com/soongo/path-to-regexp v1.6.4 // indirect
 	github.com/stretchr/objx v0.5.3 // indirect
 	github.com/stretchr/testify v1.11.1 // indirect
@@ -85,7 +87,7 @@ require (
 	golang.org/x/crypto v0.50.0 // indirect
 	golang.org/x/net v0.53.0 // indirect
 	golang.org/x/sys v0.43.0 // indirect
-	golang.org/x/text v0.36.0 // indirect
+	golang.org/x/text v0.39.0 // indirect
 	golang.org/x/time v0.14.0 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
