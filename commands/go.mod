@@ -27,7 +27,7 @@ require (
 	github.com/goliatone/go-repository-bun v0.16.1 // indirect
 	github.com/goliatone/go-repository-cache v0.7.1 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
-	github.com/goliatone/go-theme v0.3.0 // indirect
+	github.com/goliatone/go-theme v0.5.0 // indirect
 	github.com/goliatone/go-urlkit v0.7.0 // indirect
 	github.com/goliatone/go-users v0.24.1 // indirect
 	github.com/goliatone/hashid v0.2.2 // indirect
