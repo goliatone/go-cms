@@ -5,7 +5,7 @@ go 1.26.0
 require (
 	github.com/gofiber/fiber/v2 v2.52.12
 	github.com/goliatone/go-cms v0.0.0
-	github.com/goliatone/go-command v0.24.1
+	github.com/goliatone/go-command v0.24.2
 	github.com/goliatone/go-router v0.61.3
 	github.com/goliatone/go-urlkit v0.7.0
 	github.com/google/uuid v1.6.0
@@ -42,7 +42,7 @@ require (
 	github.com/goliatone/go-masker v0.2.0 // indirect
 	github.com/goliatone/go-persistence-bun v0.16.1 // indirect
 	github.com/goliatone/go-repository-bun v0.16.1 // indirect
-	github.com/goliatone/go-repository-cache v0.7.1 // indirect
+	github.com/goliatone/go-repository-cache v0.7.2 // indirect
 	github.com/goliatone/go-slug v0.1.0 // indirect
 	github.com/goliatone/go-theme v0.5.2 // indirect
 	github.com/goliatone/go-users v0.24.1 // indirect
