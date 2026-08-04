@@ -5,14 +5,14 @@ go 1.26.0
 require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
-	github.com/goliatone/go-command v0.24.1
+	github.com/goliatone/go-command v0.24.2
 	github.com/goliatone/go-crud v0.25.0
 	github.com/goliatone/go-errors v0.12.0
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-logger v0.10.1
 	github.com/goliatone/go-persistence-bun v0.16.1
 	github.com/goliatone/go-repository-bun v0.16.1
-	github.com/goliatone/go-repository-cache v0.7.1
+	github.com/goliatone/go-repository-cache v0.7.2
 	github.com/goliatone/go-slug v0.1.0
 	github.com/goliatone/go-theme v0.5.2
 	github.com/goliatone/go-urlkit v0.7.0
