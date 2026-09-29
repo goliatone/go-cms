@@ -242,8 +242,7 @@ func (s *service) PromoteContentType(ctx context.Context, req PromoteContentType
 
 	target, err := s.contentTypes.GetBySlug(ctx, source.Slug, targetEnv.ID.String())
 	if err != nil {
-		var nf *content.NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*content.NotFoundError](err); !ok {
 			return nil, err
 		}
 		now := s.now()
@@ -340,8 +339,7 @@ func (s *service) PromoteContentEntry(ctx context.Context, req PromoteContentEnt
 
 	targetType, err := s.contentTypes.GetBySlug(ctx, sourceType.Slug, targetEnv.ID.String())
 	if err != nil {
-		var nf *content.NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*content.NotFoundError](err); !ok {
 			return nil, err
 		}
 		if !opts.AutoPromoteType {
@@ -382,8 +380,7 @@ func (s *service) PromoteContentEntry(ctx context.Context, req PromoteContentEnt
 
 	targetContent, err := s.contents.GetBySlug(ctx, sourceContent.Slug, targetType.ID, targetEnv.ID.String())
 	if err != nil {
-		var nf *content.NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*content.NotFoundError](err); !ok {
 			return nil, err
 		}
 		targetContent = nil

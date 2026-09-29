@@ -126,15 +126,15 @@ func (s *adminContentReadService) Get(ctx context.Context, id string, opts inter
 
 func (s *adminContentReadService) ListFamilies(_ context.Context, opts interfaces.AdminContentFamilyListOptions) (interfaces.AdminContentFamilyListResult, error) {
 	return interfaces.AdminContentFamilyListResult{
-			Page:    normalizedAdminContentPage(opts.Page),
-			PerPage: normalizedAdminContentPerPage(opts.PerPage),
-		}, interfaces.AdminContentFamilyReadUnsupportedError{
-			Reason: "optimized grouped family reads require a backing store implementation",
-			Metadata: map[string]any{
-				"content_type_id":   strings.TrimSpace(opts.ContentTypeID),
-				"content_type_slug": strings.TrimSpace(opts.ContentTypeSlug),
-			},
-		}
+		Page:    normalizedAdminContentPage(opts.Page),
+		PerPage: normalizedAdminContentPerPage(opts.PerPage),
+	}, interfaces.AdminContentFamilyReadUnsupportedError{
+		Reason: "optimized grouped family reads require a backing store implementation",
+		Metadata: map[string]any{
+			"content_type_id":   strings.TrimSpace(opts.ContentTypeID),
+			"content_type_slug": strings.TrimSpace(opts.ContentTypeSlug),
+		},
+	}
 }
 
 func (s *adminContentWriteService) Create(ctx context.Context, req interfaces.AdminContentCreateRequest) (*interfaces.AdminContentRecord, error) {

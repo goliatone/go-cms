@@ -78,16 +78,14 @@ func mapError(err error) (int, errorResponse) {
 		return http.StatusInternalServerError, errorResponse{Error: "unknown_error"}
 	}
 
-	var contentNotFound *content.NotFoundError
-	if errors.As(err, &contentNotFound) {
+	if contentNotFound, ok := errors.AsType[*content.NotFoundError](err); ok {
 		return http.StatusNotFound, errorResponse{
 			Error:   "not_found",
 			Message: contentNotFound.Error(),
 		}
 	}
 
-	var blockNotFound *blocks.NotFoundError
-	if errors.As(err, &blockNotFound) {
+	if blockNotFound, ok := errors.AsType[*blocks.NotFoundError](err); ok {
 		return http.StatusNotFound, errorResponse{
 			Error:   "not_found",
 			Message: blockNotFound.Error(),
@@ -102,16 +100,14 @@ func mapError(err error) (int, errorResponse) {
 		}
 	}
 
-	var pageNotFound *pages.PageNotFoundError
-	if errors.As(err, &pageNotFound) {
+	if pageNotFound, ok := errors.AsType[*pages.PageNotFoundError](err); ok {
 		return http.StatusNotFound, errorResponse{
 			Error:   "not_found",
 			Message: pageNotFound.Error(),
 		}
 	}
 
-	var pageVersionNotFound *pages.PageVersionNotFoundError
-	if errors.As(err, &pageVersionNotFound) {
+	if pageVersionNotFound, ok := errors.AsType[*pages.PageVersionNotFoundError](err); ok {
 		return http.StatusNotFound, errorResponse{
 			Error:   "not_found",
 			Message: pageVersionNotFound.Error(),

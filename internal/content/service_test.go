@@ -858,8 +858,7 @@ func TestServiceCreateTranslationValidatesLocale(t *testing.T) {
 		t.Fatalf("expected ErrInvalidLocale, got %v", err)
 	}
 
-	var localeErr *content.InvalidLocaleError
-	if !errors.As(err, &localeErr) {
+	if _, ok := errors.AsType[*content.InvalidLocaleError](err); !ok {
 		t.Fatalf("expected typed InvalidLocaleError, got %T", err)
 	}
 }
@@ -880,8 +879,7 @@ func TestServiceCreateTranslationSourceNotFound(t *testing.T) {
 	if !errors.Is(err, content.ErrSourceNotFound) {
 		t.Fatalf("expected ErrSourceNotFound, got %v", err)
 	}
-	var notFound *content.SourceNotFoundError
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*content.SourceNotFoundError](err); !ok {
 		t.Fatalf("expected typed SourceNotFoundError, got %T", err)
 	}
 }
@@ -1427,8 +1425,7 @@ func TestServiceDeleteHard(t *testing.T) {
 	}
 
 	_, err = svc.Get(ctx, record.ID)
-	var notFound *content.NotFoundError
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*content.NotFoundError](err); !ok {
 		t.Fatalf("expected not found error got %v", err)
 	}
 }

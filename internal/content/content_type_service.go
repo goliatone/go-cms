@@ -395,8 +395,7 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 	if req.HardDelete {
 		record, err := s.repo.GetByID(ctx, req.ID)
 		if err != nil {
-			var notFound *NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*NotFoundError](err); ok {
 				if err := s.repo.Delete(ctx, req.ID, true); err != nil {
 					return err
 				}
@@ -428,8 +427,7 @@ func (s *contentTypeService) Delete(ctx context.Context, req DeleteContentTypeRe
 	record.Status = ContentTypeStatusDeprecated
 	record.UpdatedAt = now
 	if err := s.repo.Delete(ctx, req.ID, false); err != nil {
-		var notFound *NotFoundError
-		if !errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return err
 		}
 	}

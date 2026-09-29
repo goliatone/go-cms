@@ -139,8 +139,7 @@ func assertContentDeleted(t *testing.T, ctx context.Context, svc content.Service
 	if err == nil {
 		t.Fatalf("expected content entry %s to be deleted", id)
 	}
-	var notFound *content.NotFoundError
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*content.NotFoundError](err); !ok {
 		t.Fatalf("expected NotFoundError after delete, got %v", err)
 	}
 }

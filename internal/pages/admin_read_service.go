@@ -186,8 +186,7 @@ func (s *adminPageReadService) resolveLocale(ctx context.Context, code string) (
 	}
 	locale, err := s.locales.GetByCode(ctx, normalized)
 	if err != nil {
-		var notFound *content.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*content.NotFoundError](err); ok {
 			return uuid.Nil, normalized, errors.Join(ErrUnknownLocale, fmt.Errorf("pages: locale %q not found", normalized))
 		}
 		return uuid.Nil, normalized, err

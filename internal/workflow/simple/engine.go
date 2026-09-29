@@ -702,8 +702,7 @@ func guardRejectionFromError(idx int, err error) flow.GuardRejection {
 		return rejection
 	}
 
-	var appErr *apperrors.Error
-	if stdErrors.As(err, &appErr) {
+	if appErr, ok := stdErrors.AsType[*apperrors.Error](err); ok {
 		if strings.TrimSpace(appErr.TextCode) != "" {
 			rejection.Code = appErr.TextCode
 		}

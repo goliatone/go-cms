@@ -123,8 +123,7 @@ func (s *service) CreateEnvironment(ctx context.Context, input CreateEnvironment
 	if existing, err := s.repo.GetByKey(ctx, key); err == nil && existing != nil {
 		return nil, ErrEnvironmentKeyExists
 	} else if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -294,8 +293,7 @@ func (s *service) setDefault(ctx context.Context, id uuid.UUID) error {
 	}
 	current, err := s.repo.GetDefault(ctx)
 	if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return err
 		}
 	}
@@ -325,8 +323,7 @@ func translateRepoError(err error, fallback error) error {
 	if err == nil {
 		return nil
 	}
-	var nf *NotFoundError
-	if errors.As(err, &nf) {
+	if _, ok := errors.AsType[*NotFoundError](err); ok {
 		return fallback
 	}
 	return err

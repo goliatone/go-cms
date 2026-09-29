@@ -108,8 +108,7 @@ func TestBunEnvironmentRepositoryCRUD(t *testing.T) {
 	if _, err := repo.GetByID(ctx, env.ID); err == nil {
 		t.Fatalf("expected not found after delete")
 	} else {
-		var nf *environments.NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*environments.NotFoundError](err); !ok {
 			t.Fatalf("expected not found error, got %v", err)
 		}
 	}

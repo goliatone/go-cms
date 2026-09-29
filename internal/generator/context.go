@@ -297,8 +297,7 @@ func (s *service) pageContentTypeID(ctx context.Context) (uuid.UUID, error) {
 	}
 	record, err := s.deps.ContentTypes.GetBySlug(ctx, "page")
 	if err != nil {
-		var notFound *content.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*content.NotFoundError](err); ok {
 			return uuid.Nil, nil
 		}
 		return uuid.Nil, err

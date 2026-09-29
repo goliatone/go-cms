@@ -1480,8 +1480,7 @@ func TestPageServiceDeleteHard(t *testing.T) {
 	}
 
 	_, err = pageSvc.Get(context.Background(), page.ID)
-	var notFound *pages.PageNotFoundError
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*pages.PageNotFoundError](err); !ok {
 		t.Fatalf("expected not found error got %v", err)
 	}
 }

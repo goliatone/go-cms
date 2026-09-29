@@ -640,8 +640,7 @@ func (s *service) CreateDefinitionVersion(ctx context.Context, input CreateDefin
 	if _, err := s.definitionVersions.GetByDefinitionAndVersion(ctx, definition.ID, version.String()); err == nil {
 		return nil, ErrDefinitionVersionExists
 	} else {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -866,8 +865,7 @@ func (s *service) DeleteInstance(ctx context.Context, req DeleteInstanceRequest)
 
 	translations, err := s.translations.ListByInstance(ctx, req.ID)
 	if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return err
 		}
 	}
@@ -922,8 +920,7 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	if existing, err := s.translations.GetByInstanceAndLocale(ctx, input.BlockInstanceID, input.LocaleID); err == nil && existing != nil {
 		return nil, ErrTranslationExists
 	} else if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -1340,8 +1337,7 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 		clone := *inst
 		records, err := s.translations.ListByInstance(ctx, inst.ID)
 		if err != nil {
-			var nf *NotFoundError
-			if !errors.As(err, &nf) {
+			if _, ok := errors.AsType[*NotFoundError](err); !ok {
 				return nil, err
 			}
 		}
@@ -1699,8 +1695,7 @@ func (s *service) ensureDefinitionSlugAvailable(ctx context.Context, slug string
 	}
 	existing, err := s.definitions.GetBySlug(ctx, slug, env)
 	if err != nil {
-		var nf *NotFoundError
-		if errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil
 		}
 		return err

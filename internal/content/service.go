@@ -635,8 +635,7 @@ func (s *service) Create(ctx context.Context, req CreateContentRequest) (*Conten
 	if existing, err := s.contents.GetBySlug(ctx, slugValue, req.ContentTypeID, envID.String()); err == nil && existing != nil {
 		return nil, ErrSlugExists
 	} else if err != nil {
-		var notFound *NotFoundError
-		if !errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			logger.Error("content slug lookup failed", "error", err)
 			return nil, err
 		}
@@ -1034,8 +1033,7 @@ func (s *service) CreateTranslation(ctx context.Context, req CreateContentTransl
 
 	record, err := s.contents.GetByID(ctx, req.SourceID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, &SourceNotFoundError{
 				EntityID:    req.SourceID,
 				Environment: strings.TrimSpace(req.EnvironmentKey),
@@ -1768,8 +1766,7 @@ func (s *service) PublishDraft(ctx context.Context, req PublishContentDraftReque
 	migratedSnapshot, err = s.migrateEmbeddedBlocksSnapshot(ctx, migratedSnapshot)
 	if err != nil {
 		logger.Error("embedded block migration failed", "error", err)
-		var embeddedErr *EmbeddedBlockValidationError
-		if errors.As(err, &embeddedErr) {
+		if _, ok := errors.AsType[*EmbeddedBlockValidationError](err); ok {
 			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 		return nil, err
@@ -1953,8 +1950,7 @@ func (s *service) PreviewDraft(ctx context.Context, req PreviewContentDraftReque
 	migratedSnapshot, err = s.migrateEmbeddedBlocksSnapshot(ctx, migratedSnapshot)
 	if err != nil {
 		logger.Error("embedded block migration failed", "error", err)
-		var embeddedErr *EmbeddedBlockValidationError
-		if errors.As(err, &embeddedErr) {
+		if _, ok := errors.AsType[*EmbeddedBlockValidationError](err); ok {
 			return nil, fmt.Errorf("%w: %w", ErrContentSchemaInvalid, err)
 		}
 		return nil, err

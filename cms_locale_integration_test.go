@@ -54,8 +54,7 @@ func TestModule_Locales_ResolveByCodeUnknownReturnsSentinel(t *testing.T) {
 		t.Fatalf("expected ErrUnknownLocale, got %v", err)
 	}
 
-	var localeNotFound *cms.LocaleNotFoundError
-	if !errors.As(err, &localeNotFound) {
+	if _, ok := errors.AsType[*cms.LocaleNotFoundError](err); !ok {
 		t.Fatalf("expected LocaleNotFoundError, got %T", err)
 	}
 }

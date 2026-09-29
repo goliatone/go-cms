@@ -145,8 +145,7 @@ func (s *service) RegisterDefinition(ctx context.Context, input RegisterDefiniti
 	if existing, err := s.definitions.GetByName(ctx, name); err == nil && existing != nil {
 		return nil, ErrDefinitionExists
 	} else if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -163,8 +162,7 @@ func (s *service) SyncDefinition(ctx context.Context, input RegisterDefinitionIn
 
 	existing, err := s.definitions.GetByName(ctx, name)
 	if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 		created, createErr := s.definitions.Create(ctx, s.newDefinitionRecord(input, nil))
@@ -538,8 +536,7 @@ func (s *service) AddTranslation(ctx context.Context, input AddTranslationInput)
 	if existing, err := s.translations.GetByInstanceAndLocale(ctx, input.InstanceID, input.LocaleID); err == nil && existing != nil {
 		return nil, ErrTranslationExists
 	} else if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -687,8 +684,7 @@ func (s *service) RegisterAreaDefinition(ctx context.Context, input RegisterArea
 	if existing, err := s.areas.GetByCode(ctx, code); err == nil && existing != nil {
 		return nil, ErrAreaDefinitionExists
 	} else if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -734,8 +730,7 @@ func (s *service) AssignWidgetToArea(ctx context.Context, input AssignWidgetToAr
 	}
 
 	if _, err := s.areas.GetByCode(ctx, code); err != nil {
-		var nf *NotFoundError
-		if errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrAreaDefinitionNotFound
 		}
 		return nil, err
@@ -1024,8 +1019,7 @@ func (s *service) attachTranslations(ctx context.Context, instances []*Instance)
 		clone := *inst
 		translations, err := s.translations.ListByInstance(ctx, inst.ID)
 		if err != nil {
-			var nf *NotFoundError
-			if !errors.As(err, &nf) {
+			if _, ok := errors.AsType[*NotFoundError](err); !ok {
 				return nil, err
 			}
 		}

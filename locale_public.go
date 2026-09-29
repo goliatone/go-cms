@@ -88,8 +88,7 @@ func (s *localeService) ResolveByCode(ctx context.Context, code string) (LocaleI
 
 	locale, err := repo.GetByCode(ctx, code)
 	if err != nil {
-		var notFound *internalcontent.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*internalcontent.NotFoundError](err); ok {
 			return LocaleInfo{}, &LocaleNotFoundError{Code: code}
 		}
 		return LocaleInfo{}, err

@@ -214,8 +214,7 @@ func (s *adminBlockReadService) resolveLocale(ctx context.Context, code string) 
 	}
 	locale, err := s.locales.GetByCode(ctx, normalized)
 	if err != nil {
-		var notFound *internalcontent.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*internalcontent.NotFoundError](err); ok {
 			return uuid.Nil, normalized, errors.Join(internalcontent.ErrUnknownLocale, err)
 		}
 		return uuid.Nil, normalized, err

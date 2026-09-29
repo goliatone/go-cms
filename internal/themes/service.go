@@ -141,8 +141,7 @@ func (s *service) RegisterTheme(ctx context.Context, input RegisterThemeInput) (
 	if existing, err := s.themes.GetByName(ctx, name); err == nil && existing != nil {
 		return nil, ErrThemeExists
 	} else if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -392,8 +391,7 @@ func translateRepoError(err error, fallback error) error {
 	if err == nil {
 		return nil
 	}
-	var nf *NotFoundError
-	if errors.As(err, &nf) {
+	if _, ok := errors.AsType[*NotFoundError](err); ok {
 		return fallback
 	}
 	return err

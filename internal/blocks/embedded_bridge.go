@@ -717,8 +717,7 @@ func (b *EmbeddedBlockBridge) syncPageBlocks(ctx context.Context, pageID uuid.UU
 	}
 	legacy, err := b.blocks.ListPageInstances(ctx, pageID)
 	if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return err
 		}
 		legacy = nil
@@ -1401,8 +1400,7 @@ func parseBindings(value any) media.BindingSet {
 func (b *EmbeddedBlockBridge) embeddedBlocksFromLegacy(ctx context.Context, pageID uuid.UUID) (map[uuid.UUID][]map[string]any, error) {
 	instances, err := b.blocks.ListPageInstances(ctx, pageID)
 	if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 		instances = nil
@@ -1493,8 +1491,7 @@ func (b *EmbeddedBlockBridge) comparePageBlocks(
 	}
 	legacy, err := b.blocks.ListPageInstances(ctx, pageID)
 	if err != nil {
-		var nf *NotFoundError
-		if !errors.As(err, &nf) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 		legacy = nil

@@ -648,8 +648,7 @@ func (s *pageService) Create(ctx context.Context, req CreatePageRequest) (*Page,
 		logger.Warn("page slug already exists", "existing_page_id", existing.ID)
 		return nil, ErrSlugExists
 	} else if err != nil {
-		var notFound *PageNotFoundError
-		if !errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*PageNotFoundError](err); !ok {
 			logger.Error("page slug lookup failed", "error", err)
 			return nil, err
 		}
@@ -2026,8 +2025,7 @@ func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page,
 		if inst, err := s.blocks.ListGlobalInstances(ctx); err == nil {
 			global = inst
 		} else {
-			var nf *blocks.NotFoundError
-			if !errors.As(err, &nf) {
+			if _, ok := errors.AsType[*blocks.NotFoundError](err); !ok {
 				return nil, err
 			}
 		}
@@ -2065,8 +2063,7 @@ func (s *pageService) attachBlocks(ctx context.Context, pages []*Page) ([]*Page,
 			var err error
 			pageBlocks, err = s.blocks.ListPageInstances(ctx, page.ID)
 			if err != nil {
-				var nf *blocks.NotFoundError
-				if !errors.As(err, &nf) {
+				if _, ok := errors.AsType[*blocks.NotFoundError](err); !ok {
 					return nil, err
 				}
 				pageBlocks = nil
@@ -2094,8 +2091,7 @@ func (s *pageService) attachPreviewBlocks(ctx context.Context, page *Page, trans
 		if inst, err := s.blocks.ListGlobalInstances(ctx); err == nil {
 			global = inst
 		} else {
-			var nf *blocks.NotFoundError
-			if !errors.As(err, &nf) {
+			if _, ok := errors.AsType[*blocks.NotFoundError](err); !ok {
 				return nil, err
 			}
 		}
@@ -2128,8 +2124,7 @@ func (s *pageService) attachPreviewBlocks(ctx context.Context, page *Page, trans
 		var err error
 		pageBlocks, err = s.blocks.ListPageInstances(ctx, page.ID)
 		if err != nil {
-			var nf *blocks.NotFoundError
-			if !errors.As(err, &nf) {
+			if _, ok := errors.AsType[*blocks.NotFoundError](err); !ok {
 				return nil, err
 			}
 			pageBlocks = nil
@@ -2147,8 +2142,7 @@ func (s *pageService) loadContentTranslations(ctx context.Context, contentID uui
 	}
 	record, err := s.content.GetByID(ctx, contentID)
 	if err != nil {
-		var notFound *content.NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*content.NotFoundError](err); ok {
 			return nil, nil
 		}
 		return nil, err
@@ -2958,8 +2952,7 @@ func (s *pageService) ensureValidParent(ctx context.Context, pageID uuid.UUID, p
 
 	parent, err := s.pages.GetByID(ctx, *parentID)
 	if err != nil {
-		var notFound *PageNotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*PageNotFoundError](err); ok {
 			return ErrParentNotFound
 		}
 		return err
@@ -2989,8 +2982,7 @@ func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fall
 		if _, err := s.pages.GetBySlug(ctx, candidate, env); err == nil {
 			return "", ErrSlugExists
 		} else {
-			var notFound *PageNotFoundError
-			if !errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*PageNotFoundError](err); !ok {
 				return "", err
 			}
 		}
@@ -3005,8 +2997,7 @@ func (s *pageService) generateDuplicateSlug(ctx context.Context, requested, fall
 	for attempt := range 100 {
 		next := appendCopySuffix(base, attempt)
 		if _, err := s.pages.GetBySlug(ctx, next, env); err != nil {
-			var notFound *PageNotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*PageNotFoundError](err); ok {
 				return next, nil
 			}
 			return "", err

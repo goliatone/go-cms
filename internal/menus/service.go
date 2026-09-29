@@ -898,8 +898,7 @@ func (s *service) CreateMenu(ctx context.Context, input CreateMenuInput) (*Menu,
 	if _, err := s.menus.GetByCode(ctx, code, envID.String()); err == nil {
 		return nil, ErrMenuCodeExists
 	} else if err != nil {
-		var notFound *NotFoundError
-		if !errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 	}
@@ -999,8 +998,7 @@ func (s *service) GetOrCreateMenu(ctx context.Context, input CreateMenuInput) (*
 		}
 		return existing, nil
 	}
-	var notFound *NotFoundError
-	if !errors.As(err, &notFound) {
+	if _, ok := errors.AsType[*NotFoundError](err); !ok {
 		return nil, err
 	}
 
@@ -1069,8 +1067,7 @@ func (s *service) UpsertMenu(ctx context.Context, input UpsertMenuInput) (*Menu,
 
 	existing, err := s.menus.GetByCode(ctx, code, envID.String())
 	if err != nil {
-		var notFound *NotFoundError
-		if !errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 		created, err := s.CreateMenu(ctx, CreateMenuInput{
@@ -1150,8 +1147,7 @@ func (s *service) UpsertMenuLocationBinding(ctx context.Context, input UpsertMen
 
 	// Ensure bound menu exists.
 	if _, err := s.menus.GetByCode(ctx, menuCode, envID.String()); err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -1499,8 +1495,7 @@ func (s *service) GetMenu(ctx context.Context, id uuid.UUID) (*Menu, error) {
 		if errors.Is(err, ErrMenuNotFound) {
 			return nil, err
 		}
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -1519,8 +1514,7 @@ func (s *service) GetMenuByCode(ctx context.Context, code string, env ...string)
 	}
 	menu, err := s.menus.GetByCode(ctx, strings.TrimSpace(code), envID.String())
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -1536,8 +1530,7 @@ func (s *service) GetMenuByLocation(ctx context.Context, location string, env ..
 	}
 	menu, err := s.menus.GetByLocation(ctx, strings.TrimSpace(location), envID.String())
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -1553,8 +1546,7 @@ func (s *service) DeleteMenu(ctx context.Context, req DeleteMenuRequest) error {
 
 	menu, err := s.menus.GetByID(ctx, req.MenuID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return ErrMenuNotFound
 		}
 		return err
@@ -1620,8 +1612,7 @@ func (s *service) ResetMenuByCode(ctx context.Context, code string, actor uuid.U
 	}
 	menu, err := s.menus.GetByCode(ctx, menuCode, envID.String())
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return ErrMenuNotFound
 		}
 		return err
@@ -1662,8 +1653,7 @@ func (s *service) ResetMenuByCode(ctx context.Context, code string, actor uuid.U
 func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*MenuItem, error) {
 	menu, err := s.menus.GetByID(ctx, input.MenuID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -1708,8 +1698,7 @@ func (s *service) AddMenuItem(ctx context.Context, input AddMenuItemInput) (*Men
 	if parentID != nil {
 		parent, err := s.items.GetByID(ctx, *parentID)
 		if err != nil {
-			var notFound *NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*NotFoundError](err); ok {
 				return nil, ErrMenuItemParentInvalid
 			}
 			return nil, err
@@ -1872,8 +1861,7 @@ func (s *service) UpsertMenuItem(ctx context.Context, input UpsertMenuItemInput)
 	if input.MenuID != nil && *input.MenuID != uuid.Nil {
 		record, err := s.menus.GetByID(ctx, *input.MenuID)
 		if err != nil {
-			var notFound *NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*NotFoundError](err); ok {
 				return nil, ErrMenuNotFound
 			}
 			return nil, err
@@ -1963,8 +1951,7 @@ func (s *service) resetMenuContents(ctx context.Context, menuID uuid.UUID) (Rese
 	var itemsDeleted int
 	for _, item := range items {
 		if err := s.items.Delete(ctx, item.ID); err != nil {
-			var notFound *NotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*NotFoundError](err); ok {
 				continue
 			}
 			return ResetMenuCounts{}, err
@@ -1996,8 +1983,7 @@ func (s *service) emitMenuResetAudit(ctx context.Context, actor uuid.UUID, menu 
 
 	if resetErr != nil {
 		action = "menu_reset_failed"
-		var inUse *MenuInUseError
-		if errors.As(resetErr, &inUse) {
+		if inUse, ok := errors.AsType[*MenuInUseError](resetErr); ok {
 			action = "menu_reset_blocked"
 			metadata["bindings"] = len(inUse.Bindings)
 		}
@@ -2023,16 +2009,14 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 
 	item, err := s.items.GetByID(ctx, input.ItemID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuItemNotFound
 		}
 		return nil, err
 	}
 	menu, err := s.menus.GetByID(ctx, item.MenuID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -2138,8 +2122,7 @@ func (s *service) UpdateMenuItem(ctx context.Context, input UpdateMenuItemInput)
 		if parentID != nil && *parentID != uuid.Nil {
 			parent, err := s.items.GetByID(ctx, *parentID)
 			if err != nil {
-				var notFound *NotFoundError
-				if errors.As(err, &notFound) {
+				if _, ok := errors.AsType[*NotFoundError](err); ok {
 					return nil, ErrMenuItemParentInvalid
 				}
 				return nil, err
@@ -2246,8 +2229,7 @@ func (s *service) ReconcileMenu(ctx context.Context, req ReconcileMenuRequest) (
 		return nil, ErrMenuNotFound
 	}
 	if _, err := s.menus.GetByID(ctx, req.MenuID); err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -2356,8 +2338,7 @@ func (s *service) DeleteMenuItem(ctx context.Context, req DeleteMenuItemRequest)
 
 	item, err := s.items.GetByID(ctx, req.ItemID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return ErrMenuItemNotFound
 		}
 		return err
@@ -2386,8 +2367,7 @@ func (s *service) BulkReorderMenuItems(ctx context.Context, input BulkReorderMen
 	}
 
 	if _, err := s.menus.GetByID(ctx, input.MenuID); err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -2510,8 +2490,7 @@ func (s *service) AddMenuItemTranslation(ctx context.Context, input AddMenuItemT
 
 	item, err := s.items.GetByID(ctx, input.ItemID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuItemNotFound
 		}
 		return nil, err
@@ -2603,8 +2582,7 @@ func (s *service) UpsertMenuItemTranslation(ctx context.Context, input UpsertMen
 
 	item, err := s.items.GetByID(ctx, input.ItemID)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuItemNotFound
 		}
 		return nil, err
@@ -2635,8 +2613,7 @@ func (s *service) UpsertMenuItemTranslation(ctx context.Context, input UpsertMen
 
 	existing, err := s.translations.GetByMenuItemAndLocale(ctx, item.ID, locale.ID)
 	if err != nil {
-		var notFound *NotFoundError
-		if !errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); !ok {
 			return nil, err
 		}
 		existing = nil
@@ -2688,8 +2665,7 @@ func (s *service) GetMenuItemByExternalCode(ctx context.Context, menuCode string
 	}
 	menu, err := s.menus.GetByCode(ctx, code, envID.String())
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuNotFound
 		}
 		return nil, err
@@ -2702,8 +2678,7 @@ func (s *service) GetMenuItemByExternalCode(ctx context.Context, menuCode string
 
 	item, err := s.items.GetByMenuAndExternalCode(ctx, menu.ID, ext)
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, ErrMenuItemNotFound
 		}
 		return nil, err
@@ -2998,8 +2973,7 @@ func (s *service) deleteMenuItemRecursive(ctx context.Context, item *MenuItem, d
 	}
 
 	if err := s.items.Delete(ctx, item.ID); err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return ErrMenuItemNotFound
 		}
 		return err
@@ -3952,8 +3926,7 @@ func (s *service) sanitizePageTarget(ctx context.Context, target map[string]any,
 			page, err = s.pageRepo.GetBySlug(ctx, slug, envID.String())
 		}
 		if err != nil {
-			var notFound *pages.PageNotFoundError
-			if errors.As(err, &notFound) {
+			if _, ok := errors.AsType[*pages.PageNotFoundError](err); ok {
 				return nil, ErrMenuItemPageNotFound
 			}
 			return nil, err
@@ -4051,8 +4024,7 @@ func (s *service) resolvePageURL(ctx context.Context, target map[string]any, env
 		return "", ErrMenuItemPageSlugRequired
 	}
 	if err != nil {
-		var notFound *pages.PageNotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*pages.PageNotFoundError](err); ok {
 			return "", ErrMenuItemPageNotFound
 		}
 		return "", err
@@ -5119,8 +5091,7 @@ func (s *service) applyViewProfileWithRecord(ctx context.Context, menu *Menu, pr
 	}
 	profile, err := s.viewProfiles.GetByCode(ctx, code, envID.String())
 	if err != nil {
-		var notFound *NotFoundError
-		if errors.As(err, &notFound) {
+		if _, ok := errors.AsType[*NotFoundError](err); ok {
 			return nil, nil, ErrMenuViewProfileNotFound
 		}
 		return nil, nil, err
