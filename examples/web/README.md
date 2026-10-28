@@ -1,8 +1,8 @@
 # go-cms Web Example
 
-This example demonstrates how to use go-cms with a web interface powered by [go-router](https://github.com/goliatone/go-router) and the Fiber adapter.
+This example demonstrates how to use go-cms with a web interface powered by [go-router](https://github.com/goliatone/go-router) and its explicit Fiber v3 adapter.
 
-The example uses the Django template engine (via gofiber/template/django) for HTML rendering, following the same pattern as the go-router examples.
+The example uses `InitializeFiberV3ViewEngine` for Django-syntax HTML rendering with the scoped Pongo2 v7 runtime. Go 1.26.0 or newer is required. Startup failures return immediately; SIGINT/SIGTERM allows up to ten seconds for HTTP requests to drain.
 
 ## Features Demonstrated
 
@@ -43,6 +43,8 @@ go run .
 go build -o web-server .
 ./web-server
 ```
+
+Run the scoped checks with `go test ./...` and `go vet ./...` from this directory.
 
 The server will start on `http://localhost:3000`.
 

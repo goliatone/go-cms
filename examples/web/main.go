@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v3"
 	"github.com/goliatone/go-cms"
 	genutil "github.com/goliatone/go-cms/examples/genutil"
 	"github.com/goliatone/go-cms/internal/adapters/noop"
@@ -979,24 +979,10 @@ func main() {
 		log.Printf("static output available under %s", outputRel)
 	}
 
-	// Create go-router Fiber server with built-in template engine
-	viewsDir := "./views"
-	viewCfg := router.NewSimpleViewConfig(viewsDir).
-		WithReload(true)
-
-	viewEngine, err := router.InitializeViewEngine(viewCfg)
+	server, err := buildServer("./views")
 	if err != nil {
-		log.Fatalf("initialize view engine: %v", err)
+		log.Fatalf("initialize web server: %v", err)
 	}
-
-	server := router.NewFiberAdapter(func(a *fiber.App) *fiber.App {
-		return fiber.New(fiber.Config{
-			AppName:           "go-cms Web Example",
-			EnablePrintRoutes: true,
-			PassLocalsToViews: true,
-			Views:             viewEngine,
-		})
-	})
 	r := server.Router()
 
 	// Setup routes
@@ -1010,27 +996,53 @@ func main() {
 	log.Printf("Starting web server on %s", addr)
 	log.Printf("Open http://localhost:3000 in your browser")
 
-	// Handle graceful shutdown
-	go func() {
-		if err := server.Serve(addr); err != nil {
-			log.Printf("Server error: %v", err)
-		}
-	}()
-
-	// Wait for interrupt signal
-	quit := make(chan os.Signal, 1)
-	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
-	<-quit
-
-	log.Println("Shutting down server...")
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	if err := server.Shutdown(shutdownCtx); err != nil {
-		log.Printf("Server forced to shutdown: %v", err)
+	shutdown, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	if err := serve(shutdown, server, addr, 10*time.Second); err != nil {
+		log.Fatalf("web server: %v", err)
 	}
-
 	log.Println("Server exited")
+}
+
+func buildServer(viewsDir string) (router.Server[*fiber.App], error) {
+	viewCfg := router.NewSimpleViewConfig(viewsDir).WithReload(true)
+	viewEngine, err := router.InitializeFiberV3ViewEngine(viewCfg)
+	if err != nil {
+		return nil, fmt.Errorf("initialize view engine: %w", err)
+	}
+	return router.NewFiberV3AdapterWithConfig(router.FiberV3AdapterConfig{
+		ListenConfig: fiber.ListenConfig{EnablePrintRoutes: true},
+	}, func(*fiber.App) *fiber.App {
+		return fiber.New(fiber.Config{
+			AppName:           "go-cms Web Example",
+			PassLocalsToViews: true,
+			Views:             viewEngine,
+		})
+	}), nil
+}
+
+func serve(ctx context.Context, server router.Server[*fiber.App], addr string, timeout time.Duration) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	done := make(chan error, 1)
+	go func() { done <- server.Serve(addr) }()
+	select {
+	case err := <-done:
+		return err
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		if err := server.Shutdown(shutdownCtx); err != nil {
+			return err
+		}
+		select {
+		case err := <-done:
+			return err
+		case <-shutdownCtx.Done():
+			return shutdownCtx.Err()
+		}
+	}
 }
 
 func setupRoutes(r router.Router[*fiber.App], module *cms.Module, cfg *cms.Config, generatorOutput string) {
