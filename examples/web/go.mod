@@ -6,7 +6,7 @@ require (
 	github.com/gofiber/fiber/v3 v3.6.1
 	github.com/goliatone/go-cms v0.0.0
 	github.com/goliatone/go-command v0.24.3
-	github.com/goliatone/go-router v0.63.2
+	github.com/goliatone/go-router v0.63.3
 	github.com/goliatone/go-urlkit v0.7.0
 	github.com/google/uuid v1.6.0
 )

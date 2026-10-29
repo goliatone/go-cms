@@ -6,7 +6,7 @@ require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/go-ozzo/ozzo-validation/v4 v4.3.0
 	github.com/goliatone/go-command v0.24.3
-	github.com/goliatone/go-crud v0.27.0
+	github.com/goliatone/go-crud v0.27.2
 	github.com/goliatone/go-errors v0.12.0
 	github.com/goliatone/go-i18n v0.5.0
 	github.com/goliatone/go-logger v0.10.1
@@ -16,7 +16,7 @@ require (
 	github.com/goliatone/go-slug v0.1.0
 	github.com/goliatone/go-theme v0.5.2
 	github.com/goliatone/go-urlkit v0.7.0
-	github.com/goliatone/go-users v0.27.4
+	github.com/goliatone/go-users v0.27.6
 	github.com/goliatone/hashid v0.2.3
 	github.com/google/uuid v1.6.0
 	github.com/lib/pq v1.10.9
@@ -57,7 +57,7 @@ require (
 	github.com/gofiber/utils/v2 v2.6.2 // indirect
 	github.com/goliatone/go-composite-fs v0.3.0 // indirect
 	github.com/goliatone/go-masker v0.2.0 // indirect
-	github.com/goliatone/go-router v0.63.2 // indirect
+	github.com/goliatone/go-router v0.63.3 // indirect
 	github.com/goodsign/monday v1.0.2 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20240701034025-d67f41855da4 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
